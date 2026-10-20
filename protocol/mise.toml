@@ -2,8 +2,21 @@
 description = "Emit JSON Schema and an OpenRPC document from the protocol schemas"
 depends = ["//:install"]
 sources = ["src/**/*.ts", "scripts/generate.ts"]
-outputs = [".generated/protocol.schema.json", ".generated/openrpc.json"]
+outputs = [".generated/protocol.schema.json", ".generated/openrpc.json", ".generated/fixtures.json"]
 run = "npm run generate"
+
+[tasks.kotlin]
+description = "Generate Kotlin (kotlinx.serialization) types from the JSON Schema"
+depends = ["generate"]
+sources = ["scripts/kotlin.ts", ".generated/protocol.schema.json"]
+outputs = [".generated/kotlin/Protocol.kt"]
+run = "node scripts/kotlin.ts remuse.protocol"
+
+[tasks.kotlin-check]
+description = "Compile the generated Kotlin and round-trip the TS fixtures through it"
+depends = ["kotlin"]
+tools = { kotlin = "2.4.21", java = "temurin-21" }
+run = "kotlin-check/run.sh"
 
 [tasks.check]
 description = "Type-check and test the protocol"

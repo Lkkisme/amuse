@@ -65,13 +65,19 @@ export const Connection = z.object({
 
 export const Controller = z.enum(["agent", "user"]);
 
+/** A live run has a controller (the agent, or the user during takeover). */
+const live = <K extends string>(kind: K) => z.object({ kind: z.literal(kind), control: Controller });
+
 /**
  * A browser run. Who controls it only means something while it is alive, so
  * a stopped run has no controller. waiting = it needs the user (Muse:
- * "Action required").
+ * "Action required"). One literal per variant keeps every union a plain
+ * tagged union in other languages too.
  */
 export const BrowserState = z.discriminatedUnion("kind", [
-  z.object({ kind: z.enum(["working", "waiting", "completed"]), control: Controller }),
+  live("working"),
+  live("waiting"),
+  live("completed"),
   z.object({ kind: z.literal("stopped") }),
 ]);
 
