@@ -413,7 +413,7 @@ export function SettingsModal({ state, actions }: { state: DemoState; actions: M
     <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/30" onClick={() => actions.closeSettings()} />
       <div
-        className="relative flex h-[72vh] max-h-[620px] w-full max-w-3xl overflow-hidden rounded-2xl"
+        className="anim-modal-in relative flex h-[72vh] max-h-[620px] w-full max-w-3xl overflow-hidden rounded-2xl"
         style={{ background: "var(--fill-primary)", boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}
       >
         {/* left nav */}
