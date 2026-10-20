@@ -1,6 +1,6 @@
 /**
  * Pre-connect explainer bottom sheet (surface 10): opened from a
- * connection-request card. 1:1 with the Muse sheet: drag handle, app icon,
+ * connection-request card. Muse-style sheet: app icon,
  * title, subtitle, three icon feature rows, disclaimer paragraphs with links,
  * full-width Connect button and a Cancel text button. Connect asks the server
  * to begin connecting; Cancel only closes the sheet.
