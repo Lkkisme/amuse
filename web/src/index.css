@@ -215,6 +215,12 @@
   -webkit-touch-callout: none;
 }
 
+/* Watching (not holding) the live desktop, your own pointer stays: noVNC hides it on the canvas
+   (inline style) to draw the desktop's cursor, which only makes sense while you are in control */
+[data-watching] canvas {
+  cursor: default !important;
+}
+
 /* the app fills what is visible: the on-screen keyboard shrinks it rather than pushing it up (main.tsx) */
 html, body, #root { height: var(--visible-height, 100%); overflow: hidden; }
 body {

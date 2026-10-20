@@ -153,7 +153,7 @@ export function LiveView({ url, interactive, onFit }: { url: string; interactive
       onContextMenu={(e) => e.preventDefault()}
     >
       <div className="relative flex min-h-0 flex-1 items-center justify-center" style={{ touchAction: "none" }}>
-        <div ref={box} className="absolute inset-0" style={{ cursor: interactive ? "default" : "not-allowed" }} />
+        <div ref={box} className="absolute inset-0" data-watching={interactive ? undefined : ""} />
         {state === "connecting" && <div aria-label="Connecting to the browser" className="skeleton absolute inset-0" />}
         {controls && <TouchSurface screen={box} mode={trackpad ? "trackpad" : zoom ? "pan" : "touch"} />}
       </div>
