@@ -52,10 +52,15 @@ After changing `.env`: `docker compose up -d`.
 
 ## Other devices
 
-remuse listens on `127.0.0.1:8080` only. To reach it from your phone, put something in front of
-it, for example [Tailscale](https://tailscale.com): `tailscale serve --bg 8080`. Then set
-`REMUSE_PUBLIC_URL` in `.env` to that address (e.g. `https://my-pc.my-tailnet.ts.net`), run
-`docker compose up -d`, and the link in the logs uses it.
+remuse listens on `127.0.0.1:8080` only. To reach it from your phone over
+[Tailscale](https://tailscale.com), either:
+
+- listen on your Tailscale IP: in `.env`, `REMUSE_PUBLISH_HOST=100.x.y.z` and
+  `REMUSE_PUBLIC_URL=http://100.x.y.z:8080` (plain http; Tailscale encrypts the link), or
+- serve it over https: `tailscale serve --bg 8080`, and `REMUSE_PUBLIC_URL=https://my-pc.my-tailnet.ts.net`.
+  Pasting from the phone's clipboard into the browser you take over needs https.
+
+Then `docker compose up -d`; the link in the logs uses that address.
 
 ## Good to know
 

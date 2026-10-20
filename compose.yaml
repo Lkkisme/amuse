@@ -2,7 +2,7 @@
 # then open the link in `docker compose logs remuse`. Model keys come from .env (gitignored); the
 # access token and the browser pool's secrets are made on first start and kept in volumes.
 # Without a model key, remuse runs a scripted demo.
-# Published on 127.0.0.1 only; put tailscale serve or a reverse proxy in front for other devices.
+# Published on 127.0.0.1 unless REMUSE_PUBLISH_HOST says otherwise (e.g. your Tailscale IP).
 include:
   - compose.browsers.yaml
 
@@ -25,6 +25,6 @@ services:
       - remuse-data:/data
       - secrets:/secrets:ro
     ports:
-      - "127.0.0.1:${REMUSE_PUBLISH_PORT:-8080}:8080"
+      - "${REMUSE_PUBLISH_HOST:-127.0.0.1}:${REMUSE_PUBLISH_PORT:-8080}:8080"
 volumes:
   remuse-data:
