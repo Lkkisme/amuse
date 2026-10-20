@@ -116,6 +116,25 @@
   }
 }
 
+/* Popover anchored to its trigger (top-right): grows out of the button and
+   shrinks back into it. Muse scale-in values, origin at the trigger. */
+@keyframes popover-in {
+  from { transform: translateY(-6px) scale(0.92); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+@keyframes popover-out {
+  from { transform: translateY(0) scale(1); opacity: 1; }
+  to { transform: translateY(-6px) scale(0.92); opacity: 0; }
+}
+.anim-popover-in {
+  transform-origin: top right;
+  animation: popover-in 0.2s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+.anim-popover-out {
+  transform-origin: top right;
+  animation: popover-out 0.15s ease-in both;
+}
+
 /* Activity status line while the agent works */
 @keyframes activity-indicator-fade {
   0% { opacity: 0.85; }

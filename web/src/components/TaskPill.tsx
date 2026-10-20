@@ -13,14 +13,17 @@ import type { MuseActions } from "./actions";
 
 export function TaskPill({ state, actions }: { state: DemoState; actions: MuseActions }) {
   const run = pillBrowser(state.feed);
-  const [open, setOpen] = useState(false);
+  // closed -> open -> closing (exit animation) -> closed
+  const [phase, setPhase] = useState<"closed" | "open" | "closing">("closed");
+  const open = phase === "open";
+  const close = () => setPhase((p) => (p === "open" ? "closing" : p));
   const rootRef = useRef<HTMLDivElement>(null);
 
   // collapse on any tap outside
   useEffect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+      if (!rootRef.current?.contains(e.target as Node)) close();
     };
     document.addEventListener("pointerdown", onDown);
     return () => document.removeEventListener("pointerdown", onDown);
@@ -37,7 +40,7 @@ export function TaskPill({ state, actions }: { state: DemoState; actions: MuseAc
         aria-expanded={open}
         className="anim-fade-in relative flex size-10 items-center justify-center rounded-full"
         style={{ background: "var(--fill-primary)", color: meta.color, boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => (open ? close() : setPhase("open"))}
       >
         <Monitor size={18} />
         {waiting ? (
@@ -55,9 +58,10 @@ export function TaskPill({ state, actions }: { state: DemoState; actions: MuseAc
         )}
       </button>
 
-      {open && (
+      {phase !== "closed" && (
         <div
-          className="anim-modal-in absolute right-0 top-12 w-64 rounded-2xl p-3"
+          className={`${open ? "anim-popover-in" : "anim-popover-out"} absolute right-0 top-12 w-64 rounded-2xl p-3`}
+          onAnimationEnd={() => setPhase((p) => (p === "closing" ? "closed" : p))}
           style={{ background: "var(--fill-primary)", boxShadow: "0 4px 20px rgba(0,0,0,0.14)" }}
         >
           <div className="flex items-center gap-2.5">
@@ -81,7 +85,7 @@ export function TaskPill({ state, actions }: { state: DemoState; actions: MuseAc
               className="h-9 flex-1 rounded-full text-[14px] font-medium text-white"
               style={{ background: "var(--fill-blue)" }}
               onClick={() => {
-                setOpen(false);
+                close();
                 actions.openViewer(run.id);
               }}
             >
@@ -91,7 +95,7 @@ export function TaskPill({ state, actions }: { state: DemoState; actions: MuseAc
               className="hover-fade h-9 flex-1 rounded-full text-[14px] font-medium"
               style={{ background: "var(--fill-secondary)", color: "var(--fill-red)" }}
               onClick={() => {
-                setOpen(false);
+                close();
                 actions.viewerStop(run.id);
               }}
             >
