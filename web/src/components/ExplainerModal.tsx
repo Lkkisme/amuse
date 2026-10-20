@@ -93,20 +93,11 @@ function ExplainerBody({ req, actions }: { req: ConnectionRequest; actions: Muse
           </div>
         </div>
 
-        {/* disclaimers + actions */}
+        {/* actions (self-hosted: no data-collection disclaimers) */}
         <div
-          className="shrink-0 border-t px-6 pb-4 pt-3 text-left text-[12.5px] leading-snug"
-          style={{ borderColor: "var(--fill-divider)", color: "var(--text-secondary)" }}
+          className="shrink-0 border-t px-6 pb-4 pt-3 text-left"
+          style={{ borderColor: "var(--fill-divider)" }}
         >
-          <p>
-            The info used for your tasks is part of your interactions with Muse. You can manage
-            this in Settings. <span style={{ color: "var(--fill-blue)" }}>Learn more</span>
-          </p>
-          <p className="mt-1.5">
-            Muse will exchange info with {req.app}. To learn more, view their{" "}
-            <span style={{ color: "var(--fill-blue)" }}>terms</span> and{" "}
-            <span style={{ color: "var(--fill-blue)" }}>privacy policy</span>.
-          </p>
           <button
             className="mt-3.5 h-12 w-full rounded-full text-[16px] font-semibold text-white"
             style={{ background: "var(--fill-blue)" }}
