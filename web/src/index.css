@@ -146,3 +146,12 @@ body {
   font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
+
+/* Chats panel: slides in over the page from the left edge (Muse mobile). */
+@keyframes pane-enter-from-left {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(0); }
+}
+.anim-pane-from-left {
+  animation: pane-enter-from-left 0.25s cubic-bezier(0.32, 0.72, 0, 1) both;
+}

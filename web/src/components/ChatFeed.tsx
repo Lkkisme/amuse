@@ -81,8 +81,12 @@ export function ChatFeed({ state, actions }: { state: DemoState; actions: MuseAc
   }, [state.feed.length, state.assistantThinking, state.feed]);
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-3" style={{ background: "var(--chat-background)" }}>
-      <div className="mx-auto flex max-w-3xl flex-col gap-3">
+    <div className="relative min-h-0 flex-1">
+      <div
+        className="h-full overflow-y-auto px-4 pt-16 pb-28"
+        style={{ background: "var(--chat-background)" }}
+      >
+        <div className="mx-auto flex max-w-3xl flex-col gap-3">
         {state.feed.map((item, idx) => {
           if (!isMsg(item)) {
             switch (item.kind) {
@@ -119,6 +123,12 @@ export function ChatFeed({ state, actions }: { state: DemoState; actions: MuseAc
           </div>
         )}
         <div ref={bottomRef} />
+      </div>
+      {/* Muse-style scroll fade: content dissolves under the floating top bar; the composer has its own bottom gradient. */}
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 h-20"
+        style={{ background: "linear-gradient(to bottom, var(--chat-background) 30%, transparent)" }}
+      />
       </div>
     </div>
   );

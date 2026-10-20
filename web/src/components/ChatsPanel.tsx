@@ -18,7 +18,7 @@ export function ChatsPanel({ state, actions }: { state: DemoState; actions: Muse
     <div className="fixed inset-0 z-40 flex">
       <div className="anim-fade-in absolute inset-0 bg-black/30" onClick={() => actions.setChats(false)} />
       <aside
-        className="anim-pane-from-right relative flex h-full w-[300px] max-w-[85vw] flex-col p-3"
+        className="anim-pane-from-left relative flex h-full w-[300px] max-w-[85vw] flex-col p-3"
         style={{ background: "var(--bg-primary)", boxShadow: "4px 0 24px rgba(0,0,0,0.12)" }}
         aria-label="Chats"
       >

@@ -9,16 +9,16 @@ import type { MuseActions } from "./actions";
 export function TopBar({ state, actions }: { state: DemoState; actions: MuseActions }) {
   return (
     <header
-      className="relative flex items-center justify-between px-3 py-2"
-      style={{ background: "var(--chat-background)" }}
+      className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between px-3 py-2"
     >
       <button
         aria-label="Open chats"
-        className="hover-fade flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[14px] font-semibold"
+        className="hover-fade pointer-events-auto flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[14px] font-semibold"
         style={{ background: "var(--fill-primary)", color: "var(--text-primary)", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}
         onClick={() => actions.setChats(!state.chatsOpen)}
       >
-        <Menu size={16} /> Chats
+        <Menu size={16} />
+        <span className="hidden sm:inline">Chats</span>
       </button>
 
       {/* Muse avatar bubble */}
@@ -38,7 +38,7 @@ export function TopBar({ state, actions }: { state: DemoState; actions: MuseActi
       </div>
 
       <button
-        className="hover-fade flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[14px] font-semibold"
+        className="hover-fade pointer-events-auto flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[14px] font-semibold"
         style={{ background: "var(--fill-primary)", color: "var(--text-primary)", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}
       >
         <Gift size={16} /> Invite

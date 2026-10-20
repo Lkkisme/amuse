@@ -264,8 +264,8 @@ export default function App() {
     <div className="flex h-full" style={{ background: "var(--chat-background)" }}>
       <IconRail />
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar state={state} actions={actions} />
         <ChatFeed state={state} actions={actions} />
+        <TopBar state={state} actions={actions} />
         <Composer assistantThinking={state.assistantThinking} actions={actions} />
       </div>
 

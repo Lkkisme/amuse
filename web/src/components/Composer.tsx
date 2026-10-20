@@ -24,10 +24,15 @@ export function Composer({
   };
 
   return (
-    <div className="px-4 pb-5 pt-1" style={{ background: "var(--chat-background)" }}>
-      <div className="mx-auto max-w-3xl">
+    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20">
+      {/* content scrolls under the composer and dissolves into the gradient */}
+      <div
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-28"
+        style={{ background: "linear-gradient(to top, var(--chat-background) 55%, transparent)" }}
+      />
+      <div className="relative mx-auto max-w-3xl px-4 pb-5 pt-1">
         <div
-          className="flex items-center gap-2 rounded-full py-2 pl-4 pr-2"
+          className="pointer-events-auto flex items-center gap-2 rounded-full py-2 pl-4 pr-2"
           style={{ background: "var(--fill-primary)", boxShadow: "0 1px 6px rgba(0,0,0,0.06)" }}
         >
           <button aria-label="Add attachment" className="hover-fade shrink-0 rounded-full p-1" style={{ color: "var(--icon-secondary)" }}>
