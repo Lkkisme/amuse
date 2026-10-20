@@ -9,14 +9,18 @@ import { seedDemo } from "./data/fakeMuse";
 import type { MuseActions } from "./components/actions";
 import { ChatFeed } from "./components/ChatFeed";
 import { Composer } from "./components/Composer";
-import { Drawer } from "./components/Drawer";
-import { TopBar, StatusPill } from "./components/TopBar";
+import { ChatsPanel } from "./components/ChatsPanel";
+import { IconRail } from "./components/IconRail";
+import { ActivityPanel } from "./components/ActivityPanel";
+import { TopBar } from "./components/TopBar";
 import { SettingsModal } from "./components/SettingsModal";
 import { ExplainerModal } from "./components/ExplainerModal";
 import { Viewer } from "./components/Viewer";
 
 let idSeq = 100;
 const nextId = (prefix: string) => `${prefix}${idSeq++}`;
+const nowLabel = () =>
+  new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 
 export default function App() {
   const [state, setState] = useState<DemoState>(seedDemo);
@@ -55,29 +59,52 @@ export default function App() {
     [patchFeed],
   );
 
+  /** Stream an agent reply: chunked word-by-word with the shimmer treatment. */
+  const streamAgentReply = useCallback(
+    (full: string) => {
+      const id = nextId("m");
+      const time = nowLabel();
+      patchFeed((feed) => [...feed, { id, role: "agent", text: "", time, streaming: true }]);
+      const words = full.split(" ");
+      const step = (i: number) => {
+        later(() => {
+          patchFeed((feed) =>
+            feed.map((m) => (m.role === "agent" && m.id === id ? { ...m, text: words.slice(0, i + 1).join(" ") } : m)),
+          );
+          if (i + 1 < words.length) {
+            step(i + 1);
+          } else {
+            later(() => {
+              patchFeed((feed) => feed.map((m) => (m.role === "agent" && m.id === id ? { ...m, streaming: false } : m)));
+              setState((s) => ({ ...s, assistantThinking: false, activityStatus: "connected" }));
+            }, 80);
+          }
+        }, i === 0 ? 0 : 70);
+      };
+      step(0);
+    },
+    [later, patchFeed],
+  );
+
   const actions = useMemo<MuseActions>(
     () => ({
       send(text) {
         if (!text.trim()) return;
-        patchFeed((feed) => [...feed, { id: nextId("m"), role: "user", text }]);
-        setState((s) => ({ ...s, assistantThinking: true, statusPill: "Muse is responding" }));
+        patchFeed((feed) => [...feed, { id: nextId("m"), role: "user", text, time: nowLabel() }]);
+        setState((s) => ({ ...s, assistantThinking: true, activityStatus: "working", activityOpen: true }));
         later(() => {
-          setState((s) => ({ ...s, assistantThinking: false, statusPill: null }));
-          patchFeed((feed) => [
-            ...feed,
-            {
-              id: nextId("m"),
-              role: "agent",
-              text: `Got it — "${text}". I'll take that from here and report back in the feed.`,
-            },
-          ]);
-        }, 1600 + Math.random() * 900);
+          setState((s) => ({ ...s, assistantThinking: false }));
+          streamAgentReply(
+            `Got it — **"${text}"**. I'll take that from here. A few things I'll do:\n- Open the source and pull the details\n- Draft the result for your review\n\nYou can watch progress in the **activity panel**.`,
+          );
+        }, 1600);
       },
 
       stopAssistant() {
         timers.current.forEach(clearTimeout);
         timers.current = [];
-        setState((s) => ({ ...s, assistantThinking: false, statusPill: null }));
+        setState((s) => ({ ...s, assistantThinking: false, activityStatus: "connected" }));
+        patchFeed((feed) => feed.map((m) => (m.role === "agent" && m.streaming ? { ...m, streaming: false } : m)));
       },
 
       resolveApproval(id, approved) {
@@ -89,14 +116,7 @@ export default function App() {
           ),
         );
         later(() => {
-          patchFeed((feed) => [
-            ...feed,
-            {
-              id: nextId("m"),
-              role: "agent",
-              text: approved ? "Approved — sending it now." : "Understood, I dropped the draft.",
-            },
-          ]);
+          streamAgentReply(approved ? "Approved — **sending it now**." : "Understood, I dropped the draft.");
         }, 500);
       },
 
@@ -106,7 +126,7 @@ export default function App() {
           status: "working",
           form: t.form?.map((f) => ({ ...f, value: values[f.field] ?? f.value })),
         }));
-        setState((s) => ({ ...s, statusPill: "Working" }));
+        setState((s) => ({ ...s, activityStatus: "working", activityOpen: true }));
         // fake the remaining steps completing one by one
         [900, 1700, 2500].forEach((delay) => {
           later(() => {
@@ -120,11 +140,8 @@ export default function App() {
         });
         later(() => {
           patchTask(taskId, (t) => ({ ...t, steps: t.steps.map((s) => ({ ...s, done: true })), status: "completed" }));
-          setState((s) => ({ ...s, statusPill: null }));
-          patchFeed((feed) => [
-            ...feed,
-            { id: nextId("m"), role: "agent", text: "Thanks — answers noted and the task is complete." },
-          ]);
+          setState((s) => ({ ...s, activityStatus: "connected" }));
+          streamAgentReply("Thanks — answers noted and the task is **complete**.");
         }, 3400);
       },
 
@@ -149,10 +166,7 @@ export default function App() {
           ),
         );
         later(() => {
-          patchFeed((feed) => [
-            ...feed,
-            { id: nextId("m"), role: "agent", text: "Connected. I can read from it now — want me to pull a sample?" },
-          ]);
+          streamAgentReply("**Connected.** I can read from it now — want me to pull a sample?");
         }, 500);
       },
 
@@ -182,29 +196,26 @@ export default function App() {
       viewerStop() {
         setState((s) => {
           if (s.viewer) patchBrowser(s.viewer.browserId, { status: "failed" });
-          return { ...s, viewer: null, statusPill: null };
+          return { ...s, viewer: null };
         });
-        patchFeed((feed) => [
-          ...feed,
-          { id: nextId("m"), role: "agent", text: "Stopped the browser run where it was. Nothing was submitted." },
-        ]);
+        streamAgentReply("Stopped the browser run where it was. Nothing was submitted.");
       },
       viewerDone() {
         setState((s) => {
           if (s.viewer) patchBrowser(s.viewer.browserId, { status: "completed" });
           return { ...s, viewer: null };
         });
-        patchFeed((feed) => [
-          ...feed,
-          { id: nextId("m"), role: "agent", text: "Session closed and control is back with me. Continuing the task." },
-        ]);
+        streamAgentReply("Session closed and control is back with me. Continuing the task.");
       },
 
-      setDrawer(open, view) {
-        setState((s) => ({ ...s, drawerOpen: open, drawerView: view ?? s.drawerView }));
+      setChats(open) {
+        setState((s) => ({ ...s, chatsOpen: open }));
+      },
+      setActivity(open) {
+        setState((s) => ({ ...s, activityOpen: open }));
       },
       openSettings(section) {
-        setState((s) => ({ ...s, settingsOpen: true, settingsSection: section, drawerOpen: false }));
+        setState((s) => ({ ...s, settingsOpen: true, settingsSection: section, chatsOpen: false }));
       },
       closeSettings() {
         setState((s) => ({ ...s, settingsOpen: false, connectorDetail: null }));
@@ -246,17 +257,20 @@ export default function App() {
         setState((s) => ({ ...s })); // re-render for the checkmark
       },
     }),
-    [later, patchFeed, patchBrowser, patchTask],
+    [later, patchFeed, patchBrowser, patchTask, streamAgentReply],
   );
 
   return (
-    <div className="flex h-full flex-col" style={{ background: "var(--chat-background)" }}>
-      <TopBar state={state} actions={actions} />
-      <StatusPill state={state} />
-      <ChatFeed state={state} actions={actions} />
-      <Composer assistantThinking={state.assistantThinking} actions={actions} />
+    <div className="flex h-full" style={{ background: "var(--chat-background)" }}>
+      <IconRail />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <TopBar state={state} actions={actions} />
+        <ChatFeed state={state} actions={actions} />
+        <Composer assistantThinking={state.assistantThinking} actions={actions} />
+      </div>
 
-      <Drawer state={state} actions={actions} />
+      <ActivityPanel state={state} actions={actions} />
+      <ChatsPanel state={state} actions={actions} />
       <SettingsModal state={state} actions={actions} />
       <ExplainerModal state={state} actions={actions} />
       <Viewer state={state} actions={actions} />
