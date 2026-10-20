@@ -6,27 +6,36 @@
  * hatch-dot-pulse thinking indicator in a small gray bubble.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowDown, ChevronDown, Copy, MoreHorizontal, Share, Smile } from "lucide-react";
+import { ArrowDown, ChevronDown, Copy, Share } from "lucide-react";
 import type { Entity, Prompt, Reply, State } from "@remuse/protocol";
 import type { Actions } from "../ui.ts";
 import { thinking, time } from "../view.ts";
 import { ApprovalCard, BrowserCard, ConnectionCard, TaskCard } from "./cards";
 import { RichText } from "./markdown";
+import { Sheet } from "./Sheet";
+import { useLastValue } from "./usePresence";
 
 type Message = Prompt | Reply;
 type Thumb = ((id: string) => string) | null;
 
+/** Messages this close together, from the same side, read as one group (Muse). */
+const GROUP_GAP_MS = 5 * 60_000;
+const joins = (a: Entity | undefined, b: Entity | undefined): boolean =>
+  !!a && !!b && (a.kind === "prompt" || a.kind === "reply") && a.kind === b.kind && Date.parse(b.at) - Date.parse(a.at) < GROUP_GAP_MS;
+
+/** A time line goes in only after a pause this long (and before the first item). */
+const STAMP_GAP_MS = 10 * 60_000;
+const stamped = (previous: Entity | undefined, entity: Entity) => !previous || Date.parse(entity.at) - Date.parse(previous.at) > STAMP_GAP_MS;
+
+/** Where a message sits in its group: whether one before and one after join it. */
+type Place = { joinsPrevious: boolean; joinsNext: boolean };
+
 /** Messages render as bubbles; every other entity is a card. */
-function EntityView({ entity, previous, thumb, actions }: { entity: Entity; previous: Entity | undefined; thumb: Thumb; actions: Actions }) {
+function EntityView({ entity, place, thumb, actions, onMenu }: { entity: Entity; place: Place; thumb: Thumb; actions: Actions; onMenu: (message: Message) => void }) {
   switch (entity.kind) {
     case "prompt":
     case "reply":
-      return (
-        <div className="flex flex-col gap-3">
-          {previous?.kind !== entity.kind && <TimeDivider time={time(entity.at)} />}
-          <MessageGroup item={entity} />
-        </div>
-      );
+      return <Bubble item={entity} place={place} onMenu={onMenu} />;
     case "task":
       return <TaskCard task={entity} actions={actions} />;
     case "approval":
@@ -38,36 +47,111 @@ function EntityView({ entity, previous, thumb, actions }: { entity: Entity; prev
   }
 }
 
+/** What can be done with a message's text: copy it, or share it where the system can. */
+const copyText = (text: string) => void navigator.clipboard?.writeText(text).catch(() => {});
+const canShare = () => typeof navigator.share === "function";
+const shareText = (text: string) => void navigator.share?.({ text }).catch(() => {});
+
+/** Desktop: a message's actions, beside its bubble while the pointer is on it or its side (index.css: .msg-actions). */
 function ActionRow({ mine, text }: { mine: boolean; text: string }) {
-  const copy = () => navigator.clipboard?.writeText(text).catch(() => {});
   return (
-    <div className="mt-1 flex items-center gap-0.5 px-1">
-      {!mine ? (
-        <button aria-label="React" className="hover-fade rounded-full p-1" style={{ color: "var(--icon-secondary)" }}>
-          <Smile size={14} />
-        </button>
-      ) : (
-        <button aria-label="More" className="hover-fade rounded-full p-1" style={{ color: "var(--icon-secondary)" }}>
-          <MoreHorizontal size={14} />
+    <div className={`msg-actions ${mine ? "msg-actions-mine" : ""} flex items-center gap-0.5`}>
+      {canShare() && (
+        <button aria-label="Share" className="hover-fade rounded-full p-1.5" style={{ color: "var(--icon-secondary)" }} onClick={() => shareText(text)}>
+          <Share size={16} />
         </button>
       )}
-      <button aria-label="Share" className="hover-fade rounded-full p-1" style={{ color: "var(--icon-secondary)" }}>
-        <Share size={13} />
-      </button>
-      <button aria-label="Copy" className="hover-fade rounded-full p-1" style={{ color: "var(--icon-secondary)" }} onClick={copy}>
-        <Copy size={13} />
+      <button aria-label="Copy" className="hover-fade rounded-full p-1.5" style={{ color: "var(--icon-secondary)" }} onClick={() => copyText(text)}>
+        <Copy size={16} />
       </button>
     </div>
   );
 }
 
-function MessageGroup({ item }: { item: Message }) {
+/** Touch: a long press on a bubble opens this (Muse): when it was said, and what can be done with it. */
+function MessageSheet({ message, onClose }: { message: Message | null; onClose: () => void }) {
+  const shown = useLastValue(message);
+  const act = (fn: (text: string) => void) => () => {
+    if (shown) fn(shown.text);
+    onClose();
+  };
+  const row = "hover-fade flex h-12 w-full items-center gap-3 rounded-xl px-3 text-[16px]";
+  return (
+    <Sheet open={message !== null} onClose={onClose}>
+      <div className="px-5 pb-6 pt-5">
+        <p className="text-[14px]" style={{ color: "var(--text-secondary)" }}>
+          {shown ? `${sameDay(shown.at) ? "Today" : new Date(shown.at).toLocaleDateString()} at ${time(shown.at)}` : ""}
+        </p>
+        <div className="mt-3 border-t pt-2" style={{ borderColor: "var(--fill-divider)" }}>
+          {canShare() && (
+            <button className={row} style={{ color: "var(--text-primary)" }} onClick={act(shareText)}>
+              <Share size={18} /> Share
+            </button>
+          )}
+          <button className={row} style={{ color: "var(--text-primary)" }} onClick={act(copyText)}>
+            <Copy size={18} /> Copy
+          </button>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
+const sameDay = (iso: string) => new Date(iso).toDateString() === new Date().toDateString();
+
+/** Long press: held this long without moving. */
+const PRESS_MS = 450;
+function useLongPress(onPress: () => void) {
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const start = useRef({ x: 0, y: 0 });
+  const cancel = () => clearTimeout(timer.current);
+  return {
+    onPointerDown: (e: React.PointerEvent) => {
+      if (e.pointerType !== "touch") return;
+      start.current = { x: e.clientX, y: e.clientY };
+      timer.current = setTimeout(() => {
+        onPress();
+        // lifting the finger clicks where it is, which is now the menu's backdrop: that click is the press's own
+        const swallow = (click: MouseEvent) => {
+          click.stopPropagation();
+          click.preventDefault();
+        };
+        window.addEventListener("click", swallow, { capture: true, once: true });
+        setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 600);
+      }, PRESS_MS);
+    },
+    onPointerMove: (e: React.PointerEvent) => {
+      if (Math.hypot(e.clientX - start.current.x, e.clientY - start.current.y) > 8) cancel();
+    },
+    onPointerUp: cancel,
+    onPointerCancel: cancel,
+    onContextMenu: (e: React.MouseEvent) => {
+      if (timer.current !== undefined && matchMedia("(hover: none)").matches) e.preventDefault();
+    },
+  };
+}
+
+/** Corners: round, but tight on the sender's side where a bubble joins the one above or below. */
+const ROUND = 22;
+const JOINED = 6;
+function corners(mine: boolean, { joinsPrevious, joinsNext }: Place) {
+  const top = joinsPrevious ? JOINED : ROUND;
+  const bottom = joinsNext ? JOINED : ROUND;
+  return mine
+    ? { borderRadius: `${ROUND}px ${top}px ${bottom}px ${ROUND}px` }
+    : { borderRadius: `${top}px ${ROUND}px ${ROUND}px ${bottom}px` };
+}
+
+function Bubble({ item, place, onMenu }: { item: Message; place: Place; onMenu: (message: Message) => void }) {
   const isUser = item.kind === "prompt";
+  const press = useLongPress(() => onMenu(item));
   return (
     <div className={`anim-fade-in flex flex-col ${isUser ? "items-end" : "items-start"}`}>
       <div
-        className="w-fit max-w-[78%] rounded-[22px] px-4 py-2.5 text-[15px] leading-snug"
+        {...press}
+        className="msg relative w-fit max-w-[78%] px-4 py-2.5 text-[15px] leading-snug"
         style={{
+          ...corners(isUser, place),
           background: isUser ? "var(--chat-user-bubble)" : "var(--fill-secondary)",
           color: isUser ? "var(--chat-user-text)" : "var(--chat-agent-text)",
         }}
@@ -79,8 +163,8 @@ function MessageGroup({ item }: { item: Message }) {
             <RichText text={item.text} />
           </div>
         )}
+        <ActionRow mine={isUser} text={item.text} />
       </div>
-      <ActionRow mine={isUser} text={item.text} />
     </div>
   );
 }
@@ -114,6 +198,8 @@ export function ChatFeed({ conversation, older, release, thumb, actions }: Props
   const feed = conversation.entities;
   /** messages in the whole feed: what "new" is counted against, so pages fetched back are not new */
   const total = conversation.earlier + feed.length;
+  /** the message whose long-press menu is open (touch) */
+  const [menu, setMenu] = useState<Message | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -246,8 +332,10 @@ export function ChatFeed({ conversation, older, release, thumb, actions }: Props
       >
         <div ref={contentRef} className="mx-auto flex max-w-3xl flex-col gap-3">
         {feed.map((entity, i) => (
-          <div key={entity.id} data-entity={entity.id} className="flex flex-col">
-            <EntityView entity={entity} previous={feed[i - 1]} thumb={thumb} actions={actions} />
+          // a message joining the one above sits 2px under it (the feed's gap is 12px)
+          <div key={entity.id} data-entity={entity.id} className={`flex flex-col gap-3 ${joins(feed[i - 1], entity) ? "-mt-2.5" : ""}`}>
+            {stamped(feed[i - 1], entity) && <TimeDivider time={time(entity.at)} />}
+            <EntityView entity={entity} place={{ joinsPrevious: joins(feed[i - 1], entity), joinsNext: joins(entity, feed[i + 1]) }} thumb={thumb} actions={actions} onMenu={setMenu} />
           </div>
         ))}
         {thinking(conversation) && (
@@ -289,6 +377,7 @@ export function ChatFeed({ conversation, older, release, thumb, actions }: Props
       {/* Muse-style scroll fade: a mask dissolves the content itself under the
           floating top bar and composer — no solid overlay sits on top. */}
       </div>
+      <MessageSheet message={menu} onClose={() => setMenu(null)} />
     </div>
   );
 }

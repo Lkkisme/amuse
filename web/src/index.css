@@ -221,6 +221,39 @@
   cursor: default !important;
 }
 
+/* A message's actions (ChatFeed). With hover: beside its bubble, shown while the pointer is on it
+   (the bubble's padding-free side, bottom-aligned). On touch: under the last bubble of a group. */
+@media (hover: hover) {
+  /* a strip out from the bubble's side, as tall as the bubble: hovering it counts as hovering the
+     bubble (it is inside it), so the pointer can travel to the actions without losing them */
+  .msg-actions {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 100%;
+    width: 140px;
+    padding-left: 8px;
+    opacity: 0;
+    transition: opacity 0.12s ease;
+  }
+  .msg-actions-mine {
+    left: auto;
+    right: 100%;
+    justify-content: flex-end;
+    padding-left: 0;
+    padding-right: 8px;
+  }
+  .msg:hover .msg-actions {
+    opacity: 1;
+  }
+}
+/* Touch: no row; a long press on the bubble opens its menu (ChatFeed), so the press is not the
+   phone's own text selection */
+@media (hover: none) {
+  .msg-actions { display: none; }
+  .msg { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+}
+
 /* Buttons show they can be pressed (Tailwind's base resets them to the arrow) */
 button:not(:disabled),
 [role="button"]:not([aria-disabled="true"]) {
