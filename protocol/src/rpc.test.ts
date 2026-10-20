@@ -1,0 +1,29 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { Call, type Handlers, Request, dispatch, results } from "./index.ts";
+
+const handlers: Handlers = {
+  "session.sync": async () => ({ kind: "snapshot", state: { seq: 0, entities: [], activity: null } }),
+  "chat.send": async ({ text }) => ({ id: `p:${text}` }),
+  "chat.stop": async () => null,
+  "approval.decide": async () => null,
+  "task.answer": async () => null,
+  "connection.begin": async ({ id }) => ({ url: `https://connect.example/${id}` }),
+  "connection.dismiss": async () => null,
+  "browser.control": async () => null,
+};
+
+test("a framed request parses into a typed call and dispatches to its handler", async () => {
+  const frame = Request.parse({ jsonrpc: "2.0", id: 1, method: "chat.send", params: { text: "hi" } });
+  const call = Call.parse({ method: frame.method, params: frame.params });
+  const result = await dispatch(handlers, call);
+  assert.deepEqual(result, { id: "p:hi" });
+  assert.deepEqual(results[call.method].parse(result), result);
+});
+
+test("unknown methods and bad params are rejected by Call, not by framing", () => {
+  const unknown = Request.parse({ jsonrpc: "2.0", id: 2, method: "chat.nope", params: {} });
+  assert.equal(Call.safeParse({ method: unknown.method, params: unknown.params }).success, false);
+  assert.equal(Call.safeParse({ method: "chat.send", params: { text: "" } }).success, false);
+  assert.equal(Call.safeParse({ method: "browser.control", params: { id: "b1", action: "fly" } }).success, false);
+});

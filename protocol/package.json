@@ -1,0 +1,14 @@
+{
+  "name": "@remuse/protocol",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "node --test 'src/**/*.test.ts'",
+    "generate": "node scripts/generate.ts"
+  },
+  "dependencies": {
+    "zod": "^4.6.7"
+  }
+}

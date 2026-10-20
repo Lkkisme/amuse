@@ -1,0 +1,10 @@
+{
+  "name": "remuse",
+  "private": true,
+  "type": "module",
+  "workspaces": ["protocol", "web"],
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "@types/node": "^24.10.0"
+  }
+}

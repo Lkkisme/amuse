@@ -1,0 +1,11 @@
+[tasks.generate]
+description = "Emit JSON Schema and an OpenRPC document from the protocol schemas"
+depends = ["//:install"]
+sources = ["src/**/*.ts", "scripts/generate.ts"]
+outputs = [".generated/protocol.schema.json", ".generated/openrpc.json"]
+run = "npm run generate"
+
+[tasks.check]
+description = "Type-check and test the protocol"
+depends = ["//:install"]
+run = "npm run typecheck && npm test"

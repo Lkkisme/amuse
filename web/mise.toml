@@ -1,0 +1,9 @@
+[tasks.check]
+description = "Type-check and build the web app"
+depends = ["//:install"]
+run = "npm run typecheck && npm run build"
+
+[tasks.dev]
+description = "Vite dev server"
+depends = ["//:install"]
+run = "npm run dev"

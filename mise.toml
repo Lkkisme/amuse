@@ -1,0 +1,23 @@
+monorepo_root = true
+
+[monorepo]
+config_roots = ["protocol", "web"]
+
+[tools]
+node = "24"
+
+[tasks.install]
+description = "Install workspace dependencies"
+sources = ["package.json", "package-lock.json", "*/package.json"]
+outputs = ["node_modules/.package-lock.json"]
+run = "npm install --no-audit --no-fund"
+
+[tasks.generate]
+description = "Generate artifacts from the protocol (JSON Schema, OpenRPC)"
+depends = ["//protocol:generate"]
+run = "true"
+
+[tasks.check]
+description = "Type-check and test every package"
+depends = ["//protocol:check", "//web:check"]
+run = "true"
