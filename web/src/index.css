@@ -42,6 +42,102 @@
   --accent-dark: #1793ff;
 }
 
+/* ---------- Muse animation contract (from production CSS) ---------- */
+
+/* Messages and panes: fadeIn .3s */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.anim-fade-in {
+  animation: fadeIn 0.3s ease-out both;
+}
+
+/* Thinking dots: hatch-dot-pulse, 1.2s ease-in-out infinite, staggered ~0.2s */
+@keyframes hatch-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.hatch-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--text-tertiary);
+  animation: hatch-dot-pulse 1.2s ease-in-out infinite;
+}
+
+/* Streaming text shimmer: background-position -200% -> 200%, gradient clip */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer-text {
+  background: linear-gradient(
+    90deg,
+    var(--text-primary) 40%,
+    color-mix(in srgb, var(--text-primary) 35%, transparent) 50%,
+    var(--text-primary) 60%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 1.8s linear infinite;
+}
+/* Per-chunk fade alternative */
+.chunk-fade {
+  animation: fadeIn 0.3s ease-out both;
+}
+
+/* Full-screen viewer / panes entering from the right */
+@keyframes hatch-pane-enter-from-right {
+  0% { transform: translateX(20px); opacity: 0; }
+  100% { transform: translateX(0); opacity: 1; }
+}
+.anim-pane-from-right {
+  animation: hatch-pane-enter-from-right 0.2s ease-out both;
+}
+
+/* Modals: scale-in .985 -> 1 with fadeIn .3s */
+@keyframes modal-scale-in {
+  from { transform: scale(0.985); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.anim-modal-in {
+  animation: modal-scale-in 0.3s ease-out both;
+}
+
+/* Activity status line while the agent works */
+@keyframes activity-indicator-fade {
+  0% { opacity: 0.85; }
+  50% { opacity: 0.55; }
+  100% { opacity: 0.15; }
+}
+.activity-indicator-fade {
+  animation: activity-indicator-fade 1.2s ease-in-out infinite;
+}
+
+/* Avatar working-state ring pulse */
+@keyframes avatar-ring-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--fill-green) 45%, transparent); }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--fill-green) 12%, transparent); }
+}
+.avatar-ring-pulse {
+  animation: avatar-ring-pulse 1.6s ease-in-out infinite;
+}
+
+/* Hover states: opacity/background transition .18s */
+.hover-fade {
+  transition: opacity 0.18s ease, background-color 0.18s ease;
+}
+.hover-fade:hover {
+  opacity: 0.72;
+}
+/* Panel opacity transition .18-.2s */
+.panel-fade {
+  transition: opacity 0.2s ease;
+}
+
 html, body, #root { height: 100%; }
 body {
   margin: 0;
