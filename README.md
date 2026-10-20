@@ -37,7 +37,7 @@ name. Any provider [Pi](https://github.com/earendil-works/pi) supports works: Op
 OpenAI, Google Gemini, DeepSeek, xAI, Mistral, Groq, Moonshot (Kimi), Z.ai, and more.
 
 ```sh
-REMUSE_PI_MODEL=openrouter/z-ai/glm-5.3-flash
+REMUSE_PI_MODEL=openrouter/deepseek/deepseek-v4.1-flash
 OPENROUTER_API_KEY=sk-or-…
 ```
 
