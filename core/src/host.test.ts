@@ -15,6 +15,7 @@ function capture() {
     stopTask: () => {},
     fit: () => {},
     connect: async () => "https://connect.example/",
+    apps: { search: async () => ({ apps: [], cursor: null }), accounts: async () => [], connect: async () => "https://connect.example/", disconnect: async () => {} },
   };
   return { ports, io: () => io };
 }

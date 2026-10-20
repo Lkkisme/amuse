@@ -3,8 +3,41 @@
  * server run until the real agent, browser pool and connectors are plugged
  * in. Behavior lives here only as port reactions; the rules stay in decide.
  */
-import { type Emit, type Ports, type Timers, newId, verdict } from "@remuse/core";
-import type { Entity } from "@remuse/protocol";
+import { type AppDirectory, type Emit, type Ports, type Timers, newId, verdict } from "@remuse/core";
+import type { Account, App, Entity } from "@remuse/protocol";
+
+const demoApp = (id: string, name: string, description: string): App => ({ id, name, description, logo: `https://logos.composio.dev/api/${id}` });
+const catalog: App[] = [
+  demoApp("gmail", "Gmail", "Read, search and send email"),
+  demoApp("googlecalendar", "Google Calendar", "See and plan events"),
+  demoApp("googlesheets", "Google Sheets", "Read and update spreadsheets"),
+  demoApp("googledrive", "Google Drive", "Find and share files"),
+  demoApp("notion", "Notion", "Pages, notes and databases"),
+  demoApp("slack", "Slack", "Messages and channels"),
+  demoApp("github", "GitHub", "Code, issues and pull requests"),
+  demoApp("outlook", "Outlook", "Microsoft email and calendar"),
+];
+
+/** The demo's apps: a short list, connected at once (there is no provider to authorize with). */
+function demoApps(): AppDirectory {
+  const accounts = new Map<string, Account>([["ca_demo_gmail", { id: "ca_demo_gmail", app: demoApp("gmail", "Gmail", "Read, search and send email"), status: "active" }]]);
+  return {
+    async search(query) {
+      const q = query.trim().toLowerCase();
+      return { apps: catalog.filter((a) => `${a.id} ${a.name} ${a.description}`.toLowerCase().includes(q)), cursor: null };
+    },
+    accounts: async () => [...accounts.values()],
+    async connect(id) {
+      const app = catalog.find((a) => a.id === id);
+      if (!app) throw new Error(`No app "${id}"`);
+      accounts.set(`ca_demo_${id}`, { id: `ca_demo_${id}`, app, status: "active" });
+      return "https://example.com/";
+    },
+    async disconnect(account) {
+      accounts.delete(account);
+    },
+  };
+}
 
 export function demoPorts<H>(timers: Timers<H>): Ports {
   let replying: H[] = [];
@@ -28,6 +61,7 @@ export function demoPorts<H>(timers: Timers<H>): Ports {
   };
 
   return {
+    apps: demoApps(),
     fit: () => {}, // the demo's browsers are sketches
     prompt: ({ text }, { emit, act }) => {
       // the scripted agent shows its tools on cue: a URL starts a browser task, "connect <app>" asks to connect

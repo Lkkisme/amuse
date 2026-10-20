@@ -5,6 +5,7 @@
  * Live browser pixels are not JSON-RPC; they stream on their own channel.
  */
 import { z } from "zod";
+import { Account, App } from "./apps.ts";
 import { Id, Resolution } from "./entities.ts";
 import { Envelope, Index, Page, Seq, State } from "./events.ts";
 
@@ -28,6 +29,13 @@ export const Call = z.discriminatedUnion("method", [
   /** While the user holds a run: shape its desktop like their screen (CSS px of the view). */
   call("browser.fit", z.object({ id: Id, width: z.int().min(200).max(8000), height: z.int().min(200).max(8000) })),
   call("task.stop", z.object({ id: Id })),
+  /** Apps to connect: the most used first; `query` narrows them; `cursor` (from a result) goes on. */
+  call("apps.search", z.object({ query: z.string().max(100), cursor: z.string().nullable() })),
+  /** The accounts connected so far. */
+  call("apps.accounts", z.object({})),
+  /** Start connecting `app`: returns the provider's hosted auth link. */
+  call("apps.connect", z.object({ app: Id })),
+  call("apps.disconnect", z.object({ account: Id })),
 ]);
 
 export type Call = z.infer<typeof Call>;
@@ -50,6 +58,10 @@ export const results = {
   "browser.control": done,
   "browser.fit": done,
   "task.stop": done,
+  "apps.search": z.object({ apps: z.array(App), cursor: z.string().nullable() }),
+  "apps.accounts": z.object({ accounts: z.array(Account) }),
+  "apps.connect": z.object({ url: z.url() }),
+  "apps.disconnect": done,
 } satisfies Record<Method, z.ZodType>;
 
 export type Params = { [C in Call as C["method"]]: C["params"] };
@@ -70,6 +82,10 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "browser.control": (raw) => results["browser.control"].parse(raw),
   "browser.fit": (raw) => results["browser.fit"].parse(raw),
   "task.stop": (raw) => results["task.stop"].parse(raw),
+  "apps.search": (raw) => results["apps.search"].parse(raw),
+  "apps.accounts": (raw) => results["apps.accounts"].parse(raw),
+  "apps.connect": (raw) => results["apps.connect"].parse(raw),
+  "apps.disconnect": (raw) => results["apps.disconnect"].parse(raw),
 };
 
 /** What a server implements: one function per method. */

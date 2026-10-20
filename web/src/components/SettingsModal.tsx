@@ -1,22 +1,16 @@
 /**
  * Settings modal (surfaces 7, 8, 9, 10): left nav + section pane — General,
- * Connectors (with per-connector capability groups), Permissions (global
+ * Connectors (the server's app directory: Connectors.tsx), Permissions (global
  * defaults + per-site Allow/Ask/Deny) and Secure store (credential list +
  * add-credential form). Modeled on the reference settings sheet.
  */
 import { useState } from "react";
 import {
-  ArrowLeft,
-  Calendar,
   ChevronRight,
-  FileText,
-  GitBranch,
   Check,
   Globe,
   Lock,
-  Mail,
   Plus,
-  Search,
   Settings as SettingsIcon,
   Shield,
   Table,
@@ -24,26 +18,10 @@ import {
 } from "lucide-react";
 import type { Level, SettingsData } from "../demo/settings.ts";
 import { LEVELS, levelMeta, parseLevel } from "../demo/settings.ts";
+import type { Session } from "@remuse/protocol";
 import type { Actions, SettingsSection, Theme, Ui } from "../ui.ts";
 import { usePresence } from "./usePresence";
-
-function ConnectorIcon({ id, size = 20 }: { id: string; size?: number }) {
-  const map: Record<string, React.ReactNode> = {
-    gmail: <Mail size={size} />,
-    gcal: <Calendar size={size} />,
-    gdrive: <FileText size={size} />,
-    sheets: <Table size={size} />,
-    github: <GitBranch size={size} />,
-  };
-  return (
-    <span
-      className="flex shrink-0 items-center justify-center rounded-[10px] text-white"
-      style={{ width: size + 16, height: size + 16, background: "var(--fill-blue)" }}
-    >
-      {map[id] ?? <Globe size={size} />}
-    </span>
-  );
-}
+import { Connectors } from "./Connectors";
 
 function LevelSelect({ value, onChange }: { value: Level; onChange: (l: Level) => void }) {
   return (
@@ -75,136 +53,6 @@ const NAV: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
   { id: "permissions", label: "Permissions", icon: <Shield size={18} /> },
   { id: "secure-store", label: "Secure store", icon: <Lock size={18} /> },
 ];
-
-/* ---------------- Connectors ---------------- */
-
-function ConnectorsSection({ data, connector, actions }: { data: SettingsData; connector: string | null; actions: Actions }) {
-  const detail = connector
-    ? data.connectors.find((c) => c.id === connector) ?? null
-    : null;
-
-  if (detail) {
-    const groups = [...new Set(detail.capabilities.map((c) => c.group))];
-    return (
-      <div className="flex-1 overflow-y-auto p-5">
-        <button
-          className="mb-2 flex size-9 items-center justify-center rounded-full"
-          style={{ color: "var(--icon-primary)", background: "var(--fill-secondary)" }}
-          onClick={() => actions.openConnector(null)}
-          aria-label="Back to connectors"
-        >
-          <ArrowLeft size={18} />
-        </button>
-        <div className="mt-2 flex flex-col items-center gap-1">
-          <ConnectorIcon id={detail.id} size={28} />
-          <p className="text-[19px] font-semibold" style={{ color: "var(--text-primary)" }}>
-            {detail.name}
-          </p>
-          <p className="text-[13px]" style={{ color: "var(--text-secondary)" }}>
-            You can give read-only or read and write access
-          </p>
-        </div>
-
-        {detail.connected && (
-          <button
-            className="mt-4 h-11 w-full rounded-xl text-[15px] font-semibold"
-            style={{ background: "var(--fill-secondary)", color: "var(--fill-red)" }}
-            onClick={() => actions.toggleConnector(detail.id)}
-          >
-            Disconnect
-          </button>
-        )}
-        {!detail.connected && (
-          <button
-            className="mt-4 h-11 w-full rounded-xl text-[15px] font-semibold text-white"
-            style={{ background: "var(--fill-blue)" }}
-            onClick={() => actions.toggleConnector(detail.id)}
-          >
-            Connect {detail.name}
-          </button>
-        )}
-
-        {groups.map((g) => (
-          <div key={g} className="mt-5">
-            <p className="mb-2 text-[13px] font-semibold" style={{ color: "var(--text-secondary)" }}>
-              {g}
-            </p>
-            <div className="overflow-hidden rounded-xl" style={{ background: "var(--fill-secondary)" }}>
-              {detail.capabilities
-                .filter((c) => c.group === g)
-                .map((cap, i, arr) => (
-                  <div
-                    key={cap.id}
-                    className="flex items-center justify-between px-4 py-3"
-                    style={{ borderTop: i === 0 ? undefined : "1px solid var(--fill-divider)" }}
-                  >
-                    <span className="text-[14px]" style={{ color: "var(--text-primary)" }}>
-                      {cap.label}
-                    </span>
-                    <LevelSelect value={cap.level} onChange={(l) => actions.setCapability(detail.id, cap.id, l)} />
-                  </div>
-                ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  const connected = data.connectors.filter((c) => c.connected);
-  const available = data.connectors.filter((c) => !c.connected);
-  return (
-    <div className="flex-1 overflow-y-auto p-5">
-      <div
-        className="flex h-10 items-center gap-2 rounded-full px-3"
-        style={{ background: "var(--fill-secondary)", color: "var(--text-tertiary)" }}
-      >
-        <Search size={16} />
-        <input
-          className="w-full bg-transparent text-[14px] outline-none"
-          style={{ color: "var(--text-primary)" }}
-          placeholder="Search"
-        />
-      </div>
-
-      {(["Connected", "Available"] as const).map((label) => {
-        const list = label === "Connected" ? connected : available;
-        if (list.length === 0) return null;
-        return (
-          <div key={label} className="mt-5">
-            <p className="mb-2 text-[13px] font-semibold" style={{ color: "var(--text-secondary)" }}>
-              {label}
-            </p>
-            <div className="overflow-hidden rounded-xl" style={{ background: "var(--fill-secondary)" }}>
-              {list.map((c, i) => (
-                <button
-                  key={c.id}
-                  className="flex w-full items-center gap-3 px-4 py-3 text-left"
-                  style={{ borderTop: i === 0 ? undefined : "1px solid var(--fill-divider)" }}
-                  onClick={() => actions.openConnector(c.id)}
-                >
-                  <ConnectorIcon id={c.id} size={18} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[15px] font-medium" style={{ color: "var(--text-primary)" }}>
-                      {c.name}
-                    </span>
-                    <span className="block truncate text-[12px]" style={{ color: "var(--text-secondary)" }}>
-                      {c.blurb}
-                    </span>
-                  </span>
-                  <span className="text-[13px] font-semibold" style={{ color: "var(--fill-blue)" }}>
-                    View
-                  </span>
-                  <ChevronRight size={14} style={{ color: "var(--icon-secondary)" }} />
-                </button>
-              ))}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 /* ---------------- Permissions ---------------- */
 
@@ -410,7 +258,20 @@ function GeneralSection({ theme, actions }: { theme: Theme; actions: Actions }) 
 
 /* ---------------- Shell ---------------- */
 
-export function SettingsModal({ ui, theme, data, actions }: { ui: Ui["settings"]; theme: Theme; data: SettingsData; actions: Actions }) {
+export function SettingsModal({
+  ui,
+  theme,
+  data,
+  session,
+  actions,
+}: {
+  ui: Ui["settings"];
+  theme: Theme;
+  data: SettingsData;
+  /** the server, for the parts of settings that are its (connectors) */
+  session: Session;
+  actions: Actions;
+}) {
   const { mounted, closing, onAnimationEnd } = usePresence(ui.open);
   if (!mounted) return null;
   return (
@@ -467,7 +328,7 @@ export function SettingsModal({ ui, theme, data, actions }: { ui: Ui["settings"]
           >
             <X size={17} />
           </button>
-          {ui.section === "connectors" && <ConnectorsSection data={data} connector={ui.connector} actions={actions} />}
+          {ui.section === "connectors" && <Connectors session={session} />}
           {ui.section === "permissions" && <PermissionsSection data={data} actions={actions} />}
           {ui.section === "secure-store" && <SecureStoreSection data={data} actions={actions} />}
           {ui.section === "general" && <GeneralSection theme={theme} actions={actions} />}

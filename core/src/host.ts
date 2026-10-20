@@ -6,6 +6,7 @@
  * uses it in-process (web demo, tests).
  */
 import {
+  type Account,
   type Browser,
   type Connection,
   type Entity,
@@ -13,6 +14,7 @@ import {
   type Handlers,
   type Params,
   type Reply,
+  type Results,
   type Session,
   type State,
   type Update,
@@ -81,10 +83,21 @@ export interface Ports {
   fit(effect: Extract<Effect, { kind: "fit" }>, io: AgentIO): void;
   /** Start connecting an app; resolves to the provider's hosted link. */
   connect(connection: Connection, io: AgentIO): Promise<string>;
+  /** The apps there are to connect, and the accounts connected (outside the conversation). */
+  apps: AppDirectory;
 }
 
 /** What wakes the agent: the user's message, or a note from its background work (not shown as a message). */
 export type Turn = { kind: "message"; text: string } | { kind: "note"; text: string };
+
+/** Where apps are found, connected and let go of: the connector's directory. */
+export interface AppDirectory {
+  search(query: string, cursor: string | null): Promise<Results["apps.search"]>;
+  accounts(): Promise<Account[]>;
+  /** The provider's hosted auth link for `app`. */
+  connect(app: string): Promise<string>;
+  disconnect(account: string): Promise<void>;
+}
 
 /** A rejection in words, for errors and for agents. */
 export function describe(rejection: Rejection): string {
@@ -227,6 +240,13 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     "browser.control": async (params) => command("browser.control", params),
     "browser.fit": async (params) => command("browser.fit", params),
     "task.stop": async (params) => command("task.stop", params),
+    "apps.search": ({ query, cursor }) => ports.apps.search(query, cursor),
+    "apps.accounts": async () => ({ accounts: await ports.apps.accounts() }),
+    "apps.connect": async ({ app }) => ({ url: await ports.apps.connect(app) }),
+    "apps.disconnect": async ({ account }) => {
+      await ports.apps.disconnect(account);
+      return null;
+    },
   };
 
   return {

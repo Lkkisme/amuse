@@ -30,6 +30,27 @@ const Tools = z.object({
     }),
   ),
 });
+const Toolkits = z.object({
+  items: z.array(
+    z.object({
+      slug: z.string(),
+      name: z.string(),
+      no_auth: z.boolean().default(false),
+      deprecated: z.unknown().optional(),
+      meta: z
+        .looseObject({
+          description: z.string().default(""),
+          logo: z.string().default(""),
+          categories: z.array(z.looseObject({ name: z.string() })).default([]),
+        })
+        .default({ description: "", logo: "", categories: [] }),
+    }),
+  ),
+  next_cursor: z.string().nullable().default(null),
+});
+const ConnectedAccounts = z.object({
+  items: z.array(z.object({ id: z.string(), status: z.string(), toolkit: z.object({ slug: z.string() }) })),
+});
 const Executed = z.object({ successful: z.boolean(), data: z.unknown(), error: z.string().nullable().default(null) });
 
 export interface AppTool {
@@ -43,6 +64,15 @@ export interface AppTool {
 
 export type AccountStatus = "active" | "pending" | "failed";
 
+/** One of Composio's toolkits (an app the agent can be connected to). */
+export interface Toolkit {
+  slug: string;
+  name: string;
+  description: string;
+  logo: string | null;
+  categories: string[];
+}
+
 export interface Composio {
   /** A hosted link where the user authorizes `toolkit`; the account it will create. */
   link(toolkit: string, userId: string, callbackUrl?: string): Promise<{ url: string; account: string }>;
@@ -51,6 +81,12 @@ export interface Composio {
   connected(toolkit: string, userId: string): Promise<boolean>;
   /** Tools of a toolkit matching `search`. */
   tools(toolkit: string, search: string): Promise<AppTool[]>;
+  /** Every toolkit there is to connect, most used first (no-auth and deprecated ones left out). */
+  toolkits(): Promise<Toolkit[]>;
+  /** `userId`'s accounts, as Composio has them (status upper-case: ACTIVE, EXPIRED, …). */
+  accounts(userId: string): Promise<{ id: string; toolkit: string; status: string }[]>;
+  /** Delete a connected account. */
+  remove(account: string): Promise<void>;
   /** Run a tool for `userId`; the tool's result, or its error. */
   execute(slug: string, userId: string, args: Record<string, unknown>): Promise<{ ok: true; data: unknown } | { ok: false; error: string }>;
 }
@@ -108,6 +144,28 @@ export function composio(apiKey: string, http: typeof fetch = fetch): Composio {
       };
       const unique = [...new Map(items.map((t) => [t.slug, t])).values()].sort((a, b) => score(b) - score(a)).slice(0, 8);
       return unique.map((t) => ({ slug: t.slug, name: t.name, description: t.description, parameters: t.input_parameters.properties, required: t.input_parameters.required }));
+    },
+    async toolkits() {
+      const all: Toolkit[] = [];
+      let cursor: string | null = null;
+      for (let pages = 0; pages < 5; pages++) {
+        const page: z.infer<typeof Toolkits> = await call(Toolkits, "/toolkits", { query: { sort_by: "usage", limit: "1000", ...(cursor ? { cursor } : {}) } });
+        for (const t of page.items) {
+          if (t.no_auth || t.deprecated === true) continue;
+          const logo = URL.canParse(t.meta.logo) ? t.meta.logo : null;
+          all.push({ slug: t.slug, name: t.name, description: t.meta.description, logo, categories: t.meta.categories.map((c) => c.name) });
+        }
+        cursor = page.next_cursor;
+        if (!cursor) break;
+      }
+      return all;
+    },
+    async accounts(userId) {
+      const { items } = await call(ConnectedAccounts, "/connected_accounts", { query: { user_ids: userId, limit: "100" } });
+      return items.map((a) => ({ id: a.id, toolkit: a.toolkit.slug, status: a.status.toUpperCase() }));
+    },
+    async remove(account) {
+      await call(z.unknown(), `/connected_accounts/${encodeURIComponent(account)}`, { method: "DELETE" });
     },
     async execute(slug, userId, args) {
       const result = await call(Executed, `/tools/execute/${encodeURIComponent(slug)}`, { method: "POST", body: { user_id: userId, arguments: args } });

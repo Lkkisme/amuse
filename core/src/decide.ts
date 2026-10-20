@@ -18,8 +18,10 @@ import type {
   TaskStatus,
 } from "@remuse/protocol";
 
-/** Client calls that change the conversation (sync and history only read). */
-export type Command = Exclude<Call, { method: "session.sync" | "session.history" }>;
+/** Calls that do not touch the conversation: reading it, and the app directory (Ports.apps). */
+export type Query = Extract<Call, { method: "session.sync" | "session.history" | `apps.${string}` }>;
+/** Client calls that change the conversation. */
+export type Command = Exclude<Call, Query>;
 type CommandMethod = Command["method"];
 
 /** An event before it is recorded: an upsert gets its place in the feed then (see `place`). */

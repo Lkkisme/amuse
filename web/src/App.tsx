@@ -117,18 +117,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
       setChats: (chatsOpen) => patch((u) => ({ ...u, chatsOpen })),
       // the avatar travels between the top and the panel
       setMuse: (museOpen) => transition(() => patch((u) => ({ ...u, museOpen }))),
-      openSettings: (section) => patch((u) => ({ ...u, chatsOpen: false, settings: { open: true, section, connector: null } })),
-      closeSettings: () => patch((u) => ({ ...u, settings: { ...u.settings, open: false, connector: null } })),
-      openConnector: (connector) => patch((u) => ({ ...u, settings: { ...u.settings, connector } })),
-      toggleConnector: (id) =>
-        setSettings((s) => ({ ...s, connectors: s.connectors.map((c) => (c.id === id ? { ...c, connected: !c.connected } : c)) })),
-      setCapability: (connectorId, capabilityId, level) =>
-        setSettings((s) => ({
-          ...s,
-          connectors: s.connectors.map((c) =>
-            c.id === connectorId ? { ...c, capabilities: c.capabilities.map((cap) => (cap.id === capabilityId ? { ...cap, level } : cap)) } : c,
-          ),
-        })),
+      openSettings: (section) => patch((u) => ({ ...u, chatsOpen: false, settings: { open: true, section } })),
+      closeSettings: () => patch((u) => ({ ...u, settings: { ...u.settings, open: false } })),
       setWebsiteRule: (id, level) =>
         setSettings((s) => ({ ...s, websiteRules: s.websiteRules.map((r) => (r.id === id ? { ...r, level } : r)) })),
       addCredential: (domain, username) =>
@@ -152,7 +142,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
 
   return (
     <div className="flex h-full" style={{ background: "var(--chat-background)" }}>
-      <IconRail />
+      <IconRail actions={actions} />
       {/* with the viewer open on desktop, the chat keeps what the viewer leaves */}
       <div className={`relative flex min-w-0 flex-1 flex-col ${ui.viewer ? "lg:mr-[var(--viewer-width)]" : ""}`}>
         <ChatFeed conversation={conversation} older={older} release={release} thumb={where.kind === "server" ? where.thumb : null} actions={actions} />
@@ -173,7 +163,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
 
       {ui.museOpen && <MusePanel conversation={conversation} mode={ui.viewer ? "floating" : "docked"} actions={actions} />}
       <ChatsPanel open={ui.chatsOpen} actions={actions} />
-      <SettingsModal ui={ui.settings} theme={ui.theme} data={settings} actions={actions} />
+      <SettingsModal ui={ui.settings} theme={ui.theme} data={settings} session={session} actions={actions} />
       <ExplainerModal conversation={conversation} open={ui.explainer} actions={actions} />
       <TaskDetailSheet conversation={conversation} open={ui.taskDetail} actions={actions} />
       <Viewer

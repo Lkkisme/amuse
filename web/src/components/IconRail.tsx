@@ -1,11 +1,12 @@
 /**
  * Left icon rail (Muse layout): chat, search, doc, lightbulb, checklist,
- * apps grid — download pinned at the bottom. Narrow, icon-only, hover .18s.
+ * apps grid — settings pinned at the bottom. Narrow, icon-only, hover .18s.
  */
-import { Download } from "lucide-react";
+import { Settings } from "lucide-react";
+import type { Actions } from "../ui.ts";
 import { NAV_PAGES } from "./nav";
 
-export function IconRail() {
+export function IconRail({ actions }: { actions: Actions }) {
   return (
     <nav
       className="hidden w-14 shrink-0 flex-col items-center gap-1 border-r py-3 md:flex"
@@ -30,12 +31,13 @@ export function IconRail() {
         );
       })}
       <button
-        aria-label="Download app"
-        title="Download app"
+        aria-label="Settings"
+        title="Settings"
         className="hover-fade mt-auto flex size-10 items-center justify-center rounded-xl"
         style={{ color: "var(--icon-secondary)" }}
+        onClick={() => actions.openSettings("general")}
       >
-        <Download size={20} />
+        <Settings size={20} />
       </button>
     </nav>
   );

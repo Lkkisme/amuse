@@ -20,7 +20,7 @@
  */
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { composio, composioApps, composioConnector } from "@remuse/composio";
+import { composio, composioApps, composioConnector, composioDirectory } from "@remuse/composio";
 import { fileJournal } from "./journal.ts";
 import { browserPool, controller } from "@remuse/browser";
 import { type Ports, createHost, realTimers } from "@remuse/core";
@@ -67,6 +67,7 @@ const keyFile = process.env["REMUSE_COMPOSIO_KEY_FILE"];
 const composioKey = keyFile ? readFileSync(keyFile, "utf8").trim() : process.env["REMUSE_COMPOSIO_KEY"];
 const composioClient = composioKey ? composio(composioKey) : undefined;
 const composioUser = "owner";
+const noConnector = "No connector is configured (set REMUSE_COMPOSIO_KEY).";
 const publicUrl = process.env["REMUSE_PUBLIC_URL"];
 const connector =
   composioClient &&
@@ -112,7 +113,21 @@ const real = (model: string, browserModel: string): Ports => ({
   connect: connector
     ? connector.connect
     : async () => {
-        throw new Error("No connector is configured (set REMUSE_COMPOSIO_KEY_FILE).");
+        throw new Error(noConnector);
+      },
+  apps: composioClient
+    ? composioDirectory(composioClient, { userId: composioUser, ...(publicUrl ? { callbackUrl: new URL("/connected", publicUrl).href } : {}) })
+    : {
+        search: async () => {
+          throw new Error(noConnector);
+        },
+        accounts: async () => [],
+        connect: async () => {
+          throw new Error(noConnector);
+        },
+        disconnect: async () => {
+          throw new Error(noConnector);
+        },
       },
 });
 const demo = !(model && browserModel);

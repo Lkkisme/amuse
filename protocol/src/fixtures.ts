@@ -71,4 +71,8 @@ export const calls: Call[] = [
   { method: "browser.control", params: { id: "b1", action: "handBack" } },
   { method: "browser.fit", params: { id: "b1", width: 390, height: 560 } },
   { method: "task.stop", params: { id: "t1" } },
+  { method: "apps.search", params: { query: "mail", cursor: null } },
+  { method: "apps.accounts", params: {} },
+  { method: "apps.connect", params: { app: "gmail" } },
+  { method: "apps.disconnect", params: { account: "ca_1" } },
 ];

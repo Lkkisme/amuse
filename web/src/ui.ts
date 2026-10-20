@@ -13,7 +13,7 @@ export interface Ui {
   chatsOpen: boolean;
   /** the Muse panel (profile and activity): docked on the right, or floating over the chat while the browser has the right */
   museOpen: boolean;
-  settings: { open: boolean; section: SettingsSection; connector: string | null };
+  settings: { open: boolean; section: SettingsSection };
   /** browser viewer: active tab, and tabs the user closed (every other run is a tab) */
   viewer: { browserId: string | null; closedTabs: string[] } | null;
   /** connection whose pre-connect explainer is open */
@@ -28,7 +28,7 @@ export const initialUi: Ui = {
   theme: "light",
   chatsOpen: false,
   museOpen: false,
-  settings: { open: false, section: "connectors", connector: null },
+  settings: { open: false, section: "connectors" },
   viewer: null,
   explainer: null,
   taskDetail: null,
@@ -56,9 +56,6 @@ export interface Actions {
   setMuse(open: boolean): void;
   openSettings(section: SettingsSection): void;
   closeSettings(): void;
-  openConnector(id: string | null): void;
-  toggleConnector(id: string): void;
-  setCapability(connectorId: string, capabilityId: string, level: Level): void;
   setWebsiteRule(id: string, level: Level): void;
   addCredential(domain: string, username: string): void;
   setTheme(theme: Theme): void;
