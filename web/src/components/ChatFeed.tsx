@@ -83,7 +83,7 @@ export function ChatFeed({ state, actions }: { state: DemoState; actions: MuseAc
   return (
     <div className="relative min-h-0 flex-1">
       <div
-        className="h-full overflow-y-auto px-4 pt-16 pb-28"
+        className="h-full overflow-y-auto px-4 pt-16 pb-28 chat-scroll-fade"
         style={{ background: "var(--chat-background)" }}
       >
         <div className="mx-auto flex max-w-3xl flex-col gap-3">
@@ -124,11 +124,8 @@ export function ChatFeed({ state, actions }: { state: DemoState; actions: MuseAc
         )}
         <div ref={bottomRef} />
       </div>
-      {/* Muse-style scroll fade: content dissolves under the floating top bar; the composer has its own bottom gradient. */}
-      <div
-        className="pointer-events-none absolute inset-x-0 top-0 h-20"
-        style={{ background: "linear-gradient(to bottom, var(--chat-background) 30%, transparent)" }}
-      />
+      {/* Muse-style scroll fade: a mask dissolves the content itself under the
+          floating top bar and composer — no solid overlay sits on top. */}
       </div>
     </div>
   );

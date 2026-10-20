@@ -155,3 +155,39 @@ body {
 .anim-pane-from-left {
   animation: pane-enter-from-left 0.25s cubic-bezier(0.32, 0.72, 0, 1) both;
 }
+
+/* Per-theme chat tokens (values from Muse production CSS; the blue-tinted
+   --chat-background seen inline on muse.ai is a conversation theme, not the default). */
+.light {
+  --chat-user-text: #111112;
+  --chat-user-bubble: #b8dbfe;
+  --chat-agent-text: #111112;
+  --chat-agent-bubble: #f3f4f5;
+  --chat-background: #fcfcfc;
+}
+.dark {
+  --chat-user-text: #ffffff;
+  --chat-user-bubble: #0074e8;
+  --chat-agent-text: #ffffff;
+  --chat-agent-bubble: #252628;
+  --chat-background: #181819;
+}
+
+/* Muse-style scroll dissolve: the content itself fades out under the floating
+   top bar / composer via mask — no solid element sits above it. */
+.chat-scroll-fade {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 88px,
+    #000 calc(100% - 120px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 88px,
+    #000 calc(100% - 120px),
+    transparent 100%
+  );
+}
