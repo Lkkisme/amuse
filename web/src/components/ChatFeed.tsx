@@ -105,7 +105,7 @@ export function ChatFeed({ conversation, actions }: { conversation: State; actio
   /** far enough from the bottom to offer the jump button, new messages or not */
   const [far, setFar] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
-  const seenRef = useRef(feed.length);
+  const seenRef = useRef(0);
   const atBottomRef = useRef(true);
 
   const scrollToBottom = () => {
@@ -132,7 +132,15 @@ export function ChatFeed({ conversation, actions }: { conversation: State; actio
     }
   };
 
+  const arrived = useRef(false);
   useEffect(() => {
+    // The first content (the initial sync) lands at the bottom at once, like opening a chat.
+    if (!arrived.current && feed.length > 0) {
+      arrived.current = true;
+      bottomRef.current?.scrollIntoView({ block: "end" });
+      seenRef.current = feed.length;
+      return;
+    }
     // New content: follow it only when the user is already at the bottom.
     // Otherwise leave the scroll position alone and surface a jump-to-latest pill.
     if (atBottomRef.current) {

@@ -8,12 +8,16 @@
  *   REMUSE_COMPOSIO_KEY_FILE  file holding a Composio developer key (ak_…): connectors go
  *                 through Composio; read once, never logged
  *   REMUSE_JOURNAL  JSONL file the event log lives in (survives restarts); in memory if unset
- *   Browser and approvals stay scripted for now.
+ *   REMUSE_BROWSER=chromium  browser runs open real pages (headless Chromium) with live views
+ *                 at /live; scripted otherwise
+ *   Approvals stay scripted for now.
  */
 import { readFileSync } from "node:fs";
 import { composio, composioConnector } from "@remuse/composio";
 import { fileJournal } from "./journal.ts";
+import { browserPorts, pool } from "@remuse/browser";
 import { createHost, demoPorts, realTimers, seed } from "@remuse/core";
+import { type State, apply, empty } from "@remuse/protocol";
 import { piAgent } from "@remuse/pi";
 import { listen } from "./server.ts";
 
@@ -34,13 +38,30 @@ const system = [
   "Never claim a background task has finished unless you were told so.",
 ].join("\n");
 const keyFile = process.env["REMUSE_COMPOSIO_KEY_FILE"];
+const browsers = process.env["REMUSE_BROWSER"] === "chromium" ? pool() : undefined;
 const ports = {
   ...demoPorts(realTimers),
+  ...(browsers ? browserPorts(browsers) : {}),
   ...(model && authPath ? piAgent({ model, authPath, system }) : {}),
   ...(keyFile ? composioConnector(composio(readFileSync(keyFile, "utf8").trim()), { userId: "owner", timers: realTimers }) : {}),
 };
 
 const journalPath = process.env["REMUSE_JOURNAL"];
 const journal = journalPath ? { journal: fileJournal(journalPath) } : {};
-await listen({ session: createHost(ports, { seed: seed(), ...journal }), token, port, host });
-console.log(`remuse api on ws://${host}:${port}/rpc (agent: ${model && authPath ? model : "scripted"}, connectors: ${keyFile ? "composio" : "scripted"})`);
+const session = createHost(ports, { seed: seed(), ...journal });
+
+// the live channel asks the conversation, folded here like any client, who holds a run
+const synced = await session.call("session.sync", { since: null });
+let state: State = synced.kind === "snapshot" ? synced.state : empty;
+session.subscribe((envelope) => (state = apply(state, envelope)));
+const live = browsers && {
+  pool: browsers,
+  controlled: (id: string) => state.entities.some((e) => e.kind === "browser" && e.id === id && e.status === "paused"),
+};
+
+await listen({ session, ...(live ? { live } : {}), token, port, host });
+for (const signal of ["SIGINT", "SIGTERM"] as const)
+  process.once(signal, () => void (browsers?.shutdown() ?? Promise.resolve()).finally(() => process.exit(0)));
+console.log(
+  `remuse api on ws://${host}:${port}/rpc (agent: ${model && authPath ? model : "scripted"}, connectors: ${keyFile ? "composio" : "scripted"}, browser: ${browsers ? "chromium" : "scripted"})`,
+);

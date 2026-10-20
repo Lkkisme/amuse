@@ -28,6 +28,17 @@ import { Viewer } from "./components/Viewer";
  * without it the app runs the real core in-browser with scripted ports.
  */
 const serverUrl = import.meta.env["VITE_REMUSE_URL"];
+/** The live view endpoint next to /rpc, for a run id. */
+const liveUrl =
+  typeof serverUrl === "string" && serverUrl
+    ? (id: string) => {
+        const url = new URL(serverUrl);
+        url.pathname = "/live";
+        url.searchParams.set("id", id);
+        return url.toString();
+      }
+    : null;
+
 const demoSession = (): Session =>
   typeof serverUrl === "string" && serverUrl ? connect(serverUrl) : createHost(demoPorts(realTimers), { seed: seed() });
 
@@ -126,7 +137,7 @@ export default function App() {
       <SettingsModal ui={ui.settings} theme={ui.theme} data={settings} actions={actions} />
       <ExplainerModal conversation={conversation} open={ui.explainer} actions={actions} />
       <TaskDetailSheet conversation={conversation} open={ui.taskDetail} actions={actions} />
-      <Viewer conversation={conversation} viewer={ui.viewer} actions={actions} />
+      <Viewer conversation={conversation} viewer={ui.viewer} live={liveUrl} actions={actions} />
     </div>
   );
 }

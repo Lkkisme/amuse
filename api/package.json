@@ -16,7 +16,8 @@
     "@remuse/protocol": "*",
     "ws": "^8.18.3",
     "@remuse/pi": "*",
-    "@remuse/composio": "*"
+    "@remuse/composio": "*",
+    "@remuse/browser": "*"
   },
   "devDependencies": {
     "@types/ws": "^8.18.1"

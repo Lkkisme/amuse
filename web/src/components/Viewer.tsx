@@ -15,9 +15,23 @@ import { ArrowLeft, ArrowRight, Check, CircleCheck, CircleDot, Copy, Globe, Menu
 import type { Browser, State } from "@remuse/protocol";
 import type { Actions, Ui } from "../ui.ts";
 import { browserStatus, browsers, byId, host, hue, path, stoppable } from "../view.ts";
+import { useState } from "react";
+import type { Screen } from "@remuse/protocol";
+import { LiveView } from "./LiveView";
 import { useLastValue, usePresence } from "./usePresence";
 
-export function Viewer({ conversation, viewer: open, actions }: { conversation: State; viewer: Ui["viewer"]; actions: Actions }) {
+export function Viewer({
+  conversation,
+  viewer: open,
+  live,
+  actions,
+}: {
+  conversation: State;
+  viewer: Ui["viewer"];
+  /** live view URL for a run, when a server with real browsers is attached */
+  live: ((id: string) => string) | null;
+  actions: Actions;
+}) {
   const { mounted, closing, onAnimationEnd } = usePresence(open !== null);
   const viewer = useLastValue(open);
   if (!mounted || !viewer) return null;
@@ -33,7 +47,7 @@ export function Viewer({ conversation, viewer: open, actions }: { conversation: 
     >
       <ViewerHeader browser={browser} actions={actions} />
       <RunTabs tabs={tabs} activeId={browser.id} actions={actions} />
-      <FakeChrome browser={browser} />
+      {live ? <LivePage key={browser.id} browser={browser} url={live(browser.id)} /> : <FakeChrome browser={browser} />}
     </div>
   );
 }
@@ -130,7 +144,27 @@ function RunTabs({ tabs, activeId, actions }: { tabs: Browser[]; activeId: strin
   );
 }
 
-/** Sketch of the remote Chrome window. Never a real page. */
+/** The real page, with an address bar showing where it actually is. */
+function LivePage({ browser, url }: { browser: Browser; url: string }) {
+  const [screen, setScreen] = useState<Screen | null>(null);
+  const where = screen?.url ?? browser.url;
+  return (
+    <div className="flex min-h-0 flex-1 flex-col" style={{ background: "var(--fill-primary)" }}>
+      <div className="flex items-center gap-3 px-3 py-1.5" style={{ borderBottom: "1px solid var(--fill-divider)" }}>
+        <span
+          className="flex-1 truncate rounded-full px-4 py-1.5 text-[14px]"
+          style={{ background: "var(--fill-secondary)", color: "var(--text-primary)" }}
+        >
+          {URL.canParse(where) ? host(where) : where}
+          <span style={{ color: "var(--text-secondary)" }}>{URL.canParse(where) ? path(where) : ""}</span>
+        </span>
+      </div>
+      <LiveView url={url} interactive={browser.status === "paused"} onScreen={setScreen} />
+    </div>
+  );
+}
+
+/** Sketch of the remote Chrome window, for the in-browser demo. Never a real page. */
 function FakeChrome({ browser }: { browser: Browser }) {
   const h = hue(browser.id);
   return (
