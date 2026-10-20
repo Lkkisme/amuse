@@ -6,7 +6,7 @@
  */
 import { type AgentIO, type Ports, newId } from "@remuse/core";
 import { redact } from "./redact.ts";
-import { type PiModelConfig, type PiSession, openSession } from "./session.ts";
+import { type PiModelConfig, type PiSession, openSession, secretsOf } from "./session.ts";
 import { statusOf } from "./status.ts";
 import { type Apps, appTools, tools } from "./tools.ts";
 
@@ -91,7 +91,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt"> {
     } catch (error) {
       finish();
       if (!live()) return;
-      const message = redact(error instanceof Error ? error.message : String(error), [cfg.authPath, cfg.modelsPath]);
+      const message = redact(error instanceof Error ? error.message : String(error), secretsOf(cfg));
       emit({ kind: "upserted", entity: { kind: "reply", id: newId("r"), at: new Date().toISOString(), text: `Something went wrong: ${message}`, streaming: false } });
     } finally {
       current = undefined;

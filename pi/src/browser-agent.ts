@@ -12,7 +12,7 @@ import type { Browser } from "@remuse/protocol";
 import { Type } from "typebox";
 import { status } from "./status.ts";
 import { redact } from "./redact.ts";
-import { type PiModelConfig, openSession } from "./session.ts";
+import { type PiModelConfig, openSession, secretsOf } from "./session.ts";
 import { statusOf } from "./status.ts";
 import { untrusted } from "./untrusted.ts";
 
@@ -257,7 +257,7 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers): Pick<Por
           await drive(run);
         })
         .catch((error: unknown) => {
-          if (!stop.signal.aborted) fail(browser, io, redact(error instanceof Error ? error.message : String(error), [cfg.authPath, cfg.modelsPath]));
+          if (!stop.signal.aborted) fail(browser, io, redact(error instanceof Error ? error.message : String(error), secretsOf(cfg)));
         })
         .finally(end);
     },

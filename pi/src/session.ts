@@ -16,15 +16,21 @@ import {
   createAgentSession,
   createExtensionRuntime,
 } from "@earendil-works/pi-coding-agent";
-import { readOnlyCredentials } from "./credentials.ts";
+import { keyCredentials, readOnlyCredentials } from "./credentials.ts";
+
+/** Where the model's credentials come from: a Pi auth file (per provider), or one API key for the model's provider. */
+export type PiAuth = { kind: "file"; path: string } | { kind: "key"; key: string };
 
 export interface PiModelConfig {
   /** "provider/model-id"; the id may contain slashes (openrouter/z-ai/glm-5.3-flash) */
   model: string;
-  /** Pi auth file (credentials per provider): read once into memory, never logged. */
-  authPath: string;
+  /** read once into memory, never logged */
+  auth: PiAuth;
   modelsPath?: string;
 }
+
+/** What error messages must never show: the credentials, and where they live. */
+export const secretsOf = (cfg: PiModelConfig): (string | undefined)[] => [cfg.auth.kind === "file" ? cfg.auth.path : cfg.auth.key, cfg.modelsPath];
 
 export function parseModel(spec: string): { provider: string; id: string } | undefined {
   const slash = spec.indexOf("/");
@@ -53,10 +59,13 @@ function bare(system: string): ResourceLoader {
 const runtimes = new Map<string, Promise<ModelRuntime>>();
 
 function runtime(cfg: PiModelConfig): Promise<ModelRuntime> {
-  const key = `${cfg.authPath}\0${cfg.modelsPath ?? ""}`;
+  const { auth } = cfg;
+  const provider = parseModel(cfg.model)?.provider ?? "";
+  const key = `${auth.kind === "file" ? `file:${auth.path}` : `key:${provider}`}\0${cfg.modelsPath ?? ""}`;
   let made = runtimes.get(key);
   if (!made) {
-    made = ModelRuntime.create({ credentials: readOnlyCredentials(cfg.authPath), modelsPath: cfg.modelsPath ?? null, refreshOnCreate: false });
+    const credentials = auth.kind === "file" ? readOnlyCredentials(auth.path) : keyCredentials(provider, auth.key);
+    made = ModelRuntime.create({ credentials, modelsPath: cfg.modelsPath ?? null, refreshOnCreate: false });
     made.catch(() => runtimes.delete(key)); // a failed setup is retried next time
     runtimes.set(key, made);
   }

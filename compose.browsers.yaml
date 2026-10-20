@@ -5,9 +5,11 @@
 # token between remuse and the controllers, and the key that encrypts saved logins.
 # Used by compose.yaml (production) and compose.dev.yaml (published on localhost for `mise run dev`).
 # More pairs: copy a pair block and add it to REMUSE_BROWSERS in compose.yaml.
+# Images build from auto-browser at a pinned commit (a fork carrying the desktop-resize fix).
 
 x-node: &node
-  image: ${AB_NODE_IMAGE:-auto-browser-browser-node:latest}
+  build: https://github.com/Microwave-WYB/auto-browser.git#fe9f152c5dd9859b225b6322452b05a709958deb:browser-node
+  image: ${AB_NODE_IMAGE:-remuse-ab-node:fe9f152}
   restart: unless-stopped
   shm_size: 2gb
   mem_limit: 3g
@@ -39,7 +41,8 @@ x-node-env: &node-env
   PLAYWRIGHT_SERVER_PORT: "9223"
 
 x-controller: &controller
-  image: ${AB_CONTROLLER_IMAGE:-auto-browser-controller:latest}
+  build: https://github.com/Microwave-WYB/auto-browser.git#fe9f152c5dd9859b225b6322452b05a709958deb:controller
+  image: ${AB_CONTROLLER_IMAGE:-remuse-ab-controller:fe9f152}
   restart: unless-stopped
   # the controller reads secrets from env only: load them from the secrets volume, then start as usual
   command:
@@ -73,7 +76,7 @@ x-controller-env: &controller-env
 services:
   # first start only: make the secrets that are missing; later starts leave them alone
   secrets:
-    image: ${AB_CONTROLLER_IMAGE:-auto-browser-controller:latest}
+    image: ${AB_CONTROLLER_IMAGE:-remuse-ab-controller:fe9f152}
     user: "0"
     read_only: true
     network_mode: none

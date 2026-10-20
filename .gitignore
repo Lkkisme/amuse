@@ -12,5 +12,6 @@ local.properties
 node_modules/
 dist/
 .generated/
+.env
 deploy/*.env
 .scratch/

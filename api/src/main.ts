@@ -22,7 +22,7 @@ import { browserPool, controller } from "@remuse/browser";
 import { type Ports, createHost, realTimers } from "@remuse/core";
 import { demoPorts, seed } from "@remuse/demo";
 import { type State, apply, empty } from "@remuse/protocol";
-import { piAgent, piBrowserAgent, untrustedRule } from "@remuse/pi";
+import { type PiAuth, piAgent, piBrowserAgent, untrustedRule } from "@remuse/pi";
 import { listen } from "./server.ts";
 
 const token = process.env["REMUSE_TOKEN"];
@@ -34,7 +34,10 @@ const port = Number(process.env["REMUSE_PORT"] ?? 8797);
 const host = process.env["REMUSE_HOST"] ?? "127.0.0.1";
 
 const model = process.env["REMUSE_PI_MODEL"];
-const authPath = process.env["REMUSE_PI_AUTH"];
+const authFile = process.env["REMUSE_PI_AUTH"];
+const apiKey = process.env["REMUSE_PI_API_KEY"];
+/** the model's credentials: a Pi auth file, or the provider's API key straight from the environment */
+const auth: PiAuth | undefined = authFile ? { kind: "file", path: authFile } : apiKey ? { kind: "key", key: apiKey } : undefined;
 const system = [
   "You are Muse, a personal assistant in a chat app. Answer in the user's language, briefly and warmly. Use markdown only when it helps.",
   "When a request needs a website, start a browser task with `browse` and tell the user it is running; it continues in the background and they can watch or take over.",
@@ -46,7 +49,8 @@ const system = [
   untrustedRule,
 ].join("\n");
 const keyFile = process.env["REMUSE_COMPOSIO_KEY_FILE"];
-const composioClient = keyFile ? composio(readFileSync(keyFile, "utf8").trim()) : undefined;
+const composioKey = keyFile ? readFileSync(keyFile, "utf8").trim() : process.env["REMUSE_COMPOSIO_KEY"];
+const composioClient = composioKey ? composio(composioKey) : undefined;
 const composioUser = "owner";
 const publicUrl = process.env["REMUSE_PUBLIC_URL"];
 const connector =
@@ -76,10 +80,10 @@ await browsers?.reset();
  * that is not configured fails plainly instead of falling back to a script.
  * Without a model the whole thing is the scripted demo (with its seed).
  */
-const real = (model: string, authPath: string): Ports => ({
-  ...piAgent({ model, authPath, system, ...(composioClient ? { apps: composioApps(composioClient, composioUser) } : {}) }),
+const real = (model: string, auth: PiAuth): Ports => ({
+  ...piAgent({ model, auth, system, ...(composioClient ? { apps: composioApps(composioClient, composioUser) } : {}) }),
   ...(browsers
-    ? piBrowserAgent({ model, authPath }, browsers)
+    ? piBrowserAgent({ model, auth }, browsers)
     : {
         browse: (browser, io) => {
           if (io.act({ kind: "browserStatus", id: browser.id, status: "failed" }).ok)
@@ -96,8 +100,8 @@ const real = (model: string, authPath: string): Ports => ({
         throw new Error("No connector is configured (set REMUSE_COMPOSIO_KEY_FILE).");
       },
 });
-const demo = !(model && authPath);
-const ports: Ports = model && authPath ? real(model, authPath) : demoPorts(realTimers);
+const demo = !(model && auth);
+const ports: Ports = model && auth ? real(model, auth) : demoPorts(realTimers);
 
 const journalPath = process.env["REMUSE_JOURNAL"];
 const journal = journalPath ? { journal: fileJournal(journalPath) } : {};
@@ -118,5 +122,5 @@ await listen({ session, ...(live ? { live } : {}), ...(web ? { web } : {}), ...(
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.once(signal, () => process.exit(0));
 console.log(
-  `remuse api on ws://${host}:${port}/rpc (agent: ${model && authPath ? model : "scripted"}, connectors: ${keyFile ? "composio" : "scripted"}, browsers: ${nodes.length ? nodes.map((n) => n.name).join(",") : "none"})`,
+  `remuse api on ws://${host}:${port}/rpc (agent: ${model && auth ? model : "scripted"}, connectors: ${composioClient ? "composio" : "scripted"}, browsers: ${nodes.length ? nodes.map((n) => n.name).join(",") : "none"})`,
 );
