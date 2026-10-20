@@ -1,5 +1,5 @@
 # Production-style run. Secrets live outside the repo:
-#   deploy/remuse.env  REMUSE_TOKEN=…, REMUSE_PI_MODEL=provider/model-id, AUTO_BROWSER_TOKEN=… (gitignored)
+#   deploy/remuse.env  REMUSE_TOKEN=…, REMUSE_PI_MODEL=provider/model-id (gitignored)
 #   PI_AUTH            path to a Pi auth file          (mounted read-only)
 #   COMPOSIO_KEY       path to a Composio ak_ key file  (mounted read-only)
 # Published on 127.0.0.1 only; put tailscale serve or a reverse proxy in front.
@@ -16,12 +16,14 @@ services:
       REMUSE_PI_AUTH: /run/secrets/pi-auth.json
       REMUSE_COMPOSIO_KEY_FILE: /run/secrets/composio.key
       REMUSE_BROWSERS: pool1|http://ab-controller-1:8000|http://ab-node-1:6080,pool2|http://ab-controller-2:8000|http://ab-node-2:6080
+      AUTO_BROWSER_TOKEN_FILE: /secrets/auto-browser-token
     networks: [default, pair-1, pair-2]
     depends_on:
       ab-controller-1: { condition: service_healthy }
       ab-controller-2: { condition: service_healthy }
     volumes:
       - remuse-data:/data
+      - secrets:/secrets:ro
       - ${PI_AUTH:?set PI_AUTH to the Pi auth file}:/run/secrets/pi-auth.json:ro
       - ${COMPOSIO_KEY:?set COMPOSIO_KEY to the Composio key file}:/run/secrets/composio.key:ro
     ports:

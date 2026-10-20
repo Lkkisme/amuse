@@ -9,7 +9,7 @@
  *                 through Composio; read once, never logged
  *   REMUSE_JOURNAL  JSONL file the event log lives in (survives restarts); in memory if unset
  *   REMUSE_BROWSERS  the auto-browser pool: name|controller URL|noVNC URL, comma-separated
- *                 (see compose.browsers.yaml); with AUTO_BROWSER_TOKEN, the controllers' bearer token
+ *                 (see compose.browsers.yaml); AUTO_BROWSER_TOKEN_FILE holds the controllers' bearer token
  *   REMUSE_PUBLIC_URL  this server's address as the user's browser reaches it (http://host:port);
  *                 lets connectors send the user straight back for an instant "connected"
  *   REMUSE_ALLOWED_ORIGINS  comma-separated origins of other pages allowed to open the sockets (dev web server)
@@ -57,7 +57,9 @@ const connector =
     ...(publicUrl ? { callbackUrl: (key: string) => `${new URL("/connected", publicUrl)}?key=${key}` } : {}),
   });
 /** "name|http://controller:8000|http://node:6080, …" → nodes whose noVNC websocket is …/websockify */
-const browserToken = process.env["AUTO_BROWSER_TOKEN"] ?? "";
+/** The controllers' bearer token, made on first start by compose.browsers.yaml's `secrets`. */
+const tokenFile = process.env["AUTO_BROWSER_TOKEN_FILE"];
+const browserToken = tokenFile ? readFileSync(tokenFile, "utf8").trim() : "";
 const nodes = (process.env["REMUSE_BROWSERS"] ?? "")
   .split(",")
   .map((entry) => entry.trim().split("|"))

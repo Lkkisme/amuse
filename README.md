@@ -33,10 +33,11 @@ mise run //api:try   # a throwaway API for live tests (own port, temp journal)
 
 The `remuse` container serves the web app, `/rpc` and `/live`; browsers run in an
 auto-browser pool (`compose.browsers.yaml`: pairs of a headful Chromium desktop and its
-controller, one browser run per pair).
+controller, one browser run per pair). The secrets between them — the controllers' token and the
+key encrypting saved logins — are generated on first start and kept in the `secrets` volume.
 
 ```
-cp deploy/remuse.env.example deploy/remuse.env   # set REMUSE_TOKEN, the model, AUTO_BROWSER_TOKEN
+cp deploy/remuse.env.example deploy/remuse.env   # set REMUSE_TOKEN and the model
 PI_AUTH=~/path/to/pi/auth.json COMPOSIO_KEY=~/path/to/composio.key \
   docker compose --env-file deploy/remuse.env up -d --build
 ```

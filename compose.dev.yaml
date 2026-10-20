@@ -5,6 +5,11 @@ services:
   ab-node-1: { ports: ["127.0.0.1:18102:6080"] }
   ab-controller-2: { ports: ["127.0.0.1:18201:8000"] }
   ab-node-2: { ports: ["127.0.0.1:18202:6080"] }
+# secrets on the host, so the API running outside Docker can read the controllers' token
+volumes:
+  secrets:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${HOME}/.local/share/remuse/dev-secrets" }
 networks:
   pair-1: { internal: false }
   pair-2: { internal: false }

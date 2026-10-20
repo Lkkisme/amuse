@@ -1,6 +1,8 @@
 # The browser pool: auto-browser pairs (a headful Chromium desktop with noVNC, and its REST
 # controller). One session per node (one desktop each), so concurrency = number of pairs.
 # Each pair has its own internal network; only the node gets an egress network. No Docker socket.
+# Secrets are made on first start by `secrets` (kept in its volume, never typed in): the bearer
+# token between remuse and the controllers, and the key that encrypts saved logins.
 # Used by compose.yaml (production) and compose.dev.yaml (published on localhost for `mise run dev`).
 # More pairs: copy a pair block and add it to REMUSE_BROWSERS in compose.yaml.
 
@@ -38,6 +40,11 @@ x-node-env: &node-env
 x-controller: &controller
   image: ${AB_CONTROLLER_IMAGE:-auto-browser-controller:latest}
   restart: unless-stopped
+  # the controller reads secrets from env only: load them from the secrets volume, then start as usual
+  command:
+    - sh
+    - -c
+    - API_BEARER_TOKEN="$$(cat /secrets/auto-browser-token)" AUTH_STATE_ENCRYPTION_KEY="$$(cat /secrets/logins-key)" exec uvicorn app.main:app --host 0.0.0.0 --port 8000
   stop_grace_period: 60s
   mem_limit: 768m
   cpus: 0.75
@@ -55,14 +62,39 @@ x-controller: &controller
 
 x-controller-env: &controller-env
   APP_ENV: development # production refuses ALLOWED_HOSTS="*"; the agent browses the open web
-  API_BEARER_TOKEN: ${AUTO_BROWSER_TOKEN:?set AUTO_BROWSER_TOKEN}
   API_BIND_SCOPE: exposed
+  REQUIRE_AUTH_STATE_ENCRYPTION: "true"
   ALLOWED_HOSTS: "*"
   MAX_SESSIONS: "1"
   REQUEST_RATE_LIMIT_REQUESTS: "1200"
   AUTH_STATE_MAX_AGE_HOURS: "720"
 
 services:
+  # first start only: make the secrets that are missing; later starts leave them alone
+  secrets:
+    image: ${AB_CONTROLLER_IMAGE:-auto-browser-controller:latest}
+    user: "0"
+    read_only: true
+    network_mode: none
+    restart: "no"
+    volumes: [secrets:/secrets]
+    entrypoint:
+      - python
+      - -c
+      - |
+        import base64, os, secrets
+        def make(name, value, owner, mode):
+            path = f"/secrets/{name}"
+            try:
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+            except FileExistsError:
+                return
+            os.write(fd, value.encode()); os.close(fd); os.chown(path, owner, 0)
+        os.chmod("/secrets", 0o711)  # enter, never list; the controllers have no capability to bypass it
+        # remuse (uid 1000) owns the token; the controllers (root, without capabilities) read it as group 0
+        make("auto-browser-token", secrets.token_hex(24), 1000, 0o440)
+        make("logins-key", base64.urlsafe_b64encode(os.urandom(32)).decode(), 0, 0o400)  # Fernet key, controllers only
+
   ab-node-1:
     <<: *node
     networks: [pair-1, egress-1]
@@ -75,13 +107,15 @@ services:
   ab-controller-1:
     <<: *controller
     networks: [pair-1]
-    depends_on: { ab-node-1: { condition: service_healthy } }
+    depends_on:
+      ab-node-1: { condition: service_healthy }
+      secrets: { condition: service_completed_successfully }
     environment:
       <<: *controller-env
       CONTROLLER_ALLOWED_HOSTS: ab-controller-1,localhost,127.0.0.1,::1
       BROWSER_WS_ENDPOINT_FILE: /node-profile/browser-ws-endpoint.txt
       TAKEOVER_URL: http://ab-node-1:6080/vnc.html?autoconnect=true
-    volumes: [profile-1:/node-profile:ro, controller-1:/data, logins:/data/auth]
+    volumes: [profile-1:/node-profile:ro, controller-1:/data, logins:/data/auth, secrets:/secrets:ro]
 
   ab-node-2:
     <<: *node
@@ -95,13 +129,15 @@ services:
   ab-controller-2:
     <<: *controller
     networks: [pair-2]
-    depends_on: { ab-node-2: { condition: service_healthy } }
+    depends_on:
+      ab-node-2: { condition: service_healthy }
+      secrets: { condition: service_completed_successfully }
     environment:
       <<: *controller-env
       CONTROLLER_ALLOWED_HOSTS: ab-controller-2,localhost,127.0.0.1,::1
       BROWSER_WS_ENDPOINT_FILE: /node-profile/browser-ws-endpoint.txt
       TAKEOVER_URL: http://ab-node-2:6080/vnc.html?autoconnect=true
-    volumes: [profile-2:/node-profile:ro, controller-2:/data, logins:/data/auth]
+    volumes: [profile-2:/node-profile:ro, controller-2:/data, logins:/data/auth, secrets:/secrets:ro]
 
 networks:
   pair-1: { internal: true }
@@ -110,7 +146,8 @@ networks:
   egress-2: {}
 
 volumes:
-  logins: # auth profiles (saved logins), shared by every controller
+  secrets: # made on first start by `secrets`
+  logins: # auth profiles (saved logins, encrypted), shared by every controller
   profile-1:
   profile-2:
   controller-1:
