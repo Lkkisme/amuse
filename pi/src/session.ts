@@ -3,7 +3,7 @@
  * the tools passed in (no built-ins, MCP, extensions, skills or context
  * files), in memory. The model runtime is created once per process.
  */
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -63,7 +63,13 @@ function runtime(cfg: PiModelConfig): Promise<ModelRuntime> {
   return made;
 }
 
-export async function openSession(cfg: PiModelConfig, system: string, tools: ToolDefinition[]): Promise<AgentSession> {
+/** A Pi session and how to let go of it (its scratch directory is removed). */
+export interface PiSession {
+  session: AgentSession;
+  close(): void;
+}
+
+export async function openSession(cfg: PiModelConfig, system: string, tools: ToolDefinition[]): Promise<PiSession> {
   const spec = parseModel(cfg.model);
   if (!spec) throw new Error(`Invalid model "${cfg.model}"; use "provider/model-id".`);
   const models = await runtime(cfg);
@@ -84,5 +90,5 @@ export async function openSession(cfg: PiModelConfig, system: string, tools: Too
     tools: tools.map((tool) => tool.name),
     customTools: tools,
   });
-  return session;
+  return { session, close: () => rmSync(cwd, { recursive: true, force: true }) };
 }

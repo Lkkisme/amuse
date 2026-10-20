@@ -6,6 +6,7 @@ WORKDIR /app
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY protocol/package.json protocol/
 COPY core/package.json core/
+COPY demo/package.json demo/
 COPY pi/package.json pi/
 COPY composio/package.json composio/
 COPY browser/package.json browser/
@@ -29,6 +30,7 @@ RUN npx playwright-core install --with-deps --only-shell chromium && rm -rf /var
 COPY --from=deps /app/package.json /app/tsconfig.base.json ./
 COPY protocol protocol
 COPY core core
+COPY demo demo
 COPY pi pi
 COPY composio composio
 COPY browser browser

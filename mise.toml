@@ -17,9 +17,13 @@ description = "Generate artifacts from the protocol (JSON Schema, OpenRPC)"
 depends = ["//protocol:generate"]
 run = "true"
 
+[tasks.dockerfile-check]
+description = "Every workspace is copied into the Docker image"
+run = "node scripts/check-dockerfile.ts"
+
 [tasks.check]
 description = "Type-check and test every package"
-depends = ["//protocol:check", "//core:check", "//demo:check", "//pi:check", "//composio:check", "//browser:check", "//api:check", "//web:check"]
+depends = ["dockerfile-check", "//protocol:check", "//core:check", "//demo:check", "//pi:check", "//composio:check", "//browser:check", "//api:check", "//web:check"]
 run = "true"
 
 [tasks.dev]

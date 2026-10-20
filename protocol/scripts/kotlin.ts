@@ -44,7 +44,7 @@ const parents = new Map<string, Parent[]>();
 
 /** The tag property and value of a union variant, if it has exactly one const. */
 function tagOf(variant: Schema): [string, string] {
-  const consts = Object.entries(deref(variant).properties ?? {}).flatMap(([k, v]) => (v.const === undefined ? [] : [[k, v.const] as [string, string]]));
+  const consts = Object.entries(deref(variant).properties ?? {}).flatMap(([key, v]): [string, string][] => (v.const === undefined ? [] : [[key, v.const]]));
   return consts.length === 1 && consts[0] ? consts[0] : fail(`union variant needs exactly one const tag: ${JSON.stringify(variant).slice(0, 120)}`);
 }
 

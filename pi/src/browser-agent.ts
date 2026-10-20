@@ -193,13 +193,17 @@ export function piBrowserAgent(cfg: PiModelConfig, pool: Pool): Pick<Ports, "bro
   };
 
   const drive = async (run: Run) => {
-    const session = await openSession(cfg, system, runTools(run));
-    run.session = session;
-    if (run.stop.signal.aborted) return;
-    await session.prompt(`Task: ${run.browser.title}\nThe start page ${run.browser.url} is open.`, { expandPromptTemplates: false });
-    if (!run.finished && !run.stop.signal.aborted)
-      await session.prompt("Call finish now with the result, or need_user if you are blocked.", { expandPromptTemplates: false });
-    if (!run.finished && !run.stop.signal.aborted) fail(run.browser, run.io, "It stopped without a result.");
+    const pi = await openSession(cfg, system, runTools(run));
+    run.session = pi.session;
+    try {
+      if (run.stop.signal.aborted) return;
+      await pi.session.prompt(`Task: ${run.browser.title}\nThe start page ${run.browser.url} is open.`, { expandPromptTemplates: false });
+      if (!run.finished && !run.stop.signal.aborted)
+        await pi.session.prompt("Call finish now with the result, or need_user if you are blocked.", { expandPromptTemplates: false });
+      if (!run.finished && !run.stop.signal.aborted) fail(run.browser, run.io, "It stopped without a result.");
+    } finally {
+      pi.close();
+    }
   };
 
   return {

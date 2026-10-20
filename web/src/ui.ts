@@ -19,6 +19,8 @@ export interface Ui {
   explainer: string | null;
   /** task whose detail sheet is open */
   taskDetail: string | null;
+  /** a short message about something that did not work */
+  notice: string | null;
 }
 
 export const initialUi: Ui = {
@@ -29,6 +31,7 @@ export const initialUi: Ui = {
   viewer: null,
   explainer: null,
   taskDetail: null,
+  notice: null,
 };
 
 /** Everything a component can ask for: protocol calls and UI changes. */

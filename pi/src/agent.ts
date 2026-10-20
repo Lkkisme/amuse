@@ -4,10 +4,9 @@
  * reply entity. Pi's coding tools, extensions, skills and context files are
  * all off: the model sees only remuse's tools (tools.ts).
  */
-import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { type AgentIO, type Ports, newId } from "@remuse/core";
 import { redact } from "./redact.ts";
-import { type PiModelConfig, openSession } from "./session.ts";
+import { type PiModelConfig, type PiSession, openSession } from "./session.ts";
 import { type Apps, appTools, tools } from "./tools.ts";
 
 export interface PiConfig extends PiModelConfig {
@@ -25,7 +24,8 @@ const toolLabels: Record<string, string> = {
 
 /** prompt + interrupt on Pi. Prompts run one after another; interrupt aborts the current one. */
 export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt"> {
-  let session: Promise<AgentSession> | undefined;
+  /** One session for the life of the process (its scratch dir goes with it). */
+  let session: Promise<PiSession> | undefined;
   /** The run in progress; tools act through it. Runs are sequential, so there is at most one. */
   let current: AgentIO | undefined;
   const io = () => {
@@ -57,7 +57,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt"> {
       reply = undefined;
     };
     try {
-      const pi = await ready();
+      const { session: pi } = await ready();
       if (!live()) return;
       let failure: string | undefined;
       const unsubscribe = pi.subscribe((event) => {
@@ -105,7 +105,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt"> {
     },
     interrupt: () => {
       epoch++;
-      void session?.then((pi) => pi.abort()).catch(() => {});
+      void session?.then(({ session: pi }) => pi.abort()).catch(() => {});
     },
   };
 }

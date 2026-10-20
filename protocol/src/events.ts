@@ -14,10 +14,10 @@ export const Event = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("activity"), activity: Activity.nullable() }),
 ]);
 
-/** Sequence numbers start at 1 and have no gaps. */
+/** A position in the stream: 0 before any event; events are numbered from 1, without gaps. */
 export const Seq = z.int().nonnegative();
 
-export const Envelope = z.object({ seq: Seq, event: Event });
+export const Envelope = z.object({ seq: z.int().positive(), event: Event });
 
 export const State = z.object({
   /** seq of the last applied event; 0 for the empty state */

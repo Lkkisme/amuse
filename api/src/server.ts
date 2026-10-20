@@ -7,9 +7,10 @@
  * in constant time; anything else is refused before the upgrade.
  */
 import { createHash, timingSafeEqual } from "node:crypto";
-import { type ServerResponse, createServer } from "node:http";
+import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
 import type { Session } from "@remuse/protocol";
 import { WebSocketServer } from "ws";
+import { z } from "zod";
 import { type Live, attach, thumbnail } from "./live.ts";
 import { serve } from "./rpc.ts";
 import { staticFiles } from "./static.ts";
@@ -30,6 +31,32 @@ export interface Options {
 const digest = (s: string) => createHash("sha256").update(s).digest();
 const sameToken = (a: string, b: string) => timingSafeEqual(digest(a), digest(b));
 
+const cookieName = "remuse";
+
+/**
+ * The token a request carries: the HttpOnly cookie set by /unlock (browsers,
+ * keeps it out of URLs and access logs), a Bearer header (scripts), or —
+ * for the cross-origin dev setup only — the `token` query parameter.
+ */
+function presented(req: IncomingMessage, url: URL): string {
+  const cookie = req.headers.cookie
+    ?.split(";")
+    .map((part) => part.trim().split("="))
+    .find(([name]) => name === cookieName)?.[1];
+  const bearer = req.headers.authorization?.match(/^Bearer (.+)$/)?.[1];
+  return cookie ? decodeURIComponent(cookie) : (bearer ?? url.searchParams.get("token") ?? "");
+}
+
+const Unlock = z.object({ token: z.string().min(1).max(512) });
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
 type Target = { kind: "rpc" } | { kind: "live"; id: string; live: Live };
 
 /** A running server: where it listens, and how to stop it (sockets included). */
@@ -45,10 +72,30 @@ export function listen({ session, live, web, returned, token, port, host }: Opti
     return url.pathname === "/live" && live && id ? { kind: "live", id, live } : null;
   };
   const files = web ? staticFiles(web) : null;
-  /** GET /thumb?id=<run>&token=… → the run's page as a small JPEG, for its card. */
-  const thumb = async (url: URL, res: ServerResponse) => {
+  const allowed = (req: IncomingMessage, url: URL) => sameToken(presented(req, url), token);
+
+  /** POST /unlock {token} → sets the HttpOnly session cookie; GET /unlock → 204 when this browser is unlocked. */
+  const unlock = async (req: IncomingMessage, url: URL, res: ServerResponse) => {
+    if (req.method === "GET") return void res.writeHead(allowed(req, url) ? 204 : 401).end();
+    if (req.method !== "POST") return void res.writeHead(405).end();
+    let body = "";
+    for await (const chunk of req) {
+      body += String(chunk);
+      if (body.length > 4096) return void res.writeHead(413).end();
+    }
+    const offered = Unlock.safeParse(parseJson(body));
+    if (!offered.success || !sameToken(offered.data.token, token)) return void res.writeHead(401).end();
+    const secure = req.headers["x-forwarded-proto"] === "https" ? "; Secure" : "";
+    res.writeHead(204, {
+      "set-cookie": `${cookieName}=${encodeURIComponent(offered.data.token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000${secure}`,
+    });
+    res.end();
+  };
+
+  /** GET /thumb?id=<run> → the run's page as a small JPEG, for its card. */
+  const thumb = async (req: IncomingMessage, url: URL, res: ServerResponse) => {
     const id = url.searchParams.get("id");
-    const image = live && id && sameToken(url.searchParams.get("token") ?? "", token) ? await thumbnail(live, id) : null;
+    const image = live && id && allowed(req, url) ? await thumbnail(live, id) : null;
     if (!image) return void res.writeHead(404).end();
     res.writeHead(200, { "content-type": "image/jpeg", "cache-control": "no-store" }).end(image);
   };
@@ -63,7 +110,8 @@ export function listen({ session, live, web, returned, token, port, host }: Opti
   const http = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://local");
     const handled =
-      url.pathname === "/thumb" ? thumb(url, res)
+      url.pathname === "/unlock" ? unlock(req, url, res)
+      : url.pathname === "/thumb" ? thumb(req, url, res)
       : url.pathname === "/connected" ? back(url, res)
       : files ? files(req, res)
       : Promise.resolve(void res.writeHead(404).end());
@@ -74,7 +122,7 @@ export function listen({ session, live, web, returned, token, port, host }: Opti
   http.on("upgrade", (req, socket, head) => {
     const url = new URL(req.url ?? "/", "http://local");
     const target = route(url);
-    if (!target || !sameToken(url.searchParams.get("token") ?? "", token)) {
+    if (!target || !allowed(req, url)) {
       socket.end("HTTP/1.1 401 Unauthorized\r\n\r\n");
       return;
     }

@@ -7,9 +7,9 @@ import { useEffect, useMemo, useState } from "react";
 import { connect } from "@remuse/api/client";
 import { createHost, realTimers } from "@remuse/core";
 import { demoPorts, seed } from "@remuse/demo";
-import type { Session } from "@remuse/protocol";
+import type { Method, Params, Session } from "@remuse/protocol";
 import { seedSettings } from "./demo/settings.ts";
-import { connection } from "./connection.ts";
+import { type Connection, connection } from "./connection.ts";
 import { useConversation } from "./session.ts";
 import { Unlock } from "./components/Unlock";
 import { type Actions, type Ui, initialUi } from "./ui.ts";
@@ -26,17 +26,25 @@ import { TaskPill } from "./components/TaskPill";
 import { MenuButton, TopBar } from "./components/TopBar";
 import { Viewer } from "./components/Viewer";
 
-const where = connection();
-
-const openSession = (): Session =>
-  where.kind === "server" ? connect(where.rpc) : createHost(demoPorts(realTimers), { seed: seed() });
+/** A session and how to let go of it (a socket must be closed, or it reconnects forever). */
+const openSession = (where: Connection): { session: Session; close: () => void } => {
+  if (where.kind === "server") {
+    const remote = connect(where.rpc);
+    return { session: remote, close: () => remote.close() };
+  }
+  return { session: createHost(demoPorts(realTimers), { seed: seed() }), close: () => {} };
+};
 
 export default function App() {
-  return where.kind === "locked" ? <Unlock /> : <Chat />;
+  const [where, setWhere] = useState<Connection | null>(null);
+  useEffect(() => void connection().then(setWhere), []);
+  if (!where) return null;
+  return where.kind === "locked" ? <Unlock /> : <Chat where={where} />;
 }
 
-function Chat() {
-  const [session, setSession] = useState(openSession);
+function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
+  const [link, setLink] = useState(() => openSession(where));
+  const { session } = link;
   const conversation = useConversation(session);
   const [ui, setUi] = useState<Ui>(initialUi);
   const [settings, setSettings] = useState(seedSettings);
@@ -54,10 +62,13 @@ function Chat() {
 
   const actions = useMemo<Actions>(() => {
     const patch = (fn: (u: Ui) => Ui) => setUi(fn);
+    /** Every call's failure is shown, briefly; nothing is dropped silently. */
+    const call = <M extends Method>(method: M, params: Params[M]) =>
+      void session.call(method, params).catch((error: unknown) => patch((u) => ({ ...u, notice: error instanceof Error ? error.message : String(error) })));
     return {
-      send: (text) => void session.call("chat.send", { text }),
-      stop: () => void session.call("chat.stop", {}),
-      resolveApproval: (id, resolution) => void session.call("approval.resolve", { id, resolution }),
+      send: (text) => call("chat.send", { text }),
+      stop: () => call("chat.stop", {}),
+      resolveApproval: (id, resolution) => call("approval.resolve", { id, resolution }),
       openExplainer: (explainer) => patch((u) => ({ ...u, explainer })),
       connect: (id) => {
         patch((u) => ({ ...u, explainer: null }));
@@ -65,7 +76,10 @@ function Chat() {
         const tab = window.open("about:blank", "_blank");
         session.call("connection.begin", { id }).then(
           ({ url }) => (tab ? tab.location.replace(url) : window.location.assign(url)),
-          () => tab?.close(),
+          (error: unknown) => {
+            tab?.close();
+            patch((u) => ({ ...u, notice: error instanceof Error ? error.message : String(error) }));
+          },
         );
       },
       openViewer: (browserId) =>
@@ -83,8 +97,8 @@ function Chat() {
           if (!last) return { ...u, viewer: null };
           return { ...u, viewer: { browserId: u.viewer.browserId === browserId ? last : u.viewer.browserId, closedTabs } };
         }),
-      control: (id, action) => void session.call("browser.control", { id, action }),
-      stopTask: (id) => void session.call("task.stop", { id }),
+      control: (id, action) => call("browser.control", { id, action }),
+      stopTask: (id) => call("task.stop", { id }),
       openTaskDetail: (taskDetail) => patch((u) => ({ ...u, taskDetail })),
       setChats: (chatsOpen) => patch((u) => ({ ...u, chatsOpen })),
       setActivity: (activityOpen) => patch((u) => ({ ...u, activityOpen })),
@@ -106,12 +120,20 @@ function Chat() {
         setSettings((s) => ({ ...s, credentials: [...s.credentials, { id: `cred${s.credentials.length + 1}`, domain, username }] })),
       setTheme: (theme) => patch((u) => ({ ...u, theme })),
       reset: () => {
-        setSession(openSession());
+        link.close();
+        setLink(openSession(where));
         setUi((u) => ({ ...initialUi, theme: u.theme }));
         setSettings(seedSettings());
       },
     };
-  }, [session, conversation]);
+  }, [session, link, conversation]);
+
+  // a notice shows for a few seconds
+  useEffect(() => {
+    if (!ui.notice) return;
+    const timer = setTimeout(() => setUi((u) => ({ ...u, notice: null })), 4000);
+    return () => clearTimeout(timer);
+  }, [ui.notice]);
 
   return (
     <div className="flex h-full" style={{ background: "var(--chat-background)" }}>
@@ -122,6 +144,15 @@ function Chat() {
         <TopBar conversation={conversation} />
         <MenuButton open={ui.chatsOpen} actions={actions} />
         <TaskPill conversation={conversation} actions={actions} />
+        {ui.notice && (
+          <p
+            role="status"
+            className="anim-fade-in absolute inset-x-0 bottom-[86px] z-30 mx-auto w-fit max-w-[90%] rounded-full px-4 py-2 text-[13px]"
+            style={{ background: "var(--fill-primary)", color: "var(--fill-red)", boxShadow: "0 1px 6px rgba(0,0,0,0.12)" }}
+          >
+            {ui.notice}
+          </p>
+        )}
         <Composer conversation={conversation} actions={actions} />
       </div>
 

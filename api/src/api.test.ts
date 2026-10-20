@@ -98,3 +98,25 @@ test("a server that comes back without its log resets the client instead of free
   session.close();
   await second.close();
 });
+
+test("unlock turns the token into an HttpOnly cookie that alone opens the socket", async () => {
+  const http = base.replace("ws://", "http://").replace("/rpc", "");
+  const offer = (t: string) => fetch(`${http}/unlock`, { method: "POST", body: JSON.stringify({ token: t }) });
+  assert.equal((await offer("wrong")).status, 401);
+  const unlocked = await offer(token);
+  assert.equal(unlocked.status, 204);
+  const cookie = unlocked.headers.get("set-cookie") ?? "";
+  assert.match(cookie, /HttpOnly/);
+  assert.match(cookie, /SameSite=Strict/);
+  const pair = cookie.split(";")[0] ?? "";
+  assert.equal((await fetch(`${http}/unlock`)).status, 401);
+  assert.equal((await fetch(`${http}/unlock`, { headers: { cookie: pair } })).status, 204);
+  const { WebSocket: Ws } = await import("ws");
+  const ws = new Ws(base, { headers: { cookie: pair } }); // no token in the URL
+  const outcome = await new Promise((resolve) => {
+    ws.on("open", () => resolve("open"));
+    ws.on("error", () => resolve("refused"));
+  });
+  ws.close();
+  assert.equal(outcome, "open");
+});
