@@ -40,7 +40,7 @@ export function Unlock() {
         type="password"
         aria-label="Access token"
         className="h-11 w-full max-w-xs rounded-full px-4 text-[15px] outline-none"
-        style={{ background: "var(--avatar-fill)", color: "var(--avatar-text)", boxShadow: "var(--shadow-float)" }}
+        style={{ background: "var(--fill-primary)", color: "var(--text-primary)", boxShadow: "var(--shadow-float)" }}
         value={token}
         onChange={(e) => setToken(e.target.value)}
       />
