@@ -187,6 +187,12 @@
   transition: opacity 0.2s ease;
 }
 
+/* a finger held on the live desktop: the ring fills until the drag is armed (TouchSurface) */
+@keyframes hold-ring {
+  from { stroke-dashoffset: var(--ring); }
+  to { stroke-dashoffset: 0; }
+}
+
 /* the live desktop: gestures belong to it, not to the phone's text selection or long-press menu */
 /* (not the hidden field that takes the phone's typing: iOS will not type into an unselectable one) */
 .remote-surface,
