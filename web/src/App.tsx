@@ -93,7 +93,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         transition(() =>
           patch((u) => ({ ...u, museOpen: false, viewer: { browserId, closedTabs: (u.viewer?.closedTabs ?? []).filter((t) => t !== browserId) } })),
         ),
-      closeViewer: () => transition(() => patch((u) => ({ ...u, viewer: null }))),
+      closeViewer: () => patch((u) => ({ ...u, viewer: null })),
       selectTab: (browserId) => patch((u) => (u.viewer ? { ...u, viewer: { ...u.viewer, browserId } } : u)),
       closeTab: (browserId) =>
         patch((u) => {
@@ -152,7 +152,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         <ChatFeed conversation={conversation} older={older} release={release} thumb={where.kind === "server" ? where.thumb : null} actions={actions} />
         <TopBar conversation={conversation} museOpen={ui.museOpen} actions={actions} />
         <MenuButton open={ui.chatsOpen} actions={actions} />
-        {!ui.viewer && <BrowserButton conversation={conversation} actions={actions} />}
+        <BrowserButton conversation={conversation} open={ui.viewer !== null} actions={actions} />
         {ui.notice && (
           <p
             role="status"

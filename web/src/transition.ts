@@ -13,6 +13,3 @@ export function transition(change: () => void): void {
 
 /** The name the Muse avatar travels under (one element at a time may carry it). */
 export const museAvatar: CSSProperties = { viewTransitionName: "muse-avatar" };
-
-/** The browser button travels between the chat's corner (closed) and the viewer's (open, as its collapse button). */
-export const browserButton: CSSProperties = { viewTransitionName: "browser-button" };

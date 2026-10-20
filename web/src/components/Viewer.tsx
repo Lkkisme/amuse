@@ -16,7 +16,6 @@ import { ArrowLeft, ArrowRight, Check, CircleCheck, CircleDot, Copy, Globe, Menu
 import type { Browser, State } from "@remuse/protocol";
 import type { Actions, Ui } from "../ui.ts";
 import { browserStatus, host, hue, path, stoppable, viewerRun, viewerTabs } from "../view.ts";
-import { CollapseBrowser } from "./BrowserButton";
 import { LiveView } from "./LiveView";
 import { useLastValue, usePresence } from "./usePresence";
 
@@ -50,23 +49,23 @@ export function Viewer({
       <ResizeEdge onResize={onResize} />
       {browser ? (
         <>
-          <ViewerHeader browser={browser} leaving={closing} actions={actions} />
+          <ViewerHeader browser={browser} actions={actions} />
           <RunTabs tabs={tabs} activeId={browser.id} actions={actions} />
           {live ? <LivePage key={browser.id} browser={browser} url={live(browser.id)} actions={actions} /> : <FakeChrome browser={browser} />}
         </>
       ) : (
-        <NoBrowser leaving={closing} actions={actions} />
+        <NoBrowser />
       )}
     </div>
   );
 }
 
 /** No run has a browser now: say so, and how one comes. */
-function NoBrowser({ leaving, actions }: { leaving: boolean; actions: Actions }) {
+function NoBrowser() {
   return (
     <>
       <header className="flex justify-end pr-3 pt-2">
-        <CollapseBrowser leaving={leaving} actions={actions} />
+        <span className="size-10" />
       </header>
       <div className="flex flex-1 flex-col items-center justify-center gap-2 px-8 text-center">
         <Globe size={28} style={{ color: "var(--icon-secondary)" }} />
@@ -101,7 +100,7 @@ function ResizeEdge({ onResize }: { onResize: (edge: number) => void }) {
   );
 }
 
-function ViewerHeader({ browser, leaving, actions }: { browser: Browser; leaving: boolean; actions: Actions }) {
+function ViewerHeader({ browser, actions }: { browser: Browser; actions: Actions }) {
   const user = browser.status === "paused";
   const title = user ? "You're in control" : browser.status === "needs_you" ? "Action required" : browser.title;
   const sub = user ? host(browser.url) : `${browserStatus[browser.status].label} · ${host(browser.url)}`;
@@ -148,7 +147,8 @@ function ViewerHeader({ browser, leaving, actions }: { browser: Browser; leaving
           <span className="hidden sm:inline">Take control of the browser</span>
         </button>
       )}
-      <CollapseBrowser leaving={leaving} actions={actions} />
+      {/* the corner is the browser button's (it stays put and collapses the viewer) */}
+      <span className="size-10 shrink-0" />
     </header>
   );
 }
