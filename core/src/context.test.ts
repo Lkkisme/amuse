@@ -7,7 +7,7 @@ import { place } from "./decide.ts";
 const at = "2026-10-20T08:00:00Z";
 const stateOf = (...entities: Entity[]): State =>
   entities.reduce((s, entity) => apply(s, { seq: s.seq + 1, event: place(s, { kind: "upserted", entity }) }), empty);
-const prompt = (id: string, text: string): Entity => ({ kind: "prompt", id, at, text });
+const prompt = (id: string, text: string): Entity => ({ kind: "prompt", id, at, text, timezone: "UTC" });
 const reply = (id: string, text: string): Entity => ({ kind: "reply", id, at, text, streaming: false });
 const run: Browser = {
   kind: "browser",

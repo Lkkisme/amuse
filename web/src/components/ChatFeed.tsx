@@ -10,7 +10,7 @@ import { ArrowDown, ChevronDown, Copy, Share } from "lucide-react";
 import type { Entity, Prompt, Reply, State } from "@remuse/protocol";
 import type { Actions } from "../ui.ts";
 import { thinking, time } from "../view.ts";
-import { ApprovalCard, BrowserCard, ConnectionCard, TaskCard } from "./cards";
+import { ApprovalCard, BrowserCard, ConnectionCard, ScheduleCard, TaskCard } from "./cards";
 import { RichText } from "./markdown";
 import { type Place, type Side, corners } from "./shape.ts";
 
@@ -44,6 +44,8 @@ function EntityView({ entity, place, thumb, actions, onMenu }: { entity: Entity;
       return <ConnectionCard connection={entity} place={place} actions={actions} />;
     case "browser":
       return <BrowserCard browser={entity} thumb={thumb} place={place} actions={actions} />;
+    case "schedule":
+      return <ScheduleCard schedule={entity} place={place} actions={actions} />;
   }
 }
 

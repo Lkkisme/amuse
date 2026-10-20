@@ -5,7 +5,7 @@
 import type { App } from "@remuse/protocol";
 import type { SettingsData } from "./demo/settings.ts";
 
-export type SettingsSection = "general" | "connectors" | "permissions" | "secure-store";
+export type SettingsSection = "general" | "connectors" | "permissions" | "schedules" | "secure-store";
 
 export type Theme = "light" | "dark";
 

@@ -173,6 +173,7 @@ export async function appCall(io: AgentIO, apps: Apps, action: string, args: Rec
   void io.decision(approval.id).then(async ({ verdict, remember }) => {
     if (remember) await apps.remember(app, action, verdict === "approved" ? "allow" : "deny").catch(() => {});
     if (verdict === "denied") return io.report(`[app action "${label}" declined by the user]`);
+    if (verdict === "timed_out") return io.report(`[app action "${label}" not done: the user did not answer the approval in time]`);
     const result = await apps.call(action, args, account.id).catch((e: unknown): Result => ({ ok: false, error: String(e) }));
     io.report(`[app action "${label}" done]\n${outcome(result)}`);
   });

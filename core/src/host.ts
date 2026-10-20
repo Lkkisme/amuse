@@ -18,6 +18,7 @@ import {
   type Params,
   type Reply,
   type Results,
+  type Schedule,
   type Session,
   type State,
   type Update,
@@ -38,9 +39,12 @@ import {
   decideAgent,
   place,
   recover,
+  tick,
   lasting,
   verdict,
 } from "./decide.ts";
+import { deadline, userZone } from "./schedule.ts";
+import { type Timers, realTimers } from "./timers.ts";
 import type { Rules } from "./policy.ts";
 import { agentContext, recall } from "./context.ts";
 
@@ -68,9 +72,12 @@ export interface AgentIO {
   context(): string;
   /** Search the whole conversation, however old. */
   recall(query: string): string;
-  /** Resolves when the user decides approval `id` (from an `ask`); at once if already decided. */
+  /** Resolves when the user decides approval `id` (from an `ask`), or it times out; at once if already settled. */
   decision(id: string): Promise<Answer>;
+  /** Wake the chat agent with a note from background work. */
   report(note: string): void;
+  /** Now, and the user's time zone (their device's when they last wrote). */
+  time(): { now: string; timezone: string };
 }
 
 /** The outside world. Every port gets the same AgentIO. */
@@ -81,6 +88,12 @@ export interface Ports {
   interrupt(io: AgentIO): void;
   /** Run a browser task the agent started. */
   browse(browser: Browser, io: AgentIO): void;
+  /**
+   * Run a schedule whose time has come, in the background, apart from the
+   * chat. It reports to the chat only what is worth telling (io.report), and
+   * ends with a `scheduleRan` action saying how it went.
+   */
+  schedule(schedule: Schedule, io: AgentIO): void;
   browser(effect: Extract<Effect, { kind: "browser" }>, io: AgentIO): void;
   approval(effect: Extract<Effect, { kind: "approval" }>, io: AgentIO): void;
   stopTask(id: string, io: AgentIO): void;
@@ -116,6 +129,8 @@ export function describe(rejection: Rejection): string {
       return `${rejection.entity} ${rejection.id} not found`;
     case "gone":
       return `the browser of ${rejection.id} is gone`;
+    case "unsound":
+      return rejection.reason;
     case "invalid":
       return `cannot ${rejection.action} from ${rejection.from}`;
   }
@@ -147,7 +162,12 @@ export interface HostOptions {
   ids?: (prefix: string) => string;
   /** Entities a snapshot holds (more while older ones are still in play); older ones come by session.history. */
   snapshot?: number;
+  /** What wakes the host when a schedule or an approval falls due (real timers by default). */
+  timers?: Timers<unknown>;
 }
+
+/** setTimeout's longest wait (about 24.8 days); a later deadline is woken for and looked at again. */
+const LONGEST_WAIT = 2 ** 31 - 1;
 
 export function createHost(ports: Ports, options: HostOptions = {}): Session {
   const clock = options.clock ?? { now: () => new Date().toISOString() };
@@ -167,7 +187,28 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     record(envelope);
     options.journal?.append(envelope);
     for (const listener of listeners) listener({ kind: "event", envelope });
+    if (change.kind === "upserted") arm(); // only an entity can move a deadline
   };
+
+  /** One timer, for the earliest deadline; when it fires, whatever is due happens (decide.ts `tick`). */
+  const timers = options.timers ?? realTimers;
+  let armed: { at: string; handle: unknown } | null = null;
+  function arm(): void {
+    const at = deadline(state);
+    if (armed?.at === at) return;
+    if (armed) timers.clear(armed.handle);
+    armed = null;
+    if (at === null) return;
+    const wait = Math.min(Math.max(0, Date.parse(at) - Date.parse(clock.now())), LONGEST_WAIT);
+    armed = { at, handle: timers.set(wait, fire) };
+  }
+  function fire(): void {
+    armed = null;
+    const due = tick(state, clock.now());
+    due.changes.forEach(commit);
+    due.effects.forEach(run);
+    arm();
+  }
 
   const context = (): Context => ({ now: clock.now(), id: options.ids ?? newId });
 
@@ -182,12 +223,13 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     emit: commit,
     decision(id) {
       const approval = state.entities.find((e) => e.kind === "approval" && e.id === id);
-      if (approval?.kind === "approval" && approval.status !== "pending") return Promise.resolve({ verdict: approval.status === "approved" ? "approved" : "denied", remember: false });
+      if (approval?.kind === "approval" && approval.status !== "pending") return Promise.resolve({ verdict: approval.status, remember: false });
       return new Promise((resolve) => waiting.set(id, [...(waiting.get(id) ?? []), resolve]));
     },
     report: (note) => ports.prompt({ kind: "note", text: note }, agent),
     context: () => agentContext(state),
     recall: (query) => recall(state, query),
+    time: () => ({ now: clock.now(), timezone: userZone(state) }),
     act(action) {
       const decision = decideAgent(state, action.kind, action, context());
       if (!decision.ok) return decision;
@@ -214,6 +256,10 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
         return ports.browse(effect.browser, agent);
       case "fit":
         return ports.fit(effect, agent);
+      case "run":
+        return ports.schedule(effect.schedule, agent);
+      case "expired":
+        return settle(effect.id, { verdict: "timed_out", remember: false });
     }
   }
 
@@ -229,8 +275,9 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
   // a journal with history wins over the seed
   const history = options.journal?.load() ?? [];
   history.forEach(record);
-  recover(state).forEach(commit);
+  recover(state, clock.now()).forEach(commit);
   if (history.length === 0) for (const entity of options.seed ?? []) commit({ kind: "upserted", entity });
+  arm(); // what fell due while remuse was down happens now (or is recorded as missed)
 
   const handlers: Handlers = {
     "session.sync": async ({ since }) =>
@@ -250,6 +297,8 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     "browser.control": async (params) => command("browser.control", params),
     "browser.fit": async (params) => command("browser.fit", params),
     "task.stop": async (params) => command("task.stop", params),
+    "schedules.list": async () => ({ schedules: state.entities.filter((e): e is Schedule => e.kind === "schedule").reverse() }),
+    "schedule.control": async (params) => command("schedule.control", params),
     "apps.search": ({ query, cursor }) => ports.apps.search(query, cursor),
     "apps.accounts": async () => ({ accounts: await ports.apps.accounts() }),
     "apps.connect": async ({ app }) => ({ url: await ports.apps.connect(app) }),

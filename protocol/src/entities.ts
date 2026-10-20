@@ -9,12 +9,16 @@ export const Id = z.string().min(1);
 /** ISO-8601 instant, UTC. */
 export const Instant = z.iso.datetime();
 
-/** What the user said. */
+/** An IANA time zone, e.g. "Asia/Shanghai". */
+export const TimeZone = z.string().min(1);
+
+/** What the user said, and where they were: their device's time zone, which is the user's time zone from then on. */
 export const Prompt = z.object({
   kind: z.literal("prompt"),
   id: Id,
   at: Instant,
   text: z.string(),
+  timezone: TimeZone,
 });
 
 /** What the agent said; `streaming` until its last delta has arrived. */
@@ -44,7 +48,7 @@ export const Task = z.object({
 /** How the user answers an approval; the *_always / session ones also create a rule. */
 export const Resolution = z.enum(["allow_once", "allow_session", "allow_always", "deny", "deny_always"]);
 
-/** An outbound action the policy says to ask about. */
+/** An outbound action the policy says to ask about; unanswered by `expires`, it times out (no). */
 export const Approval = z.object({
   kind: z.literal("approval"),
   id: Id,
@@ -55,6 +59,7 @@ export const Approval = z.object({
   /** whether the answer can be kept as a rule for next time (offer "always"); only actions a rule can name */
   remember: z.boolean(),
   status: z.enum(["pending", "approved", "denied", "timed_out"]),
+  expires: Instant,
 });
 
 /** The agent asking the user to connect an app (provider: e.g. "gmail"). */
@@ -92,7 +97,45 @@ export const Browser = z.object({
   live: z.boolean(),
 });
 
-export const Entity = z.discriminatedUnion("kind", [Prompt, Reply, Task, Approval, Connection, Browser]);
+/** When a schedule runs: on a cron pattern (5 fields) in a time zone, or once. */
+export const When = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("repeat"), cron: z.string(), timezone: TimeZone }),
+  z.object({ kind: z.literal("once"), at: Instant }),
+]);
+
+/**
+ * How a schedule's run went: reported (it told the conversation something),
+ * quiet (nothing worth saying), failed, or missed (remuse was not running
+ * then, and it was too late to catch up).
+ */
+export const RunOutcome = z.enum(["reported", "quiet", "failed", "missed"]);
+
+/**
+ * Work the agent set up to run later or regularly (a daily briefing, an
+ * hourly look at the mail). Each run is a background agent given
+ * `instructions`; it tells the conversation only what is worth telling.
+ *   active     runs at `next`
+ *   paused     by the user; resumes from then on, nothing caught up
+ *   done       a one-off that has run
+ *   cancelled  for good
+ */
+export const Schedule = z.object({
+  kind: z.literal("schedule"),
+  id: Id,
+  at: Instant,
+  title: z.string(),
+  instructions: z.string(),
+  when: When,
+  status: z.enum(["active", "paused", "done", "cancelled"]),
+  /** the next run while active; null otherwise */
+  next: Instant.nullable(),
+  /** a run is under way */
+  running: z.boolean(),
+  /** how the latest run went, in a few words; null before the first */
+  last: z.object({ at: Instant, outcome: RunOutcome, summary: z.string() }).nullable(),
+});
+
+export const Entity = z.discriminatedUnion("kind", [Prompt, Reply, Task, Approval, Connection, Browser, Schedule]);
 
 /**
  * What the agent is doing, shown under its name. `label` overrides the
@@ -111,6 +154,9 @@ export type Task = z.infer<typeof Task>;
 export type Approval = z.infer<typeof Approval>;
 export type Connection = z.infer<typeof Connection>;
 export type Browser = z.infer<typeof Browser>;
+export type Schedule = z.infer<typeof Schedule>;
+export type When = z.infer<typeof When>;
+export type RunOutcome = z.infer<typeof RunOutcome>;
 export type BrowserStatus = z.infer<typeof BrowserStatus>;
 export type TaskStatus = z.infer<typeof TaskStatus>;
 export type Resolution = z.infer<typeof Resolution>;

@@ -6,11 +6,12 @@
  * Docked on the right; while the browser has the right, a floating window
  * over the chat instead; on a phone, a page of its own.
  */
-import { CircleCheck, Clock, Fingerprint, Globe, List, ListTodo, Pencil, Plug, ShieldCheck, X, Zap } from "lucide-react";
+import { CalendarClock, CircleCheck, Clock, Fingerprint, Globe, List, ListTodo, Pencil, Plug, ShieldCheck, X, Zap } from "lucide-react";
 import type { Entity, State } from "@remuse/protocol";
 import { museAvatar, travels } from "../transition.ts";
 import type { Actions } from "../ui.ts";
 import { browserStatus, host, taskStatus, time } from "../view.ts";
+import { repeats, scheduleState } from "../schedules.ts";
 
 export type MuseMode = "docked" | "floating";
 
@@ -41,7 +42,8 @@ function done(entity: Entity): Done | null {
       return { id: entity.id, title: entity.action, sub, time: at, done: entity.status === "approved", icon: ShieldCheck };
     }
     case "connection":
-      return { id: entity.id, title: `Connect ${entity.title}`, sub: entity.status === "connected" ? "Connected" : "Waiting for you to connect", time: at, done: entity.status === "connected", icon: Plug };
+      return { id: entity.id, title: `Connect ${entity.title}`, sub: entity.status === "connected" ? "Connected" : "Waiting for you to connect", time: at, done: entity.status === "connected", icon: Plug };    case "schedule":
+      return { id: entity.id, title: entity.title, sub: `${repeats(entity.when)} · ${scheduleState(entity)}`, time: at, done: entity.status === "done", icon: CalendarClock };
   }
 }
 

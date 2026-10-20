@@ -9,11 +9,13 @@ import { listen } from "./server.ts";
 const token = "test-token";
 /** Demo ports with no delays, so the scripted agent answers at once. */
 const instant: Timers<number> = { set: (_, fn) => (queueMicrotask(fn), 0), clear: () => {} };
+/** The host's own deadlines (approvals timing out) never come in a test. */
+const never: Timers<number> = { set: () => 0, clear: () => {} };
 
 let base = "";
 let close = () => {};
 before(async () => {
-  const server = await listen({ session: createHost(demoPorts(instant), { seed: seed() }), token, port: 0, host: "127.0.0.1" });
+  const server = await listen({ session: createHost(demoPorts(instant), { seed: seed(), timers: never }), token, port: 0, host: "127.0.0.1" });
   base = `ws://127.0.0.1:${server.port}/rpc`;
   close = () => void server.close();
 });
@@ -73,7 +75,7 @@ test("the client syncs, sends, and folds the streamed events into the same state
       if (u.envelope.event.kind === "activity" && u.envelope.event.activity === null) resolve();
     }),
   );
-  const { id } = await session.call("chat.send", { text: "over the wire" });
+  const { id } = await session.call("chat.send", { text: "over the wire", timezone: "UTC" });
   await done;
   assert.ok(state.entities.some((e) => e.id === id && e.kind === "prompt"));
   const last = state.entities.at(-1);
@@ -85,7 +87,7 @@ test("the client syncs, sends, and folds the streamed events into the same state
 });
 
 test("a server that comes back without its log resets the client instead of freezing it", async () => {
-  const first = await listen({ session: createHost(demoPorts(instant), { seed: seed() }), token, port: 0, host: "127.0.0.1" });
+  const first = await listen({ session: createHost(demoPorts(instant), { seed: seed(), timers: never }), token, port: 0, host: "127.0.0.1" });
   const url = `ws://127.0.0.1:${first.port}/rpc?token=${token}`;
   const session = connect(url);
   const synced = await session.call("session.sync", { since: null });
@@ -93,7 +95,7 @@ test("a server that comes back without its log resets the client instead of free
   const reset = new Promise<number>((resolve) => session.subscribe((u) => (u.kind === "reset" ? resolve(u.state.seq) : undefined)));
   await first.close();
   // a fresh host with nothing in it, on the same port
-  const second = await listen({ session: createHost(demoPorts(instant)), token, port: first.port, host: "127.0.0.1" });
+  const second = await listen({ session: createHost(demoPorts(instant), { timers: never }), token, port: first.port, host: "127.0.0.1" });
   assert.equal(await reset, 0);
   session.close();
   await second.close();
@@ -136,7 +138,7 @@ test("a malformed cookie is no token — it can never take the server down; any 
 });
 
 test("a client that reconnects receives the events it missed", async () => {
-  const host = createHost(demoPorts(instant), { seed: seed() });
+  const host = createHost(demoPorts(instant), { seed: seed(), timers: never });
   const first = await listen({ session: host, token, port: 0, host: "127.0.0.1" });
   const reader = connect(`ws://127.0.0.1:${first.port}/rpc?token=${token}`);
   const synced = await reader.call("session.sync", { since: null });
@@ -144,7 +146,7 @@ test("a client that reconnects receives the events it missed", async () => {
   let state: State = synced.state;
   reader.subscribe((u) => (state = u.kind === "event" ? apply(state, u.envelope) : u.state));
   await first.close(); // the network goes away; the conversation does not
-  const { id } = await host.call("chat.send", { text: "while you were away" });
+  const { id } = await host.call("chat.send", { text: "while you were away", timezone: "UTC" });
   const second = await listen({ session: host, token, port: first.port, host: "127.0.0.1" });
   for (let i = 0; i < 60 && !state.entities.some((e) => e.id === id); i++) await new Promise((r) => setTimeout(r, 50));
   assert.ok(state.entities.some((e) => e.id === id), "the missed prompt arrived after the reconnect");

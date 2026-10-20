@@ -6,7 +6,7 @@
  */
 import { z } from "zod";
 import { Account, App, KindRule, Permission, Site, SiteRule, ToolKind } from "./apps.ts";
-import { Id, Resolution } from "./entities.ts";
+import { Id, Resolution, Schedule, TimeZone } from "./entities.ts";
 import { Envelope, Index, Page, Seq, State } from "./events.ts";
 
 const call = <M extends string, P extends z.ZodObject>(method: M, params: P) =>
@@ -17,7 +17,8 @@ export const Call = z.discriminatedUnion("method", [
   call("session.sync", z.object({ since: Seq.nullable() })),
   /** Up to `limit` entities just before feed index `before`, for a state holding only the recent end. */
   call("session.history", z.object({ before: Index, limit: z.int().min(1).max(200) })),
-  call("chat.send", z.object({ text: z.string().min(1) })),
+  /** `timezone`: the device's (Intl), so times are the user's own */
+  call("chat.send", z.object({ text: z.string().min(1), timezone: TimeZone })),
   /** Stop the agent's current reply. */
   call("chat.stop", z.object({})),
   call("approval.resolve", z.object({ id: Id, resolution: Resolution })),
@@ -29,6 +30,10 @@ export const Call = z.discriminatedUnion("method", [
   /** While the user holds a run: shape its desktop like their screen (CSS px of the view). */
   call("browser.fit", z.object({ id: Id, width: z.int().min(200).max(8000), height: z.int().min(200).max(8000) })),
   call("task.stop", z.object({ id: Id })),
+  /** Every schedule there is (the feed a client holds may not reach back to them), newest first. */
+  call("schedules.list", z.object({})),
+  /** pause: stop running it until resumed; resume: run it again from now on; cancel: for good. */
+  call("schedule.control", z.object({ id: Id, action: z.enum(["pause", "resume", "cancel"]) })),
   /** Apps to connect: the most used first; `query` narrows them; `cursor` (from a result) goes on. */
   call("apps.search", z.object({ query: z.string().max(100), cursor: z.string().nullable() })),
   /** The accounts connected so far. */
@@ -66,6 +71,8 @@ export const results = {
   "browser.control": done,
   "browser.fit": done,
   "task.stop": done,
+  "schedules.list": z.object({ schedules: z.array(Schedule) }),
+  "schedule.control": done,
   "apps.search": z.object({ apps: z.array(App), cursor: z.string().nullable() }),
   "apps.accounts": z.object({ accounts: z.array(Account) }),
   "apps.connect": z.object({ url: z.url() }),
@@ -94,6 +101,8 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "browser.control": (raw) => results["browser.control"].parse(raw),
   "browser.fit": (raw) => results["browser.fit"].parse(raw),
   "task.stop": (raw) => results["task.stop"].parse(raw),
+  "schedules.list": (raw) => results["schedules.list"].parse(raw),
+  "schedule.control": (raw) => results["schedule.control"].parse(raw),
   "apps.search": (raw) => results["apps.search"].parse(raw),
   "apps.accounts": (raw) => results["apps.accounts"].parse(raw),
   "apps.connect": (raw) => results["apps.connect"].parse(raw),

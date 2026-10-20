@@ -6,10 +6,11 @@
  * reply entity. Pi's coding tools, extensions, skills and context files are
  * all off: the model sees only remuse's tools (tools.ts).
  */
-import { type AgentIO, type Ports, type Rules, type Turn, newId } from "@remuse/core";
+import { type AgentIO, type Ports, type Rules, type Turn, localTime, newId } from "@remuse/core";
 import { redact } from "./redact.ts";
 import { type PiModelConfig, type PiSession, openSession, secretsOf } from "./session.ts";
 import { statusOf } from "./status.ts";
+import { scheduleTools } from "./schedules.ts";
 import { type Apps, appTools, tools } from "./tools.ts";
 import { type Search, webTools } from "./web.ts";
 
@@ -28,6 +29,8 @@ const toolLabels: Record<string, string> = {
   request_connection: "Preparing a connection",
   app_tools: "Looking up your apps",
   app_call: "Using your apps",
+  schedule: "Scheduling",
+  cancel_schedule: "Cancelling a schedule",
 };
 
 /** prompt + interrupt on Pi. Prompts run one after another; interrupt aborts the current one. */
@@ -57,7 +60,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt"> {
       reply = undefined;
     };
     try {
-      session = await openSession(cfg, cfg.system, [...tools(io, cfg.rules), ...webTools(cfg.rules, cfg.search), ...(cfg.apps ? appTools(io, cfg.apps) : [])]);
+      session = await openSession(cfg, cfg.system, [...tools(io, cfg.rules), ...scheduleTools(io), ...webTools(cfg.rules, cfg.search), ...(cfg.apps ? appTools(io, cfg.apps) : [])]);
       const pi = session.session;
       if (!live()) return;
       let failure: string | undefined;
@@ -83,7 +86,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt"> {
         }
       });
       try {
-        await pi.prompt(brief(agent.context(), turn), { expandPromptTemplates: false });
+        await pi.prompt(brief(agent, turn), { expandPromptTemplates: false });
       } finally {
         unsubscribe();
       }
@@ -112,11 +115,12 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt"> {
   };
 }
 
-/** The turn as the model gets it: the conversation, then what to do now. */
-function brief(conversation: string, turn: Turn): string {
-  const now =
+/** The turn as the model gets it: the conversation, now on the user's clock, then what to do. */
+function brief(agent: AgentIO, turn: Turn): string {
+  const { now, timezone } = agent.time();
+  const task =
     turn.kind === "message"
       ? "Reply to the user's newest message (the last lines above)."
       : `A note from your background work (not from the user; tell the user what matters):\n${turn.text}`;
-  return `The conversation so far, oldest first:\n\n${conversation}\n\n---\n${now}`;
+  return `The conversation so far, oldest first (times are the user's, ${timezone}):\n\n${agent.context()}\n\n---\nNow: ${localTime(now, timezone)}.\n${task}`;
 }

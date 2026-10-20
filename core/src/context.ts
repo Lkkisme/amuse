@@ -8,7 +8,8 @@
  * The same conversation always gives the same context, and a restart loses
  * nothing.
  */
-import type { Entity, State } from "@remuse/protocol";
+import type { Entity, State, When } from "@remuse/protocol";
+import { localTime, userZone } from "./schedule.ts";
 
 export interface Budget {
   /** characters of the newest part, rendered in full */
@@ -25,13 +26,12 @@ const clip = (text: string, max: number) => {
   const flat = text.replace(/\s+/g, " ").trim();
   return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`;
 };
-/** Minutes are enough for a conversation's time line. */
-const when = (iso: string) => iso.slice(0, 16).replace("T", " ");
+const repeats = (when: When, zone: string) => (when.kind === "repeat" ? `cron "${when.cron}" in ${when.timezone}` : `once at ${localTime(when.at, zone)}`);
 
-/** One entity as a line (or a few), in full or in brief; null for what the agent need not see. */
-export function line(entity: Entity, detail: Detail): string | null {
+/** One entity as a line (or a few), in full or in brief, its times on the user's clock (`zone`); null for what the agent need not see. */
+export function line(entity: Entity, detail: Detail, zone: string): string | null {
   const full = detail === "full";
-  const at = when(entity.at);
+  const at = localTime(entity.at, zone);
   switch (entity.kind) {
     case "prompt":
       return `[${at}] User: ${full ? entity.text : clip(entity.text, 240)}`;
@@ -53,6 +53,13 @@ export function line(entity: Entity, detail: Detail): string | null {
       return `[${at}] Approval to ${entity.action} ${entity.target}: ${entity.status}`;
     case "connection":
       return `[${at}] Connect ${entity.title}: ${entity.status}`;
+    case "schedule": {
+      const head = `[${at}] Schedule ${entity.id} "${entity.title}" (${entity.status}${entity.running ? ", running" : ""}), ${repeats(entity.when, zone)}`;
+      const next = entity.next ? `, next ${localTime(entity.next, zone)}` : "";
+      const asked = full ? `\n  Instructions: ${entity.instructions}` : "";
+      const last = entity.last ? `\n  Last run ${localTime(entity.last.at, zone)}: ${entity.last.outcome}${full ? ` — ${entity.last.summary}` : ""}` : "";
+      return head + next + asked + last;
+    }
   }
 }
 
@@ -62,6 +69,7 @@ export function line(entity: Entity, detail: Detail): string | null {
  * is only counted. `state` must hold the whole feed (the host's does).
  */
 export function agentContext(state: State, limits: Budget = budget): string {
+  const zone = userZone(state);
   const lines: string[] = [];
   let full = limits.full;
   let brief = limits.brief;
@@ -69,7 +77,7 @@ export function agentContext(state: State, limits: Budget = budget): string {
   for (let i = state.entities.length - 1; i >= 0; i--) {
     const entity = state.entities[i];
     if (!entity) continue;
-    const whole = line(entity, "full");
+    const whole = line(entity, "full", zone);
     if (whole === null) continue;
     if (whole.length <= full) {
       full -= whole.length;
@@ -77,7 +85,7 @@ export function agentContext(state: State, limits: Budget = budget): string {
       continue;
     }
     full = 0; // once something is told in brief, nothing older is told in full
-    const short = line(entity, "brief");
+    const short = line(entity, "brief", zone);
     if (short !== null && short.length <= brief) {
       brief -= short.length;
       lines.push(short);
@@ -94,10 +102,11 @@ export function agentContext(state: State, limits: Budget = budget): string {
 export function recall(state: State, query: string, limit = 10): string {
   const needle = query.trim().toLowerCase();
   if (!needle) return "Give words to search for.";
+  const zone = userZone(state);
   const found: string[] = [];
   for (let i = state.entities.length - 1; i >= 0 && found.length < limit; i--) {
     const entity = state.entities[i];
-    const text = entity && line(entity, "full");
+    const text = entity && line(entity, "full", zone);
     if (text?.toLowerCase().includes(needle)) found.push(text);
   }
   return found.length > 0 ? found.join("\n") : `Nothing in the conversation mentions "${query}".`;

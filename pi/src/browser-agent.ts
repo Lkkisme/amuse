@@ -135,7 +135,7 @@ function runTools(run: Run): ToolDefinition[] {
     Type.Boolean({ description: "true when this step buys, sends, deletes, publishes, books or submits something that commits the user" }),
   );
   const refused = () =>
-    run.stop.signal.aborted ? stoppedText() : text("The user did not approve this step. Do not do it; finish or ask what they want instead.");
+    run.stop.signal.aborted ? stoppedText() : text("The user did not approve this step (they declined, or did not answer in time). Do not do it; finish or ask what they want instead.");
 
   return [
     defineTool({

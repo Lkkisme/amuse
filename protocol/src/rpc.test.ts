@@ -13,6 +13,8 @@ const handlers: Handlers = {
   "browser.control": async () => null,
   "browser.fit": async () => null,
   "task.stop": async () => null,
+  "schedules.list": async () => ({ schedules: [] }),
+  "schedule.control": async () => null,
   "apps.search": async () => ({ apps: [], cursor: null }),
   "apps.accounts": async () => ({ accounts: [] }),
   "apps.connect": async ({ app }) => ({ url: `https://connect.example/${app}` }),
@@ -24,7 +26,7 @@ const handlers: Handlers = {
 };
 
 test("a framed request parses into a typed call and dispatches to its handler", async () => {
-  const frame = Request.parse({ jsonrpc: "2.0", id: 1, method: "chat.send", params: { text: "hi" } });
+  const frame = Request.parse({ jsonrpc: "2.0", id: 1, method: "chat.send", params: { text: "hi", timezone: "UTC" } });
   const call = Call.parse({ method: frame.method, params: frame.params });
   const result = await dispatch(handlers, call);
   assert.deepEqual(result, { id: "p:hi" });

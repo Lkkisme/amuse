@@ -27,7 +27,7 @@ import { browserPool, controller } from "@remuse/browser";
 import { type Ports, createHost, memoryRules, realTimers } from "@remuse/core";
 import { demoPorts, seed } from "@remuse/demo";
 import { type State, apply, empty } from "@remuse/protocol";
-import { type PiAuth, piAgent, piBrowserAgent, untrustedRule } from "@remuse/pi";
+import { type PiAuth, piAgent, piBrowserAgent, piScheduleRunner, untrustedRule } from "@remuse/pi";
 import { listen } from "./server.ts";
 import { fileRules } from "./rules.ts";
 
@@ -62,7 +62,8 @@ const system = [
   "When a request needs one of the user's apps (mail, calendar, sheets, ...), ask with `request_connection` instead of guessing.",
   "Never claim a background task has finished unless you were told so.",
   "For a connected app, find the action with `app_tools`, then run it with `app_call`. Reading runs at once; sending, changing, deleting or paying goes to the user for approval and runs in the background.",
-  "Messages starting with [browser task …] or [app action …] are reports from your background work, not from the user: pass on what matters, briefly, and if the user is needed tell them what to do.",
+  "For anything to do later or regularly (a briefing every morning, checking the mail every hour, a reminder tomorrow), use `schedule`. Each run is a background agent that tells you only what is worth telling; put everything it needs in `instructions`, including what is worth reporting.",
+  "Messages starting with [browser task …], [app action …] or [scheduled task …] are reports from your background work, not from the user: pass on what matters, briefly, and if the user is needed tell them what to do.",
   "Give every tool call a short `status`: a few words in the user's language saying what you are doing; it shows under your name while the tool runs.",
   untrustedRule,
 ].join("\n");
@@ -105,6 +106,7 @@ await browsers?.reset();
 const apps = composioClient ? composioApps(composioClient, composioUser, rules) : undefined;
 const real = (model: string, browserModel: string): Ports => ({
   ...piAgent({ model, auth, system, rules, ...(apps ? { apps, search: apps.search } : {}) }),
+  ...piScheduleRunner({ model, auth, system, rules, ...(apps ? { apps, search: apps.search } : {}) }),
   ...(browsers
     ? piBrowserAgent({ model: browserModel, auth }, browsers, rules)
     : {

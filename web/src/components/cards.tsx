@@ -2,8 +2,9 @@
  * Cards in the chat feed: one component per non-message entity kind.
  * Props are protocol entities; behavior goes through Actions.
  */
-import { Check, ChevronRight, CircleAlert, CircleCheck, Globe, ListTodo, ShieldCheck } from "lucide-react";
-import type { Approval, Browser, Connection, Task } from "@remuse/protocol";
+import { CalendarClock, Check, ChevronRight, CircleAlert, CircleCheck, Globe, ListTodo, ShieldCheck } from "lucide-react";
+import type { Approval, Browser, Connection, Schedule, Task } from "@remuse/protocol";
+import { repeats, scheduleState } from "../schedules.ts";
 import type { Actions } from "../ui.ts";
 import { type Place, alone, corners } from "./shape.ts";
 import { AppLogo } from "./AppLogo";
@@ -188,6 +189,39 @@ export function ConnectionCard({ connection, place = alone, actions }: { connect
         {label}
       </button>
     </div>
+  );
+}
+
+/* ---------- Schedule ---------- */
+
+/** Work the agent set up for later: what, when, and what is next; managed in Settings › Schedules. */
+export function ScheduleCard({ schedule, place = alone, actions }: { schedule: Schedule; place?: Place; actions: Actions }) {
+  const over = schedule.status === "done" || schedule.status === "cancelled";
+  return (
+    <button
+      {...shell(place, "flex w-full max-w-[320px] items-center gap-3 p-3 text-left", 18)}
+      aria-label={`Schedule: ${schedule.title}`}
+      onClick={() => actions.openSettings("schedules")}
+    >
+      <span
+        className="flex size-10 shrink-0 items-center justify-center rounded-xl"
+        style={{ background: "var(--fill-card-button)", color: over ? "var(--icon-secondary)" : "var(--fill-blue)" }}
+      >
+        <CalendarClock size={20} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[14px] font-semibold" style={{ color: "var(--text-primary)" }}>
+          {schedule.title}
+        </span>
+        <span className="block truncate text-[12px]" style={{ color: "var(--text-secondary)" }}>
+          {repeats(schedule.when)}
+        </span>
+        <span className="block truncate text-[12px]" style={{ color: "var(--text-secondary)" }}>
+          {scheduleState(schedule)}
+        </span>
+      </span>
+      <ChevronRight size={16} style={{ color: "var(--icon-secondary)" }} />
+    </button>
   );
 }
 

@@ -2,12 +2,15 @@
   "name": "@remuse/core",
   "private": true,
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "typecheck": "tsc -p .",
     "test": "node --test 'src/**/*.test.ts'"
   },
   "dependencies": {
-    "@remuse/protocol": "*"
+    "@remuse/protocol": "*",
+    "croner": "^10.0.1"
   }
 }

@@ -16,12 +16,12 @@ const snapshot = async (host: ReturnType<typeof createHost>) => {
 
 test("a restarted host comes back with the same state and keeps counting", async () => {
   const path = join(mkdtempSync(join(tmpdir(), "remuse-journal-")), "log", "events.jsonl");
-  const first = createHost(demoPorts(idle), { seed: seed(), journal: fileJournal(path) });
-  await first.call("chat.send", { text: "remember me" });
+  const first = createHost(demoPorts(idle), { seed: seed(), journal: fileJournal(path), timers: idle });
+  await first.call("chat.send", { text: "remember me", timezone: "UTC" });
   const before = await snapshot(first);
   assert.equal((statSync(path).mode & 0o777).toString(8), "600");
 
-  const second = createHost(demoPorts(idle), { seed: seed(), journal: fileJournal(path) });
+  const second = createHost(demoPorts(idle), { seed: seed(), journal: fileJournal(path), timers: idle });
   const replayed = await snapshot(second);
   assert.deepEqual(
     replayed.entities.map((e) => e.id),
@@ -34,7 +34,7 @@ test("a restarted host comes back with the same state and keeps counting", async
     if (e.kind === "approval") assert.notEqual(e.status, "pending");
     if (e.kind === "task") assert.ok(!["queued", "working", "waiting"].includes(e.status));
   }
-  const { id } = await second.call("chat.send", { text: "and this" });
+  const { id } = await second.call("chat.send", { text: "and this", timezone: "UTC" });
   const after = await snapshot(second);
   assert.ok(after.seq > before.seq);
   assert.equal(after.entities.at(-1)?.id, id);
@@ -42,7 +42,7 @@ test("a restarted host comes back with the same state and keeps counting", async
 
 test("a torn last line is dropped and cut off, so the next append starts clean", async () => {
   const path = join(mkdtempSync(join(tmpdir(), "remuse-journal-")), "events.jsonl");
-  const host = createHost(demoPorts(idle), { seed: seed(), journal: fileJournal(path) });
+  const host = createHost(demoPorts(idle), { seed: seed(), journal: fileJournal(path), timers: idle });
   const seq = (await snapshot(host)).seq;
   appendFileSync(path, '{"seq":');
   const journal = fileJournal(path);
@@ -53,7 +53,7 @@ test("a torn last line is dropped and cut off, so the next append starts clean",
 
 test("a whole line it cannot read stops the load, and the file is left as it was", async () => {
   const path = join(mkdtempSync(join(tmpdir(), "remuse-journal-")), "events.jsonl");
-  const host = createHost(demoPorts(idle), { seed: seed(), journal: fileJournal(path) });
+  const host = createHost(demoPorts(idle), { seed: seed(), journal: fileJournal(path), timers: idle });
   await snapshot(host);
   appendFileSync(path, '{"seq":999,"event":{"kind":"renamed"}}\n');
   const before = readFileSync(path);

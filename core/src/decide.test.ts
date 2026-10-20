@@ -11,10 +11,10 @@ const stateOf = (...entities: Entity[]): State => record(empty, entities.map((en
 const browser = (status: BrowserStatus, live = true): Browser => ({ kind: "browser", id: "b1", at, title: "Log in", url: "https://x.example/", status, instructions: "Log in", result: null, step: null, live });
 
 test("chat.send records the prompt and asks the agent", () => {
-  const d = decide(empty, { method: "chat.send", params: { text: "hi" } }, ctx);
+  const d = decide(empty, { method: "chat.send", params: { text: "hi", timezone: "Asia/Shanghai" } }, ctx);
   assert.ok(d.ok);
   assert.deepEqual(d.output, { id: "p1" });
-  assert.deepEqual(d.changes, [{ kind: "upserted", entity: { kind: "prompt", id: "p1", at, text: "hi" } }]);
+  assert.deepEqual(d.changes, [{ kind: "upserted", entity: { kind: "prompt", id: "p1", at, text: "hi", timezone: "Asia/Shanghai" } }]);
   assert.deepEqual(d.effects, [{ kind: "prompt", text: "hi" }]);
 });
 
@@ -53,7 +53,7 @@ test("illegal browser moves are rejected with where they came from", () => {
 });
 
 test("an approval resolves once; allow_* approves, deny_* denies", () => {
-  const pending = stateOf({ kind: "approval", id: "a1", at, action: "Send", target: "t", detail: "d", remember: true, status: "pending" });
+  const pending = stateOf({ kind: "approval", id: "a1", at, action: "Send", target: "t", detail: "d", remember: true, status: "pending", expires: at });
   const allow = decide(pending, { method: "approval.resolve", params: { id: "a1", resolution: "allow_always" } }, ctx);
   assert.ok(allow.ok && allow.changes[0]?.kind === "upserted" && allow.changes[0].entity.kind === "approval");
   assert.equal(allow.changes[0].entity.status, "approved");
@@ -105,11 +105,11 @@ test("recovery ends interrupted replies and clears the activity; a quiet state n
     seq: 2,
     event: { kind: "activity", activity: { kind: "responding", label: null } },
   });
-  assert.deepEqual(recover(busy), [
+  assert.deepEqual(recover(busy, at), [
     { kind: "upserted", entity: { kind: "reply", id: "r1", at, text: "Hal", streaming: false } },
     { kind: "activity", activity: null },
   ]);
-  assert.deepEqual(recover(stateOf({ kind: "prompt", id: "p1", at, text: "hi" })), []);
+  assert.deepEqual(recover(stateOf({ kind: "prompt", id: "p1", at, text: "hi", timezone: "UTC" }), at), []);
 });
 
 test("only a run the user holds is reshaped to their screen", () => {
@@ -139,9 +139,9 @@ test("a browser that is gone is only a record: no taking over; stopping closes i
 });
 
 test("after a restart no browser is live", () => {
-  assert.deepEqual(recover(stateOf(browser("completed"))), [{ kind: "upserted", entity: browser("completed", false) }]);
-  assert.deepEqual(recover(stateOf(browser("working"))), [{ kind: "upserted", entity: browser("stopped", false) }]);
-  assert.deepEqual(recover(stateOf(browser("stopped", false))), []);
+  assert.deepEqual(recover(stateOf(browser("completed")), at), [{ kind: "upserted", entity: browser("completed", false) }]);
+  assert.deepEqual(recover(stateOf(browser("working")), at), [{ kind: "upserted", entity: browser("stopped", false) }]);
+  assert.deepEqual(recover(stateOf(browser("stopped", false)), at), []);
 });
 
 test("a run ends with what came of it, from in flight or from the user's hold; not once it has ended", () => {
@@ -168,7 +168,7 @@ test("a run's step is its agent's while it works; ending, stopping or the user t
 });
 
 test("'always' is an answer only where a rule can hold it", () => {
-  const once = stateOf({ kind: "approval", id: "a1", at, action: "Click Pay", target: "shop.example", detail: "d", remember: false, status: "pending" });
+  const once = stateOf({ kind: "approval", id: "a1", at, action: "Click Pay", target: "shop.example", detail: "d", remember: false, status: "pending", expires: at });
   assert.deepEqual(decide(once, { method: "approval.resolve", params: { id: "a1", resolution: "allow_always" } }, ctx), {
     ok: false,
     rejection: { kind: "invalid", action: "always", from: "pending" },

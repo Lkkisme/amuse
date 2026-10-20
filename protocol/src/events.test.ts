@@ -7,13 +7,13 @@ const at = "2026-10-20T08:24:00Z";
 const reply = (text: string, streaming: boolean): Reply => ({ kind: "reply", id: "r1", at, text, streaming });
 const fold = (events: Envelope["event"][]): State =>
   events.reduce((state, event, i) => apply(state, { seq: i + 1, event }), empty);
-const prompt = (id: string, text = id): Entity => ({ kind: "prompt", id, at, text });
+const prompt = (id: string, text = id): Entity => ({ kind: "prompt", id, at, text, timezone: "UTC" });
 
 test("upsert appends new ids in order and replaces existing ones in place", () => {
   const state = fold([
-    { kind: "upserted", index: 0, entity: { kind: "prompt", id: "p1", at, text: "hi" } },
+    { kind: "upserted", index: 0, entity: { kind: "prompt", id: "p1", at, text: "hi", timezone: "UTC" } },
     { kind: "upserted", index: 1, entity: reply("", true) },
-    { kind: "upserted", index: 0, entity: { kind: "prompt", id: "p1", at, text: "hello" } },
+    { kind: "upserted", index: 0, entity: { kind: "prompt", id: "p1", at, text: "hello", timezone: "UTC" } },
   ]);
   assert.deepEqual(
     state.entities.map((e) => e.id),
@@ -25,7 +25,7 @@ test("upsert appends new ids in order and replaces existing ones in place", () =
 
 test("appended text streams into a reply and nothing else", () => {
   const state = fold([
-    { kind: "upserted", index: 0, entity: { kind: "prompt", id: "p1", at, text: "hi" } },
+    { kind: "upserted", index: 0, entity: { kind: "prompt", id: "p1", at, text: "hi", timezone: "UTC" } },
     { kind: "upserted", index: 1, entity: reply("Hel", true) },
     { kind: "appended", id: "r1", text: "lo" },
     { kind: "appended", id: "p1", text: "!" },
@@ -81,7 +81,7 @@ test("statuses outside Muse's vocabulary are rejected", () => {
 
 test("an id keeps its kind: an upsert of another kind under it is ignored", () => {
   const state = fold([
-    { kind: "upserted", index: 0, entity: { kind: "prompt", id: "x", at, text: "hi" } },
+    { kind: "upserted", index: 0, entity: { kind: "prompt", id: "x", at, text: "hi", timezone: "UTC" } },
     { kind: "upserted", index: 1, entity: reply("hijack", false) },
   ]);
   const hijack = apply(state, { seq: 3, event: { kind: "upserted", index: 0, entity: { ...reply("hijack", false), id: "x" } } });

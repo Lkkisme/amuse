@@ -75,7 +75,7 @@ function reduce(state: State, event: Event): State {
   }
 }
 
-/** Still in play: a reply streaming, a run or task not ended, an approval not decided. */
+/** Still in play: a reply streaming, a run or task not ended, an approval not decided, a schedule's run under way. */
 export function unsettled(entity: Entity): boolean {
   switch (entity.kind) {
     case "reply":
@@ -85,6 +85,8 @@ export function unsettled(entity: Entity): boolean {
       return !["completed", "failed", "stopped"].includes(entity.status);
     case "approval":
       return entity.status === "pending";
+    case "schedule":
+      return entity.running;
     case "prompt":
     case "connection":
       return false;

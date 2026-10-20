@@ -24,6 +24,7 @@ function setup(permission: Permission, answer: Answer = { verdict: "approved", r
     report: (note) => void reports.push(note),
     context: () => "",
     recall: () => "",
+    time: () => ({ now: "2026-10-20T08:00:00Z", timezone: "UTC" }),
   };
   const run = async () => {
     const told = await appCall(io, apps, "GMAIL_SEND_EMAIL", { to: "x@y.z" }, undefined);
@@ -56,4 +57,11 @@ test("asked: it runs only once approved; 'always' is kept as a rule", async () =
   await always.run();
   assert.deepEqual(always.ran, ["GMAIL_SEND_EMAIL"]);
   assert.deepEqual(always.remembered, [["GMAIL_SEND_EMAIL", "allow"]]);
+});
+
+test("asked and not answered in time: nothing runs, and the agent hears why", async () => {
+  const s = setup("ask", { verdict: "timed_out", remember: false });
+  await s.run();
+  assert.deepEqual(s.ran, []);
+  assert.match(s.reports[0] ?? "", /did not answer the approval in time/);
 });

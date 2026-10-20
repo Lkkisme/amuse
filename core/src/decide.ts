@@ -14,12 +14,16 @@ import type {
   Event,
   Params,
   Resolution,
+  RunOutcome,
+  Schedule,
   State,
   TaskStatus,
+  When,
 } from "@remuse/protocol";
+import { APPROVAL_TTL_MS, GRACE_MS, MAX_SCHEDULES, check, later, nextRun, standing } from "./schedule.ts";
 
 /** Calls that do not touch the conversation: reading it, and the app directory (Ports.apps). */
-export type Query = Extract<Call, { method: "session.sync" | "session.history" | `apps.${string}` | `sites.${string}` }>;
+export type Query = Extract<Call, { method: "session.sync" | "session.history" | "schedules.list" | `apps.${string}` | `sites.${string}` }>;
 /** Client calls that change the conversation. */
 export type Command = Exclude<Call, Query>;
 type CommandMethod = Command["method"];
@@ -44,7 +48,11 @@ export type Effect =
   | { kind: "stopTask"; id: string }
   | { kind: "browse"; browser: Browser }
   /** shape the run's desktop like the user's screen */
-  | { kind: "fit"; id: string; viewer: { width: number; height: number } };
+  | { kind: "fit"; id: string; viewer: { width: number; height: number } }
+  /** a schedule's time has come: run it in the background */
+  | { kind: "run"; schedule: Schedule }
+  /** an approval went unanswered: whoever waits on it hears no */
+  | { kind: "expired"; id: string };
 
 /** Statuses an agent may report for a browser run in flight (paused and stopped belong to the user). */
 export type BrowserProgress = Extract<BrowserStatus, "working" | "waiting" | "needs_you">;
@@ -75,7 +83,13 @@ export type AgentAction =
   /** The run's browser is gone (closed): its card is only a record from now on. */
   | { kind: "released"; id: string }
   /** The app's account is live: the connection is connected. */
-  | { kind: "connected"; id: string };
+  | { kind: "connected"; id: string }
+  /** Set up work to run later or regularly. */
+  | { kind: "schedule"; title: string; instructions: string; when: When }
+  /** Cancel a schedule for good. */
+  | { kind: "unschedule"; id: string }
+  /** A schedule's run has ended, and how. */
+  | { kind: "scheduleRan"; id: string; outcome: Exclude<RunOutcome, "missed">; summary: string };
 
 type Actions = { [A in AgentAction as A["kind"]]: A };
 
@@ -84,10 +98,12 @@ export type Rejection =
   | { kind: "notFound"; entity: Entity["kind"]; id: string }
   /** the run's browser is no longer there to take over */
   | { kind: "gone"; id: string }
+  /** a schedule the agent asked for cannot be: why, in words */
+  | { kind: "unsound"; reason: string }
   | {
       kind: "invalid";
-      action: BrowserAction | "fit" | "resolve" | "always" | "begin" | "dismiss" | "stop" | AgentAction["kind"];
-      from: BrowserStatus | TaskStatus | Approval["status"] | Connection["status"];
+      action: BrowserAction | ScheduleAction | "fit" | "resolve" | "always" | "begin" | "dismiss" | "stop" | AgentAction["kind"];
+      from: BrowserStatus | TaskStatus | Approval["status"] | Connection["status"] | Schedule["status"];
     };
 
 /** What a command yields besides changes: the prompt chat.send created, the connection to begin. */
@@ -103,6 +119,7 @@ export interface Context {
 }
 
 type BrowserAction = Params["browser.control"]["action"];
+type ScheduleAction = Params["schedule.control"]["action"];
 
 /** Browser transitions (Muse): where each action may start, and where it lands. */
 const browserMoves: Record<BrowserAction, { from: readonly BrowserStatus[]; to: BrowserStatus }> = {
@@ -117,6 +134,8 @@ const runningTask: readonly TaskStatus[] = ["queued", "working", "waiting"];
 const terminalBrowser: readonly BrowserStatus[] = ["completed", "failed", "stopped"];
 
 export type Verdict = "approved" | "denied";
+/** How an approval ended for whoever waits on it: the user's verdict, or no answer in time. */
+export type Outcome = Verdict | "timed_out";
 const verdicts: Record<Resolution, Verdict> = {
   allow_once: "approved",
   allow_session: "approved",
@@ -129,7 +148,7 @@ export const verdict = (resolution: Resolution): Verdict => verdicts[resolution]
 export const lasting = (resolution: Resolution): boolean => resolution === "allow_always" || resolution === "deny_always";
 
 /** What an agent learns of the user's answer to its ask: approved or not, and whether to keep it as a rule. */
-export type Answer = { verdict: Verdict; remember: boolean };
+export type Answer = { verdict: Outcome; remember: boolean };
 
 const ok = <T>(changes: Change[], effects: Effect[], output: T): Decision<T> => ({ ok: true, changes, effects, output });
 const reject = (rejection: Rejection): Decision<never> => ({ ok: false, rejection });
@@ -142,9 +161,9 @@ function find<K extends Entity["kind"]>(state: State, kind: K, id: string): Extr
 type Rules = { [M in CommandMethod]: (state: State, params: Params[M], ctx: Context) => Decision<Outputs[M]> };
 
 const rules: Rules = {
-  "chat.send": (_, { text }, ctx) => {
+  "chat.send": (_, { text, timezone }, ctx) => {
     const id = ctx.id("p");
-    return ok([upsert({ kind: "prompt", id, at: ctx.now, text })], [{ kind: "prompt", text }], { id });
+    return ok([upsert({ kind: "prompt", id, at: ctx.now, text, timezone })], [{ kind: "prompt", text }], { id });
   },
 
   "chat.stop": (state) => {
@@ -195,6 +214,25 @@ const rules: Rules = {
     return ok([], [{ kind: "fit", id, viewer: { width, height } }], null);
   },
 
+  "schedule.control": (state, { id, action }, ctx) => {
+    const schedule = find(state, "schedule", id);
+    if (!schedule) return reject({ kind: "notFound", entity: "schedule", id });
+    const from = schedule.status;
+    const invalid = reject({ kind: "invalid", action, from });
+    switch (action) {
+      case "pause":
+        return from === "active" ? ok([upsert({ ...schedule, status: "paused", next: null })], [], null) : invalid;
+      case "resume": {
+        // from now on: what fell in the pause is not caught up
+        if (from !== "paused") return invalid;
+        const next = nextRun(schedule.when, ctx.now);
+        return ok([upsert({ ...schedule, status: next ? "active" : "done", next })], [], null);
+      }
+      case "cancel":
+        return from === "active" || from === "paused" ? ok([upsert({ ...schedule, status: "cancelled", next: null })], [], null) : invalid;
+    }
+  },
+
   "task.stop": (state, { id }) => {
     const task = find(state, "task", id);
     if (!task) return reject({ kind: "notFound", entity: "task", id });
@@ -223,7 +261,27 @@ const agentRules: AgentRules = {
   },
   ask: (_, { action, target, detail, remember }, ctx) => {
     const id = ctx.id("a");
-    return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, remember, status: "pending" })], [], { id });
+    const expires = later(ctx.now, APPROVAL_TTL_MS);
+    return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, remember, status: "pending", expires })], [], { id });
+  },
+  schedule: (state, { title, instructions, when }, ctx) => {
+    if (standing(state).length >= MAX_SCHEDULES) return reject({ kind: "unsound", reason: `there are already ${MAX_SCHEDULES} schedules; cancel one first` });
+    const sound = check(when, ctx.now);
+    if (!sound.ok) return reject({ kind: "unsound", reason: sound.reason });
+    const id = ctx.id("s");
+    return ok([upsert({ kind: "schedule", id, at: ctx.now, title, instructions, when, status: "active", next: sound.next, running: false, last: null })], [], { id });
+  },
+  unschedule: (state, { id }) => {
+    const schedule = find(state, "schedule", id);
+    if (!schedule) return reject({ kind: "notFound", entity: "schedule", id });
+    if (schedule.status !== "active" && schedule.status !== "paused") return reject({ kind: "invalid", action: "unschedule", from: schedule.status });
+    return ok([upsert({ ...schedule, status: "cancelled", next: null })], [], { id });
+  },
+  scheduleRan: (state, { id, outcome, summary }, ctx) => {
+    const schedule = find(state, "schedule", id);
+    if (!schedule) return reject({ kind: "notFound", entity: "schedule", id });
+    if (!schedule.running) return reject({ kind: "invalid", action: "scheduleRan", from: schedule.status });
+    return ok([upsert({ ...schedule, running: false, last: { at: ctx.now, outcome, summary } })], [], { id });
   },
   browse: (_, { title, url, instructions }, ctx) => {
     const browser: Browser = { kind: "browser", id: ctx.id("b"), at: ctx.now, title, url, status: "working", instructions, result: null, step: null, live: true };
@@ -273,12 +331,41 @@ export function decideAgent<K extends keyof Actions>(state: State, kind: K, acti
 }
 
 /**
+ * What is due at `now`: schedules whose time has come run (or, too late to
+ * start, are recorded as missed) and move on to their next time; approvals
+ * nobody answered time out. A schedule still running is left until it ends.
+ */
+export function tick(state: State, now: string): { changes: Change[]; effects: Effect[] } {
+  const changes: Change[] = [];
+  const effects: Effect[] = [];
+  const due = (instant: string | null): instant is string => instant !== null && Date.parse(instant) <= Date.parse(now);
+  for (const e of state.entities) {
+    if (e.kind === "approval" && e.status === "pending" && due(e.expires)) {
+      changes.push(upsert({ ...e, status: "timed_out" }));
+      effects.push({ kind: "expired", id: e.id });
+    }
+    if (e.kind === "schedule" && e.status === "active" && !e.running && due(e.next)) {
+      const next = e.when.kind === "once" ? null : nextRun(e.when, now);
+      const moved: Schedule = { ...e, next, status: next ? "active" : "done" };
+      if (Date.parse(now) - Date.parse(e.next) > GRACE_MS) {
+        changes.push(upsert({ ...moved, last: { at: e.next, outcome: "missed", summary: "remuse was not running at the time" } }));
+      } else {
+        const running: Schedule = { ...moved, running: true };
+        changes.push(upsert(running));
+        effects.push({ kind: "run", schedule: running });
+      }
+    }
+  }
+  return { changes, effects };
+}
+
+/**
  * After a restart nothing is mid-run any more: streaming replies end where
  * they stopped, browser runs and tasks in flight are stopped (nothing drives
  * them now) and no browser is live, pending approvals time out (nobody waits on them), and the
  * activity line clears.
  */
-export function recover(state: State): Change[] {
+export function recover(state: State, now: string): Change[] {
   const settle = (e: Entity): Entity | null => {
     switch (e.kind) {
       case "reply":
@@ -292,6 +379,8 @@ export function recover(state: State): Change[] {
         return runningTask.includes(e.status) ? { ...e, status: "stopped" } : null;
       case "approval":
         return e.status === "pending" ? { ...e, status: "timed_out" } : null;
+      case "schedule":
+        return e.running ? { ...e, running: false, last: { at: now, outcome: "failed", summary: "cut short by a restart" } } : null; // ended now, as far as anyone can tell
       case "prompt":
       case "connection":
         return null;

@@ -15,6 +15,7 @@
     "@remuse/core": "*",
     "@remuse/demo": "*",
     "@remuse/protocol": "*",
+    "cronstrue": "^3.37.0",
     "lucide-react": "^1.60.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"

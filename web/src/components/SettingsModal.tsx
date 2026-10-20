@@ -16,6 +16,7 @@ import {
   Settings as SettingsIcon,
   Shield,
   X,
+  CalendarClock,
 } from "lucide-react";
 import type { SettingsData } from "../demo/settings.ts";
 import type { Session } from "@remuse/protocol";
@@ -23,12 +24,14 @@ import type { Actions, SettingsSection, Theme, Ui } from "../ui.ts";
 import { usePresence } from "./usePresence";
 import { Connectors } from "./Connectors";
 import { SitePermissions } from "./SitePermissions";
+import { Schedules } from "./Schedules";
 
 
 const NAV: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
   { id: "general", label: "General", icon: <SettingsIcon size={18} /> },
   { id: "connectors", label: "Connectors", icon: <LayoutGrid size={18} /> },
   { id: "permissions", label: "Permissions", icon: <Shield size={18} /> },
+  { id: "schedules", label: "Schedules", icon: <CalendarClock size={18} /> },
   { id: "secure-store", label: "Secure store", icon: <Lock size={18} /> },
 ];
 
@@ -257,6 +260,7 @@ export function SettingsModal({
           </button>
           {shown === "connectors" && <Connectors session={session} viewing={ui.app} onView={actions.openApp} />}
           {shown === "permissions" && <SitePermissions session={session} />}
+          {shown === "schedules" && <Schedules session={session} />}
           {shown === "secure-store" && <SecureStoreSection data={data} actions={actions} />}
           {shown === "general" && <GeneralSection theme={theme} actions={actions} />}
         </div>

@@ -93,7 +93,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           })),
         );
     return {
-      send: (text) => call("chat.send", { text }),
+      // the device's time zone is the user's: times the agent sets and says are on their clock
+      send: (text) => call("chat.send", { text, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
       stop: () => call("chat.stop", {}),
       resolveApproval: (id, resolution) =>
         call("approval.resolve", { id, resolution }),
