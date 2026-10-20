@@ -138,6 +138,26 @@
   animation: hatch-pane-enter-from-right 0.2s ease-out both;
 }
 
+/* The Muse panel and its avatar travel together (transition.ts): one duration and curve for both */
+::view-transition-group(muse-avatar) {
+  animation-duration: 0.3s;
+  animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+}
+::view-transition-new(muse-panel-docked) {
+  animation: hatch-pane-enter-from-right 0.3s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+::view-transition-old(muse-panel-docked) {
+  animation: hatch-pane-exit-to-right 0.2s ease-in both;
+}
+::view-transition-new(muse-panel-floating) {
+  transform-origin: top left;
+  animation: popover-in 0.3s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+::view-transition-old(muse-panel-floating) {
+  transform-origin: top left;
+  animation: popover-out 0.15s ease-in both;
+}
+
 /* Modals: bottom drawer on mobile (slide-up), centered scale-in sheet on sm+ */
 @keyframes modal-scale-in {
   from { transform: scale(0.985); opacity: 0; }

@@ -8,7 +8,7 @@
  */
 import { CircleCheck, Clock, Fingerprint, Globe, List, ListTodo, Pencil, Plug, ShieldCheck, X, Zap } from "lucide-react";
 import type { Entity, State } from "@remuse/protocol";
-import { museAvatar } from "../transition.ts";
+import { museAvatar, travels } from "../transition.ts";
 import type { Actions } from "../ui.ts";
 import { browserStatus, host, taskStatus, time } from "../view.ts";
 
@@ -47,10 +47,10 @@ function done(entity: Entity): Done | null {
 
 const frame: Record<MuseMode, string> = {
   // a page of its own on a phone; on the right from md up
-  docked: "anim-pane-from-right fixed inset-0 z-50 md:static md:z-auto md:w-[360px] md:shrink-0 md:border-l",
+  docked: "fixed inset-0 z-50 md:static md:z-auto md:w-[360px] md:shrink-0 md:border-l",
   // over the chat, beside the rail, while the browser is on the right (lg up): within what the chat has
   // (16px clear of the viewer)
-  floating: "anim-popover-in fixed bottom-4 left-[72px] top-4 z-[55] w-[min(440px,calc(100vw-var(--viewer-width)-88px))] rounded-[28px]",
+  floating: "fixed bottom-4 left-[72px] top-4 z-[55] w-[min(440px,calc(100vw-var(--viewer-width)-88px))] rounded-[28px]",
 };
 
 export function MusePanel({ conversation, mode, actions }: { conversation: State; mode: MuseMode; actions: Actions }) {
@@ -60,8 +60,10 @@ export function MusePanel({ conversation, mode, actions }: { conversation: State
   return (
     <aside
       aria-label="Muse"
-      className={`${frame[mode]} flex flex-col overflow-hidden`}
-      style={{ background: "var(--bg-primary)", borderColor: "var(--fill-divider)", ...(mode === "floating" ? { boxShadow: "var(--shadow-sheet)" } : {}) }}
+      // where the avatar travels in, the panel comes in with it, in the same transition (index.css); a panel
+      // sliding on its own would move the avatar's landing place under it
+      className={`${frame[mode]} ${travels() ? "" : mode === "docked" ? "anim-pane-from-right" : "anim-popover-in"} flex flex-col overflow-hidden`}
+      style={{ viewTransitionName: `muse-panel-${mode}`, background: "var(--bg-primary)", borderColor: "var(--fill-divider)", ...(mode === "floating" ? { boxShadow: "var(--shadow-sheet)" } : {}) }}
     >
       {/* 32px, 12px in: concentric with the floating window's 28px corners */}
       <button

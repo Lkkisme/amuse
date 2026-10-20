@@ -6,8 +6,11 @@
 import type { CSSProperties } from "react";
 import { flushSync } from "react-dom";
 
+/** Whether changes travel (view transitions); where they do, what travels must not also animate on its own. */
+export const travels = (): boolean => "startViewTransition" in document && !matchMedia("(prefers-reduced-motion: reduce)").matches;
+
 export function transition(change: () => void): void {
-  if (!("startViewTransition" in document) || matchMedia("(prefers-reduced-motion: reduce)").matches) return change();
+  if (!travels()) return change();
   document.startViewTransition(() => flushSync(change));
 }
 
