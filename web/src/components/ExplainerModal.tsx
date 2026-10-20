@@ -44,7 +44,7 @@ function ExplainerBody({ req, actions }: { req: ConnectionRequest; actions: Muse
       <div className="absolute inset-0 bg-black/50" onClick={close} />
       <div
         className="anim-modal-in relative flex max-h-[92vh] w-full max-w-sm flex-col overflow-hidden rounded-t-2xl sm:rounded-2xl"
-        style={{ background: "var(--fill-primary)", boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}
+        style={{ background: "var(--chat-background)", boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}
       >
         {/* drag handle */}
         <div className="flex shrink-0 justify-center pt-2.5">

@@ -414,7 +414,7 @@ export function SettingsModal({ state, actions }: { state: DemoState; actions: M
       <div className="absolute inset-0 bg-black/30" onClick={() => actions.closeSettings()} />
       <div
         className="anim-modal-in relative flex h-[72vh] max-h-[620px] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl sm:flex-row sm:rounded-2xl"
-        style={{ background: "var(--fill-primary)", boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}
+        style={{ background: "var(--chat-background)", boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}
       >
         {/* left nav — horizontal icon row on mobile, column on sm+ */}
         <nav
