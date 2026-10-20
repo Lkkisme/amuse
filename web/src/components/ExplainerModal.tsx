@@ -5,21 +5,24 @@
  * full-width Connect button and a Cancel text button. Confirm walks the card
  * to connected; dismiss returns it to pending.
  */
-import { BarChart3, Eye, ToggleLeft, X } from "lucide-react";
+import { BarChart3, Eye, ToggleLeft } from "lucide-react";
 import type { ConnectionRequest, DemoState } from "../data/fakeMuse";
 import type { MuseActions } from "./actions";
+import { Sheet } from "./Sheet";
+import { useLastValue } from "./usePresence";
 
 export function ExplainerModal({ state, actions }: { state: DemoState; actions: MuseActions }) {
-  if (!state.explainerFor) return null;
+  // keep showing the last request while the sheet animates out
+  const reqId = useLastValue(state.explainerFor);
   const req = state.feed.find(
     (i): i is Extract<typeof i, { role: "card"; kind: "connreq" }> =>
-      i.role === "card" && i.kind === "connreq" && i.connreq.id === state.explainerFor,
+      i.role === "card" && i.kind === "connreq" && i.connreq.id === reqId,
   )?.connreq;
   if (!req) return null;
-  return <ExplainerBody req={req} actions={actions} />;
+  return <ExplainerBody req={req} open={state.explainerFor !== null} actions={actions} />;
 }
 
-function ExplainerBody({ req, actions }: { req: ConnectionRequest; actions: MuseActions }) {
+function ExplainerBody({ req, open, actions }: { req: ConnectionRequest; open: boolean; actions: MuseActions }) {
   const close = () => actions.dismissConnect(req.id);
   const features = [
     {
@@ -40,27 +43,8 @@ function ExplainerBody({ req, actions }: { req: ConnectionRequest; actions: Muse
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
-      <div className="absolute inset-0 bg-black/50" onClick={close} />
-      <div
-        className="anim-modal-in relative flex max-h-[92vh] w-full max-w-sm flex-col overflow-hidden rounded-t-2xl sm:rounded-2xl"
-        style={{ background: "var(--chat-background)", boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}
-      >
-        {/* drag handle */}
-        <div className="flex shrink-0 justify-center pt-2.5">
-          <span className="h-1.5 w-9 rounded-full" style={{ background: "var(--fill-tertiary)" }} />
-        </div>
-
+    <Sheet open={open} onClose={close}>
         <div className="overflow-y-auto px-6 pb-2 pt-5 text-center">
-          <button
-            aria-label="Close"
-            className="absolute right-3 top-3 flex size-8 items-center justify-center rounded-full"
-            style={{ background: "var(--fill-secondary)", color: "var(--icon-primary)" }}
-            onClick={close}
-          >
-            <X size={16} />
-          </button>
-
           {/* app icon */}
           <span
             className="mx-auto flex size-16 items-center justify-center rounded-2xl"
@@ -113,7 +97,6 @@ function ExplainerBody({ req, actions }: { req: ConnectionRequest; actions: Muse
             Cancel
           </button>
         </div>
-      </div>
-    </div>
+    </Sheet>
   );
 }

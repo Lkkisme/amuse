@@ -7,6 +7,7 @@
 import { Check, List, Pencil, Radio, Shield, Clock } from "lucide-react";
 import type { DemoState, FeedItem } from "../data/fakeMuse";
 import type { MuseActions } from "./actions";
+import { usePresence } from "./usePresence";
 
 interface Receipt {
   title: string;
@@ -47,14 +48,16 @@ function receiptsFromFeed(feed: FeedItem[]): Receipt[] {
 export function ActivityPanel({ state, actions }: { state: DemoState; actions: MuseActions }) {
   const working = state.activityStatus === "working";
   const connected = state.activityStatus === "connected";
-  const visible = state.activityOpen || state.activityStatus !== "idle";
+  // the close button sets activityOpen=false; new activity opens it again
+  const { mounted, closing, onAnimationEnd } = usePresence(state.activityOpen);
 
-  if (!visible) return null;
+  if (!mounted) return null;
   const receipts = receiptsFromFeed(state.feed);
 
   return (
     <aside
-      className="anim-pane-from-right hidden w-[320px] shrink-0 flex-col border-l md:flex"
+      onAnimationEnd={onAnimationEnd}
+      className={`${closing ? "anim-pane-to-right pointer-events-none" : "anim-pane-from-right"} hidden w-[320px] shrink-0 flex-col border-l md:flex`}
       style={{ borderColor: "var(--fill-divider)", background: "var(--bg-primary)" }}
       aria-label="Activity"
     >

@@ -25,6 +25,7 @@ import {
 import type { DemoState, Level } from "../data/fakeMuse";
 import { levelMeta } from "../data/fakeMuse";
 import type { MuseActions, SettingsSection } from "./actions";
+import { usePresence } from "./usePresence";
 
 function ConnectorIcon({ id, size = 20 }: { id: string; size?: number }) {
   const map: Record<string, React.ReactNode> = {
@@ -408,12 +409,17 @@ function GeneralSection({ state, actions }: { state: DemoState; actions: MuseAct
 /* ---------------- Shell ---------------- */
 
 export function SettingsModal({ state, actions }: { state: DemoState; actions: MuseActions }) {
-  if (!state.settingsOpen) return null;
+  const { mounted, closing, onAnimationEnd } = usePresence(state.settingsOpen);
+  if (!mounted) return null;
   return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center sm:items-center sm:p-4">
-      <div className="absolute inset-0 bg-black/30" onClick={() => actions.closeSettings()} />
+    <div className={`fixed inset-0 z-40 flex items-end justify-center sm:items-center sm:p-4 ${closing ? "pointer-events-none" : ""}`}>
       <div
-        className="anim-modal-in relative flex h-[72vh] max-h-[620px] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl sm:flex-row sm:rounded-2xl"
+        className={`${closing ? "anim-fade-out" : "anim-fade-in"} absolute inset-0 bg-black/30`}
+        onClick={() => actions.closeSettings()}
+      />
+      <div
+        onAnimationEnd={onAnimationEnd}
+        className={`${closing ? "anim-modal-out" : "anim-modal-in"} relative flex h-[72vh] max-h-[620px] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl sm:flex-row sm:rounded-2xl`}
         style={{ background: "var(--chat-background)", boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}
       >
         {/* left nav — horizontal icon row on mobile, column on sm+ */}

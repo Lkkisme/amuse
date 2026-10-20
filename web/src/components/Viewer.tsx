@@ -14,10 +14,12 @@ import { ArrowLeft, ArrowRight, Check, CircleCheck, CircleDot, Copy, Globe, Menu
 import type { BrowserRun, DemoState } from "../data/fakeMuse";
 import { browserStatusMeta, findBrowser } from "../data/fakeMuse";
 import type { MuseActions } from "./actions";
+import { useLastValue, usePresence } from "./usePresence";
 
 export function Viewer({ state, actions }: { state: DemoState; actions: MuseActions }) {
-  const viewer = state.viewer;
-  if (!viewer) return null;
+  const { mounted, closing, onAnimationEnd } = usePresence(state.viewer !== null);
+  const viewer = useLastValue(state.viewer);
+  if (!mounted || !viewer) return null;
   const browser = findBrowser(state.feed, viewer.browserId);
   if (!browser) return null;
   const tabs = state.feed.flatMap((i) =>
@@ -26,13 +28,9 @@ export function Viewer({ state, actions }: { state: DemoState; actions: MuseActi
 
   return (
     <div
-      className="anim-pane-from-right fixed inset-0 z-50 flex flex-col lg:left-[482px]"
-      style={{
-        background: "var(--bg-primary)",
-        borderLeft: "1px solid var(--fill-divider)",
-        animationDuration: "0.2s",
-        animationTimingFunction: "ease-out",
-      }}
+      onAnimationEnd={onAnimationEnd}
+      className={`${closing ? "anim-pane-to-right pointer-events-none" : "anim-pane-from-right"} fixed inset-0 z-50 flex flex-col lg:left-[482px]`}
+      style={{ background: "var(--bg-primary)", borderLeft: "1px solid var(--fill-divider)" }}
     >
       <ViewerHeader browser={browser} actions={actions} />
       <RunTabs tabs={tabs} activeId={browser.id} actions={actions} />

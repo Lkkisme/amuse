@@ -1,39 +1,26 @@
 /**
- * Task detail sheet, opened from the chevron on a task card. Same shell as
- * the connect explainer: bottom sheet on mobile, centered on sm+. Shows the
+ * Task detail sheet, opened from the chevron on a task card (shared Sheet
+ * shell: bottom sheet on mobile, centered on sm+). Shows the
  * status, every step, and the answers given so far.
  */
-import { CircleCheck, X } from "lucide-react";
+import { CircleCheck } from "lucide-react";
 import type { DemoState } from "../data/fakeMuse";
 import { findTask, taskStatusMeta } from "../data/fakeMuse";
 import type { MuseActions } from "./actions";
+import { Sheet } from "./Sheet";
+import { useLastValue } from "./usePresence";
 
 export function TaskDetailSheet({ state, actions }: { state: DemoState; actions: MuseActions }) {
-  const task = state.taskDetail ? findTask(state.feed, state.taskDetail) : undefined;
+  // keep showing the last task while the sheet animates out
+  const taskId = useLastValue(state.taskDetail);
+  const task = taskId ? findTask(state.feed, taskId) : undefined;
   if (!task) return null;
   const close = () => actions.openTaskDetail(null);
   const meta = taskStatusMeta[task.status];
   const answers = (task.form ?? []).filter((f) => f.value);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
-      <div className="absolute inset-0 bg-black/50" onClick={close} />
-      <div
-        className="anim-modal-in relative flex max-h-[92vh] w-full max-w-sm flex-col overflow-hidden rounded-t-2xl sm:rounded-2xl"
-        style={{ background: "var(--chat-background)", boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}
-      >
-        <div className="flex shrink-0 justify-center pt-2.5">
-          <span className="h-1.5 w-9 rounded-full" style={{ background: "var(--fill-tertiary)" }} />
-        </div>
-        <button
-          aria-label="Close"
-          className="absolute right-3 top-3 flex size-8 items-center justify-center rounded-full"
-          style={{ background: "var(--fill-secondary)", color: "var(--icon-primary)" }}
-          onClick={close}
-        >
-          <X size={16} />
-        </button>
-
+    <Sheet open={state.taskDetail !== null} onClose={close}>
         <div className="overflow-y-auto px-6 pb-6 pt-4">
           <p className="pr-8 text-[20px] font-semibold leading-tight" style={{ color: "var(--text-primary)" }}>
             {task.title}
@@ -79,7 +66,6 @@ export function TaskDetailSheet({ state, actions }: { state: DemoState; actions:
             </>
           )}
         </div>
-      </div>
-    </div>
+    </Sheet>
   );
 }

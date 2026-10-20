@@ -1,13 +1,14 @@
 /**
- * Left drawer (the ☰ button opens it): close, page grid on mobile, then the
+ * Left drawer (the ☰ button opens it; a collapse button in the same spot closes it): page grid on mobile, then the
  * chat search box right above the list it filters (Main chat, Side chats +
  * add, recent chats). Slide-over from the left.
  */
 import { useState } from "react";
-import { MessageCircle, Plus, Search, Settings, X } from "lucide-react";
+import { MessageCircle, PanelLeftClose, Plus, Search, Settings } from "lucide-react";
 import type { DemoState } from "../data/fakeMuse";
 import type { MuseActions } from "./actions";
 import { NAV_PAGES } from "./nav";
+import { usePresence } from "./usePresence";
 
 const RECENT_CHATS = [
   { title: "Aquarium trip research", time: "32m" },
@@ -17,25 +18,32 @@ const RECENT_CHATS = [
 
 export function ChatsPanel({ state, actions }: { state: DemoState; actions: MuseActions }) {
   const [query, setQuery] = useState("");
-  if (!state.chatsOpen) return null;
+  const { mounted, closing, onAnimationEnd } = usePresence(state.chatsOpen);
+  if (!mounted) return null;
   const q = query.trim().toLowerCase();
   const recent = q ? RECENT_CHATS.filter((c) => c.title.toLowerCase().includes(q)) : RECENT_CHATS;
   return (
-    <div className="fixed inset-0 z-40 flex">
-      <div className="anim-fade-in absolute inset-0 bg-black/30" onClick={() => actions.setChats(false)} />
+    <div className={`fixed inset-0 z-40 flex ${closing ? "pointer-events-none" : ""}`}>
+      <div
+        className={`${closing ? "anim-fade-out" : "anim-fade-in"} absolute inset-0 bg-black/30`}
+        onClick={() => actions.setChats(false)}
+      />
       <aside
-        className="anim-pane-from-left relative flex h-full w-[300px] max-w-[85vw] flex-col p-3"
+        onAnimationEnd={onAnimationEnd}
+        className={`${closing ? "anim-pane-to-left pointer-events-none" : "anim-pane-from-left"} relative flex h-full w-[300px] max-w-[85vw] flex-col p-3`}
         style={{ background: "var(--chat-background)", boxShadow: "4px 0 24px rgba(0,0,0,0.12)" }}
         aria-label="Menu"
       >
-        <div className="flex justify-end">
+        {/* collapse button sits exactly where the ☰ button was (top-2 left-3,
+            size-10), so the same tap opens and closes the drawer */}
+        <div className="-mt-1">
           <button
             aria-label="Close menu"
-            className="hover-fade rounded-full p-2"
-            style={{ color: "var(--icon-secondary)" }}
+            className="hover-fade flex size-10 items-center justify-center rounded-full"
+            style={{ background: "var(--fill-primary)", color: "var(--text-primary)", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}
             onClick={() => actions.setChats(false)}
           >
-            <X size={20} />
+            <PanelLeftClose size={18} />
           </button>
         </div>
 

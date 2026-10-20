@@ -184,6 +184,45 @@ body {
   animation: pane-enter-from-left 0.25s cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
+/* Exit animations: each mirrors its enter, a little faster, easing in. */
+@keyframes pane-exit-to-left {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
+.anim-pane-to-left {
+  animation: pane-exit-to-left 0.2s cubic-bezier(0.4, 0, 1, 1) both;
+}
+@keyframes hatch-pane-exit-to-right {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(20px); opacity: 0; }
+}
+.anim-pane-to-right {
+  animation: hatch-pane-exit-to-right 0.16s ease-in both;
+}
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+.anim-fade-out {
+  animation: fadeOut 0.2s ease-in both;
+}
+@keyframes drawer-slide-down {
+  from { transform: translateY(0); opacity: 1; }
+  to { transform: translateY(100%); opacity: 0.6; }
+}
+@keyframes modal-scale-out {
+  from { transform: scale(1); opacity: 1; }
+  to { transform: scale(0.985); opacity: 0; }
+}
+.anim-modal-out {
+  animation: drawer-slide-down 0.22s cubic-bezier(0.4, 0, 1, 1) both;
+}
+@media (min-width: 640px) {
+  .anim-modal-out {
+    animation: modal-scale-out 0.18s ease-in both;
+  }
+}
+
 /* Per-theme chat tokens (values from Muse production CSS; the blue-tinted
    --chat-background seen inline on muse.ai is a conversation theme, not the default). */
 .light {
