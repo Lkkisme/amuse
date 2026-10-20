@@ -49,6 +49,21 @@ export const results = {
 export type Params = { [C in Call as C["method"]]: C["params"] };
 export type Results = { [M in Method]: z.infer<(typeof results)[M]> };
 
+/**
+ * Result parsers keyed by method. The mapped type keeps each method's own
+ * result type, so a client generic over M gets Results[M] back without casts.
+ */
+export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
+  "session.sync": (raw) => results["session.sync"].parse(raw),
+  "chat.send": (raw) => results["chat.send"].parse(raw),
+  "chat.stop": (raw) => results["chat.stop"].parse(raw),
+  "approval.resolve": (raw) => results["approval.resolve"].parse(raw),
+  "connection.begin": (raw) => results["connection.begin"].parse(raw),
+  "connection.dismiss": (raw) => results["connection.dismiss"].parse(raw),
+  "browser.control": (raw) => results["browser.control"].parse(raw),
+  "task.stop": (raw) => results["task.stop"].parse(raw),
+};
+
 /** What a server implements: one function per method. */
 export type Handlers = { [M in Method]: (params: Params[M]) => Promise<Results[M]> };
 

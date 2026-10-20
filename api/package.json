@@ -1,0 +1,22 @@
+{
+  "name": "@remuse/api",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "node --test 'src/**/*.test.ts'",
+    "start": "node src/main.ts"
+  },
+  "dependencies": {
+    "@remuse/core": "*",
+    "@remuse/protocol": "*",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
+  }
+}

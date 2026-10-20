@@ -1,7 +1,7 @@
 monorepo_root = true
 
 [monorepo]
-config_roots = ["protocol", "core", "web"]
+config_roots = ["protocol", "core", "api", "web"]
 
 [tools]
 node = "24"
@@ -19,5 +19,5 @@ run = "true"
 
 [tasks.check]
 description = "Type-check and test every package"
-depends = ["//protocol:check", "//core:check", "//web:check"]
+depends = ["//protocol:check", "//core:check", "//api:check", "//web:check"]
 run = "true"

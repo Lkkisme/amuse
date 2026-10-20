@@ -14,7 +14,8 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "@remuse/protocol": "*",
-    "@remuse/core": "*"
+    "@remuse/core": "*",
+    "@remuse/api": "*"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.0",

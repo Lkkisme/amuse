@@ -1,0 +1,9 @@
+[tasks.check]
+description = "Type-check and test the API"
+depends = ["//:install"]
+run = "npm run typecheck && npm test"
+
+[tasks.dev]
+description = "Run the API with the demo ports on 127.0.0.1:8797 (REMUSE_TOKEN required)"
+depends = ["//:install"]
+run = "node --watch src/main.ts"

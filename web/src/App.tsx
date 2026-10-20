@@ -4,7 +4,9 @@
  * changes. Components get exactly the slices they render.
  */
 import { useEffect, useMemo, useState } from "react";
+import { connect } from "@remuse/api/client";
 import { createHost, demoPorts, realTimers, seed } from "@remuse/core";
+import type { Session } from "@remuse/protocol";
 import { seedSettings } from "./demo/settings.ts";
 import { useConversation } from "./session.ts";
 import { type Actions, type Ui, initialUi } from "./ui.ts";
@@ -21,8 +23,13 @@ import { TaskPill } from "./components/TaskPill";
 import { MenuButton, TopBar } from "./components/TopBar";
 import { Viewer } from "./components/Viewer";
 
-/** The in-browser host: the real core with scripted ports. A WebSocket session replaces it as is. */
-const demoSession = () => createHost(demoPorts(realTimers), { seed: seed() });
+/**
+ * VITE_REMUSE_URL (ws://host:port/rpc?token=…) connects to a server;
+ * without it the app runs the real core in-browser with scripted ports.
+ */
+const serverUrl = import.meta.env["VITE_REMUSE_URL"];
+const demoSession = (): Session =>
+  typeof serverUrl === "string" && serverUrl ? connect(serverUrl) : createHost(demoPorts(realTimers), { seed: seed() });
 
 export default function App() {
   const [session, setSession] = useState(demoSession);

@@ -5,6 +5,7 @@
   "workspaces": [
     "protocol",
     "core",
+    "api",
     "web"
   ],
   "devDependencies": {
