@@ -6,6 +6,7 @@
     "protocol",
     "core",
     "pi",
+    "composio",
     "api",
     "web"
   ],

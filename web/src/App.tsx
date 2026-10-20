@@ -57,7 +57,12 @@ export default function App() {
       openExplainer: (explainer) => patch((u) => ({ ...u, explainer })),
       connect: (id) => {
         patch((u) => ({ ...u, explainer: null }));
-        void session.call("connection.begin", { id });
+        // open the tab now, inside the click, so mobile browsers do not block it; point it at the link once known
+        const tab = window.open("about:blank", "_blank");
+        session.call("connection.begin", { id }).then(
+          ({ url }) => (tab ? tab.location.replace(url) : window.location.assign(url)),
+          () => tab?.close(),
+        );
       },
       openViewer: (browserId) =>
         patch((u) => ({ ...u, viewer: { browserId, closedTabs: (u.viewer?.closedTabs ?? []).filter((t) => t !== browserId) } })),

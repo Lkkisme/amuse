@@ -4,8 +4,13 @@
  *   REMUSE_PORT   default 8797
  *   REMUSE_HOST   default 127.0.0.1
  *   REMUSE_PI_MODEL, REMUSE_PI_AUTH  when both are set, the agent is Pi (provider/model-id,
- *                 Pi auth file); browser, approvals and connectors stay scripted for now
+ *                 Pi auth file)
+ *   REMUSE_COMPOSIO_KEY_FILE  file holding a Composio developer key (ak_…): connectors go
+ *                 through Composio; read once, never logged
+ *   Browser and approvals stay scripted for now.
  */
+import { readFileSync } from "node:fs";
+import { composio, composioConnector } from "@remuse/composio";
 import { createHost, demoPorts, realTimers, seed } from "@remuse/core";
 import { piAgent } from "@remuse/pi";
 import { listen } from "./server.ts";
@@ -26,7 +31,12 @@ const system = [
   "When a request needs one of the user's apps (mail, calendar, sheets, ...), ask with `request_connection` instead of guessing.",
   "Never claim a background task has finished unless you were told so.",
 ].join("\n");
-const ports = model && authPath ? { ...demoPorts(realTimers), ...piAgent({ model, authPath, system }) } : demoPorts(realTimers);
+const keyFile = process.env["REMUSE_COMPOSIO_KEY_FILE"];
+const ports = {
+  ...demoPorts(realTimers),
+  ...(model && authPath ? piAgent({ model, authPath, system }) : {}),
+  ...(keyFile ? composioConnector(composio(readFileSync(keyFile, "utf8").trim()), { userId: "owner", timers: realTimers }) : {}),
+};
 
 await listen({ session: createHost(ports, { seed: seed() }), token, port, host });
-console.log(`remuse api on ws://${host}:${port}/rpc (agent: ${model && authPath ? model : "scripted demo"})`);
+console.log(`remuse api on ws://${host}:${port}/rpc (agent: ${model && authPath ? model : "scripted"}, connectors: ${keyFile ? "composio" : "scripted"})`);
