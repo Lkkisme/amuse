@@ -25,17 +25,16 @@ export type Emit = (event: Event) => void;
 /** Ids that stay unique across restarts and processes (a journal outlives any counter). */
 export const newId = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
 
-/** What the agent can do while it runs: report events, act through the rules, wait for approvals. */
+/**
+ * What agents (the chat agent and browser runs) can do: record events, act
+ * through the rules, wait for an approval, and wake the chat agent with a
+ * note (not shown as a user message), e.g. a finished run's result.
+ */
 export interface AgentIO {
   emit: Emit;
   act(action: AgentAction): { ok: true; id: string } | { ok: false; reason: string };
   /** Resolves when the user decides approval `id` (from an `ask`). */
   decision(id: string): Promise<"approved" | "denied">;
-}
-
-/** What a browser run can do: everything the agent can, and tell the agent how it went. */
-export interface RunIO extends AgentIO {
-  /** Wake the agent with a note (not shown as a user message), e.g. a finished run's result. */
   report(note: string): void;
 }
 
@@ -44,7 +43,7 @@ export interface Ports {
   /** Run the agent on a new prompt. */
   prompt(text: string, agent: AgentIO): void;
   /** Run a browser task the agent started. */
-  browse(browser: Browser, run: RunIO): void;
+  browse(browser: Browser, run: AgentIO): void;
   /** Stop the agent's current run. */
   interrupt(emit: Emit): void;
   browser(effect: Extract<Effect, { kind: "browser" }>, emit: Emit): void;
@@ -98,6 +97,7 @@ export function createHost(ports: Ports, options: { seed?: Entity[]; clock?: Clo
   const agent: AgentIO = {
     emit,
     decision: (id) => new Promise((resolve) => waiting.set(id, resolve)),
+    report: (note) => ports.prompt(note, agent),
     act(action) {
       const decision = decideAgent(state, action.kind, action, context());
       if (!decision.ok) return { ok: false, reason: new Rejected(decision.rejection).message };
@@ -122,7 +122,7 @@ export function createHost(ports: Ports, options: { seed?: Entity[]; clock?: Clo
       case "stopTask":
         return ports.stopTask(effect.id, emit);
       case "browse":
-        return ports.browse(effect.browser, { ...agent, report: (note) => ports.prompt(note, agent) });
+        return ports.browse(effect.browser, agent);
     }
   }
 

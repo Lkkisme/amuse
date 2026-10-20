@@ -15,7 +15,7 @@ export interface ConnectorOptions<H> {
   timeoutMs?: number;
 }
 
-export function composioConnector<H>(client: Composio, options: ConnectorOptions<H>): Pick<Ports, "connect"> {
+export function composioConnector<H>(client: Pick<Composio, "link" | "status">, options: ConnectorOptions<H>): Pick<Ports, "connect"> {
   const pollMs = options.pollMs ?? 2000;
   const timeoutMs = options.timeoutMs ?? 10 * 60_000;
   return {

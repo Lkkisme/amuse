@@ -7,7 +7,7 @@
  */
 import { type AgentSession, type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
 import type { Pool } from "@remuse/browser";
-import type { Ports, RunIO } from "@remuse/core";
+import type { AgentIO, Ports } from "@remuse/core";
 import type { Browser } from "@remuse/protocol";
 import type { Page } from "playwright-core";
 import { Type } from "typebox";
@@ -28,7 +28,7 @@ const snapshotLimit = 15_000;
 interface Run {
   browser: Browser;
   page: Page;
-  io: RunIO;
+  io: AgentIO;
   session: AgentSession | null;
   /** Set while the user holds the browser; resolves when it is handed back (true) or stopped (false). */
   held: { promise: Promise<boolean>; settle: (resumed: boolean) => void } | null;

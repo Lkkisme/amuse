@@ -8,13 +8,20 @@ import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { type AgentIO, type Ports, newId } from "@remuse/core";
 import { redact } from "./redact.ts";
 import { type PiModelConfig, openSession } from "./session.ts";
-import { tools } from "./tools.ts";
+import { type Apps, appTools, tools } from "./tools.ts";
 
 export interface PiConfig extends PiModelConfig {
   system: string;
+  /** Connected apps the agent may use; without them it can only ask to connect. */
+  apps?: Apps;
 }
 
-const toolLabels: Record<string, string> = { browse: "Starting a browser task", request_connection: "Preparing a connection" };
+const toolLabels: Record<string, string> = {
+  browse: "Starting a browser task",
+  request_connection: "Preparing a connection",
+  app_tools: "Looking up your apps",
+  app_call: "Using your apps",
+};
 
 /** prompt + interrupt on Pi. Prompts run one after another; interrupt aborts the current one. */
 export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt"> {
@@ -26,7 +33,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt"> {
     return current;
   };
   const ready = () => {
-    session ??= openSession(cfg, cfg.system, tools(io)).catch((error: unknown) => {
+    session ??= openSession(cfg, cfg.system, [...tools(io), ...(cfg.apps ? appTools(io, cfg.apps) : [])]).catch((error: unknown) => {
       session = undefined; // retry on the next prompt
       throw error;
     });

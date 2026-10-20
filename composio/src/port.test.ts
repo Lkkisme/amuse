@@ -18,7 +18,7 @@ function ticks() {
   return { timers, tick, pending: () => queue.length };
 }
 
-const fake = (statuses: AccountStatus[]): Composio => ({
+const fake = (statuses: AccountStatus[]): Pick<Composio, "link" | "status"> => ({
   link: async (toolkit, user) => ({ url: `https://connect.example/${toolkit}/${user}`, account: "ca_1" }),
   status: async () => statuses.shift() ?? "pending",
 });
@@ -65,4 +65,22 @@ test("the client parses Composio's responses and sends the key as x-api-key", as
     "GET /api/v3/connected_accounts/ca_9 key=ak_test",
   ]);
   await assert.rejects(composio("ak_test", async () => Response.json({ nope: 1 })).status("x"), /unexpected shape/);
+});
+
+test("tools search, connection check and execute parse Composio's responses", async () => {
+  const http: typeof fetch = async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith("/connected_accounts")) return Response.json({ items: url.searchParams.get("toolkit_slugs") === "gmail" ? [{ id: "ca", status: "ACTIVE" }] : [] });
+    if (url.pathname.endsWith("/tools"))
+      return Response.json({ items: [{ slug: "GMAIL_FETCH_EMAILS", name: "Fetch", description: "Fetch emails", input_parameters: { properties: { max_results: { type: "integer" } }, required: [] } }] });
+    assert.equal(init?.method, "POST");
+    return Response.json({ successful: true, data: { messages: [] }, error: null });
+  };
+  const client = composio("ak_test", http);
+  assert.equal(await client.connected("gmail", "owner"), true);
+  assert.equal(await client.connected("slack", "owner"), false);
+  assert.deepEqual(await client.tools("gmail", "latest"), [
+    { slug: "GMAIL_FETCH_EMAILS", name: "Fetch", description: "Fetch emails", parameters: { max_results: { type: "integer" } }, required: [] },
+  ]);
+  assert.deepEqual(await client.execute("GMAIL_FETCH_EMAILS", "owner", {}), { ok: true, data: { messages: [] } });
 });

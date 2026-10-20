@@ -13,7 +13,7 @@
  *   REMUSE_WEB    directory of the built web app to serve (same origin as /rpc and /live)
  */
 import { readFileSync } from "node:fs";
-import { composio, composioConnector } from "@remuse/composio";
+import { composio, composioApps, composioConnector } from "@remuse/composio";
 import { fileJournal } from "./journal.ts";
 import { browserPorts, pool } from "@remuse/browser";
 import { createHost, demoPorts, realTimers, seed } from "@remuse/core";
@@ -36,15 +36,18 @@ const system = [
   "When a request needs a website, start a browser task with `browse` and tell the user it is running; it continues in the background and they can watch or take over.",
   "When a request needs one of the user's apps (mail, calendar, sheets, ...), ask with `request_connection` instead of guessing.",
   "Never claim a background task has finished unless you were told so.",
-  "Messages starting with [browser task …] are reports from your browser tasks, not from the user: pass on what matters, briefly, and if the user is needed tell them what to do in the browser card.",
+  "For a connected app, find the action with `app_tools`, then run it with `app_call`. Reading runs at once; sending, changing, deleting or paying goes to the user for approval and runs in the background.",
+  "Messages starting with [browser task …] or [app action …] are reports from your background work, not from the user: pass on what matters, briefly, and if the user is needed tell them what to do.",
 ].join("\n");
 const keyFile = process.env["REMUSE_COMPOSIO_KEY_FILE"];
+const composioClient = keyFile ? composio(readFileSync(keyFile, "utf8").trim()) : undefined;
+const composioUser = "owner";
 const browsers = process.env["REMUSE_BROWSER"] === "chromium" ? pool() : undefined;
 const ports = {
   ...demoPorts(realTimers),
   ...(browsers ? (model && authPath ? piBrowserAgent({ model, authPath }, browsers) : browserPorts(browsers)) : {}),
-  ...(model && authPath ? piAgent({ model, authPath, system }) : {}),
-  ...(keyFile ? composioConnector(composio(readFileSync(keyFile, "utf8").trim()), { userId: "owner", timers: realTimers }) : {}),
+  ...(model && authPath ? piAgent({ model, authPath, system, ...(composioClient ? { apps: composioApps(composioClient, composioUser) } : {}) }) : {}),
+  ...(composioClient ? composioConnector(composioClient, { userId: composioUser, timers: realTimers }) : {}),
 };
 
 const journalPath = process.env["REMUSE_JOURNAL"];
