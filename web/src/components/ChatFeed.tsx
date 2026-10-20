@@ -6,7 +6,7 @@
  * hatch-dot-pulse thinking indicator in a small gray bubble.
  */
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Copy, MoreHorizontal, Share, Smile } from "lucide-react";
+import { ArrowDown, ChevronDown, Copy, MoreHorizontal, Share, Smile } from "lucide-react";
 import type { DemoState, FeedItem } from "../data/fakeMuse";
 import type { MuseActions } from "./actions";
 import { ApprovalCard, BrowserCard, ConnReqCard, TaskCard } from "./cards";
@@ -167,18 +167,28 @@ export function ChatFeed({ state, actions }: { state: DemoState; actions: MuseAc
         )}
         <div ref={bottomRef} />
       </div>
-      {/* Jump-to-bottom pill (Muse refs 09-waiting, 14-mobile-chat): shows whenever the
-          view is far from the bottom; "N messages" if new ones arrived, else "See more". */}
-      {(far || pendingCount > 0) && !atBottom && (
-        <button
-          className="anim-fade-in absolute bottom-[86px] left-1/2 z-30 flex -translate-x-1/2 items-center gap-1 rounded-full py-1.5 pl-3 pr-2 text-[12px] font-semibold"
-          style={{ background: "var(--chat-user-bubble)", color: "var(--chat-user-text)", boxShadow: "0 1px 6px rgba(0,0,0,0.10)" }}
-          onClick={scrollToBottom}
-        >
-          {pendingCount > 0 ? `${pendingCount} ${pendingCount === 1 ? "message" : "messages"}` : "See more"}
-          <ChevronDown size={14} />
-        </button>
-      )}
+      {/* Jump-to-bottom: a plain down-arrow button while far from the bottom;
+          "N messages" pill (Muse ref 09-waiting) when new ones arrived. */}
+      {(far || pendingCount > 0) && !atBottom &&
+        (pendingCount > 0 ? (
+          <button
+            className="absolute bottom-[86px] left-1/2 z-30 flex -translate-x-1/2 items-center gap-1 rounded-full py-1.5 pl-3 pr-2 text-[12px] font-semibold"
+            style={{ background: "var(--chat-user-bubble)", color: "var(--chat-user-text)", boxShadow: "0 1px 6px rgba(0,0,0,0.10)" }}
+            onClick={scrollToBottom}
+          >
+            {pendingCount} {pendingCount === 1 ? "message" : "messages"}
+            <ChevronDown size={14} />
+          </button>
+        ) : (
+          <button
+            aria-label="Scroll to bottom"
+            className="absolute bottom-[86px] left-1/2 z-30 flex size-9 -translate-x-1/2 items-center justify-center rounded-full"
+            style={{ background: "var(--fill-primary)", color: "var(--icon-primary)", boxShadow: "0 1px 6px rgba(0,0,0,0.12)" }}
+            onClick={scrollToBottom}
+          >
+            <ArrowDown size={18} />
+          </button>
+        ))}
       {/* Muse-style scroll fade: a mask dissolves the content itself under the
           floating top bar and composer — no solid overlay sits on top. */}
       </div>
