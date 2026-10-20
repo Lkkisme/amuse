@@ -422,7 +422,7 @@ export function SettingsModal({ ui, theme, data, actions }: { ui: Ui["settings"]
       <div
         onAnimationEnd={onAnimationEnd}
         className={`${closing ? "anim-modal-out" : "anim-modal-in"} relative flex h-[72vh] max-h-[620px] w-full max-w-3xl flex-col overflow-hidden rounded-t-[28px] sm:flex-row sm:rounded-[28px]`}
-        style={{ background: "var(--chat-background)", boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}
+        style={{ background: "var(--chat-background)", boxShadow: "var(--shadow-sheet)" }}
       >
         {/* left nav — horizontal icon row on mobile, column on sm+ */}
         <nav

@@ -44,3 +44,8 @@ element is a scripted fake.
 - Concentric corners: a control near a rounded corner shares its center. Container radius =
   the control's inset + the control's radius. Sheets and modals: close button 12px in, 32px
   round (radius 16) → 28px corners, on mobile drawers and desktop modals alike.
+  The composer follows it too: its plus, mic and send buttons are 36px at an 8px inset in the
+  52px pill, so each sits on the center of a rounded end.
+- Shadows are soft: wide blur, low opacity, only from the `--shadow-*` tokens (float, raised,
+  sheet, drawer). A shadow falls on the chat, never on its own companion: the avatar's shadow
+  lies under its name badge.

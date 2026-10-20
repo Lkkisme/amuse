@@ -18,11 +18,17 @@ export function TopBar({ conversation }: { conversation: State }) {
       {/* spacer: the menu button lives outside the header (MenuButton) so it can sit above the drawer */}
       <span className="size-10" />
 
-      {/* Muse avatar bubble, drawn over the top of its name badge (Muse: 52px avatar, badge tucked 4px under) */}
+      {/* Muse avatar bubble, drawn over the top of its name badge (Muse: 52px avatar, badge tucked 4px under).
+          Its shadow is a layer of its own under the badge, so it falls on the chat, not on the badge. */}
       <div className="pointer-events-none absolute left-1/2 top-2 z-10 flex -translate-x-1/2 flex-col items-center">
         <span
-          className="relative z-10 flex size-[52px] items-center justify-center rounded-full text-[20px] font-semibold"
-          style={{ background: "var(--fill-primary)", color: "var(--text-primary)", boxShadow: "0 1px 6px rgba(0,0,0,0.10)" }}
+          aria-hidden
+          className="absolute top-0 size-[52px] rounded-full"
+          style={{ boxShadow: "var(--shadow-float)" }}
+        />
+        <span
+          className="relative z-[2] flex size-[52px] items-center justify-center rounded-full text-[20px] font-semibold"
+          style={{ background: "var(--fill-primary)", color: "var(--text-primary)" }}
         >
           M
         </span>
@@ -37,8 +43,8 @@ function AvatarBadge({ line }: { line: AgentLine | null }) {
   const Icon = line ? LINE_ICONS[line.icon] : null;
   return (
     <span
-      className="-mt-1 flex min-w-[52px] flex-col items-center rounded-[20px] px-3.5 pb-1.5 pt-[5px] transition-all duration-200"
-      style={{ background: "var(--fill-primary)", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}
+      className="relative z-[1] -mt-1 flex min-w-[52px] flex-col items-center rounded-[20px] px-3.5 pb-1.5 pt-[5px] transition-all duration-200"
+      style={{ background: "var(--fill-primary)", boxShadow: "var(--shadow-float)" }}
     >
       <span className="text-[14px] font-semibold leading-[18px]" style={{ color: "var(--text-primary)" }}>
         Muse
@@ -69,7 +75,7 @@ export function MenuButton({ open, actions }: { open: boolean; actions: Actions 
       aria-label={open ? "Close menu" : "Open menu"}
       aria-expanded={open}
       className="hover-fade absolute left-3 top-2 z-[45] flex size-10 items-center justify-center rounded-full"
-      style={{ background: "var(--fill-primary)", color: "var(--text-primary)", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}
+      style={{ background: "var(--fill-primary)", color: "var(--text-primary)", boxShadow: "var(--shadow-float)" }}
       onClick={() => actions.setChats(!open)}
     >
       <Menu size={18} className={icon} style={{ opacity: open ? 0 : 1, transform: open ? "rotate(90deg) scale(0.6)" : "none" }} />

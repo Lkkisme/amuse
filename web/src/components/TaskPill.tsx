@@ -39,7 +39,7 @@ export function TaskPill({ conversation, actions }: { conversation: State; actio
         aria-label={`Browser: ${meta.label}`}
         aria-expanded={open}
         className="anim-fade-in relative flex size-10 items-center justify-center rounded-full"
-        style={{ background: "var(--fill-primary)", color: meta.color, boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}
+        style={{ background: "var(--fill-primary)", color: meta.color, boxShadow: "var(--shadow-float)" }}
         onClick={() => (open ? close() : setPhase("open"))}
       >
         <Monitor size={18} />
@@ -62,7 +62,7 @@ export function TaskPill({ conversation, actions }: { conversation: State; actio
         <div
           className={`${open ? "anim-popover-in" : "anim-popover-out"} absolute right-0 top-12 w-64 rounded-2xl p-3`}
           onAnimationEnd={() => setPhase((p) => (p === "closing" ? "closed" : p))}
-          style={{ background: "var(--fill-primary)", boxShadow: "0 4px 20px rgba(0,0,0,0.14)" }}
+          style={{ background: "var(--fill-primary)", boxShadow: "var(--shadow-raised)" }}
         >
           <div className="flex items-center gap-2.5">
             <span

@@ -33,7 +33,7 @@ export function Composer({ conversation, actions }: { conversation: State; actio
       <div className="relative mx-auto max-w-3xl px-4 pb-5 pt-1">
         <div
           className="pointer-events-auto flex min-h-[52px] items-center gap-2 rounded-full px-2 py-2"
-          style={{ background: "var(--fill-primary)", boxShadow: "0 1px 6px rgba(0,0,0,0.06)" }}
+          style={{ background: "var(--fill-primary)", boxShadow: "var(--shadow-float)" }}
         >
           {/* end buttons are 36px at an 8px inset: concentric with the pill's 26px-radius ends */}
           <button aria-label="Add attachment" className="hover-fade flex size-9 shrink-0 items-center justify-center rounded-full" style={{ color: "var(--icon-primary)" }}>

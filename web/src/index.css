@@ -20,6 +20,11 @@
   --fill-red: #c01f37; /* text-destructive red-650 */
   /* remuse: pill button inside a gray card (ref 52-connreq-desktop: lighter than the card) */
   --fill-card-button: var(--fill-primary);
+  /* remuse: soft shadows, wide and faint — floating chrome, raised popovers, sheets */
+  --shadow-float: 0 2px 16px rgba(0, 0, 0, 0.06);
+  --shadow-raised: 0 6px 32px rgba(0, 0, 0, 0.08);
+  --shadow-sheet: 0 12px 56px rgba(0, 0, 0, 0.1);
+  --shadow-drawer: 8px 0 48px rgba(0, 0, 0, 0.08);
 }
 /* .dark from Muse production CSS (2026-10-20). Web, not the Android app: the
    app's dark theme is true black; the web uses ai-gray-1075. */
@@ -42,6 +47,11 @@
   --fill-red: #fa4758; /* red-500 */
   /* dark fill-primary == card fill, so lift it with fill-secondary-elevated (white-a100) */
   --fill-card-button: #ffffff1f;
+  /* the dark page needs more to show a shadow at all; still wide and soft */
+  --shadow-float: 0 2px 16px rgba(0, 0, 0, 0.24);
+  --shadow-raised: 0 6px 32px rgba(0, 0, 0, 0.3);
+  --shadow-sheet: 0 12px 56px rgba(0, 0, 0, 0.4);
+  --shadow-drawer: 8px 0 48px rgba(0, 0, 0, 0.32);
 }
 :root[data-accent-color="blue"] {
   --accent: #0064d4;

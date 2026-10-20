@@ -148,7 +148,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           <p
             role="status"
             className="anim-fade-in absolute inset-x-0 bottom-[86px] z-30 mx-auto w-fit max-w-[90%] rounded-full px-4 py-2 text-[13px]"
-            style={{ background: "var(--fill-primary)", color: "var(--fill-red)", boxShadow: "0 1px 6px rgba(0,0,0,0.12)" }}
+            style={{ background: "var(--fill-primary)", color: "var(--fill-red)", boxShadow: "var(--shadow-float)" }}
           >
             {ui.notice}
           </p>

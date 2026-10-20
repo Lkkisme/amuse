@@ -75,7 +75,7 @@ export function LiveView({ url, interactive }: { url: string; interactive: boole
           <button
             aria-label="Show keyboard"
             className="absolute bottom-4 right-4 flex size-11 items-center justify-center rounded-full md:hidden"
-            style={{ background: "var(--fill-primary)", color: "var(--icon-primary)", boxShadow: "0 2px 10px rgba(0,0,0,0.15)" }}
+            style={{ background: "var(--fill-primary)", color: "var(--icon-primary)", boxShadow: "var(--shadow-raised)" }}
             onClick={() => typing.current?.focus()}
           >
             <Keyboard size={20} />

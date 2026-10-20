@@ -17,7 +17,7 @@ export function Sheet({ open, onClose, children }: { open: boolean; onClose: () 
       <div
         onAnimationEnd={onAnimationEnd}
         className={`${closing ? "anim-modal-out" : "anim-modal-in"} relative flex max-h-[92vh] w-full max-w-sm flex-col overflow-hidden rounded-t-[28px] sm:rounded-[28px]`}
-        style={{ background: "var(--chat-background)", boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}
+        style={{ background: "var(--chat-background)", boxShadow: "var(--shadow-sheet)" }}
       >
         <button
           aria-label="Close"

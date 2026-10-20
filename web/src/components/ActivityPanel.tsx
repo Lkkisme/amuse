@@ -67,7 +67,7 @@ export function ActivityPanel({ conversation, open, actions }: { conversation: S
       <div className="flex items-start gap-3 px-4 pt-4">
         <span
           className={`flex size-10 shrink-0 items-center justify-center rounded-full text-[16px] font-semibold ${working ? "avatar-ring-pulse" : ""}`}
-          style={{ background: "var(--fill-primary)", color: "var(--text-primary)", boxShadow: "0 1px 6px rgba(0,0,0,0.10)" }}
+          style={{ background: "var(--fill-primary)", color: "var(--text-primary)", boxShadow: "var(--shadow-float)" }}
         >
           M
         </span>

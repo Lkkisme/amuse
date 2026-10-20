@@ -45,7 +45,7 @@ function ExplainerBody({ req, open, actions }: { req: Connection; open: boolean;
           {/* app icon */}
           <span
             className="mx-auto flex size-16 items-center justify-center rounded-2xl"
-            style={{ background: "var(--fill-primary)", boxShadow: "0 1px 6px rgba(0,0,0,0.10)" }}
+            style={{ background: "var(--fill-primary)", boxShadow: "var(--shadow-float)" }}
           >
             <BarChart3 size={30} style={{ color: "var(--fill-green)" }} />
           </span>

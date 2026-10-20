@@ -31,7 +31,7 @@ export function ChatsPanel({ open, actions }: { open: boolean; actions: Actions 
       <aside
         onAnimationEnd={onAnimationEnd}
         className={`${closing ? "anim-pane-to-left pointer-events-none" : "anim-pane-from-left"} relative flex h-full w-[300px] max-w-[85vw] flex-col p-3`}
-        style={{ background: "var(--chat-background)", boxShadow: "4px 0 24px rgba(0,0,0,0.12)" }}
+        style={{ background: "var(--chat-background)", boxShadow: "var(--shadow-drawer)" }}
         aria-label="Menu"
       >
         {/* room for the ☰ button (TopBar's MenuButton), which stays put above the drawer */}

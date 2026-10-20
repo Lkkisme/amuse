@@ -232,7 +232,7 @@ export function ChatFeed({ conversation, older, release, thumb, actions }: Props
         (pendingCount > 0 ? (
           <button
             className="absolute bottom-[86px] left-1/2 z-30 flex -translate-x-1/2 items-center gap-1 rounded-full py-1.5 pl-3 pr-2 text-[12px] font-semibold"
-            style={{ background: "var(--chat-user-bubble)", color: "var(--chat-user-text)", boxShadow: "0 1px 6px rgba(0,0,0,0.10)" }}
+            style={{ background: "var(--chat-user-bubble)", color: "var(--chat-user-text)", boxShadow: "var(--shadow-float)" }}
             onClick={scrollToBottom}
           >
             {pendingCount} {pendingCount === 1 ? "message" : "messages"}
@@ -242,7 +242,7 @@ export function ChatFeed({ conversation, older, release, thumb, actions }: Props
           <button
             aria-label="Scroll to bottom"
             className="absolute bottom-[86px] left-1/2 z-30 flex size-9 -translate-x-1/2 items-center justify-center rounded-full"
-            style={{ background: "var(--fill-primary)", color: "var(--icon-primary)", boxShadow: "0 1px 6px rgba(0,0,0,0.12)" }}
+            style={{ background: "var(--fill-primary)", color: "var(--icon-primary)", boxShadow: "var(--shadow-float)" }}
             onClick={scrollToBottom}
           >
             <ArrowDown size={18} />
