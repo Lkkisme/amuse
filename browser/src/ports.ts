@@ -8,7 +8,7 @@ import type { Pool } from "./pool.ts";
 
 export function browserPorts(pool: Pool): Pick<Ports, "browse" | "browser"> {
   return {
-    browse(browser, emit) {
+    browse(browser, { emit }) {
       pool.open(browser.id, browser.url).then(
         () => emit({ kind: "upserted", entity: { ...browser, status: "completed" } }),
         () => emit({ kind: "upserted", entity: { ...browser, status: "failed" } }),

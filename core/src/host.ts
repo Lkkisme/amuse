@@ -31,12 +31,19 @@ export interface AgentIO {
   act(action: AgentAction): { ok: true; id: string } | { ok: false; reason: string };
 }
 
+/** What a browser run can do: report events, and tell the agent how it went. */
+export interface RunIO {
+  emit: Emit;
+  /** Wake the agent with a note (not shown as a user message), e.g. a finished run's result. */
+  report(note: string): void;
+}
+
 /** The outside world. Each port gets `emit` to report what happened. */
 export interface Ports {
   /** Run the agent on a new prompt. */
   prompt(text: string, agent: AgentIO): void;
   /** Run a browser task the agent started. */
-  browse(browser: Browser, emit: Emit): void;
+  browse(browser: Browser, run: RunIO): void;
   /** Stop the agent's current run. */
   interrupt(emit: Emit): void;
   browser(effect: Extract<Effect, { kind: "browser" }>, emit: Emit): void;
@@ -108,7 +115,7 @@ export function createHost(ports: Ports, options: { seed?: Entity[]; clock?: Clo
       case "stopTask":
         return ports.stopTask(effect.id, emit);
       case "browse":
-        return ports.browse(effect.browser, emit);
+        return ports.browse(effect.browser, { emit, report: (note) => ports.prompt(note, agent) });
     }
   }
 

@@ -7,3 +7,12 @@ run = "npm run typecheck && npm test"
 description = "Run the API with the demo ports on 127.0.0.1:8797 (REMUSE_TOKEN required)"
 depends = ["//:install"]
 run = "node --watch src/main.ts"
+
+[tasks.try]
+description = "A throwaway API for live tests: dev ports and keys, but its own port (PORT, default 8799), localhost only, and a temp journal"
+depends = ["//:install"]
+run = '''
+set -a; . "$HOME/.config/remuse/dev.env"; set +a
+export REMUSE_HOST=127.0.0.1 REMUSE_PORT="${PORT:-8799}" REMUSE_JOURNAL="$(mktemp -d)/events.jsonl"
+exec node src/main.ts
+'''

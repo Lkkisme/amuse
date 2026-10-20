@@ -18,7 +18,7 @@ import { fileJournal } from "./journal.ts";
 import { browserPorts, pool } from "@remuse/browser";
 import { createHost, demoPorts, realTimers, seed } from "@remuse/core";
 import { type State, apply, empty } from "@remuse/protocol";
-import { piAgent } from "@remuse/pi";
+import { piAgent, piBrowserAgent } from "@remuse/pi";
 import { listen } from "./server.ts";
 
 const token = process.env["REMUSE_TOKEN"];
@@ -36,12 +36,13 @@ const system = [
   "When a request needs a website, start a browser task with `browse` and tell the user it is running; it continues in the background and they can watch or take over.",
   "When a request needs one of the user's apps (mail, calendar, sheets, ...), ask with `request_connection` instead of guessing.",
   "Never claim a background task has finished unless you were told so.",
+  "Messages starting with [browser task …] are reports from your browser tasks, not from the user: pass on what matters, briefly, and if the user is needed tell them what to do in the browser card.",
 ].join("\n");
 const keyFile = process.env["REMUSE_COMPOSIO_KEY_FILE"];
 const browsers = process.env["REMUSE_BROWSER"] === "chromium" ? pool() : undefined;
 const ports = {
   ...demoPorts(realTimers),
-  ...(browsers ? browserPorts(browsers) : {}),
+  ...(browsers ? (model && authPath ? piBrowserAgent({ model, authPath }, browsers) : browserPorts(browsers)) : {}),
   ...(model && authPath ? piAgent({ model, authPath, system }) : {}),
   ...(keyFile ? composioConnector(composio(readFileSync(keyFile, "utf8").trim()), { userId: "owner", timers: realTimers }) : {}),
 };

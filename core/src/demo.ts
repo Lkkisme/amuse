@@ -47,7 +47,7 @@ export function demoPorts<H>(timers: Timers<H>): Ports {
       if (app) act({ kind: "connect", provider: app.toLowerCase(), title: app.charAt(0).toUpperCase() + app.slice(1) });
       reply(emit, url || app ? "On it — follow along in the card below." : `Got it — **"${text}"**. I'll take that from here and post updates in this chat.`, 1400);
     },
-    browse: (browser, emit) => {
+    browse: (browser, { emit }) => {
       // a login page needs the user; anything else finishes on its own
       timers.set(3000, () =>
         emit({ kind: "upserted", entity: { ...browser, status: /login|signin/.test(browser.url) ? "needs_you" : "completed" } }),
