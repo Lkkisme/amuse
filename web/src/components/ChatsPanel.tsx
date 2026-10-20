@@ -1,7 +1,9 @@
 /**
- * Left drawer (the ☰ button opens it): search + close, page grid on mobile, Main chat row with
- * timestamp, Side chats + add row, recent chats. Slide-over from the left.
+ * Left drawer (the ☰ button opens it): close, page grid on mobile, then the
+ * chat search box right above the list it filters (Main chat, Side chats +
+ * add, recent chats). Slide-over from the left.
  */
+import { useState } from "react";
 import { MessageCircle, Plus, Search, Settings, X } from "lucide-react";
 import type { DemoState } from "../data/fakeMuse";
 import type { MuseActions } from "./actions";
@@ -14,7 +16,10 @@ const RECENT_CHATS = [
 ];
 
 export function ChatsPanel({ state, actions }: { state: DemoState; actions: MuseActions }) {
+  const [query, setQuery] = useState("");
   if (!state.chatsOpen) return null;
+  const q = query.trim().toLowerCase();
+  const recent = q ? RECENT_CHATS.filter((c) => c.title.toLowerCase().includes(q)) : RECENT_CHATS;
   return (
     <div className="fixed inset-0 z-40 flex">
       <div className="anim-fade-in absolute inset-0 bg-black/30" onClick={() => actions.setChats(false)} />
@@ -23,19 +28,7 @@ export function ChatsPanel({ state, actions }: { state: DemoState; actions: Muse
         style={{ background: "var(--chat-background)", boxShadow: "4px 0 24px rgba(0,0,0,0.12)" }}
         aria-label="Menu"
       >
-        {/* search + close share the top row */}
-        <div className="flex items-center gap-2">
-          <div
-            className="flex h-10 flex-1 items-center gap-2 rounded-full px-3"
-            style={{ background: "var(--fill-secondary)", color: "var(--text-tertiary)" }}
-          >
-            <Search size={16} />
-            <input
-              className="w-full bg-transparent text-[14px] outline-none"
-              style={{ color: "var(--text-primary)" }}
-              placeholder="Search"
-            />
-          </div>
+        <div className="flex justify-end">
           <button
             aria-label="Close menu"
             className="hover-fade rounded-full p-2"
@@ -47,7 +40,7 @@ export function ChatsPanel({ state, actions }: { state: DemoState; actions: Muse
         </div>
 
         {/* pages: the rail is hidden below md, so the drawer carries them. Search is
-            the box above, so its tile gives way to Settings at the end. */}
+            the chat search below, so its tile gives way to Settings at the end. */}
         <nav className="mt-3 grid grid-cols-3 gap-1 md:hidden" aria-label="Pages">
           {NAV_PAGES.filter((p) => p.label !== "Search").map(({ icon: Icon, label, ...rest }) => {
             const active = "active" in rest;
@@ -78,6 +71,21 @@ export function ChatsPanel({ state, actions }: { state: DemoState; actions: Muse
             Settings
           </button>
         </nav>
+
+        {/* search sits on the list it filters */}
+        <div
+          className="mt-3 flex h-10 shrink-0 items-center gap-2 rounded-full px-3"
+          style={{ background: "var(--fill-secondary)", color: "var(--text-tertiary)" }}
+        >
+          <Search size={16} />
+          <input
+            className="w-full bg-transparent text-[14px] outline-none"
+            style={{ color: "var(--text-primary)" }}
+            placeholder="Search chats"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
 
         <div className="mt-3 flex-1 overflow-y-auto">
           {/* Main chat */}
@@ -114,7 +122,12 @@ export function ChatsPanel({ state, actions }: { state: DemoState; actions: Muse
             <p className="px-3 pb-1 text-[13px] font-semibold" style={{ color: "var(--text-secondary)" }}>
               Recent
             </p>
-            {RECENT_CHATS.map((c) => (
+            {recent.length === 0 && (
+              <p className="px-3 py-2 text-[14px]" style={{ color: "var(--text-secondary)" }}>
+                No chats match "{query}"
+              </p>
+            )}
+            {recent.map((c) => (
               <button
                 key={c.title}
                 className="hover-fade flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left"
