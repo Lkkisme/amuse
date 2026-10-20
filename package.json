@@ -5,6 +5,7 @@
   "workspaces": [
     "protocol",
     "core",
+    "demo",
     "pi",
     "composio",
     "browser",

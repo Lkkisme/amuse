@@ -5,7 +5,8 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { connect } from "@remuse/api/client";
-import { createHost, demoPorts, realTimers, seed } from "@remuse/core";
+import { createHost, realTimers } from "@remuse/core";
+import { demoPorts, seed } from "@remuse/demo";
 import type { Session } from "@remuse/protocol";
 import { seedSettings } from "./demo/settings.ts";
 import { connection } from "./connection.ts";

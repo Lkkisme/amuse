@@ -19,7 +19,8 @@ import { readFileSync } from "node:fs";
 import { composio, composioApps, composioConnector } from "@remuse/composio";
 import { fileJournal } from "./journal.ts";
 import { browserPorts, pool } from "@remuse/browser";
-import { createHost, demoPorts, realTimers, seed } from "@remuse/core";
+import { type Ports, createHost, realTimers } from "@remuse/core";
+import { demoPorts, seed } from "@remuse/demo";
 import { type State, apply, empty } from "@remuse/protocol";
 import { piAgent, piBrowserAgent } from "@remuse/pi";
 import { listen } from "./server.ts";
@@ -55,16 +56,33 @@ const connector =
   });
 const browserState = process.env["REMUSE_BROWSER_STATE"];
 const browsers = process.env["REMUSE_BROWSER"] === "chromium" ? pool(browserState ? { stateFile: browserState } : {}) : undefined;
-const ports = {
-  ...demoPorts(realTimers),
-  ...(browsers ? (model && authPath ? piBrowserAgent({ model, authPath }, browsers) : browserPorts(browsers)) : {}),
-  ...(model && authPath ? piAgent({ model, authPath, system, ...(composioClient ? { apps: composioApps(composioClient, composioUser) } : {}) }) : {}),
-  ...(connector ? { connect: connector.connect } : {}),
-};
+/**
+ * With a model, every port is real and chosen here on purpose; a capability
+ * that is not configured fails plainly instead of falling back to a script.
+ * Without a model the whole thing is the scripted demo (with its seed).
+ */
+const real = (model: string, authPath: string): Ports => ({
+  ...piAgent({ model, authPath, system, ...(composioClient ? { apps: composioApps(composioClient, composioUser) } : {}) }),
+  ...(browsers
+    ? piBrowserAgent({ model, authPath }, browsers)
+    : {
+        browse: (browser, io) => void io.act({ kind: "browserStatus", id: browser.id, status: "failed" }),
+        browser: () => {},
+      }),
+  approval: () => {}, // waiting agents get the verdict through AgentIO.decision
+  stopTask: () => {}, // no task runner yet: the rules already recorded the stop
+  connect: connector
+    ? connector.connect
+    : async () => {
+        throw new Error("No connector is configured (set REMUSE_COMPOSIO_KEY_FILE).");
+      },
+});
+const demo = !(model && authPath);
+const ports: Ports = model && authPath ? real(model, authPath) : { ...demoPorts(realTimers), ...(browsers ? browserPorts(browsers) : {}) };
 
 const journalPath = process.env["REMUSE_JOURNAL"];
 const journal = journalPath ? { journal: fileJournal(journalPath) } : {};
-const session = createHost(ports, { seed: seed(), ...journal });
+const session = createHost(ports, { ...(demo ? { seed: seed() } : {}), ...journal });
 
 // the live channel asks the conversation, folded here like any client, who holds a run
 const synced = await session.call("session.sync", { since: null });

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import { createHost, demoPorts, seed, type Timers } from "@remuse/core";
+import { createHost, type Timers } from "@remuse/core";
+import { demoPorts, seed } from "@remuse/demo";
 import { type Envelope, type State, apply, empty } from "@remuse/protocol";
 import { connect } from "./client.ts";
 import { listen } from "./server.ts";

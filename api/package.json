@@ -17,7 +17,8 @@
     "ws": "^8.18.3",
     "@remuse/pi": "*",
     "@remuse/composio": "*",
-    "@remuse/browser": "*"
+    "@remuse/browser": "*",
+    "@remuse/demo": "*"
   },
   "devDependencies": {
     "@types/ws": "^8.18.1"

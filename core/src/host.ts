@@ -1,6 +1,7 @@
 /**
  * Runs the conversation: keeps the event log, decides client commands, and
- * hands effects to the ports. Ports report back by emitting protocol events.
+ * hands effects to the ports. Ports say things (replies, activity) and change
+ * anything else by acting through the rules, like clients do.
  * The host is a Session, so a transport only frames it (api/) or a client
  * uses it in-process (web demo, tests).
  */
@@ -12,45 +13,69 @@ import {
   type Event,
   type Handlers,
   type Params,
+  type Reply,
   type Session,
   type State,
   apply,
   dispatch,
   empty,
 } from "@remuse/protocol";
-import { type AgentAction, type Command, type Context, type Effect, type Rejection, decide, decideAgent, recover, verdict } from "./decide.ts";
+import {
+  type AgentAction,
+  type Command,
+  type Context,
+  type Effect,
+  type Rejection,
+  type Verdict,
+  decide,
+  decideAgent,
+  recover,
+  verdict,
+} from "./decide.ts";
 
-export type Emit = (event: Event) => void;
+/**
+ * What ports may record directly: what the agent says (its replies, streamed)
+ * and what it is doing (the activity line). Everything else is an action.
+ */
+export type Say = { kind: "upserted"; entity: Reply } | Extract<Event, { kind: "appended" | "activity" }>;
+export type Emit = (say: Say) => void;
 
 /** Ids that stay unique across restarts and processes (a journal outlives any counter). */
 export const newId = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
 
+export type Acted = { ok: true; id: string } | { ok: false; rejection: Rejection };
+
 /**
- * What agents (the chat agent and browser runs) can do: record events, act
- * through the rules, wait for an approval, and wake the chat agent with a
- * note (not shown as a user message), e.g. a finished run's result.
+ * What ports and agents can do: say things, act through the rules, wait for
+ * an approval, and wake the chat agent with a note (not shown as a user
+ * message), e.g. a finished run's result.
  */
 export interface AgentIO {
   emit: Emit;
-  act(action: AgentAction): { ok: true; id: string } | { ok: false; reason: string };
-  /** Resolves when the user decides approval `id` (from an `ask`). */
-  decision(id: string): Promise<"approved" | "denied">;
+  act(action: AgentAction): Acted;
+  /** Resolves when the user decides approval `id` (from an `ask`); at once if already decided. */
+  decision(id: string): Promise<Verdict>;
   report(note: string): void;
 }
 
-/** The outside world. Each port gets `emit` to report what happened. */
+/** The outside world. Every port gets the same AgentIO. */
 export interface Ports {
   /** Run the agent on a new prompt. */
-  prompt(text: string, agent: AgentIO): void;
-  /** Run a browser task the agent started. */
-  browse(browser: Browser, run: AgentIO): void;
+  prompt(text: string, io: AgentIO): void;
   /** Stop the agent's current run. */
-  interrupt(emit: Emit): void;
-  browser(effect: Extract<Effect, { kind: "browser" }>, emit: Emit): void;
-  approval(effect: Extract<Effect, { kind: "approval" }>, emit: Emit): void;
-  stopTask(id: string, emit: Emit): void;
+  interrupt(io: AgentIO): void;
+  /** Run a browser task the agent started. */
+  browse(browser: Browser, io: AgentIO): void;
+  browser(effect: Extract<Effect, { kind: "browser" }>, io: AgentIO): void;
+  approval(effect: Extract<Effect, { kind: "approval" }>, io: AgentIO): void;
+  stopTask(id: string, io: AgentIO): void;
   /** Start connecting an app; resolves to the provider's hosted link. */
-  connect(connection: Connection, emit: Emit): Promise<string>;
+  connect(connection: Connection, io: AgentIO): Promise<string>;
+}
+
+/** A rejection in words, for errors and for agents. */
+export function describe(rejection: Rejection): string {
+  return rejection.kind === "notFound" ? `${rejection.entity} ${rejection.id} not found` : `cannot ${rejection.action} from ${rejection.from}`;
 }
 
 export interface Clock {
@@ -67,12 +92,15 @@ export interface Journal {
 export class Rejected extends Error {
   readonly rejection: Rejection;
   constructor(rejection: Rejection) {
-    super(rejection.kind === "notFound" ? `${rejection.entity} ${rejection.id} not found` : `cannot ${rejection.action} from ${rejection.from}`);
+    super(describe(rejection));
     this.rejection = rejection;
   }
 }
 
-export function createHost(ports: Ports, options: { seed?: Entity[]; clock?: Clock; journal?: Journal } = {}): Session {
+export function createHost(
+  ports: Ports,
+  options: { seed?: Entity[]; clock?: Clock; journal?: Journal; ids?: (prefix: string) => string } = {},
+): Session {
   const clock = options.clock ?? { now: () => new Date().toISOString() };
   let state: State = empty;
   const log: Envelope[] = [];
@@ -82,26 +110,35 @@ export function createHost(ports: Ports, options: { seed?: Entity[]; clock?: Clo
     state = apply(state, envelope);
     log.push(envelope);
   };
-  const emit: Emit = (event) => {
+  /** Every event goes through here; ports only reach the Say subset of it (AgentIO.emit). */
+  const commit = (event: Event) => {
     const envelope = { seq: state.seq + 1, event };
     record(envelope);
     options.journal?.append(envelope);
     for (const listener of listeners) listener(envelope);
   };
 
-  const context = (): Context => ({ now: clock.now(), id: newId });
+  const context = (): Context => ({ now: clock.now(), id: options.ids ?? newId });
 
   /** Callers waiting on an approval, settled when the user resolves it. */
-  const waiting = new Map<string, (verdict: "approved" | "denied") => void>();
+  const waiting = new Map<string, ((verdict: Verdict) => void)[]>();
+  const settle = (id: string, outcome: Verdict) => {
+    waiting.get(id)?.forEach((resolve) => resolve(outcome));
+    waiting.delete(id);
+  };
 
   const agent: AgentIO = {
-    emit,
-    decision: (id) => new Promise((resolve) => waiting.set(id, resolve)),
+    emit: commit,
+    decision(id) {
+      const approval = state.entities.find((e) => e.kind === "approval" && e.id === id);
+      if (approval?.kind === "approval" && approval.status !== "pending") return Promise.resolve(approval.status === "approved" ? "approved" : "denied");
+      return new Promise((resolve) => waiting.set(id, [...(waiting.get(id) ?? []), resolve]));
+    },
     report: (note) => ports.prompt(note, agent),
     act(action) {
       const decision = decideAgent(state, action.kind, action, context());
-      if (!decision.ok) return { ok: false, reason: new Rejected(decision.rejection).message };
-      decision.events.forEach(emit);
+      if (!decision.ok) return decision;
+      decision.events.forEach(commit);
       decision.effects.forEach(run);
       return { ok: true, id: decision.output.id };
     },
@@ -112,15 +149,14 @@ export function createHost(ports: Ports, options: { seed?: Entity[]; clock?: Clo
       case "prompt":
         return ports.prompt(effect.text, agent);
       case "interrupt":
-        return ports.interrupt(emit);
+        return ports.interrupt(agent);
       case "browser":
-        return ports.browser(effect, emit);
+        return ports.browser(effect, agent);
       case "approval":
-        waiting.get(effect.id)?.(verdict(effect.resolution));
-        waiting.delete(effect.id);
-        return ports.approval(effect, emit);
+        settle(effect.id, verdict(effect.resolution));
+        return ports.approval(effect, agent);
       case "stopTask":
-        return ports.stopTask(effect.id, emit);
+        return ports.stopTask(effect.id, agent);
       case "browse":
         return ports.browse(effect.browser, agent);
     }
@@ -130,7 +166,7 @@ export function createHost(ports: Ports, options: { seed?: Entity[]; clock?: Clo
   const command = <M extends Command["method"]>(method: M, params: Params[M]) => {
     const decision = decide(state, { method, params }, context());
     if (!decision.ok) throw new Rejected(decision.rejection);
-    decision.events.forEach(emit);
+    decision.events.forEach(commit);
     decision.effects.forEach(run);
     return decision.output;
   };
@@ -138,8 +174,8 @@ export function createHost(ports: Ports, options: { seed?: Entity[]; clock?: Clo
   // a journal with history wins over the seed
   const history = options.journal?.load() ?? [];
   history.forEach(record);
-  recover(state).forEach(emit);
-  if (history.length === 0) for (const entity of options.seed ?? []) emit({ kind: "upserted", entity });
+  recover(state).forEach(commit);
+  if (history.length === 0) for (const entity of options.seed ?? []) commit({ kind: "upserted", entity });
 
   const handlers: Handlers = {
     "session.sync": async ({ since }) =>
@@ -149,7 +185,7 @@ export function createHost(ports: Ports, options: { seed?: Entity[]; clock?: Clo
     "chat.send": async (params) => command("chat.send", params),
     "chat.stop": async (params) => command("chat.stop", params),
     "approval.resolve": async (params) => command("approval.resolve", params),
-    "connection.begin": async (params) => ({ url: await ports.connect(command("connection.begin", params), emit) }),
+    "connection.begin": async (params) => ({ url: await ports.connect(command("connection.begin", params), agent) }),
     "connection.dismiss": async (params) => command("connection.dismiss", params),
     "browser.control": async (params) => command("browser.control", params),
     "task.stop": async (params) => command("task.stop", params),

@@ -7,7 +7,7 @@
  * now", so a forged one cannot connect anything. Gives up quietly after
  * `timeoutMs` (the card stays pending; the user can tap Connect again).
  */
-import type { Emit, Ports, Timers } from "@remuse/core";
+import type { AgentIO, Ports, Timers } from "@remuse/core";
 import type { Connection } from "@remuse/protocol";
 import type { Composio } from "./client.ts";
 
@@ -29,7 +29,7 @@ export interface Connector extends Pick<Ports, "connect"> {
 interface Watch {
   connection: Connection;
   account: string;
-  emit: Emit;
+  io: AgentIO;
 }
 
 const randomKey = () => [...crypto.getRandomValues(new Uint8Array(24))].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -47,7 +47,7 @@ export function composioConnector<H>(client: Pick<Composio, "link" | "status">, 
     const status = await client.status(watch.account);
     if (status === "pending") return "pending";
     if (!watching.delete(key)) return "done"; // a concurrent check settled it first
-    if (status === "active") watch.emit({ kind: "upserted", entity: { ...watch.connection, status: "connected" } });
+    if (status === "active") watch.io.act({ kind: "connected", id: watch.connection.id });
     return status === "active" ? "active" : "done";
   };
 
@@ -62,10 +62,10 @@ export function composioConnector<H>(client: Pick<Composio, "link" | "status">, 
   };
 
   return {
-    async connect(connection, emit) {
+    async connect(connection, io) {
       const key = randomKey();
       const { url, account } = await client.link(connection.provider, options.userId, options.callbackUrl?.(key));
-      watching.set(key, { connection, account, emit });
+      watching.set(key, { connection, account, io });
       poll(key, polls);
       return url;
     },

@@ -3,7 +3,8 @@ import { appendFileSync, mkdtempSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createHost, demoPorts, seed, type Timers } from "@remuse/core";
+import { createHost, type Timers } from "@remuse/core";
+import { demoPorts, seed } from "@remuse/demo";
 import { fileJournal } from "./journal.ts";
 
 const idle: Timers<number> = { set: () => 0, clear: () => {} };
@@ -22,20 +23,30 @@ test("a restarted host comes back with the same state and keeps counting", async
 
   const second = createHost(demoPorts(idle), { seed: seed(), journal: fileJournal(path) });
   const replayed = await snapshot(second);
-  assert.deepEqual(replayed.entities, before.entities); // replayed, not re-seeded
+  assert.deepEqual(
+    replayed.entities.map((e) => e.id),
+    before.entities.map((e) => e.id),
+  ); // replayed, not re-seeded
   assert.equal(before.activity?.kind, "responding"); // the first run was cut off mid-reply…
-  assert.equal(replayed.activity, null); // …so recovery cleared it
-  assert.equal(replayed.seq, before.seq + 1);
+  assert.equal(replayed.activity, null); // …so recovery cleared it, and settled what was in flight:
+  for (const e of replayed.entities) {
+    if (e.kind === "browser") assert.ok(["completed", "failed", "stopped"].includes(e.status), `${e.id} ${e.status}`);
+    if (e.kind === "approval") assert.notEqual(e.status, "pending");
+    if (e.kind === "task") assert.ok(!["queued", "working", "waiting"].includes(e.status));
+  }
   const { id } = await second.call("chat.send", { text: "and this" });
   const after = await snapshot(second);
   assert.ok(after.seq > before.seq);
   assert.equal(after.entities.at(-1)?.id, id);
 });
 
-test("a torn last line is dropped, not replayed", async () => {
+test("a torn last line is dropped and cut off, so the next append starts clean", async () => {
   const path = join(mkdtempSync(join(tmpdir(), "remuse-journal-")), "events.jsonl");
   const host = createHost(demoPorts(idle), { seed: seed(), journal: fileJournal(path) });
   const seq = (await snapshot(host)).seq;
   appendFileSync(path, '{"seq":');
-  assert.equal(fileJournal(path).load().length, seq);
+  const journal = fileJournal(path);
+  assert.equal(journal.load().length, seq);
+  journal.append({ seq: seq + 1, event: { kind: "activity", activity: null } });
+  assert.equal(fileJournal(path).load().length, seq + 1);
 });

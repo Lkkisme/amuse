@@ -5,7 +5,8 @@
  * background while the chat goes on.
  */
 import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
-import { type AgentIO, consequential } from "@remuse/core";
+import { type AgentIO, consequential, describe } from "@remuse/core";
+import { untrusted } from "./untrusted.ts";
 import { Type } from "typebox";
 
 const text = (value: string) => ({ content: [{ type: "text" as const, text: value }], details: null });
@@ -25,7 +26,7 @@ export function tools(io: () => AgentIO): ToolDefinition[] {
       async execute(_, { title, url }) {
         if (!URL.canParse(url) || !/^https?:$/.test(new URL(url).protocol)) return text(`Not started: "${url}" is not an http(s) URL.`);
         const result = io().act({ kind: "browse", title, url });
-        return text(result.ok ? `Started browser task ${result.id}. The user sees it as a card; it continues in the background.` : `Not started: ${result.reason}.`);
+        return text(result.ok ? `Started browser task ${result.id}. The user sees it as a card; it continues in the background.` : `Not started: ${describe(result.rejection)}.`);
       },
     }),
     defineTool({
@@ -39,7 +40,7 @@ export function tools(io: () => AgentIO): ToolDefinition[] {
       }),
       async execute(_, { provider, title }) {
         const result = io().act({ kind: "connect", provider, title });
-        return text(result.ok ? `Asked the user to connect ${title}. Continue once they have.` : `Could not ask: ${result.reason}.`);
+        return text(result.ok ? `Asked the user to connect ${title}. Continue once they have.` : `Could not ask: ${describe(result.rejection)}.`);
       },
     }),
   ];
@@ -85,17 +86,18 @@ export function appTools(io: () => AgentIO, apps: Apps): ToolDefinition[] {
       async execute(_, { action, arguments: args }) {
         const app = appOf(action);
         if (!(await apps.connected(app))) return notConnected(app);
-        const outcome = (r: Awaited<ReturnType<Apps["call"]>>) => (r.ok ? clip(JSON.stringify(r.data), 12_000) : `failed: ${r.error}`);
+        const outcome = (r: Awaited<ReturnType<Apps["call"]>>) => untrusted(r.ok ? clip(JSON.stringify(r.data), 12_000) : `failed: ${r.error}`);
         if (!consequential(action)) return text(outcome(await apps.call(action, args)));
         // never hold the chat for an approval: ask, return, and finish in the background
         const agent = io();
         const label = action.replaceAll("_", " ").toLowerCase();
-        const asked = agent.act({ kind: "ask", action: label, target: app, detail: clip(JSON.stringify(args), 400) });
-        if (!asked.ok) return text(`Could not ask for approval: ${asked.reason}.`);
+        // the user approves exactly what will run: every argument, in full
+        const asked = agent.act({ kind: "ask", action: label, target: app, detail: JSON.stringify(args, null, 2) });
+        if (!asked.ok) return text(`Could not ask for approval: ${describe(asked.rejection)}.`);
         void agent.decision(asked.id).then(async (verdict) => {
           if (verdict === "denied") return agent.report(`[app action "${label}" declined by the user]`);
           const result = await apps.call(action, args).catch((e: unknown) => ({ ok: false as const, error: String(e) }));
-          agent.report(`[app action "${label}" ${outcome(result)}]`);
+          agent.report(`[app action "${label}" done]\n${outcome(result)}`);
         });
         return text("Posted for the user's approval. It runs once they approve; you will get a report. Tell the user briefly.");
       },

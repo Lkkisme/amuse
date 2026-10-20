@@ -3,20 +3,8 @@
  * server run until the real agent, browser pool and connectors are plugged
  * in. Behavior lives here only as port reactions; the rules stay in decide.
  */
+import { type Emit, type Ports, type Timers, newId, verdict } from "@remuse/core";
 import type { Entity } from "@remuse/protocol";
-import { verdict } from "./decide.ts";
-import { type Emit, type Ports, newId } from "./host.ts";
-
-/** Scheduling, injectable so tests can run the script without waiting. */
-export interface Timers<H> {
-  set(ms: number, fn: () => void): H;
-  clear(handle: H): void;
-}
-
-export const realTimers: Timers<ReturnType<typeof setTimeout>> = {
-  set: (ms, fn) => setTimeout(fn, ms),
-  clear: (handle) => clearTimeout(handle),
-};
 
 export function demoPorts<H>(timers: Timers<H>): Ports {
   let replying: H[] = [];
@@ -48,35 +36,32 @@ export function demoPorts<H>(timers: Timers<H>): Ports {
       if (app) act({ kind: "connect", provider: app.toLowerCase(), title: app.charAt(0).toUpperCase() + app.slice(1) });
       reply(emit, url || app ? "On it — follow along in the card below." : `Got it — **"${text}"**. I'll take that from here and post updates in this chat.`, 1400);
     },
-    browse: (browser, { emit }) => {
+    browse: (browser, { act }) => {
       // a login page needs the user; anything else finishes on its own
-      timers.set(3000, () =>
-        emit({ kind: "upserted", entity: { ...browser, status: /login|signin/.test(browser.url) ? "needs_you" : "completed" } }),
-      );
+      timers.set(3000, () => act({ kind: "browserStatus", id: browser.id, status: /login|signin/.test(browser.url) ? "needs_you" : "completed" }));
     },
     interrupt: () => {
       replying.forEach(timers.clear);
       replying = [];
     },
-    browser: ({ browser, action }, emit) => {
+    browser: ({ browser, action }, { emit, act }) => {
       if (action === "handBack") {
         emit({ kind: "activity", activity: { kind: "working", label: "Re-observing page" } });
         timers.set(2500, () => {
           emit({ kind: "activity", activity: null });
-          emit({ kind: "upserted", entity: { ...browser, status: "completed" } });
-          reply(emit, "Thanks, I have the browser back. The page checks out and the run is **complete**.", 0);
+          if (act({ kind: "browserStatus", id: browser.id, status: "completed" }).ok)
+            reply(emit, "Thanks, I have the browser back. The page checks out and the run is **complete**.", 0);
         });
       }
       if (action === "stop") reply(emit, "Stopped the browser run where it was. Nothing was submitted.");
     },
-    approval: ({ resolution }, emit) =>
+    approval: ({ resolution }, { emit }) =>
       reply(emit, verdict(resolution) === "approved" ? "Approved — **sending it now**." : "Understood, I dropped the draft."),
     stopTask: () => {},
-    connect: async (connection, emit) => {
+    connect: async (connection, { emit, act }) => {
       // the provider's hosted page would call back; here it just succeeds
       timers.set(800, () => {
-        emit({ kind: "upserted", entity: { ...connection, status: "connected" } });
-        reply(emit, "**Connected.** I can read from it now — want me to pull a sample?");
+        if (act({ kind: "connected", id: connection.id }).ok) reply(emit, "**Connected.** I can read from it now — want me to pull a sample?");
       });
       return `https://connect.example.com/${connection.id}`;
     },

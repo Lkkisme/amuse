@@ -40,9 +40,15 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt"> {
     return session;
   };
   let queue: Promise<void> = Promise.resolve();
+  /** Bumped by interrupt: runs from an older epoch neither start nor say anything more. */
+  let epoch = 0;
 
-  const run = async (text: string, agent: AgentIO) => {
-    const { emit } = agent;
+  const run = async (text: string, agent: AgentIO, mine: number) => {
+    if (mine !== epoch) return;
+    const live = () => mine === epoch;
+    const emit: AgentIO["emit"] = (say) => {
+      if (live()) agent.emit(say);
+    };
     current = agent;
     emit({ kind: "activity", activity: { kind: "responding", label: null } });
     let reply: { id: string; at: string; text: string } | undefined;
@@ -51,9 +57,10 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt"> {
       reply = undefined;
     };
     try {
-      const live = await ready();
+      const pi = await ready();
+      if (!live()) return;
       let failure: string | undefined;
-      const unsubscribe = live.subscribe((event) => {
+      const unsubscribe = pi.subscribe((event) => {
         if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
           const delta = event.assistantMessageEvent.delta;
           if (!delta) return;
@@ -75,13 +82,14 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt"> {
         }
       });
       try {
-        await live.prompt(text, { expandPromptTemplates: false });
+        await pi.prompt(text, { expandPromptTemplates: false });
       } finally {
         unsubscribe();
       }
       if (failure !== undefined) throw new Error(failure);
     } catch (error) {
       finish();
+      if (!live()) return;
       const message = redact(error instanceof Error ? error.message : String(error), [cfg.authPath, cfg.modelsPath]);
       emit({ kind: "upserted", entity: { kind: "reply", id: newId("r"), at: new Date().toISOString(), text: `Something went wrong: ${message}`, streaming: false } });
     } finally {
@@ -92,10 +100,12 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt"> {
 
   return {
     prompt: (text, agent) => {
-      queue = queue.then(() => run(text, agent));
+      const mine = epoch;
+      queue = queue.then(() => run(text, agent, mine));
     },
     interrupt: () => {
-      void session?.then((live) => live.abort()).catch(() => {});
+      epoch++;
+      void session?.then((pi) => pi.abort()).catch(() => {});
     },
   };
 }

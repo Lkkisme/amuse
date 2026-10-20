@@ -1,11 +1,21 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Connection, Event } from "@remuse/protocol";
-import type { Timers } from "@remuse/core";
+import type { Connection } from "@remuse/protocol";
+import type { AgentAction, AgentIO, Timers } from "@remuse/core";
 import { type AccountStatus, type Composio, composio } from "./client.ts";
 import { composioConnector } from "./port.ts";
 
 const connection: Connection = { kind: "connection", id: "c1", at: "2026-10-20T08:00:00Z", provider: "gmail", title: "Gmail", status: "pending" };
+
+/** An AgentIO that records the actions the port takes. */
+function recording(onAct: (action: AgentAction) => void = () => {}): AgentIO {
+  return {
+    emit: () => {},
+    act: (action) => (onAct(action), { ok: true, id: "x" }),
+    decision: async () => "denied",
+    report: () => {},
+  };
+}
 
 /** Timers that run on demand, one tick at a time. */
 function ticks() {
@@ -25,22 +35,22 @@ const fake = (statuses: AccountStatus[]): Pick<Composio, "link" | "status"> => (
 
 test("connect returns the hosted link, then marks the connection connected once the account is active", async () => {
   const { timers, tick } = ticks();
-  const events: Event[] = [];
+  const actions: AgentAction[] = [];
   const port = composioConnector(fake(["pending", "pending", "active"]), { userId: "owner", timers });
-  assert.equal(await port.connect(connection, (e) => events.push(e)), "https://connect.example/gmail/owner");
+  assert.equal(await port.connect(connection, recording((a) => actions.push(a))), "https://connect.example/gmail/owner");
   for (let i = 0; i < 3; i++) await tick();
-  assert.deepEqual(events, [{ kind: "upserted", entity: { ...connection, status: "connected" } }]);
+  assert.deepEqual(actions, [{ kind: "connected", id: "c1" }]);
 });
 
 test("a failed account stops the watch; so does the timeout", async () => {
   const failed = ticks();
-  composioConnector(fake(["failed"]), { userId: "o", timers: failed.timers }).connect(connection, () => assert.fail("no event"));
+  composioConnector(fake(["failed"]), { userId: "o", timers: failed.timers }).connect(connection, recording(() => assert.fail("no action")));
   await new Promise((r) => setImmediate(r));
   await failed.tick();
   assert.equal(failed.pending(), 0);
 
   const slow = ticks();
-  await composioConnector(fake([]), { userId: "o", timers: slow.timers, pollMs: 1000, timeoutMs: 3000 }).connect(connection, () => assert.fail("no event"));
+  await composioConnector(fake([]), { userId: "o", timers: slow.timers, pollMs: 1000, timeoutMs: 3000 }).connect(connection, recording(() => assert.fail("no action")));
   for (let i = 0; i < 3; i++) await slow.tick();
   assert.equal(slow.pending(), 0);
 });
@@ -87,18 +97,18 @@ test("tools search, connection check and execute parse Composio's responses", as
 
 test("the user's return connects at once, exactly once; a forged key does nothing", async () => {
   const { timers, tick } = ticks();
-  const events: Event[] = [];
+  const actions: AgentAction[] = [];
   let callback = "";
   const client: Pick<Composio, "link" | "status"> = {
     link: async (_toolkit, _user, url) => ((callback = url ?? ""), { url: "https://connect.example/x", account: "ca_1" }),
     status: async () => "active",
   };
   const port = composioConnector(client, { userId: "owner", timers, callbackUrl: (key) => `https://remuse.example/connected?key=${key}` });
-  await port.connect(connection, (e) => events.push(e));
+  await port.connect(connection, recording((a) => actions.push(a)));
   const key = new URL(callback).searchParams.get("key") ?? "";
   assert.equal(await port.returned("forged"), false);
   assert.equal(await port.returned(key), true);
   await tick(); // the poll fires too, finds it settled
   assert.equal(await port.returned(key), false);
-  assert.deepEqual(events, [{ kind: "upserted", entity: { ...connection, status: "connected" } }]);
+  assert.deepEqual(actions, [{ kind: "connected", id: "c1" }]);
 });

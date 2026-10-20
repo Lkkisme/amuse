@@ -4,7 +4,19 @@
  * must carry out come out — or a typed rejection. No IO, no clock, no ids of
  * its own: the host passes them in.
  */
-import type { Browser, BrowserStatus, Call, Connection, Entity, Event, Params, Resolution, State } from "@remuse/protocol";
+import type {
+  Approval,
+  Browser,
+  BrowserStatus,
+  Call,
+  Connection,
+  Entity,
+  Event,
+  Params,
+  Resolution,
+  State,
+  TaskStatus,
+} from "@remuse/protocol";
 
 /** Client calls that change the conversation (sync only reads). */
 export type Command = Exclude<Call, { method: "session.sync" }>;
@@ -20,9 +32,15 @@ export type Effect =
   | { kind: "stopTask"; id: string }
   | { kind: "browse"; browser: Browser };
 
+/** Statuses an agent may report for a browser run (paused and stopped belong to the user). */
+export type BrowserProgress = Extract<BrowserStatus, "working" | "waiting" | "needs_you" | "completed" | "failed">;
+export type TaskProgress = Extract<TaskStatus, "working" | "waiting" | "completed" | "failed">;
+
 /**
- * What the agent may do to the conversation, through its tools. Decided like
- * client commands, so the agent cannot put the state anywhere the rules forbid.
+ * What agents and ports may do to the conversation. Decided like client
+ * commands, so they cannot put the state anywhere the rules forbid: every
+ * status change goes through here; ports can only stream replies and set
+ * the activity line directly.
  */
 export type AgentAction =
   /** Ask the user to connect an app; a pending request for the same provider is reused. */
@@ -30,13 +48,23 @@ export type AgentAction =
   /** Hand a browser task to the browser port; it starts working at once. */
   | { kind: "browse"; title: string; url: string }
   /** Ask the user to approve a consequential step before taking it. */
-  | { kind: "ask"; action: string; target: string; detail: string };
+  | { kind: "ask"; action: string; target: string; detail: string }
+  /** A browser run's progress, from the agent driving it. */
+  | { kind: "browserStatus"; id: string; status: BrowserProgress }
+  | { kind: "taskStatus"; id: string; status: TaskProgress }
+  /** The app's account is live: the connection is connected. */
+  | { kind: "connected"; id: string };
 
 type Actions = { [A in AgentAction as A["kind"]]: A };
 
+/** What was attempted, from where. */
 export type Rejection =
   | { kind: "notFound"; entity: Entity["kind"]; id: string }
-  | { kind: "invalid"; action: string; from: string };
+  | {
+      kind: "invalid";
+      action: BrowserAction | "resolve" | "begin" | "dismiss" | "stop" | AgentAction["kind"];
+      from: BrowserStatus | TaskStatus | Approval["status"] | Connection["status"];
+    };
 
 /** What a command yields besides events: the prompt chat.send created, the connection to begin. */
 export type Outputs = {
@@ -59,10 +87,20 @@ const browserMoves: Record<BrowserAction, { from: readonly BrowserStatus[]; to: 
   stop: { from: ["queued", "working", "waiting", "needs_you", "paused"], to: "stopped" },
 };
 
-const runningTask = ["queued", "working", "waiting"] as const;
+/** A run the agent may still move: in flight and not held by the user. */
+const agentHeld: readonly BrowserStatus[] = ["queued", "working", "waiting", "needs_you"];
+const runningTask: readonly TaskStatus[] = ["queued", "working", "waiting"];
+const terminalBrowser: readonly BrowserStatus[] = ["completed", "failed", "stopped"];
 
-/** allow_* approves, deny_* denies. */
-export const verdict = (resolution: Resolution): "approved" | "denied" => (resolution.startsWith("allow") ? "approved" : "denied");
+export type Verdict = "approved" | "denied";
+const verdicts: Record<Resolution, Verdict> = {
+  allow_once: "approved",
+  allow_session: "approved",
+  allow_always: "approved",
+  deny: "denied",
+  deny_always: "denied",
+};
+export const verdict = (resolution: Resolution): Verdict => verdicts[resolution];
 
 const ok = <T>(events: Event[], effects: Effect[], output: T): Decision<T> => ({ ok: true, events, effects, output });
 const reject = (rejection: Rejection): Decision<never> => ({ ok: false, rejection });
@@ -118,7 +156,7 @@ const rules: Rules = {
   "task.stop": (state, { id }) => {
     const task = find(state, "task", id);
     if (!task) return reject({ kind: "notFound", entity: "task", id });
-    if (!runningTask.some((s) => s === task.status)) return reject({ kind: "invalid", action: "stop", from: task.status });
+    if (!runningTask.includes(task.status)) return reject({ kind: "invalid", action: "stop", from: task.status });
     return ok([upsert({ ...task, status: "stopped" })], [{ kind: "stopTask", id }], null);
   },
 };
@@ -149,6 +187,24 @@ const agentRules: AgentRules = {
     const browser: Browser = { kind: "browser", id: ctx.id("b"), at: ctx.now, title, url, status: "working" };
     return ok([upsert(browser)], [{ kind: "browse", browser }], { id: browser.id });
   },
+  browserStatus: (state, { id, status }) => {
+    const browser = find(state, "browser", id);
+    if (!browser) return reject({ kind: "notFound", entity: "browser", id });
+    if (!agentHeld.includes(browser.status)) return reject({ kind: "invalid", action: "browserStatus", from: browser.status });
+    return ok(browser.status === status ? [] : [upsert({ ...browser, status })], [], { id });
+  },
+  taskStatus: (state, { id, status }) => {
+    const task = find(state, "task", id);
+    if (!task) return reject({ kind: "notFound", entity: "task", id });
+    if (!runningTask.includes(task.status)) return reject({ kind: "invalid", action: "taskStatus", from: task.status });
+    return ok(task.status === status ? [] : [upsert({ ...task, status })], [], { id });
+  },
+  connected: (state, { id }) => {
+    const connection = find(state, "connection", id);
+    if (!connection) return reject({ kind: "notFound", entity: "connection", id });
+    if (connection.status === "connected") return ok([], [], { id });
+    return ok([upsert({ ...connection, status: "connected" })], [], { id });
+  },
 };
 
 /** Apply the rule for an agent action. The kind is passed apart so TS can correlate it with the action. */
@@ -157,10 +213,30 @@ export function decideAgent<K extends keyof Actions>(state: State, kind: K, acti
 }
 
 /**
- * After a restart nothing is mid-run any more: replies that were streaming
- * end where they stopped, and the activity line clears.
+ * After a restart nothing is mid-run any more: streaming replies end where
+ * they stopped, browser runs and tasks in flight are stopped (nothing drives
+ * them now), pending approvals time out (nobody waits on them), and the
+ * activity line clears.
  */
 export function recover(state: State): Event[] {
-  const cut = state.entities.flatMap((e) => (e.kind === "reply" && e.streaming ? [upsert({ ...e, streaming: false })] : []));
-  return state.activity === null ? cut : [...cut, { kind: "activity", activity: null }];
+  const settle = (e: Entity): Entity | null => {
+    switch (e.kind) {
+      case "reply":
+        return e.streaming ? { ...e, streaming: false } : null;
+      case "browser":
+        return terminalBrowser.includes(e.status) ? null : { ...e, status: "stopped" };
+      case "task":
+        return runningTask.includes(e.status) ? { ...e, status: "stopped" } : null;
+      case "approval":
+        return e.status === "pending" ? { ...e, status: "timed_out" } : null;
+      case "prompt":
+      case "connection":
+        return null;
+    }
+  };
+  const settled = state.entities.flatMap((e) => {
+    const next = settle(e);
+    return next ? [upsert(next)] : [];
+  });
+  return state.activity === null ? settled : [...settled, { kind: "activity", activity: null }];
 }

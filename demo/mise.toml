@@ -1,0 +1,4 @@
+[tasks.check]
+description = "Type-check and test the demo ports"
+depends = ["//:install"]
+run = "npm run typecheck && npm test"
