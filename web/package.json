@@ -12,7 +12,8 @@
   "dependencies": {
     "lucide-react": "^1.60.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "@remuse/protocol": "*"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.0",
@@ -20,7 +21,6 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
     "tailwindcss": "^4.1.0",
-    "typescript": "~5.7.2",
     "vite": "^6.0.0"
   }
 }

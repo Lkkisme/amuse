@@ -3,16 +3,16 @@
  * has no invites; owner's call). Collapsed: a round monitor button with a badge,
  * orange "!" while the run waits for you, a pulsing blue dot while it works.
  * Tap expands a small card below it: status, task, Open and Stop task.
- * Follows the newest waiting browser run, else the newest working one.
+ * Follows the newest run that needs the user, else the newest one in flight.
  */
 import { useEffect, useRef, useState } from "react";
 import { Monitor } from "lucide-react";
-import type { DemoState } from "../data/fakeMuse";
-import { browserStatusMeta, pillBrowser } from "../data/fakeMuse";
-import type { MuseActions } from "./actions";
+import type { State } from "@remuse/protocol";
+import type { Actions } from "../ui.ts";
+import { browserStatus, pillBrowser } from "../view.ts";
 
-export function TaskPill({ state, actions }: { state: DemoState; actions: MuseActions }) {
-  const run = pillBrowser(state);
+export function TaskPill({ conversation, actions }: { conversation: State; actions: Actions }) {
+  const run = pillBrowser(conversation);
   // closed -> open -> closing (exit animation) -> closed
   const [phase, setPhase] = useState<"closed" | "open" | "closing">("closed");
   const open = phase === "open";
@@ -30,8 +30,8 @@ export function TaskPill({ state, actions }: { state: DemoState; actions: MuseAc
   }, [open]);
 
   if (!run) return null;
-  const meta = browserStatusMeta[run.status];
-  const waiting = run.status === "waiting";
+  const meta = browserStatus[run.status];
+  const waiting = run.status === "waiting" || run.status === "needs_you";
 
   return (
     <div ref={rootRef} className="absolute right-3 top-2 z-30">
@@ -96,7 +96,7 @@ export function TaskPill({ state, actions }: { state: DemoState; actions: MuseAc
               style={{ background: "var(--fill-secondary)", color: "var(--fill-red)" }}
               onClick={() => {
                 close();
-                actions.viewerStop(run.id);
+                actions.control(run.id, "stop");
               }}
             >
               Stop task

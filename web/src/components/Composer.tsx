@@ -6,22 +6,19 @@
  */
 import { useState } from "react";
 import { ArrowUp, Mic, Plus, Square } from "lucide-react";
-import type { MuseActions } from "./actions";
+import type { State } from "@remuse/protocol";
+import type { Actions } from "../ui.ts";
+import { busy } from "../view.ts";
 
-export function Composer({
-  assistantThinking,
-  actions,
-}: {
-  assistantThinking: boolean;
-  actions: MuseActions;
-}) {
+export function Composer({ conversation, actions }: { conversation: State; actions: Actions }) {
+  const working = busy(conversation);
   const [draft, setDraft] = useState("");
 
-  const trailing: "stop" | "send" | null = assistantThinking ? "stop" : draft.trim() ? "send" : null;
+  const trailing: "stop" | "send" | null = working ? "stop" : draft.trim() ? "send" : null;
 
   const submit = () => {
     const text = draft.trim();
-    if (!text || assistantThinking) return;
+    if (!text || working) return;
     actions.send(text);
     setDraft("");
   };
@@ -64,7 +61,7 @@ export function Composer({
                 color: "#fff",
                 transformOrigin: "center",
               }}
-              onClick={trailing === "stop" ? () => actions.stopAssistant() : submit}
+              onClick={trailing === "stop" ? actions.stop : submit}
             >
               {trailing === "stop" ? <Square size={14} fill="currentColor" strokeWidth={0} /> : <ArrowUp size={18} />}
             </button>

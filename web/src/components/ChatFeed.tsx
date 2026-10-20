@@ -7,34 +7,41 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { ArrowDown, ChevronDown, Copy, MoreHorizontal, Share, Smile } from "lucide-react";
-import type { Card, DemoState, FeedItem, Message } from "../data/fakeMuse";
-import { resolve } from "../data/fakeMuse";
-import type { MuseActions } from "./actions";
-import { ApprovalCard, BrowserCard, ConnReqCard, TaskCard } from "./cards";
+import type { Entity, Prompt, Reply, State } from "@remuse/protocol";
+import type { Actions } from "../ui.ts";
+import { thinking, time } from "../view.ts";
+import { ApprovalCard, BrowserCard, ConnectionCard, TaskCard } from "./cards";
 import { RichText } from "./markdown";
 
-function isMsg(item: FeedItem): item is Message {
-  return item.role !== "card";
-}
+type Message = Prompt | Reply;
 
-function CardView({ card, actions }: { card: Card; actions: MuseActions }) {
-  switch (card.kind) {
+/** Messages render as bubbles; every other entity is a card. */
+function EntityView({ entity, previous, actions }: { entity: Entity; previous: Entity | undefined; actions: Actions }) {
+  switch (entity.kind) {
+    case "prompt":
+    case "reply":
+      return (
+        <div className="flex flex-col gap-3">
+          {previous?.kind !== entity.kind && <TimeDivider time={time(entity.at)} />}
+          <MessageGroup item={entity} />
+        </div>
+      );
     case "task":
-      return <TaskCard task={card.entity} actions={actions} />;
+      return <TaskCard task={entity} actions={actions} />;
     case "approval":
-      return <ApprovalCard approval={card.entity} actions={actions} />;
-    case "connreq":
-      return <ConnReqCard connreq={card.entity} actions={actions} />;
+      return <ApprovalCard approval={entity} actions={actions} />;
+    case "connection":
+      return <ConnectionCard connection={entity} actions={actions} />;
     case "browser":
-      return <BrowserCard browser={card.entity} actions={actions} />;
+      return <BrowserCard browser={entity} actions={actions} />;
   }
 }
 
-function ActionRow({ role, text }: { role: "user" | "agent"; text: string }) {
+function ActionRow({ mine, text }: { mine: boolean; text: string }) {
   const copy = () => navigator.clipboard?.writeText(text).catch(() => {});
   return (
     <div className="mt-1 flex items-center gap-0.5 px-1">
-      {role === "agent" ? (
+      {!mine ? (
         <button aria-label="React" className="hover-fade rounded-full p-1" style={{ color: "var(--icon-secondary)" }}>
           <Smile size={14} />
         </button>
@@ -54,7 +61,7 @@ function ActionRow({ role, text }: { role: "user" | "agent"; text: string }) {
 }
 
 function MessageGroup({ item }: { item: Message }) {
-  const isUser = item.role === "user";
+  const isUser = item.kind === "prompt";
   return (
     <div className={`anim-fade-in flex flex-col ${isUser ? "items-end" : "items-start"}`}>
       <div
@@ -64,7 +71,7 @@ function MessageGroup({ item }: { item: Message }) {
           color: isUser ? "var(--chat-user-text)" : "var(--chat-agent-text)",
         }}
       >
-        {isUser ? (
+        {item.kind === "prompt" ? (
           item.text
         ) : (
           <div className={item.streaming ? "shimmer-text" : undefined}>
@@ -72,7 +79,7 @@ function MessageGroup({ item }: { item: Message }) {
           </div>
         )}
       </div>
-      <ActionRow role={item.role} text={item.text} />
+      <ActionRow mine={isUser} text={item.text} />
     </div>
   );
 }
@@ -90,21 +97,22 @@ function TimeDivider({ time }: { time: string }) {
 /** px from the bottom past which the jump-to-bottom button shows */
 const JUMP_BUTTON_DISTANCE = 240;
 
-export function ChatFeed({ state, actions }: { state: DemoState; actions: MuseActions }) {
+export function ChatFeed({ conversation, actions }: { conversation: State; actions: Actions }) {
+  const feed = conversation.entities;
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
   /** far enough from the bottom to offer the jump button, new messages or not */
   const [far, setFar] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
-  const seenRef = useRef(state.feed.length);
+  const seenRef = useRef(feed.length);
   const atBottomRef = useRef(true);
 
   const scrollToBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     atBottomRef.current = true;
     setAtBottom(true);
-    seenRef.current = state.feed.length;
+    seenRef.current = feed.length;
     setPendingCount(0);
   };
 
@@ -119,7 +127,7 @@ export function ChatFeed({ state, actions }: { state: DemoState; actions: MuseAc
       setAtBottom(near);
     }
     if (near) {
-      seenRef.current = state.feed.length;
+      seenRef.current = feed.length;
       setPendingCount(0);
     }
   };
@@ -129,11 +137,11 @@ export function ChatFeed({ state, actions }: { state: DemoState; actions: MuseAc
     // Otherwise leave the scroll position alone and surface a jump-to-latest pill.
     if (atBottomRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-      seenRef.current = state.feed.length;
+      seenRef.current = feed.length;
     } else {
-      setPendingCount(Math.max(0, state.feed.length - seenRef.current));
+      setPendingCount(Math.max(0, feed.length - seenRef.current));
     }
-  }, [state.feed, state.assistantThinking]);
+  }, [feed, conversation.activity]);
 
   return (
     <div className="relative min-h-0 flex-1">
@@ -144,21 +152,10 @@ export function ChatFeed({ state, actions }: { state: DemoState; actions: MuseAc
         style={{ background: "var(--chat-background)" }}
       >
         <div className="mx-auto flex max-w-3xl flex-col gap-3">
-        {state.feed.map((item, idx) => {
-          if (!isMsg(item)) {
-            const card = resolve(state.store, item);
-            return card && <CardView key={item.id} card={card} actions={actions} />;
-          }
-          const prev = state.feed[idx - 1];
-          const newGroup = !prev || !isMsg(prev) || prev.role !== item.role;
-          return (
-            <div key={item.id} className="flex flex-col gap-3">
-              {newGroup && <TimeDivider time={item.time} />}
-              <MessageGroup item={item} />
-            </div>
-          );
-        })}
-        {state.assistantThinking && (
+        {feed.map((entity, i) => (
+          <EntityView key={entity.id} entity={entity} previous={feed[i - 1]} actions={actions} />
+        ))}
+        {thinking(conversation) && (
           <div className="anim-fade-in flex justify-start">
             <div
               className="flex w-fit items-center gap-1.5 rounded-[22px] px-4 py-3.5"

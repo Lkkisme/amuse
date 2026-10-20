@@ -1,44 +1,19 @@
 /**
- * Inline card system rendered inside the chat feed, per docs/ui-spec.md
- * surfaces 2 (task runs), 3 (form request), 10 (connection request) and 4
- * (browser run card). Fake state only; all behavior arrives via MuseActions.
+ * Cards in the chat feed: one component per non-message entity kind.
+ * Props are protocol entities; behavior goes through Actions.
  */
-import { useState } from "react";
-import {
-  Check,
-  ChevronRight,
-  CircleAlert,
-  CircleCheck,
-  Globe,
-  ListTodo,
-  ShieldCheck,
-  Table,
-} from "lucide-react";
-import type { Approval, BrowserRun, ConnectionRequest, Task, TaskStatus } from "../data/fakeMuse";
-import { browserStatusMeta, taskStatusMeta } from "../data/fakeMuse";
-import type { MuseActions } from "./actions";
+import { Check, ChevronRight, CircleAlert, CircleCheck, Globe, ListTodo, ShieldCheck, Table } from "lucide-react";
+import type { Approval, Browser, Connection, Task } from "@remuse/protocol";
+import type { Actions } from "../ui.ts";
+import { browserStatus, hue, taskStatus } from "../view.ts";
 
 const CARD_BG = "var(--fill-secondary)";
 
-function StatusChip({ status }: { status: TaskStatus }) {
-  const meta = taskStatusMeta[status];
-  return (
-    <span className="inline-flex items-center gap-1.5 text-[13px] font-medium" style={{ color: meta.color }}>
-      <span className="inline-block size-1.5 rounded-full" style={{ background: meta.color }} />
-      {meta.label}
-    </span>
-  );
-}
+/* ---------- Task ---------- */
 
-/* ---------- Task card (surfaces 2 + 3) ---------- */
-
-export function TaskCard({ task, actions }: { task: Task; actions: MuseActions }) {
-  const [values, setValues] = useState<Record<string, string>>(() =>
-    Object.fromEntries(task.form.map((f) => [f.field, f.value])),
-  );
-  const doneCount = task.steps.filter((s) => s.done).length;
-  const showForm = task.status === "waiting_input" && task.form.length > 0;
-
+export function TaskCard({ task, actions }: { task: Task; actions: Actions }) {
+  const meta = taskStatus[task.status];
+  const done = task.steps.filter((s) => s.done).length;
   return (
     <div className="w-full max-w-[340px] rounded-2xl p-4" style={{ background: CARD_BG }}>
       <div className="flex items-start gap-3">
@@ -62,74 +37,48 @@ export function TaskCard({ task, actions }: { task: Task; actions: MuseActions }
               <ChevronRight size={16} />
             </button>
           </div>
-          <div className="mt-0.5">
-            <StatusChip status={task.status} />
+          <span className="mt-0.5 inline-flex items-center gap-1.5 text-[13px] font-medium" style={{ color: meta.color }}>
+            <span className="inline-block size-1.5 rounded-full" style={{ background: meta.color }} />
+            {meta.label}
+          </span>
+        </div>
+      </div>
+
+      {task.steps.length > 0 && (
+        <div className="mt-3">
+          <div className="h-1 w-full overflow-hidden rounded-full" style={{ background: "var(--fill-tertiary)" }}>
+            <div
+              className="h-full rounded-full transition-all duration-500"
+              style={{ width: `${(done / task.steps.length) * 100}%`, background: "var(--fill-blue)" }}
+            />
           </div>
+          <ul className="mt-2.5 space-y-1.5">
+            {task.steps.map((step) => (
+              <li key={step.label} className="flex items-center gap-2 text-[13px]">
+                {step.done ? (
+                  <CircleCheck size={15} style={{ color: "var(--fill-blue)" }} className="shrink-0" />
+                ) : (
+                  <span className="size-[15px] shrink-0 rounded-full border" style={{ borderColor: "var(--fill-divider)" }} />
+                )}
+                <span style={{ color: step.done ? "var(--text-secondary)" : "var(--text-primary)" }}>{step.label}</span>
+              </li>
+            ))}
+          </ul>
         </div>
-      </div>
-
-      {/* step progress */}
-      <div className="mt-3">
-        <div className="h-1 w-full overflow-hidden rounded-full" style={{ background: "var(--fill-tertiary)" }}>
-          <div
-            className="h-full rounded-full transition-all duration-500"
-            style={{ width: `${(doneCount / task.steps.length) * 100}%`, background: "var(--fill-blue)" }}
-          />
-        </div>
-        <ul className="mt-2.5 space-y-1.5">
-          {task.steps.map((step) => (
-            <li key={step.label} className="flex items-center gap-2 text-[13px]">
-              {step.done ? (
-                <CircleCheck size={15} style={{ color: "var(--fill-blue)" }} className="shrink-0" />
-              ) : (
-                <span className="flex size-[15px] shrink-0 items-center justify-center rounded-full border" style={{ borderColor: "var(--fill-divider)" }} />
-              )}
-              <span style={{ color: step.done ? "var(--text-secondary)" : "var(--text-primary)" }}>{step.label}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      {/* inline form (surface 3) */}
-      {showForm && (
-        <form
-          className="mt-3 space-y-2.5"
-          onSubmit={(e) => {
-            e.preventDefault();
-            actions.submitTaskForm(task.id, values);
-          }}
-        >
-          {task.form.map((f) => (
-            <label key={f.field} className="block">
-              <span className="mb-1 block text-[12px]" style={{ color: "var(--text-secondary)" }}>
-                {f.label}
-              </span>
-              <input
-                className="w-full rounded-[10px] border-0 px-3 py-2 text-[14px] outline-none"
-                style={{ background: "var(--fill-primary)", color: "var(--text-primary)" }}
-                value={values[f.field] ?? ""}
-                onChange={(e) => setValues((v) => ({ ...v, [f.field]: e.target.value }))}
-                placeholder="Type an answer…"
-              />
-            </label>
-          ))}
-          <button
-            type="submit"
-            className="w-full rounded-full py-2 text-[14px] font-semibold text-white"
-            style={{ background: "var(--fill-blue)" }}
-          >
-            Submit
-          </button>
-        </form>
       )}
     </div>
   );
 }
 
-/* ---------- Approval card ---------- */
+/* ---------- Approval ---------- */
 
-export function ApprovalCard({ approval, actions }: { approval: Approval; actions: MuseActions }) {
-  const pending = approval.status === "pending";
+const approvalOutcome = {
+  approved: { label: "Approved", color: "var(--fill-green)", Icon: CircleCheck },
+  denied: { label: "Denied", color: "var(--fill-red)", Icon: CircleAlert },
+  timed_out: { label: "Timed out", color: "var(--icon-secondary)", Icon: CircleAlert },
+} as const;
+
+export function ApprovalCard({ approval, actions }: { approval: Approval; actions: Actions }) {
   return (
     <div className="w-full max-w-[340px] rounded-2xl p-4" style={{ background: CARD_BG }}>
       <div className="flex items-start gap-3">
@@ -141,7 +90,7 @@ export function ApprovalCard({ approval, actions }: { approval: Approval; action
         </span>
         <div className="min-w-0">
           <p className="text-[15px] font-semibold" style={{ color: "var(--text-primary)" }}>
-            {approval.verb}
+            {approval.action}
           </p>
           <p className="truncate text-[13px]" style={{ color: "var(--text-secondary)" }}>
             {approval.target}
@@ -151,48 +100,59 @@ export function ApprovalCard({ approval, actions }: { approval: Approval; action
       <p className="mt-2.5 text-[13px] leading-snug" style={{ color: "var(--text-secondary)" }}>
         {approval.detail}
       </p>
-      {pending ? (
-        <div className="mt-3 flex gap-2">
+      {approval.status === "pending" ? (
+        <>
+          <div className="mt-3 flex gap-2">
+            <button
+              className="h-9 flex-1 rounded-full text-[14px] font-semibold text-white"
+              style={{ background: "var(--fill-blue)" }}
+              onClick={() => actions.resolveApproval(approval.id, "allow_once")}
+            >
+              Allow
+            </button>
+            <button
+              className="h-9 flex-1 rounded-full text-[14px] font-semibold"
+              style={{ background: "var(--fill-card-button)", color: "var(--text-primary)" }}
+              onClick={() => actions.resolveApproval(approval.id, "deny")}
+            >
+              Deny
+            </button>
+          </div>
           <button
-            className="h-9 flex-1 rounded-full text-[14px] font-semibold text-white"
-            style={{ background: "var(--fill-blue)" }}
-            onClick={() => actions.resolveApproval(approval.id, true)}
+            className="hover-fade mx-auto mt-2 block text-[13px] font-medium"
+            style={{ color: "var(--text-secondary)" }}
+            onClick={() => actions.resolveApproval(approval.id, "allow_always")}
           >
-            Approve
+            Always allow
           </button>
-          <button
-            className="h-9 flex-1 rounded-full text-[14px] font-semibold"
-            style={{ background: "var(--fill-primary)", color: "var(--text-primary)" }}
-            onClick={() => actions.resolveApproval(approval.id, false)}
-          >
-            Deny
-          </button>
-        </div>
+        </>
       ) : (
-        <div
-          className="mt-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-semibold"
-          style={{
-            background: "var(--fill-primary)",
-            color: approval.status === "approved" ? "var(--fill-green)" : "var(--fill-red)",
-          }}
-        >
-          {approval.status === "approved" ? <CircleCheck size={14} /> : <CircleAlert size={14} />}
-          {approval.status === "approved" ? "Approved" : "Denied"}
-        </div>
+        <Outcome {...approvalOutcome[approval.status]} />
       )}
     </div>
   );
 }
 
-/* ---------- Connection request card (surface 10) ---------- */
+function Outcome({ label, color, Icon }: { label: string; color: string; Icon: typeof CircleCheck }) {
+  return (
+    <div
+      className="mt-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-semibold"
+      style={{ background: "var(--fill-card-button)", color }}
+    >
+      <Icon size={14} />
+      {label}
+    </div>
+  );
+}
+
+/* ---------- Connection request ---------- */
 
 /**
  * Muse connection request (ref 52-connreq-desktop): compact card, white tile
- * with the app glyph, name + "Connector", and a neutral Connect pill. No blue.
+ * with the app glyph, name + "Connector", and a neutral Connect pill.
  */
-export function ConnReqCard({ connreq, actions }: { connreq: ConnectionRequest; actions: MuseActions }) {
-  const connected = connreq.status === "connected";
-  const dismissed = connreq.status === "dismissed";
+export function ConnectionCard({ connection, actions }: { connection: Connection; actions: Actions }) {
+  const label = { pending: "Connect", connected: "Connected", dismissed: "Not now" }[connection.status];
   return (
     <div className="w-full max-w-[260px] rounded-[18px] p-2.5" style={{ background: CARD_BG }}>
       <div className="flex items-center gap-2.5 px-0.5 pt-0.5">
@@ -204,7 +164,7 @@ export function ConnReqCard({ connreq, actions }: { connreq: ConnectionRequest; 
         </span>
         <div className="min-w-0">
           <p className="truncate text-[14px] font-semibold" style={{ color: "var(--text-primary)" }}>
-            {connreq.app}
+            {connection.title}
           </p>
           <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
             Connector
@@ -212,34 +172,29 @@ export function ConnReqCard({ connreq, actions }: { connreq: ConnectionRequest; 
         </div>
       </div>
       <button
-        disabled={connected || dismissed}
-        className="mt-2.5 h-9 w-full rounded-full text-[14px] font-medium"
-        style={{ background: "var(--fill-card-button)", color: connected ? "var(--fill-green)" : "var(--text-primary)" }}
-        onClick={() => actions.requestConnect(connreq.id)}
+        disabled={connection.status !== "pending"}
+        className="mt-2.5 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-full text-[14px] font-medium"
+        style={{
+          background: "var(--fill-card-button)",
+          color: connection.status === "connected" ? "var(--fill-green)" : "var(--text-primary)",
+        }}
+        onClick={() => actions.openExplainer(connection.id)}
       >
-        {connected ? (
-          <span className="inline-flex items-center gap-1.5">
-            <Check size={15} /> Connected
-          </span>
-        ) : dismissed ? (
-          "Not now"
-        ) : (
-          "Connect"
-        )}
+        {connection.status === "connected" && <Check size={15} />}
+        {label}
       </button>
     </div>
   );
 }
 
-/* ---------- Browser run card (surface 4) ---------- */
+/* ---------- Browser run ---------- */
 
 /**
  * Muse browser card: tinted globe tile + "Browser" + "<status> · <task>", a
- * page thumbnail, and one pill button. Blue = working, orange = waiting for
- * you (needs help), green = completed. Refs 06-card-desktop, 02-run-*, 08-now.
+ * page thumbnail, and one pill button. Refs 06-card-desktop, 02-run-*, 08-now.
  */
-export function BrowserCard({ browser, actions }: { browser: BrowserRun; actions: MuseActions }) {
-  const meta = browserStatusMeta[browser.status];
+export function BrowserCard({ browser, actions }: { browser: Browser; actions: Actions }) {
+  const meta = browserStatus[browser.status];
   const open = () => actions.openViewer(browser.id);
   return (
     <div className="w-full max-w-[314px] rounded-[22px] p-4" style={{ background: CARD_BG }}>
@@ -267,7 +222,7 @@ export function BrowserCard({ browser, actions }: { browser: BrowserRun; actions
         style={{ background: "var(--fill-primary)", border: "1px solid var(--fill-divider)" }}
         onClick={open}
       >
-        <div className="h-2.5 w-1/3 rounded-sm" style={{ background: `hsl(${browser.thumbnailHue} 40% 80%)` }} />
+        <div className="h-2.5 w-1/3 rounded-sm" style={{ background: `hsl(${hue(browser.id)} 40% 80%)` }} />
         <div className="h-2 w-1/2 rounded-sm" style={{ background: "var(--fill-tertiary)" }} />
         <div className="h-2 w-2/5 rounded-sm" style={{ background: "var(--fill-tertiary)" }} />
       </button>
@@ -277,7 +232,7 @@ export function BrowserCard({ browser, actions }: { browser: BrowserRun; actions
         style={{ background: "var(--fill-card-button)", color: "var(--text-primary)" }}
         onClick={open}
       >
-        {browser.status === "working" ? "Open browser" : "Open preview"}
+        {browser.status === "working" || browser.status === "queued" ? "Open browser" : "Open preview"}
       </button>
     </div>
   );

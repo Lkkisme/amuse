@@ -5,8 +5,7 @@
  */
 import { useState } from "react";
 import { MessageCircle, Plus, Search, Settings } from "lucide-react";
-import type { DemoState } from "../data/fakeMuse";
-import type { MuseActions } from "./actions";
+import type { Actions } from "../ui.ts";
 import { NAV_PAGES } from "./nav";
 import { usePresence } from "./usePresence";
 
@@ -16,9 +15,9 @@ const RECENT_CHATS = [
   { title: "Tide schedule watch", time: "3h" },
 ];
 
-export function ChatsPanel({ state, actions }: { state: DemoState; actions: MuseActions }) {
+export function ChatsPanel({ open, actions }: { open: boolean; actions: Actions }) {
   const [query, setQuery] = useState("");
-  const { mounted, closing, onAnimationEnd } = usePresence(state.chatsOpen);
+  const { mounted, closing, onAnimationEnd } = usePresence(open);
   if (!mounted) return null;
   const q = query.trim().toLowerCase();
   const recent = q ? RECENT_CHATS.filter((c) => c.title.toLowerCase().includes(q)) : RECENT_CHATS;

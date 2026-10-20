@@ -5,9 +5,9 @@
  * Enters with hatch-pane-enter-from-right.
  */
 import { Check, List, Pencil, Radio, Shield, Clock } from "lucide-react";
-import type { Card, DemoState } from "../data/fakeMuse";
-import { resolve } from "../data/fakeMuse";
-import type { MuseActions } from "./actions";
+import type { Entity, State } from "@remuse/protocol";
+import type { Actions } from "../ui.ts";
+import { browserStatus, host, taskStatus, time } from "../view.ts";
 import { usePresence } from "./usePresence";
 
 interface Receipt {
@@ -21,60 +21,40 @@ function plain(text: string): string {
   return text.replace(/[*`]/g, "");
 }
 
-function receipt(card: Card): Receipt {
-  switch (card.kind) {
+function receipt(entity: Entity): Receipt {
+  const at = time(entity.at);
+  switch (entity.kind) {
+    case "prompt":
+      return { title: "You asked Muse", sub: plain(entity.text), time: at, done: true };
+    case "reply":
+      return {
+        title: entity.streaming ? "Muse is replying" : "Muse replied",
+        sub: plain(entity.text.slice(0, 80)) || "Composing a response…",
+        time: at,
+        done: !entity.streaming,
+      };
     case "task": {
-      const t = card.entity;
-      const done = t.steps.filter((s) => s.done).length;
-      return { title: t.title, sub: `${done} of ${t.steps.length} steps done`, time: "8:25 AM", done: t.status === "completed" };
+      const done = entity.steps.filter((s) => s.done).length;
+      return { title: entity.title, sub: `${taskStatus[entity.status].label} · ${done} of ${entity.steps.length} steps`, time: at, done: entity.status === "completed" };
     }
     case "approval": {
-      const a = card.entity;
-      const sub = { pending: "Waiting for your approval", approved: "Approved", denied: "Denied" }[a.status];
-      return { title: a.verb, sub, time: "8:26 AM", done: a.status !== "pending" };
+      const sub = { pending: "Waiting for your approval", approved: "Approved", denied: "Denied", timed_out: "Timed out" }[entity.status];
+      return { title: entity.action, sub, time: at, done: entity.status !== "pending" };
     }
     case "browser":
-      return { title: card.entity.title, sub: card.entity.site, time: "8:26 AM", done: card.entity.status === "completed" };
-    case "connreq":
-      return {
-        title: `Connect ${card.entity.app}`,
-        sub: card.entity.capability,
-        time: "8:27 AM",
-        done: card.entity.status === "connected",
-      };
+      return { title: entity.title, sub: `${browserStatus[entity.status].label} · ${host(entity.url)}`, time: at, done: entity.status === "completed" };
+    case "connection":
+      return { title: `Connect ${entity.title}`, sub: entity.status === "connected" ? "Connected" : "Connector", time: at, done: entity.status === "connected" };
   }
 }
 
-function receipts(state: DemoState): Receipt[] {
-  return state.feed.flatMap((item): Receipt[] => {
-    switch (item.role) {
-      case "user":
-        return [{ title: "You asked Muse", sub: plain(item.text), time: item.time, done: true }];
-      case "agent":
-        return [
-          {
-            title: item.streaming ? "Muse is replying" : "Muse replied",
-            sub: plain(item.text.slice(0, 80)) || "Composing a response…",
-            time: item.time,
-            done: !item.streaming,
-          },
-        ];
-      case "card": {
-        const card = resolve(state.store, item);
-        return card ? [receipt(card)] : [];
-      }
-    }
-  });
-}
-
-export function ActivityPanel({ state, actions }: { state: DemoState; actions: MuseActions }) {
-  const working = state.activityStatus === "working";
-  const connected = state.activityStatus === "connected";
-  // the close button sets activityOpen=false; new activity opens it again
-  const { mounted, closing, onAnimationEnd } = usePresence(state.activityOpen);
+export function ActivityPanel({ conversation, open, actions }: { conversation: State; open: boolean; actions: Actions }) {
+  const working = conversation.activity !== null;
+  // the close button closes it; new activity opens it again (App)
+  const { mounted, closing, onAnimationEnd } = usePresence(open);
 
   if (!mounted) return null;
-  const list = receipts(state);
+  const list = conversation.entities.map(receipt);
 
   return (
     <aside
@@ -104,14 +84,10 @@ export function ActivityPanel({ state, actions }: { state: DemoState; actions: M
             <p className="activity-indicator-fade text-[13px]" style={{ color: "var(--text-secondary)" }}>
               is working…
             </p>
-          ) : connected ? (
+          ) : (
             <p className="anim-fade-in flex items-center gap-1 text-[13px] font-medium" style={{ color: "var(--fill-green)" }}>
               <span className="size-1.5 rounded-full" style={{ background: "var(--fill-green)" }} />
               Connected
-            </p>
-          ) : (
-            <p className="text-[13px]" style={{ color: "var(--text-secondary)" }}>
-              Idle
             </p>
           )}
         </div>

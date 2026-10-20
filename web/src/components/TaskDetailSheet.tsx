@@ -1,26 +1,25 @@
 /**
  * Task detail sheet, opened from the chevron on a task card (shared Sheet
- * shell: bottom sheet on mobile, centered on sm+). Shows the
- * status, every step, and the answers given so far.
+ * shell: bottom sheet on mobile, centered on sm+): status, every step, and
+ * Stop while the task is still running.
  */
 import { CircleCheck } from "lucide-react";
-import type { DemoState } from "../data/fakeMuse";
-import { taskStatusMeta } from "../data/fakeMuse";
-import type { MuseActions } from "./actions";
+import type { State } from "@remuse/protocol";
+import type { Actions } from "../ui.ts";
+import { byId, taskStatus } from "../view.ts";
 import { Sheet } from "./Sheet";
 import { useLastValue } from "./usePresence";
 
-export function TaskDetailSheet({ state, actions }: { state: DemoState; actions: MuseActions }) {
+export function TaskDetailSheet({ conversation, open, actions }: { conversation: State; open: string | null; actions: Actions }) {
   // keep showing the last task while the sheet animates out
-  const taskId = useLastValue(state.taskDetail);
-  const task = taskId === null ? undefined : state.store.task.get(taskId);
+  const task = byId(conversation, "task", useLastValue(open));
   if (!task) return null;
   const close = () => actions.openTaskDetail(null);
-  const meta = taskStatusMeta[task.status];
-  const answers = task.form.filter((f) => f.value);
+  const meta = taskStatus[task.status];
+  const running = task.status === "queued" || task.status === "working" || task.status === "waiting";
 
   return (
-    <Sheet open={state.taskDetail !== null} onClose={close}>
+    <Sheet open={open !== null} onClose={close}>
         <div className="overflow-y-auto px-6 pb-6 pt-4">
           <p className="pr-8 text-[20px] font-semibold leading-tight" style={{ color: "var(--text-primary)" }}>
             {task.title}
@@ -46,24 +45,17 @@ export function TaskDetailSheet({ state, actions }: { state: DemoState; actions:
             ))}
           </ul>
 
-          {answers.length > 0 && (
-            <>
-              <p className="mt-5 text-[13px] font-semibold" style={{ color: "var(--text-secondary)" }}>
-                Your answers
-              </p>
-              <dl className="mt-2 space-y-2">
-                {answers.map((f) => (
-                  <div key={f.field} className="rounded-xl px-3 py-2" style={{ background: "var(--fill-secondary)" }}>
-                    <dt className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
-                      {f.label}
-                    </dt>
-                    <dd className="text-[15px]" style={{ color: "var(--text-primary)" }}>
-                      {f.value}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </>
+          {running && (
+            <button
+              className="hover-fade mt-6 h-10 w-full rounded-full text-[15px] font-medium"
+              style={{ background: "var(--fill-secondary)", color: "var(--fill-red)" }}
+              onClick={() => {
+                actions.stopTask(task.id);
+                close();
+              }}
+            >
+              Stop task
+            </button>
           )}
         </div>
     </Sheet>

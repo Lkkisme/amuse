@@ -2,30 +2,30 @@
  * Pre-connect explainer bottom sheet (surface 10): opened from a
  * connection-request card. 1:1 with the Muse sheet: drag handle, app icon,
  * title, subtitle, three icon feature rows, disclaimer paragraphs with links,
- * full-width Connect button and a Cancel text button. Confirm walks the card
- * to connected; dismiss returns it to pending.
+ * full-width Connect button and a Cancel text button. Connect asks the server
+ * to begin connecting; Cancel only closes the sheet.
  */
 import { BarChart3, Eye, ToggleLeft } from "lucide-react";
-import type { ConnectionRequest, DemoState } from "../data/fakeMuse";
-import type { MuseActions } from "./actions";
+import type { Connection, State } from "@remuse/protocol";
+import type { Actions } from "../ui.ts";
+import { byId } from "../view.ts";
 import { Sheet } from "./Sheet";
 import { useLastValue } from "./usePresence";
 
-export function ExplainerModal({ state, actions }: { state: DemoState; actions: MuseActions }) {
+export function ExplainerModal({ conversation, open, actions }: { conversation: State; open: string | null; actions: Actions }) {
   // keep showing the last request while the sheet animates out
-  const reqId = useLastValue(state.explainerFor);
-  const req = reqId === null ? undefined : state.store.connreq.get(reqId);
+  const req = byId(conversation, "connection", useLastValue(open));
   if (!req) return null;
-  return <ExplainerBody req={req} open={state.explainerFor !== null} actions={actions} />;
+  return <ExplainerBody req={req} open={open !== null} actions={actions} />;
 }
 
-function ExplainerBody({ req, open, actions }: { req: ConnectionRequest; open: boolean; actions: MuseActions }) {
-  const close = () => actions.dismissConnect(req.id);
+function ExplainerBody({ req, open, actions }: { req: Connection; open: boolean; actions: Actions }) {
+  const close = () => actions.openExplainer(null);
   const features = [
     {
       icon: BarChart3,
-      title: `Level up with ${req.app}`,
-      body: `Muse will access things like ${req.capability.toLowerCase()} and metadata.`,
+      title: `Level up with ${req.title}`,
+      body: `Muse will access your ${req.title} data and its metadata.`,
     },
     {
       icon: ToggleLeft,
@@ -50,10 +50,10 @@ function ExplainerBody({ req, open, actions }: { req: ConnectionRequest; open: b
             <BarChart3 size={30} style={{ color: "var(--fill-green)" }} />
           </span>
           <p className="mt-3 text-[24px] font-bold" style={{ color: "var(--text-primary)" }}>
-            {req.app}
+            {req.title}
           </p>
           <p className="mt-1 text-[16px]" style={{ color: "var(--text-secondary)" }}>
-            Access and edit your {req.capability.replace(/^read\s+/i, "").toLowerCase()}
+            Connector
           </p>
 
           {/* feature rows */}
@@ -82,7 +82,7 @@ function ExplainerBody({ req, open, actions }: { req: ConnectionRequest; open: b
           <button
             className="mt-3.5 h-12 w-full rounded-full text-[16px] font-semibold text-white"
             style={{ background: "var(--fill-blue)" }}
-            onClick={() => actions.confirmConnect(req.id)}
+            onClick={() => actions.connect(req.id)}
           >
             Connect
           </button>

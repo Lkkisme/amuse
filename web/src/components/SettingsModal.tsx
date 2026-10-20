@@ -22,9 +22,9 @@ import {
   Table,
   X,
 } from "lucide-react";
-import type { DemoState, Level } from "../data/fakeMuse";
-import { LEVELS, levelMeta, parseLevel } from "../data/fakeMuse";
-import type { MuseActions, SettingsSection } from "./actions";
+import type { Level, SettingsData } from "../demo/settings.ts";
+import { LEVELS, levelMeta, parseLevel } from "../demo/settings.ts";
+import type { Actions, SettingsSection, Theme, Ui } from "../ui.ts";
 import { usePresence } from "./usePresence";
 
 function ConnectorIcon({ id, size = 20 }: { id: string; size?: number }) {
@@ -78,9 +78,9 @@ const NAV: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
 
 /* ---------------- Connectors ---------------- */
 
-function ConnectorsSection({ state, actions }: { state: DemoState; actions: MuseActions }) {
-  const detail = state.connectorDetail
-    ? state.connectors.find((c) => c.id === state.connectorDetail) ?? null
+function ConnectorsSection({ data, connector, actions }: { data: SettingsData; connector: string | null; actions: Actions }) {
+  const detail = connector
+    ? data.connectors.find((c) => c.id === connector) ?? null
     : null;
 
   if (detail) {
@@ -90,7 +90,7 @@ function ConnectorsSection({ state, actions }: { state: DemoState; actions: Muse
         <button
           className="mb-2 flex size-9 items-center justify-center rounded-full"
           style={{ color: "var(--icon-primary)", background: "var(--fill-secondary)" }}
-          onClick={() => actions.openConnectorDetail(null)}
+          onClick={() => actions.openConnector(null)}
           aria-label="Back to connectors"
         >
           <ArrowLeft size={18} />
@@ -141,7 +141,7 @@ function ConnectorsSection({ state, actions }: { state: DemoState; actions: Muse
                     <span className="text-[14px]" style={{ color: "var(--text-primary)" }}>
                       {cap.label}
                     </span>
-                    <LevelSelect value={cap.level} onChange={(l) => actions.setCapabilityLevel(detail.id, cap.id, l)} />
+                    <LevelSelect value={cap.level} onChange={(l) => actions.setCapability(detail.id, cap.id, l)} />
                   </div>
                 ))}
             </div>
@@ -151,8 +151,8 @@ function ConnectorsSection({ state, actions }: { state: DemoState; actions: Muse
     );
   }
 
-  const connected = state.connectors.filter((c) => c.connected);
-  const available = state.connectors.filter((c) => !c.connected);
+  const connected = data.connectors.filter((c) => c.connected);
+  const available = data.connectors.filter((c) => !c.connected);
   return (
     <div className="flex-1 overflow-y-auto p-5">
       <div
@@ -181,7 +181,7 @@ function ConnectorsSection({ state, actions }: { state: DemoState; actions: Muse
                   key={c.id}
                   className="flex w-full items-center gap-3 px-4 py-3 text-left"
                   style={{ borderTop: i === 0 ? undefined : "1px solid var(--fill-divider)" }}
-                  onClick={() => actions.openConnectorDetail(c.id)}
+                  onClick={() => actions.openConnector(c.id)}
                 >
                   <ConnectorIcon id={c.id} size={18} />
                   <span className="min-w-0 flex-1">
@@ -239,7 +239,7 @@ function DefaultsCard({ title, options }: { title: string; options: { label: str
   );
 }
 
-function PermissionsSection({ state, actions }: { state: DemoState; actions: MuseActions }) {
+function PermissionsSection({ data, actions }: { data: SettingsData; actions: Actions }) {
   return (
     <div className="flex-1 overflow-y-auto p-5">
       <DefaultsCard
@@ -261,7 +261,7 @@ function PermissionsSection({ state, actions }: { state: DemoState; actions: Mus
         Websites
       </p>
       <div className="overflow-hidden rounded-xl" style={{ background: "var(--fill-secondary)" }}>
-        {state.websiteRules.map((r, i) => (
+        {data.websiteRules.map((r, i) => (
           <div
             key={r.id}
             className="flex items-center justify-between px-4 py-3"
@@ -271,7 +271,7 @@ function PermissionsSection({ state, actions }: { state: DemoState; actions: Mus
               <Globe size={16} style={{ color: "var(--icon-secondary)" }} />
               {r.site}
             </span>
-            <LevelSelect value={r.level} onChange={(l) => actions.setWebsiteRuleLevel(r.id, l)} />
+            <LevelSelect value={r.level} onChange={(l) => actions.setWebsiteRule(r.id, l)} />
           </div>
         ))}
       </div>
@@ -281,7 +281,7 @@ function PermissionsSection({ state, actions }: { state: DemoState; actions: Mus
 
 /* ---------------- Secure store ---------------- */
 
-function SecureStoreSection({ state, actions }: { state: DemoState; actions: MuseActions }) {
+function SecureStoreSection({ data, actions }: { data: SettingsData; actions: Actions }) {
   const [adding, setAdding] = useState(false);
   const [domain, setDomain] = useState("");
   const [username, setUsername] = useState("");
@@ -345,12 +345,12 @@ function SecureStoreSection({ state, actions }: { state: DemoState; actions: Mus
         Passwords
       </p>
       <div className="overflow-hidden rounded-xl" style={{ background: "var(--fill-secondary)" }}>
-        {state.credentials.length === 0 && (
+        {data.credentials.length === 0 && (
           <p className="px-4 py-3 text-[14px]" style={{ color: "var(--text-secondary)" }}>
             No credentials stored yet.
           </p>
         )}
-        {state.credentials.map((c, i) => (
+        {data.credentials.map((c, i) => (
           <div
             key={c.id}
             className="flex items-center gap-3 px-4 py-3"
@@ -380,8 +380,7 @@ function SecureStoreSection({ state, actions }: { state: DemoState; actions: Mus
 
 /* ---------------- General ---------------- */
 
-function GeneralSection({ state, actions }: { state: DemoState; actions: MuseActions }) {
-  const dark = typeof window !== "undefined" && document.documentElement.classList.contains("dark");
+function GeneralSection({ theme, actions }: { theme: Theme; actions: Actions }) {
   return (
     <div className="flex-1 overflow-y-auto p-5">
       <p className="mb-2 text-[15px] font-semibold" style={{ color: "var(--text-primary)" }}>
@@ -398,12 +397,12 @@ function GeneralSection({ state, actions }: { state: DemoState; actions: MuseAct
             <span className="text-[14px] capitalize" style={{ color: "var(--text-primary)" }}>
               {t}
             </span>
-            {(dark === (t === "dark")) && <Check size={18} style={{ color: "var(--text-primary)" }} />}
+            {theme === t && <Check size={18} style={{ color: "var(--text-primary)" }} />}
           </button>
         ))}
       </div>
       <p className="mt-4 text-[13px]" style={{ color: "var(--text-secondary)" }}>
-        remuse is a study replica. No account, no network — everything here is fake state.
+        remuse is running on a local demo session.
       </p>
     </div>
   );
@@ -411,8 +410,8 @@ function GeneralSection({ state, actions }: { state: DemoState; actions: MuseAct
 
 /* ---------------- Shell ---------------- */
 
-export function SettingsModal({ state, actions }: { state: DemoState; actions: MuseActions }) {
-  const { mounted, closing, onAnimationEnd } = usePresence(state.settingsOpen);
+export function SettingsModal({ ui, theme, data, actions }: { ui: Ui["settings"]; theme: Theme; data: SettingsData; actions: Actions }) {
+  const { mounted, closing, onAnimationEnd } = usePresence(ui.open);
   if (!mounted) return null;
   return (
     <div className={`fixed inset-0 z-40 flex items-end justify-center sm:items-center sm:p-4 ${closing ? "pointer-events-none" : ""}`}>
@@ -438,12 +437,11 @@ export function SettingsModal({ state, actions }: { state: DemoState; actions: M
               key={n.id}
               className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl px-3 py-2 text-left text-[14px] font-medium sm:gap-3 sm:py-2.5 sm:text-[15px]"
               style={{
-                background: state.settingsSection === n.id ? "var(--fill-secondary)" : "transparent",
+                background: ui.section === n.id ? "var(--fill-secondary)" : "transparent",
                 color: "var(--text-primary)",
               }}
               onClick={() => {
                 actions.openSettings(n.id);
-                actions.openConnectorDetail(null);
               }}
             >
               {n.icon}
@@ -453,7 +451,7 @@ export function SettingsModal({ state, actions }: { state: DemoState; actions: M
           <button
             className="mt-auto hidden items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15px] font-medium sm:flex"
             style={{ color: "var(--text-secondary)" }}
-            onClick={() => actions.resetDemo()}
+            onClick={() => actions.reset()}
           >
             Reset demo
           </button>
@@ -469,10 +467,10 @@ export function SettingsModal({ state, actions }: { state: DemoState; actions: M
           >
             <X size={17} />
           </button>
-          {state.settingsSection === "connectors" && <ConnectorsSection state={state} actions={actions} />}
-          {state.settingsSection === "permissions" && <PermissionsSection state={state} actions={actions} />}
-          {state.settingsSection === "secure-store" && <SecureStoreSection state={state} actions={actions} />}
-          {state.settingsSection === "general" && <GeneralSection state={state} actions={actions} />}
+          {ui.section === "connectors" && <ConnectorsSection data={data} connector={ui.connector} actions={actions} />}
+          {ui.section === "permissions" && <PermissionsSection data={data} actions={actions} />}
+          {ui.section === "secure-store" && <SecureStoreSection data={data} actions={actions} />}
+          {ui.section === "general" && <GeneralSection theme={theme} actions={actions} />}
         </div>
       </div>
     </div>

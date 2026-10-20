@@ -3,19 +3,14 @@
  * Muse avatar with its name badge. While Muse works, the badge grows a status
  * line ("is responding", "Re-observing page", ...).
  */
-import { Globe, List, Menu, PanelLeftClose, Wrench } from "lucide-react";
-import type { AgentStatus, DemoState } from "../data/fakeMuse";
+import { List, Menu, PanelLeftClose, ShieldAlert, Wrench } from "lucide-react";
+import type { State } from "@remuse/protocol";
+import type { Actions } from "../ui.ts";
+import { type AgentLine, agentLine } from "../view.ts";
 
-const STATUS_ICONS = { web: Globe, list: List, tool: Wrench } as const;
+const LINE_ICONS = { list: List, tool: Wrench, approval: ShieldAlert } as const;
 
-function currentStatus(state: DemoState): AgentStatus | null {
-  if (state.agentStatus) return state.agentStatus;
-  const streaming = state.feed.some((i) => i.role === "agent" && i.streaming);
-  return state.assistantThinking || streaming ? { icon: "list", text: "is responding" } : null;
-}
-import type { MuseActions } from "./actions";
-
-export function TopBar({ state, actions }: { state: DemoState; actions: MuseActions }) {
+export function TopBar({ conversation }: { conversation: State }) {
   return (
     <header
       className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between px-3 py-2"
@@ -31,15 +26,15 @@ export function TopBar({ state, actions }: { state: DemoState; actions: MuseActi
         >
           M
         </span>
-        <AvatarBadge status={currentStatus(state)} />
+        <AvatarBadge line={agentLine(conversation)} />
       </div>
 
     </header>
   );
 }
 
-function AvatarBadge({ status }: { status: AgentStatus | null }) {
-  const Icon = status ? STATUS_ICONS[status.icon] : null;
+function AvatarBadge({ line }: { line: AgentLine | null }) {
+  const Icon = line ? LINE_ICONS[line.icon] : null;
   return (
     <span
       className="-mt-1.5 flex flex-col items-center rounded-full px-2.5 py-0.5 transition-all duration-200"
@@ -48,14 +43,14 @@ function AvatarBadge({ status }: { status: AgentStatus | null }) {
       <span className="text-[11px] font-semibold" style={{ color: "var(--text-primary)" }}>
         Muse
       </span>
-      {status && Icon && (
+      {line && Icon && (
         <span
-          key={status.text}
+          key={line.text}
           className="anim-fade-in flex items-center gap-1 whitespace-nowrap text-[10px]"
           style={{ color: "var(--text-secondary)" }}
         >
           <Icon size={10} />
-          {status.text}
+          {line.text}
         </span>
       )}
     </span>
@@ -67,8 +62,7 @@ function AvatarBadge({ status }: { status: AgentStatus | null }) {
  * under the viewer's z-50) and morphs into a collapse icon while the drawer
  * is open, so one tap target opens and closes it.
  */
-export function MenuButton({ state, actions }: { state: DemoState; actions: MuseActions }) {
-  const open = state.chatsOpen;
+export function MenuButton({ open, actions }: { open: boolean; actions: Actions }) {
   const icon = "absolute transition-all duration-200 ease-out";
   return (
     <button
