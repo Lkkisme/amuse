@@ -13,7 +13,7 @@ import { type Connection, connection } from "./connection.ts";
 import { useConversation } from "./session.ts";
 import { Unlock } from "./components/Unlock";
 import { type Actions, type Ui, initialUi } from "./ui.ts";
-import { browsers } from "./view.ts";
+import { viewerTabs } from "./view.ts";
 import { ActivityPanel } from "./components/ActivityPanel";
 import { ChatFeed } from "./components/ChatFeed";
 import { ChatsPanel } from "./components/ChatsPanel";
@@ -22,7 +22,7 @@ import { ExplainerModal } from "./components/ExplainerModal";
 import { IconRail } from "./components/IconRail";
 import { SettingsModal } from "./components/SettingsModal";
 import { TaskDetailSheet } from "./components/TaskDetailSheet";
-import { TaskPill } from "./components/TaskPill";
+import { BrowserButton } from "./components/BrowserButton";
 import { MenuButton, TopBar } from "./components/TopBar";
 import { Viewer } from "./components/Viewer";
 
@@ -90,12 +90,9 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         patch((u) => {
           if (!u.viewer) return u;
           const closedTabs = [...u.viewer.closedTabs, browserId];
-          const last = browsers(conversation)
-            .map((b) => b.id)
-            .filter((id) => !closedTabs.includes(id))
-            .at(-1);
+          const last = viewerTabs(conversation, closedTabs).at(-1);
           if (!last) return { ...u, viewer: null };
-          return { ...u, viewer: { browserId: u.viewer.browserId === browserId ? last : u.viewer.browserId, closedTabs } };
+          return { ...u, viewer: { browserId: u.viewer.browserId === browserId ? last.id : u.viewer.browserId, closedTabs } };
         }),
       control: (id, action) => call("browser.control", { id, action }),
       // best effort and quiet: a desktop that keeps its shape still works
@@ -145,7 +142,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         <ChatFeed conversation={conversation} older={older} release={release} thumb={where.kind === "server" ? where.thumb : null} actions={actions} />
         <TopBar conversation={conversation} />
         <MenuButton open={ui.chatsOpen} actions={actions} />
-        <TaskPill conversation={conversation} actions={actions} />
+        <BrowserButton conversation={conversation} actions={actions} />
         {ui.notice && (
           <p
             role="status"

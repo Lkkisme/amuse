@@ -14,7 +14,7 @@ export interface Ui {
   activityOpen: boolean;
   settings: { open: boolean; section: SettingsSection; connector: string | null };
   /** browser viewer: active tab, and tabs the user closed (every other run is a tab) */
-  viewer: { browserId: string; closedTabs: string[] } | null;
+  viewer: { browserId: string | null; closedTabs: string[] } | null;
   /** connection whose pre-connect explainer is open */
   explainer: string | null;
   /** task whose detail sheet is open */
@@ -41,7 +41,8 @@ export interface Actions {
   resolveApproval(id: string, resolution: "allow_once" | "allow_always" | "deny"): void;
   openExplainer(connectionId: string | null): void;
   connect(connectionId: string): void;
-  openViewer(browserId: string): void;
+  /** null: whichever browser is newest (or none, said so) */
+  openViewer(browserId: string | null): void;
   closeViewer(): void;
   selectTab(browserId: string): void;
   closeTab(browserId: string): void;

@@ -8,13 +8,14 @@
  *   paused                  "You're in control" · host           Stop + Done (hand back)
  *   completed               title · "Completed · host"           Take control
  *   failed/stopped          title · "<status> · host"
- * Below it, one tab per browser run in the chat (check icon when completed), then a
- * fake Chrome window: page tab row, address bar, sketched page.
+ * Below it, one tab per run whose browser is still there (check icon when completed), then
+ * the live browser (or, in the demo, a fake Chrome window). A run whose browser is gone is
+ * only a card in the chat; with none left, the viewer says so.
  */
 import { ArrowLeft, ArrowRight, Check, CircleCheck, CircleDot, Copy, Globe, Menu, Plus, RotateCw, X } from "lucide-react";
 import type { Browser, State } from "@remuse/protocol";
 import type { Actions, Ui } from "../ui.ts";
-import { browserStatus, browsers, byId, host, hue, path, stoppable } from "../view.ts";
+import { browserStatus, host, hue, path, stoppable, viewerRun, viewerTabs } from "../view.ts";
 import { LiveView } from "./LiveView";
 import { useLastValue, usePresence } from "./usePresence";
 
@@ -33,9 +34,8 @@ export function Viewer({
   const { mounted, closing, onAnimationEnd } = usePresence(open !== null);
   const viewer = useLastValue(open);
   if (!mounted || !viewer) return null;
-  const browser = byId(conversation, "browser", viewer.browserId);
-  if (!browser) return null;
-  const tabs = browsers(conversation).filter((b) => !viewer.closedTabs.includes(b.id));
+  const browser = viewerRun(conversation, viewer);
+  const tabs = viewerTabs(conversation, viewer.closedTabs);
 
   return (
     <div
@@ -43,10 +43,49 @@ export function Viewer({
       className={`${closing ? "anim-pane-to-right pointer-events-none" : "anim-pane-from-right"} fixed inset-0 z-50 flex flex-col lg:left-[482px]`}
       style={{ background: "var(--bg-primary)", borderLeft: "1px solid var(--fill-divider)" }}
     >
-      <ViewerHeader browser={browser} actions={actions} />
-      <RunTabs tabs={tabs} activeId={browser.id} actions={actions} />
-      {live ? <LivePage key={browser.id} browser={browser} url={live(browser.id)} actions={actions} /> : <FakeChrome browser={browser} />}
+      {browser ? (
+        <>
+          <ViewerHeader browser={browser} actions={actions} />
+          <RunTabs tabs={tabs} activeId={browser.id} actions={actions} />
+          {live ? <LivePage key={browser.id} browser={browser} url={live(browser.id)} actions={actions} /> : <FakeChrome browser={browser} />}
+        </>
+      ) : (
+        <NoBrowser actions={actions} />
+      )}
     </div>
+  );
+}
+
+/** No run has a browser now: say so, and how one comes. */
+function NoBrowser({ actions }: { actions: Actions }) {
+  return (
+    <>
+      <header className="flex items-center justify-end py-2 pr-2">
+        <CloseViewer actions={actions} />
+      </header>
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 px-8 text-center">
+        <Globe size={28} style={{ color: "var(--icon-secondary)" }} />
+        <p className="text-[15px] font-semibold" style={{ color: "var(--text-primary)" }}>
+          No browser open
+        </p>
+        <p className="max-w-[280px] text-[14px]" style={{ color: "var(--text-secondary)" }}>
+          When Muse browses for you, it shows up here to watch or take over.
+        </p>
+      </div>
+    </>
+  );
+}
+
+function CloseViewer({ actions }: { actions: Actions }) {
+  return (
+    <button
+      aria-label="Close viewer"
+      className="hover-fade flex size-9 shrink-0 items-center justify-center rounded-full"
+      style={{ color: "var(--icon-secondary)" }}
+      onClick={() => actions.closeViewer()}
+    >
+      <X size={20} />
+    </button>
   );
 }
 
@@ -54,7 +93,7 @@ function ViewerHeader({ browser, actions }: { browser: Browser; actions: Actions
   const user = browser.status === "paused";
   const title = user ? "You're in control" : browser.status === "needs_you" ? "Action required" : browser.title;
   const sub = user ? host(browser.url) : `${browserStatus[browser.status].label} · ${host(browser.url)}`;
-  const canTake = stoppable(browser) || browser.status === "completed";
+  const canTake = browser.live && (stoppable(browser) || browser.status === "completed");
 
   return (
     <header className="flex items-center gap-2 py-2 pl-3 pr-2 sm:gap-3">
@@ -70,6 +109,7 @@ function ViewerHeader({ browser, actions }: { browser: Browser; actions: Actions
 
       {stoppable(browser) && (
         <button
+          aria-label="Stop"
           className="hover-fade flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2 text-[14px] font-medium"
           style={{ color: "var(--fill-red)" }}
           onClick={() => actions.control(browser.id, "stop")}
@@ -95,14 +135,7 @@ function ViewerHeader({ browser, actions }: { browser: Browser; actions: Actions
           <span className="hidden sm:inline">Take control of the browser</span>
         </button>
       )}
-      <button
-        aria-label="Close viewer"
-        className="hover-fade flex size-9 shrink-0 items-center justify-center rounded-full"
-        style={{ color: "var(--icon-secondary)" }}
-        onClick={() => actions.closeViewer()}
-      >
-        <X size={20} />
-      </button>
+      <CloseViewer actions={actions} />
     </header>
   );
 }

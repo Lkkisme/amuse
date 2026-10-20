@@ -8,7 +8,7 @@ const ctx: Context = { now: at, id: (prefix) => `${prefix}1` };
 const record = (state: State, changes: Change[]): State =>
   changes.reduce((s, change) => apply(s, { seq: s.seq + 1, event: place(s, change) }), state);
 const stateOf = (...entities: Entity[]): State => record(empty, entities.map((entity) => ({ kind: "upserted", entity })));
-const browser = (status: BrowserStatus): Browser => ({ kind: "browser", id: "b1", at, title: "Log in", url: "https://x.example/", status });
+const browser = (status: BrowserStatus, live = true): Browser => ({ kind: "browser", id: "b1", at, title: "Log in", url: "https://x.example/", status, live });
 
 test("chat.send records the prompt and asks the agent", () => {
   const d = decide(empty, { method: "chat.send", params: { text: "hi" } }, ctx);
@@ -29,8 +29,9 @@ test("browser moves follow Muse: take → paused, handBack → working, stop →
   for (const [from, action, to] of moves) {
     const d = decide(stateOf(browser(from)), { method: "browser.control", params: { id: "b1", action } }, ctx);
     assert.ok(d.ok, `${action} from ${from}`);
-    assert.deepEqual(d.changes, [{ kind: "upserted", entity: browser(to) }]);
-    assert.deepEqual(d.effects, [{ kind: "browser", browser: browser(to), action }]);
+    const moved = browser(to, action !== "stop"); // a stopped run's browser closes at once
+    assert.deepEqual(d.changes, [{ kind: "upserted", entity: moved }]);
+    assert.deepEqual(d.effects, [{ kind: "browser", browser: moved, action }]);
   }
 });
 
@@ -94,7 +95,7 @@ test("agent actions: connect reuses a pending request for the same provider; bro
 
   const browse = decideAgent(empty, "browse", { kind: "browse", title: "Tides", url: "https://tides.example/" }, ctx);
   assert.ok(browse.ok);
-  const run: Browser = { kind: "browser", id: "b1", at, title: "Tides", url: "https://tides.example/", status: "working" };
+  const run: Browser = { kind: "browser", id: "b1", at, title: "Tides", url: "https://tides.example/", status: "working", live: true };
   assert.deepEqual(browse.changes, [{ kind: "upserted", entity: run }]);
   assert.deepEqual(browse.effects, [{ kind: "browse", browser: run }]);
 });
@@ -118,4 +119,27 @@ test("only a run the user holds is reshaped to their screen", () => {
   assert.deepEqual(held.changes, []);
   assert.deepEqual(held.effects, [{ kind: "fit", id: "b1", viewer: { width: 390, height: 560 } }]);
   assert.deepEqual(fit("working"), { ok: false, rejection: { kind: "invalid", action: "fit", from: "working" } });
+});
+
+test("a browser that is gone is only a record: no taking over; stopping closes it at once; release is idempotent", () => {
+  const take = (b: Browser) => decide(stateOf(b), { method: "browser.control", params: { id: "b1", action: "take" } }, ctx);
+  assert.deepEqual(take(browser("completed", false)), { ok: false, rejection: { kind: "gone", id: "b1" } });
+  assert.ok(take(browser("completed")).ok);
+
+  const stop = decide(stateOf(browser("working")), { method: "browser.control", params: { id: "b1", action: "stop" } }, ctx);
+  assert.ok(stop.ok);
+  assert.deepEqual(stop.changes, [{ kind: "upserted", entity: browser("stopped", false) }]);
+
+  const released = decideAgent(stateOf(browser("completed")), "released", { kind: "released", id: "b1" }, ctx);
+  assert.ok(released.ok);
+  assert.deepEqual(released.changes, [{ kind: "upserted", entity: browser("completed", false) }]);
+  const again = decideAgent(stateOf(browser("completed", false)), "released", { kind: "released", id: "b1" }, ctx);
+  assert.ok(again.ok);
+  assert.deepEqual(again.changes, []);
+});
+
+test("after a restart no browser is live", () => {
+  assert.deepEqual(recover(stateOf(browser("completed"))), [{ kind: "upserted", entity: browser("completed", false) }]);
+  assert.deepEqual(recover(stateOf(browser("working"))), [{ kind: "upserted", entity: browser("stopped", false) }]);
+  assert.deepEqual(recover(stateOf(browser("stopped", false))), []);
 });

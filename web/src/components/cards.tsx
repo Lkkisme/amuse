@@ -232,12 +232,38 @@ function Thumbnail({ src, live, id }: { src: string; live: boolean; id: string }
 }
 
 /**
+ * A run whose browser is gone: only a record of it. No page, nothing to open
+ * (a button there would lead nowhere).
+ */
+function EndedBrowserCard({ browser }: { browser: Browser }) {
+  return (
+    <div className="flex w-full max-w-[314px] items-center gap-3 rounded-[22px] p-4" style={{ background: CARD_BG }}>
+      <span
+        className="flex size-10 shrink-0 items-center justify-center rounded-[12px]"
+        style={{ background: "var(--fill-primary)", color: "var(--icon-secondary)" }}
+      >
+        <Globe size={20} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[14px] font-medium" style={{ color: "var(--text-primary)" }}>
+          Browser
+        </p>
+        <p className="truncate text-[13px]" style={{ color: "var(--text-secondary)" }}>
+          {browserStatus[browser.status].label} · {browser.title}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Muse browser card: tinted globe tile + "Browser" + "<status> · <task>", a
  * page thumbnail, and one pill button. Refs 06-card-desktop, 02-run-*, 08-now.
  */
 export function BrowserCard({ browser, thumb, actions }: { browser: Browser; thumb: ((id: string) => string) | null; actions: Actions }) {
   const meta = browserStatus[browser.status];
   const open = () => actions.openViewer(browser.id);
+  if (!browser.live) return <EndedBrowserCard browser={browser} />;
   return (
     <div className="w-full max-w-[314px] rounded-[22px] p-4" style={{ background: CARD_BG }}>
       <div className="flex items-center gap-3">

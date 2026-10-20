@@ -239,19 +239,27 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers): Pick<Por
     }
   };
 
+  /** Close a run's browser, then say so: its card becomes a record. */
+  const release = (id: string, io: AgentIO) =>
+    void browsers.close(id).finally(() => io.act({ kind: "released", id }));
+
   return {
     browse(browser, io) {
       const stop = new AbortController();
       stops.set(browser.id, stop);
+      let opened = false;
       const end = () => {
         stops.delete(browser.id);
         runs.delete(browser.id);
-        setTimeout(() => void browsers.close(browser.id), keepFinishedMs).unref?.();
+        // a finished run's browser stays a while to be looked at or taken over; one that never opened goes now
+        if (opened) setTimeout(() => release(browser.id, io), keepFinishedMs).unref?.();
+        else release(browser.id, io);
       };
       browsers
         .open(browser.id, browser.url, stop.signal)
         .then(async () => {
-          if (stop.signal.aborted) return void browsers.close(browser.id); // stopped while it was opening
+          opened = true;
+          if (stop.signal.aborted) return release(browser.id, io); // stopped while it was opening
           const run: Run = { browser, browsers, url: browser.url, io, session: null, stop, held: null, steps: 0, finished: false };
           runs.set(browser.id, run);
           await drive(run);
@@ -277,8 +285,7 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers): Pick<Por
         case "stop":
           stops.get(browser.id)?.abort();
           void run?.session?.abort();
-          void browsers.close(browser.id);
-          return;
+          return release(browser.id, io);
       }
     },
     fit({ id, viewer }) {

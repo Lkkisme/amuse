@@ -64,6 +64,8 @@ export type AgentAction =
   /** A browser run's progress, from the agent driving it. */
   | { kind: "browserStatus"; id: string; status: BrowserProgress }
   | { kind: "taskStatus"; id: string; status: TaskProgress }
+  /** The run's browser is gone (closed): its card is only a record from now on. */
+  | { kind: "released"; id: string }
   /** The app's account is live: the connection is connected. */
   | { kind: "connected"; id: string };
 
@@ -72,6 +74,8 @@ type Actions = { [A in AgentAction as A["kind"]]: A };
 /** What was attempted, from where. */
 export type Rejection =
   | { kind: "notFound"; entity: Entity["kind"]; id: string }
+  /** the run's browser is no longer there to take over */
+  | { kind: "gone"; id: string }
   | {
       kind: "invalid";
       action: BrowserAction | "fit" | "resolve" | "begin" | "dismiss" | "stop" | AgentAction["kind"];
@@ -161,7 +165,9 @@ const rules: Rules = {
     if (!browser) return reject({ kind: "notFound", entity: "browser", id });
     const move = browserMoves[action];
     if (!move.from.includes(browser.status)) return reject({ kind: "invalid", action, from: browser.status });
-    const moved: Browser = { ...browser, status: move.to };
+    if (action === "take" && !browser.live) return reject({ kind: "gone", id });
+    // a stopped run's browser closes at once
+    const moved: Browser = { ...browser, status: move.to, live: action === "stop" ? false : browser.live };
     return ok([upsert(moved)], [{ kind: "browser", browser: moved, action }], null);
   },
 
@@ -204,8 +210,13 @@ const agentRules: AgentRules = {
     return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, status: "pending" })], [], { id });
   },
   browse: (_, { title, url }, ctx) => {
-    const browser: Browser = { kind: "browser", id: ctx.id("b"), at: ctx.now, title, url, status: "working" };
+    const browser: Browser = { kind: "browser", id: ctx.id("b"), at: ctx.now, title, url, status: "working", live: true };
     return ok([upsert(browser)], [{ kind: "browse", browser }], { id: browser.id });
+  },
+  released: (state, { id }) => {
+    const browser = find(state, "browser", id);
+    if (!browser) return reject({ kind: "notFound", entity: "browser", id });
+    return ok(browser.live ? [upsert({ ...browser, live: false })] : [], [], { id });
   },
   browserStatus: (state, { id, status }) => {
     const browser = find(state, "browser", id);
@@ -235,7 +246,7 @@ export function decideAgent<K extends keyof Actions>(state: State, kind: K, acti
 /**
  * After a restart nothing is mid-run any more: streaming replies end where
  * they stopped, browser runs and tasks in flight are stopped (nothing drives
- * them now), pending approvals time out (nobody waits on them), and the
+ * them now) and no browser is live, pending approvals time out (nobody waits on them), and the
  * activity line clears.
  */
 export function recover(state: State): Change[] {
@@ -243,8 +254,11 @@ export function recover(state: State): Change[] {
     switch (e.kind) {
       case "reply":
         return e.streaming ? { ...e, streaming: false } : null;
-      case "browser":
-        return terminalBrowser.includes(e.status) ? null : { ...e, status: "stopped" };
+      case "browser": {
+        // the pool lets go of every browser on start: none is live after a restart
+        const status = terminalBrowser.includes(e.status) ? e.status : "stopped";
+        return status === e.status && !e.live ? null : { ...e, status, live: false };
+      }
       case "task":
         return runningTask.includes(e.status) ? { ...e, status: "stopped" } : null;
       case "approval":

@@ -104,10 +104,10 @@ export function seed(): Entity[] {
       detail: "Reserve a table for 4, Friday 7pm. Draft ready for your review.",
       status: "pending",
     },
-    { kind: "browser", id: "b-seed1", at: minutesAgo(28), title: "Monterey Bay Aquarium exhibits", url: "https://mbayaq.org/exhibits", status: "completed" },
+    { kind: "browser", id: "b-seed1", at: minutesAgo(28), title: "Monterey Bay Aquarium exhibits", url: "https://mbayaq.org/exhibits", status: "completed", live: false },
     { kind: "prompt", id: "p-seed3", at: minutesAgo(5), text: "Also check the tide schedule, and log in to the trip portal for me" },
-    { kind: "browser", id: "b-seed2", at: minutesAgo(5), title: "Check the tide schedule", url: "https://tidesandcurrents.noaa.gov/stationhome", status: "working" },
-    { kind: "browser", id: "b-seed3", at: minutesAgo(4), title: "Log in to the trip portal", url: "https://portal.example.edu/login", status: "needs_you" },
+    { kind: "browser", id: "b-seed2", at: minutesAgo(5), title: "Check the tide schedule", url: "https://tidesandcurrents.noaa.gov/stationhome", status: "working", live: true },
+    { kind: "browser", id: "b-seed3", at: minutesAgo(4), title: "Log in to the trip portal", url: "https://portal.example.edu/login", status: "needs_you", live: true },
     {
       kind: "reply",
       id: "r-seed2",

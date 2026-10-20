@@ -80,6 +80,8 @@ export const Browser = z.object({
   title: z.string(),
   url: z.url(),
   status: BrowserStatus,
+  /** the run still has its browser, to watch and take over; once it is gone the card is only a record */
+  live: z.boolean(),
 });
 
 export const Entity = z.discriminatedUnion("kind", [Prompt, Reply, Task, Approval, Connection, Browser]);

@@ -80,7 +80,14 @@ export interface Ports {
 
 /** A rejection in words, for errors and for agents. */
 export function describe(rejection: Rejection): string {
-  return rejection.kind === "notFound" ? `${rejection.entity} ${rejection.id} not found` : `cannot ${rejection.action} from ${rejection.from}`;
+  switch (rejection.kind) {
+    case "notFound":
+      return `${rejection.entity} ${rejection.id} not found`;
+    case "gone":
+      return `the browser of ${rejection.id} is gone`;
+    case "invalid":
+      return `cannot ${rejection.action} from ${rejection.from}`;
+  }
 }
 
 export interface Clock {

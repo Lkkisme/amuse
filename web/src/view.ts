@@ -65,12 +65,21 @@ export const hue = (id: string) => [...id].reduce((h, c) => (h * 31 + c.charCode
 
 export const browsers = (state: State) => state.entities.filter((e): e is Browser => e.kind === "browser");
 
+/** Runs whose browser is still there: the viewer's tabs (closed tabs aside). */
+export const viewerTabs = (state: State, closedTabs: readonly string[]) => browsers(state).filter((b) => b.live && !closedTabs.includes(b.id));
+
+/** The run the viewer shows: the chosen one while it is a tab, else the newest tab; none when there is no browser. */
+export const viewerRun = (state: State, viewer: { browserId: string | null; closedTabs: readonly string[] }) => {
+  const tabs = viewerTabs(state, viewer.closedTabs);
+  return tabs.find((b) => b.id === viewer.browserId) ?? tabs.at(-1) ?? null;
+};
+
 export function byId<K extends Entity["kind"]>(state: State, kind: K, id: string | null) {
   return state.entities.find((e): e is Extract<Entity, { kind: K }> => e.kind === kind && e.id === id);
 }
 
 /** The run the task indicator follows: newest one that needs the user, else newest in flight. */
 export function pillBrowser(state: State): Browser | undefined {
-  const live = browsers(state).filter(bannerActive).reverse();
+  const live = browsers(state).filter((b) => b.live && bannerActive(b)).reverse();
   return live.find((b) => b.status === "needs_you" || b.status === "waiting") ?? live[0];
 }

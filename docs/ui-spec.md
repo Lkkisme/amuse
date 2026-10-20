@@ -49,3 +49,6 @@ element is a scripted fake.
 - Shadows are soft: wide blur, low opacity, only from the `--shadow-*` tokens (float, raised,
   sheet, drawer). A shadow falls on the chat, never on its own companion: the avatar's shadow
   lies under its name badge.
+- A run whose browser is gone (stopped, or released 30 minutes after it ended) is only a
+  record: its card shows no page and no button, and it leaves the viewer's tabs. The top-right
+  browser button is always there and opens the viewer; with no browser, the viewer says so.
