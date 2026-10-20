@@ -1,12 +1,12 @@
 /**
  * Browser task indicator, top-right where Muse has its Invite button (remuse
- * has no invites; owner's call). Collapsed: a round laptop button with a badge,
+ * has no invites; owner's call). Collapsed: a round monitor button with a badge,
  * orange "!" while the run waits for you, a pulsing blue dot while it works.
  * Tap expands a small card below it: status, task, Open and Stop task.
  * Follows the newest waiting browser run, else the newest working one.
  */
 import { useEffect, useRef, useState } from "react";
-import { Laptop } from "lucide-react";
+import { Monitor } from "lucide-react";
 import type { DemoState } from "../data/fakeMuse";
 import { browserStatusMeta, pillBrowser } from "../data/fakeMuse";
 import type { MuseActions } from "./actions";
@@ -39,7 +39,7 @@ export function TaskPill({ state, actions }: { state: DemoState; actions: MuseAc
         style={{ background: "var(--fill-primary)", color: meta.color, boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}
         onClick={() => setOpen((o) => !o)}
       >
-        <Laptop size={18} />
+        <Monitor size={18} />
         {waiting ? (
           <span
             className="absolute -right-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full text-[10px] font-bold leading-none text-white"
@@ -65,7 +65,7 @@ export function TaskPill({ state, actions }: { state: DemoState; actions: MuseAc
               className="flex size-9 shrink-0 items-center justify-center rounded-[10px]"
               style={{ background: `color-mix(in srgb, ${meta.color} 12%, var(--fill-primary))`, color: meta.color }}
             >
-              <Laptop size={17} />
+              <Monitor size={17} />
             </span>
             <div className="min-w-0">
               <p className="text-[14px] font-medium" style={{ color: "var(--text-primary)" }}>
