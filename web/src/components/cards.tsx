@@ -186,39 +186,40 @@ export function ApprovalCard({ approval, actions }: { approval: Approval; action
 
 /* ---------- Connection request card (surface 10) ---------- */
 
+/**
+ * Muse connection request (ref 52-connreq-desktop): compact card, white tile
+ * with the app glyph, name + "Connector", and a neutral Connect pill. No blue.
+ */
 export function ConnReqCard({ connreq, actions }: { connreq: ConnectionRequest; actions: MuseActions }) {
   const connected = connreq.status === "connected";
   const dismissed = connreq.status === "dismissed";
   return (
-    <div className="w-full max-w-[340px] rounded-2xl p-4" style={{ background: CARD_BG }}>
-      <div className="flex items-center gap-3">
+    <div className="w-full max-w-[260px] rounded-[18px] p-2.5" style={{ background: CARD_BG }}>
+      <div className="flex items-center gap-2.5 px-0.5 pt-0.5">
         <span
-          className="flex size-10 shrink-0 items-center justify-center rounded-[10px] text-white"
-          style={{ background: "var(--fill-blue)" }}
+          className="flex size-10 shrink-0 items-center justify-center rounded-[10px]"
+          style={{ background: "#ffffff", color: "#16a34a", boxShadow: "0 0 0 1px var(--fill-divider)" }}
         >
           <Table size={20} />
         </span>
         <div className="min-w-0">
-          <p className="text-[15px] font-semibold" style={{ color: "var(--text-primary)" }}>
+          <p className="truncate text-[14px] font-semibold" style={{ color: "var(--text-primary)" }}>
             {connreq.app}
           </p>
-          <p className="text-[13px]" style={{ color: "var(--text-secondary)" }}>
+          <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
             Connector
           </p>
         </div>
       </div>
-      <p className="mt-2 text-[13px]" style={{ color: "var(--text-secondary)" }}>
-        {connreq.capability}
-      </p>
       <button
         disabled={connected || dismissed}
-        className="mt-3 h-10 w-full rounded-full text-[15px] font-semibold text-white disabled:opacity-90"
-        style={{ background: connected ? "var(--fill-green)" : "var(--fill-blue)" }}
+        className="mt-2.5 h-9 w-full rounded-full text-[14px] font-medium"
+        style={{ background: "var(--fill-card-button)", color: connected ? "var(--fill-green)" : "var(--text-primary)" }}
         onClick={() => actions.requestConnect(connreq.id)}
       >
         {connected ? (
           <span className="inline-flex items-center gap-1.5">
-            <Check size={16} /> Connected
+            <Check size={15} /> Connected
           </span>
         ) : dismissed ? (
           "Not now"
@@ -273,7 +274,7 @@ export function BrowserCard({ browser, actions }: { browser: BrowserRun; actions
 
       <button
         className="mt-3 h-9 w-full rounded-full text-[14px] font-medium"
-        style={{ background: "var(--fill-primary)", color: "var(--text-primary)" }}
+        style={{ background: "var(--fill-card-button)", color: "var(--text-primary)" }}
         onClick={open}
       >
         {browser.status === "working" ? "Open browser" : "Open preview"}

@@ -8,34 +8,40 @@
   --fill-secondary: #f3f4f5;
   --fill-tertiary: #f3f4f5;
   --text-primary: #111112;
-  --text-secondary: #00040996;
-  --text-tertiary: #0007115e;
+  --text-secondary: #00040996; /* ai-gray-a650 */
+  --text-tertiary: #0007115e; /* ai-gray-a400 */
   --icon-primary: #111112;
   --icon-secondary: #00040996;
-  --fill-divider: #000c1e17;
-  --fill-blue: #0064d4;
+  --fill-divider: #0000001a; /* black-a100 */
+  --fill-blue: #0064d4; /* accent blue-650 */
   --fill-outline: #43a9ff;
-  --fill-green: #16803c;
-  --fill-orange: #b25e09;
-  --fill-red: #d93036;
+  --fill-green: #008200; /* text-success green-650 */
+  --fill-orange: #c65323; /* text-warning orange-650 */
+  --fill-red: #c01f37; /* text-destructive red-650 */
+  /* remuse: pill button inside a gray card (ref 52-connreq-desktop: lighter than the card) */
+  --fill-card-button: var(--fill-primary);
 }
+/* .dark from Muse production CSS (2026-10-20). Web, not the Android app: the
+   app's dark theme is true black; the web uses ai-gray-1075. */
 .dark {
-  --bg-primary: #181819;
-  --bg-secondary: #28292b;
-  --fill-primary: #323435;
+  --bg-primary: #181819; /* ai-gray-1075 */
+  --bg-secondary: #181819;
+  --fill-primary: #28292b; /* ai-gray-1000 */
   --fill-secondary: #28292b;
-  --fill-tertiary: #5c5e61;
+  --fill-tertiary: #525456; /* ai-gray-750 */
   --text-primary: #ffffff;
-  --text-secondary: #00060f70;
-  --text-tertiary: #000308a3;
+  --text-secondary: #f2f7ff87; /* ai-gray-dark-a550 */
+  --text-tertiary: #f1f6ff61; /* ai-gray-dark-a700 */
   --icon-primary: #ffffff;
-  --icon-secondary: #00060f70;
-  --fill-divider: #ffffff1a;
-  --fill-blue: #1793ff;
-  --fill-outline: #2d9dff;
-  --fill-green: #34a853;
-  --fill-orange: #f29900;
-  --fill-red: #ea4335;
+  --icon-secondary: #f2f7ff87;
+  --fill-divider: #ffffff1f; /* white-a100 */
+  --fill-blue: #1793ff; /* accent-dark blue-500 */
+  --fill-outline: #1793ff;
+  --fill-green: #07b123; /* green-500 */
+  --fill-orange: #f1916e; /* orange-500 */
+  --fill-red: #fa4758; /* red-500 */
+  /* dark fill-primary == card fill, so lift it with fill-secondary-elevated (white-a100) */
+  --fill-card-button: #ffffff1f;
 }
 :root[data-accent-color="blue"] {
   --accent: #0064d4;

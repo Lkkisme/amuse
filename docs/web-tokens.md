@@ -57,3 +57,24 @@ each mapping `--accent` (light `-650`) and `--accent-dark` (dark `-500`). remuse
 - Chat layout tokens live on `<html>` inline style — they are per-theme and accent-dependent;
   treat the five `--chat-*` values as the composer/bubble contract.
 - Everything else (spacing, radii, shadows) follows Tailwind v4 defaults (4px base unit).
+
+## Dark theme and status colors (measured 2026-10-20, same CSS file)
+
+`.dark` (web; the Android app's dark theme is true black and differs):
+
+| token | dark |
+|---|---|
+| bg-primary / bg-secondary | `#181819` (ai-gray-1075) |
+| fill-primary / fill-secondary | `#28292b` (ai-gray-1000) |
+| fill-tertiary | `#525456` (ai-gray-750) |
+| fill-secondary-elevated | `#ffffff1f` (white-a100) |
+| text/icon-secondary | `#f2f7ff87` (ai-gray-dark-a550) |
+| text/icon-tertiary | `#f1f6ff61` (ai-gray-dark-a700) |
+| fill-divider | `#ffffff1f` (white-a100) |
+| chat-agent-bubble | `#252628` |
+| chat-user-bubble | `#0074e8` |
+
+Status text colors (light / dark): success `#008200` / `#07b123`, warning `#c65323` /
+`#f1916e`, destructive `#c01f37` / `#fa4758`. Light fill-divider is `#0000001a` (black-a100).
+The earlier dark text-secondary entry (`#00060f70`) was wrong: dark uses the light-on-dark
+`ai-gray-dark-aNNN` scale.

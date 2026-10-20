@@ -35,7 +35,7 @@ export function Composer({
           className="pointer-events-auto flex items-center gap-2 rounded-full py-2 pl-4 pr-2"
           style={{ background: "var(--fill-primary)", boxShadow: "0 1px 6px rgba(0,0,0,0.06)" }}
         >
-          <button aria-label="Add attachment" className="hover-fade shrink-0 rounded-full p-1" style={{ color: "var(--icon-secondary)" }}>
+          <button aria-label="Add attachment" className="hover-fade shrink-0 rounded-full p-1" style={{ color: "var(--icon-primary)" }}>
             <Plus size={20} />
           </button>
           <input
