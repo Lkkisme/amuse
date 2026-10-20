@@ -22,7 +22,10 @@ export function serve(session: Session, send: (frame: string) => void): Peer {
   const out = (frame: Response | Notification) => send(JSON.stringify(frame));
   const fail = (id: Request["id"] | null, error: { code: number; message: string }) => out({ jsonrpc: "2.0", id, error });
 
-  const unsubscribe = session.subscribe((envelope) => out({ jsonrpc: "2.0", method: "event", params: envelope }));
+  // a host only sends events; a reset is something clients do to themselves
+  const unsubscribe = session.subscribe((update) => {
+    if (update.kind === "event") out({ jsonrpc: "2.0", method: "event", params: update.envelope });
+  });
 
   return {
     async receive(text) {

@@ -2,11 +2,18 @@
  * What a client holds: typed calls out, ordered events in. A WebSocket
  * client and an in-process server both implement it.
  */
-import type { Envelope } from "./events.ts";
+import type { Envelope, State } from "./events.ts";
 import type { Method, Params, Results } from "./rpc.ts";
 
 export interface Session {
   call<M extends Method>(method: M, params: Params[M]): Promise<Results[M]>;
-  /** Events in seq order; returns unsubscribe. */
-  subscribe(listener: (envelope: Envelope) => void): () => void;
+  /** Updates in order; returns unsubscribe. */
+  subscribe(listener: (update: Update) => void): () => void;
 }
+
+/**
+ * What a subscriber receives: the next event, or — when a client could not
+ * catch up (the server restarted without its log, or lost it) — the whole
+ * state to start over from. A server host only ever sends events.
+ */
+export type Update = { kind: "event"; envelope: Envelope } | { kind: "reset"; state: State };

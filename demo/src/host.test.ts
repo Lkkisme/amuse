@@ -38,7 +38,7 @@ async function setup() {
   const host = createHost(demoPorts(timers), { seed: seed(), clock });
   const synced = await host.call("session.sync", { since: null });
   let state: State = synced.kind === "snapshot" ? synced.state : empty;
-  host.subscribe((e: Envelope) => (state = apply(state, e)));
+  host.subscribe((u) => (state = u.kind === "event" ? apply(state, u.envelope) : u.state));
   return { host, advance, view: () => state };
 }
 

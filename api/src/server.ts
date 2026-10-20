@@ -7,7 +7,7 @@
  * in constant time; anything else is refused before the upgrade.
  */
 import { createHash, timingSafeEqual } from "node:crypto";
-import { type Server, type ServerResponse, createServer } from "node:http";
+import { type ServerResponse, createServer } from "node:http";
 import type { Session } from "@remuse/protocol";
 import { WebSocketServer } from "ws";
 import { type Live, attach, thumbnail } from "./live.ts";
@@ -32,7 +32,13 @@ const sameToken = (a: string, b: string) => timingSafeEqual(digest(a), digest(b)
 
 type Target = { kind: "rpc" } | { kind: "live"; id: string; live: Live };
 
-export function listen({ session, live, web, returned, token, port, host }: Options): Promise<Server> {
+/** A running server: where it listens, and how to stop it (sockets included). */
+export interface Listening {
+  port: number;
+  close(): Promise<void>;
+}
+
+export function listen({ session, live, web, returned, token, port, host }: Options): Promise<Listening> {
   const route = (url: URL): Target | null => {
     if (url.pathname === "/rpc") return { kind: "rpc" };
     const id = url.searchParams.get("id");
@@ -80,12 +86,21 @@ export function listen({ session, live, web, returned, token, port, host }: Opti
     });
   });
 
-  http.on("close", () => wss.close());
+  /** Upgraded sockets are no longer the HTTP server's to close: end them first, then stop listening. */
+  const close = () =>
+    new Promise<void>((resolve) => {
+      for (const ws of wss.clients) ws.terminate();
+      wss.close();
+      http.closeAllConnections();
+      http.close(() => resolve());
+    });
+
   return new Promise((resolve, reject) => {
     http.once("error", reject);
     http.listen(port, host, () => {
       http.off("error", reject);
-      resolve(http);
+      const address = http.address();
+      resolve({ port: address !== null && typeof address === "object" ? address.port : port, close });
     });
   });
 }

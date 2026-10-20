@@ -16,6 +16,7 @@ import {
   type Reply,
   type Session,
   type State,
+  type Update,
   apply,
   dispatch,
   empty,
@@ -104,7 +105,7 @@ export function createHost(
   const clock = options.clock ?? { now: () => new Date().toISOString() };
   let state: State = empty;
   const log: Envelope[] = [];
-  const listeners = new Set<(envelope: Envelope) => void>();
+  const listeners = new Set<(update: Update) => void>();
 
   const record = (envelope: Envelope) => {
     state = apply(state, envelope);
@@ -115,7 +116,7 @@ export function createHost(
     const envelope = { seq: state.seq + 1, event };
     record(envelope);
     options.journal?.append(envelope);
-    for (const listener of listeners) listener(envelope);
+    for (const listener of listeners) listener({ kind: "event", envelope });
   };
 
   const context = (): Context => ({ now: clock.now(), id: options.ids ?? newId });

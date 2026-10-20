@@ -12,13 +12,15 @@ import {
   Response,
   type Results,
   type Session,
+  type State,
+  type Update,
   parseResult,
 } from "@remuse/protocol";
 
 type Pending = { settle: (raw: unknown) => void; fail: (error: Error) => void };
 
 export function connect(url: string): Session & { close(): void } {
-  const listeners = new Set<(envelope: Envelope) => void>();
+  const listeners = new Set<(update: Update) => void>();
   const pending = new Map<number, Pending>();
   const outbox: string[] = [];
   let socket: WebSocket | null = null;
@@ -30,7 +32,12 @@ export function connect(url: string): Session & { close(): void } {
   const deliver = (envelope: Envelope) => {
     if (envelope.seq <= lastSeq) return;
     lastSeq = envelope.seq;
-    for (const listener of listeners) listener(envelope);
+    for (const listener of listeners) listener({ kind: "event", envelope });
+  };
+  /** The server could not replay what we missed: start over from its state. */
+  const reset = (state: State) => {
+    lastSeq = state.seq;
+    for (const listener of listeners) listener({ kind: "reset", state });
   };
 
   const open = () => {
@@ -40,8 +47,8 @@ export function connect(url: string): Session & { close(): void } {
       const resumed = retry > 0;
       retry = 0;
       outbox.splice(0).forEach((frame) => ws.send(frame));
-      if (resumed && lastSeq > 0)
-        void call("session.sync", { since: lastSeq }).then((r) => (r.kind === "events" ? r.events.forEach(deliver) : undefined));
+      if (resumed)
+        void call("session.sync", { since: lastSeq }).then((r) => (r.kind === "events" ? r.events.forEach(deliver) : reset(r.state)));
     };
     ws.onmessage = ({ data }) => {
       if (typeof data !== "string") return;
@@ -67,7 +74,18 @@ export function connect(url: string): Session & { close(): void } {
     const id = ++nextId;
     const frame = JSON.stringify({ jsonrpc: "2.0", id, method, params });
     return new Promise<Results[M]>((resolve, reject) => {
-      pending.set(id, { settle: (raw) => resolve(parseResult[method](raw)), fail: reject });
+      pending.set(id, {
+        settle: (raw) => {
+          // a sync the caller made also tells us where we are, so a later reconnect catches up from there
+          if (method === "session.sync") {
+            const synced = parseResult["session.sync"](raw);
+            // a snapshot is the server's truth (its seq may even be lower after a reset); events move us forward
+            lastSeq = synced.kind === "snapshot" ? synced.state.seq : Math.max(lastSeq, synced.events.at(-1)?.seq ?? lastSeq);
+          }
+          resolve(parseResult[method](raw));
+        },
+        fail: reject,
+      });
       if (socket?.readyState === WebSocket.OPEN) socket.send(frame);
       else outbox.push(frame);
     });

@@ -6,7 +6,7 @@
 import { useEffect, useState } from "react";
 import { type Session, type State, apply, empty } from "@remuse/protocol";
 
-/** Live conversation state: synced on mount, then advanced by events; resyncs on a gap. */
+/** Live conversation state: synced on mount, advanced by events, replaced on a reset; resyncs on a gap. */
 export function useConversation(session: Session): State {
   const [state, setState] = useState<State>(empty);
 
@@ -23,8 +23,10 @@ export function useConversation(session: Session): State {
         }
       });
 
-    const unsubscribe = session.subscribe((envelope) =>
+    const unsubscribe = session.subscribe((update) =>
       setState((s) => {
+        if (update.kind === "reset") return update.state; // the server started over: so do we
+        const { envelope } = update;
         if (envelope.seq <= s.seq) return s; // already have it
         if (envelope.seq === s.seq + 1) return apply(s, envelope);
         void resync(s.seq); // missed some: catch up

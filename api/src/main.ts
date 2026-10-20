@@ -88,7 +88,7 @@ const session = createHost(ports, { ...(demo ? { seed: seed() } : {}), ...journa
 // the live channel asks the conversation, folded here like any client, who holds a run
 const synced = await session.call("session.sync", { since: null });
 let state: State = synced.kind === "snapshot" ? synced.state : empty;
-session.subscribe((envelope) => (state = apply(state, envelope)));
+session.subscribe((update) => (state = update.kind === "event" ? apply(state, update.envelope) : update.state));
 const live = browsers && {
   pool: browsers,
   controlled: (id: string) => state.entities.some((e) => e.kind === "browser" && e.id === id && e.status === "paused"),

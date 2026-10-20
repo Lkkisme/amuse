@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { createHost, type Timers } from "@remuse/core";
 import { demoPorts, seed } from "@remuse/demo";
-import { type Envelope, type State, apply, empty } from "@remuse/protocol";
+import { type State, apply, empty } from "@remuse/protocol";
 import { connect } from "./client.ts";
 import { listen } from "./server.ts";
 
@@ -14,10 +14,8 @@ let base = "";
 let close = () => {};
 before(async () => {
   const server = await listen({ session: createHost(demoPorts(instant), { seed: seed() }), token, port: 0, host: "127.0.0.1" });
-  const address = server.address();
-  assert.ok(address !== null && typeof address === "object", "server is listening on TCP");
-  base = `ws://127.0.0.1:${address.port}/rpc`;
-  close = () => server.close();
+  base = `ws://127.0.0.1:${server.port}/rpc`;
+  close = () => void server.close();
 });
 after(() => close());
 
@@ -69,9 +67,10 @@ test("the client syncs, sends, and folds the streamed events into the same state
   assert.equal(synced.kind, "snapshot");
   let state: State = synced.kind === "snapshot" ? synced.state : empty;
   const done = new Promise<void>((resolve) =>
-    session.subscribe((e: Envelope) => {
-      state = apply(state, e);
-      if (e.event.kind === "activity" && e.event.activity === null) resolve();
+    session.subscribe((u) => {
+      if (u.kind === "reset") return void (state = u.state);
+      state = apply(state, u.envelope);
+      if (u.envelope.event.kind === "activity" && u.envelope.event.activity === null) resolve();
     }),
   );
   const { id } = await session.call("chat.send", { text: "over the wire" });
@@ -83,4 +82,19 @@ test("the client syncs, sends, and folds the streamed events into the same state
   assert.ok(server.kind === "snapshot");
   assert.deepEqual(server.state, state);
   session.close();
+});
+
+test("a server that comes back without its log resets the client instead of freezing it", async () => {
+  const first = await listen({ session: createHost(demoPorts(instant), { seed: seed() }), token, port: 0, host: "127.0.0.1" });
+  const url = `ws://127.0.0.1:${first.port}/rpc?token=${token}`;
+  const session = connect(url);
+  const synced = await session.call("session.sync", { since: null });
+  assert.ok(synced.kind === "snapshot" && synced.state.seq > 1);
+  const reset = new Promise<number>((resolve) => session.subscribe((u) => (u.kind === "reset" ? resolve(u.state.seq) : undefined)));
+  await first.close();
+  // a fresh host with nothing in it, on the same port
+  const second = await listen({ session: createHost(demoPorts(instant)), token, port: first.port, host: "127.0.0.1" });
+  assert.equal(await reset, 0);
+  session.close();
+  await second.close();
 });
