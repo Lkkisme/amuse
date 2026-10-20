@@ -60,13 +60,13 @@ export function Composer({
               aria-label={trailing === "stop" ? "Stop" : "Send"}
               className="anim-popover-in flex size-9 shrink-0 items-center justify-center rounded-full"
               style={{
-                background: trailing === "stop" ? "var(--text-primary)" : "var(--fill-blue)",
-                color: trailing === "stop" ? "var(--bg-primary)" : "#fff",
+                background: "var(--fill-blue)",
+                color: "#fff",
                 transformOrigin: "center",
               }}
               onClick={trailing === "stop" ? () => actions.stopAssistant() : submit}
             >
-              {trailing === "stop" ? <Square size={11} fill="currentColor" strokeWidth={0} /> : <ArrowUp size={18} />}
+              {trailing === "stop" ? <Square size={14} fill="currentColor" strokeWidth={0} /> : <ArrowUp size={18} />}
             </button>
           )}
         </div>
