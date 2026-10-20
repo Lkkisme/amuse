@@ -5,6 +5,7 @@
  * uses it in-process (web demo, tests).
  */
 import {
+  type Browser,
   type Connection,
   type Entity,
   type Envelope,
@@ -17,14 +18,22 @@ import {
   dispatch,
   empty,
 } from "@remuse/protocol";
-import { type Command, type Context, type Effect, type Rejection, decide } from "./decide.ts";
+import { type AgentAction, type Command, type Context, type Effect, type Rejection, decide, decideAgent } from "./decide.ts";
 
 export type Emit = (event: Event) => void;
+
+/** What the agent can do while it runs: report events, and act through the rules. */
+export interface AgentIO {
+  emit: Emit;
+  act(action: AgentAction): { ok: true; id: string } | { ok: false; reason: string };
+}
 
 /** The outside world. Each port gets `emit` to report what happened. */
 export interface Ports {
   /** Run the agent on a new prompt. */
-  prompt(text: string, emit: Emit): void;
+  prompt(text: string, agent: AgentIO): void;
+  /** Run a browser task the agent started. */
+  browse(browser: Browser, emit: Emit): void;
   /** Stop the agent's current run. */
   interrupt(emit: Emit): void;
   browser(effect: Extract<Effect, { kind: "browser" }>, emit: Emit): void;
@@ -61,10 +70,23 @@ export function createHost(ports: Ports, options: { seed?: Entity[]; clock?: Clo
     for (const listener of listeners) listener(envelope);
   };
 
-  const run = (effect: Effect) => {
+  const context = (): Context => ({ now: clock.now(), id: (prefix) => `${prefix}${++ids}` });
+
+  const agent: AgentIO = {
+    emit,
+    act(action) {
+      const decision = decideAgent(state, action.kind, action, context());
+      if (!decision.ok) return { ok: false, reason: new Rejected(decision.rejection).message };
+      decision.events.forEach(emit);
+      decision.effects.forEach(run);
+      return { ok: true, id: decision.output.id };
+    },
+  };
+
+  function run(effect: Effect): void {
     switch (effect.kind) {
       case "prompt":
-        return ports.prompt(effect.text, emit);
+        return ports.prompt(effect.text, agent);
       case "interrupt":
         return ports.interrupt(emit);
       case "browser":
@@ -73,13 +95,14 @@ export function createHost(ports: Ports, options: { seed?: Entity[]; clock?: Clo
         return ports.approval(effect, emit);
       case "stopTask":
         return ports.stopTask(effect.id, emit);
+      case "browse":
+        return ports.browse(effect.browser, emit);
     }
-  };
+  }
 
   /** Decide, record, then act. A rejection becomes a Rejected error. */
   const command = <M extends Command["method"]>(method: M, params: Params[M]) => {
-    const context: Context = { now: clock.now(), id: (prefix) => `${prefix}${++ids}` };
-    const decision = decide(state, { method, params }, context);
+    const decision = decide(state, { method, params }, context());
     if (!decision.ok) throw new Rejected(decision.rejection);
     decision.events.forEach(emit);
     decision.effects.forEach(run);

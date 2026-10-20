@@ -40,7 +40,20 @@ export function demoPorts<H>(timers: Timers<H>): Ports {
   };
 
   return {
-    prompt: (text, emit) => reply(emit, `Got it — **"${text}"**. I'll take that from here and post updates in this chat.`, 1400),
+    prompt: (text, { emit, act }) => {
+      // the scripted agent shows its tools on cue: a URL starts a browser task, "connect <app>" asks to connect
+      const url = text.match(/https?:\/\/\S+/)?.[0];
+      const app = text.match(/connect\s+(\w+)/i)?.[1];
+      if (url) act({ kind: "browse", title: `Look at ${new URL(url).host}`, url });
+      if (app) act({ kind: "connect", provider: app.toLowerCase(), title: app.charAt(0).toUpperCase() + app.slice(1) });
+      reply(emit, url || app ? "On it — follow along in the card below." : `Got it — **"${text}"**. I'll take that from here and post updates in this chat.`, 1400);
+    },
+    browse: (browser, emit) => {
+      // a login page needs the user; anything else finishes on its own
+      timers.set(3000, () =>
+        emit({ kind: "upserted", entity: { ...browser, status: /login|signin/.test(browser.url) ? "needs_you" : "completed" } }),
+      );
+    },
     interrupt: () => {
       replying.forEach(timers.clear);
       replying = [];

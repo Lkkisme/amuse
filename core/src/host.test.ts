@@ -100,3 +100,13 @@ test("connecting returns the hosted link, then the callback marks it connected",
   advance(1000);
   assert.ok(view().entities.some((e) => e.kind === "connection" && e.id === "c-seed1" && e.status === "connected"));
 });
+
+test("the agent acts through the rules: a URL in the prompt starts a browser run that finishes", async () => {
+  const { host, advance, view } = await setup();
+  await host.call("chat.send", { text: "check https://tides.example/today" });
+  const run = () => view().entities.find((e) => e.kind === "browser" && e.url === "https://tides.example/today");
+  assert.ok(run(), "the browser run started");
+  advance(10_000);
+  const done = run();
+  assert.ok(done?.kind === "browser" && done.status === "completed");
+});

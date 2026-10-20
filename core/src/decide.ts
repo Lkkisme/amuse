@@ -17,7 +17,20 @@ export type Effect =
   /** `browser` is the run as it stands after the move */
   | { kind: "browser"; browser: Browser; action: BrowserAction }
   | { kind: "approval"; id: string; resolution: Resolution }
-  | { kind: "stopTask"; id: string };
+  | { kind: "stopTask"; id: string }
+  | { kind: "browse"; browser: Browser };
+
+/**
+ * What the agent may do to the conversation, through its tools. Decided like
+ * client commands, so the agent cannot put the state anywhere the rules forbid.
+ */
+export type AgentAction =
+  /** Ask the user to connect an app; a pending request for the same provider is reused. */
+  | { kind: "connect"; provider: string; title: string }
+  /** Hand a browser task to the browser port; it starts working at once. */
+  | { kind: "browse"; title: string; url: string };
+
+type Actions = { [A in AgentAction as A["kind"]]: A };
 
 export type Rejection =
   | { kind: "notFound"; entity: Entity["kind"]; id: string }
@@ -113,4 +126,24 @@ export function decide<M extends CommandMethod>(
   ctx: Context,
 ): Decision<Outputs[M]> {
   return rules[command.method](state, command.params, ctx);
+}
+
+type AgentRules = { [K in keyof Actions]: (state: State, action: Actions[K], ctx: Context) => Decision<{ id: string }> };
+
+const agentRules: AgentRules = {
+  connect: (state, { provider, title }, ctx) => {
+    const pending = state.entities.find((e) => e.kind === "connection" && e.provider === provider && e.status === "pending");
+    if (pending) return ok([], [], { id: pending.id });
+    const id = ctx.id("c");
+    return ok([upsert({ kind: "connection", id, at: ctx.now, provider, title, status: "pending" })], [], { id });
+  },
+  browse: (_, { title, url }, ctx) => {
+    const browser: Browser = { kind: "browser", id: ctx.id("b"), at: ctx.now, title, url, status: "working" };
+    return ok([upsert(browser)], [{ kind: "browse", browser }], { id: browser.id });
+  },
+};
+
+/** Apply the rule for an agent action. The kind is passed apart so TS can correlate it with the action. */
+export function decideAgent<K extends keyof Actions>(state: State, kind: K, action: Actions[K], ctx: Context): Decision<{ id: string }> {
+  return agentRules[kind](state, action, ctx);
 }

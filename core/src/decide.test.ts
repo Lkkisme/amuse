@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Browser, type BrowserStatus, type Entity, type State, apply, empty } from "@remuse/protocol";
-import { type Context, decide } from "./decide.ts";
+import { type Context, decide, decideAgent } from "./decide.ts";
 
 const at = "2026-10-20T08:00:00Z";
 const ctx: Context = { now: at, id: (prefix) => `${prefix}1` };
@@ -80,4 +80,20 @@ test("only running tasks stop", () => {
   const task = (status: "working" | "completed"): Entity => ({ kind: "task", id: "t1", at, title: "T", steps: [], status });
   assert.ok(decide(stateOf(task("working")), { method: "task.stop", params: { id: "t1" } }, ctx).ok);
   assert.equal(decide(stateOf(task("completed")), { method: "task.stop", params: { id: "t1" } }, ctx).ok, false);
+});
+
+test("agent actions: connect reuses a pending request for the same provider; browse starts a run", () => {
+  const first = decideAgent(empty, "connect", { kind: "connect", provider: "gmail", title: "Gmail" }, ctx);
+  assert.ok(first.ok);
+  const state = first.events.reduce((s, event, i) => apply(s, { seq: i + 1, event }), empty);
+  const again = decideAgent(state, "connect", { kind: "connect", provider: "gmail", title: "Gmail" }, ctx);
+  assert.ok(again.ok);
+  assert.deepEqual(again.events, []);
+  assert.equal(again.output.id, first.output.id);
+
+  const browse = decideAgent(empty, "browse", { kind: "browse", title: "Tides", url: "https://tides.example/" }, ctx);
+  assert.ok(browse.ok);
+  const run: Browser = { kind: "browser", id: "b1", at, title: "Tides", url: "https://tides.example/", status: "working" };
+  assert.deepEqual(browse.events, [{ kind: "upserted", entity: run }]);
+  assert.deepEqual(browse.effects, [{ kind: "browse", browser: run }]);
 });
