@@ -9,11 +9,11 @@ import {
   ChevronRight,
   Check,
   Globe,
+  LayoutGrid,
   Lock,
   Plus,
   Settings as SettingsIcon,
   Shield,
-  Table,
   X,
 } from "lucide-react";
 import type { Level, SettingsData } from "../demo/settings.ts";
@@ -49,7 +49,7 @@ function LevelSelect({ value, onChange }: { value: Level; onChange: (l: Level) =
 
 const NAV: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
   { id: "general", label: "General", icon: <SettingsIcon size={18} /> },
-  { id: "connectors", label: "Connectors", icon: <Table size={18} /> },
+  { id: "connectors", label: "Connectors", icon: <LayoutGrid size={18} /> },
   { id: "permissions", label: "Permissions", icon: <Shield size={18} /> },
   { id: "secure-store", label: "Secure store", icon: <Lock size={18} /> },
 ];
