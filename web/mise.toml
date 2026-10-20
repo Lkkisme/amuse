@@ -1,7 +1,7 @@
 [tasks.check]
-description = "Type-check and build the web app (into a temp dir, leaving dist alone)"
+description = "Type-check, test and build the web app (into a temp dir, leaving dist alone)"
 depends = ["//:install"]
-run = "npm run typecheck && npx vite build --outDir \"$(mktemp -d)\" --emptyOutDir --logLevel warn"
+run = "npm run typecheck && node --test src/*.test.ts && npx vite build --outDir \"$(mktemp -d)\" --emptyOutDir --logLevel warn"
 
 [tasks.dev]
 description = "Vite dev server"
