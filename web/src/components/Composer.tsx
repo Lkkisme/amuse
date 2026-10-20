@@ -1,7 +1,8 @@
 /**
  * Composer pill (surface 1): '+' icon left, 'Message' placeholder, mic icon
- * right, and a send arrow that morphs into a dark circle with a small white
- * stop square while the assistant works (border-radius transition ~.2s).
+ * right. The trailing button exists only when it has a job: send while there
+ * is a draft, stop while the assistant works; otherwise it is not rendered
+ * (Muse shows just the mic).
  */
 import { useState } from "react";
 import { ArrowUp, Mic, Plus, Square } from "lucide-react";
@@ -15,6 +16,8 @@ export function Composer({
   actions: MuseActions;
 }) {
   const [draft, setDraft] = useState("");
+
+  const trailing: "stop" | "send" | null = assistantThinking ? "stop" : draft.trim() ? "send" : null;
 
   const submit = () => {
     const text = draft.trim();
@@ -32,7 +35,7 @@ export function Composer({
       />
       <div className="relative mx-auto max-w-3xl px-4 pb-5 pt-1">
         <div
-          className="pointer-events-auto flex items-center gap-2 rounded-full py-2 pl-4 pr-2"
+          className="pointer-events-auto flex min-h-[52px] items-center gap-2 rounded-full py-2 pl-4 pr-2"
           style={{ background: "var(--fill-primary)", boxShadow: "0 1px 6px rgba(0,0,0,0.06)" }}
         >
           <button aria-label="Add attachment" className="hover-fade shrink-0 rounded-full p-1" style={{ color: "var(--icon-primary)" }}>
@@ -51,28 +54,21 @@ export function Composer({
           <button aria-label="Dictate" className="hover-fade shrink-0 rounded-full p-1" style={{ color: "var(--icon-secondary)" }}>
             <Mic size={19} />
           </button>
-          {/* send arrow ⇄ stop square: one button, border-radius/background morph ~.2s */}
-          <button
-            aria-label={assistantThinking ? "Stop" : "Send"}
-            className="flex size-9 shrink-0 items-center justify-center"
-            style={{
-              borderRadius: "9999px",
-              background: assistantThinking
-                ? "var(--text-primary)"
-                : draft.trim()
-                  ? "var(--fill-blue)"
-                  : "var(--fill-tertiary)",
-              color: "#fff",
-              transition: "background-color .2s ease, border-radius .2s ease",
-            }}
-            onClick={assistantThinking ? () => actions.stopAssistant() : submit}
-          >
-            {assistantThinking ? (
-              <Square size={11} fill="currentColor" strokeWidth={0} />
-            ) : (
-              <ArrowUp size={18} />
-            )}
-          </button>
+          {trailing && (
+            <button
+              key={trailing}
+              aria-label={trailing === "stop" ? "Stop" : "Send"}
+              className="anim-popover-in flex size-9 shrink-0 items-center justify-center rounded-full"
+              style={{
+                background: trailing === "stop" ? "var(--text-primary)" : "var(--fill-blue)",
+                color: trailing === "stop" ? "var(--bg-primary)" : "#fff",
+                transformOrigin: "center",
+              }}
+              onClick={trailing === "stop" ? () => actions.stopAssistant() : submit}
+            >
+              {trailing === "stop" ? <Square size={11} fill="currentColor" strokeWidth={0} /> : <ArrowUp size={18} />}
+            </button>
+          )}
         </div>
       </div>
     </div>
