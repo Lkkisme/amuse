@@ -112,8 +112,14 @@ export function LiveView({ url, interactive }: { url: string; interactive: boole
   const controls = interactive && touch && state === "live";
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col" style={{ background: "var(--bg-secondary)" }}>
-      <div className="relative flex min-h-0 flex-1 items-center justify-center">
+    // nothing here is the phone's to select or long-press: Firefox would select the page and pop its
+    // Copy / Select all menu instead of letting the desktop see the press
+    <div
+      className="remote-surface flex min-h-0 flex-1 flex-col"
+      style={{ background: "var(--bg-secondary)" }}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      <div className="relative flex min-h-0 flex-1 items-center justify-center" style={{ touchAction: "none" }}>
         <div ref={box} className="absolute inset-0" style={{ cursor: interactive ? "default" : "not-allowed" }} />
         {state !== "live" && (
           <p className="absolute text-[14px]" style={{ color: "var(--text-secondary)" }}>

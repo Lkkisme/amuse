@@ -187,6 +187,15 @@
   transition: opacity 0.2s ease;
 }
 
+/* the live desktop: gestures belong to it, not to the phone's text selection or long-press menu */
+/* (not the hidden field that takes the phone's typing: iOS will not type into an unselectable one) */
+.remote-surface,
+.remote-surface *:not(textarea) {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
 /* the app fills what is visible: the on-screen keyboard shrinks it rather than pushing it up (main.tsx) */
 html, body, #root { height: var(--visible-height, 100%); overflow: hidden; }
 body {
