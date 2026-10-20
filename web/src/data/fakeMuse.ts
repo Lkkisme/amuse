@@ -15,7 +15,8 @@ export interface Task {
   title: string;
   status: TaskStatus;
   steps: TaskStep[];
-  form?: { field: string; label: string; value: string }[];
+  /** questions the task needs answered; empty when it needs none */
+  form: { field: string; label: string; value: string }[];
 }
 
 export interface Approval {
@@ -52,15 +53,62 @@ export interface BrowserRun {
   thumbnailHue: number;
 }
 
-export type FeedItem =
-  | { id: string; role: "user"; text: string; time: string }
-  | { id: string; role: "agent"; text: string; time: string; streaming?: boolean }
-  | { id: string; role: "card"; kind: "task"; task: Task }
-  | { id: string; role: "card"; kind: "approval"; approval: Approval }
-  | { id: string; role: "card"; kind: "connreq"; connreq: ConnectionRequest }
-  | { id: string; role: "card"; kind: "browser"; browser: BrowserRun };
+/** What a card can show, by card kind. */
+export interface Entities {
+  task: Task;
+  approval: Approval;
+  connreq: ConnectionRequest;
+  browser: BrowserRun;
+}
+export type CardKind = keyof Entities;
 
-export type Level = "allow" | "ask" | "deny";
+/** One typed map per entity kind: updating an entity never touches the feed. */
+export type Store = { readonly [K in CardKind]: ReadonlyMap<string, Entities[K]> };
+
+export type Message =
+  | { id: string; role: "user"; text: string; time: string }
+  | { id: string; role: "agent"; text: string; time: string; streaming?: boolean };
+
+/** A card in the feed points at an entity by id; it never embeds it. */
+export interface CardRef {
+  id: string;
+  role: "card";
+  kind: CardKind;
+  ref: string;
+}
+
+export type FeedItem = Message | CardRef;
+
+/** A card reference resolved to its entity; `kind` and `entity` stay paired. */
+export type Card = { [K in CardKind]: { kind: K; entity: Entities[K] } }[CardKind];
+
+export function resolve(store: Store, ref: CardRef): Card | undefined {
+  switch (ref.kind) {
+    case "task": {
+      const entity = store.task.get(ref.ref);
+      return entity && { kind: "task", entity };
+    }
+    case "approval": {
+      const entity = store.approval.get(ref.ref);
+      return entity && { kind: "approval", entity };
+    }
+    case "connreq": {
+      const entity = store.connreq.get(ref.ref);
+      return entity && { kind: "connreq", entity };
+    }
+    case "browser": {
+      const entity = store.browser.get(ref.ref);
+      return entity && { kind: "browser", entity };
+    }
+  }
+}
+
+export const LEVELS = ["allow", "ask", "deny"] as const;
+export type Level = (typeof LEVELS)[number];
+
+export function parseLevel(value: string): Level | undefined {
+  return LEVELS.find((l) => l === value);
+}
 
 export interface Credential {
   id: string;
@@ -111,6 +159,7 @@ export interface AgentStatus {
 
 export interface DemoState {
   feed: FeedItem[];
+  store: Store;
   assistantThinking: boolean;
   /** scripted activity; null falls back to "is responding" while thinking/streaming */
   agentStatus: AgentStatus | null;
@@ -212,19 +261,9 @@ export function seedDemo(): DemoState {
       { id: "w3", site: "opentable.com", level: "deny" },
     ],
     credentials: [{ id: "cred1", domain: "ucsd.edu", username: "student portal" }],
-    feed: [
-      { id: "m1", role: "user", text: "Check the school-trip email and research exhibits at the aquarium", time: "8:24 AM" },
-      {
-        id: "m2",
-        role: "agent",
-        text: "I found the trip email, opened it, and pulled together the exhibit options. Here's the plan I'm following:",
-        time: "8:25 AM",
-      },
-      {
-        id: "c1",
-        role: "card",
-        kind: "task",
-        task: {
+    store: {
+      task: byId([
+        {
           id: "t1",
           title: "Aquarium trip research",
           status: "working",
@@ -234,26 +273,9 @@ export function seedDemo(): DemoState {
             { label: "Check opening hours", done: false },
             { label: "Summarize for the reply", done: false },
           ],
+          form: [],
         },
-      },
-      { id: "m3", role: "user", text: "Book the table for Friday", time: "8:27 AM" },
-      {
-        id: "c2",
-        role: "card",
-        kind: "approval",
-        approval: {
-          id: "a1",
-          verb: "Send email",
-          target: "restaurant@example.com",
-          detail: "Reserve a table for 4, Friday 7pm. Draft ready for your review.",
-          status: "pending",
-        },
-      },
-      {
-        id: "c5",
-        role: "card",
-        kind: "task",
-        task: {
+        {
           id: "t2",
           title: "Reply to the trip coordinator",
           status: "waiting_input",
@@ -265,39 +287,49 @@ export function seedDemo(): DemoState {
             { field: "headcount", label: "How many students and chaperones?", value: "" },
             { field: "deadline", label: "When do they need the answer?", value: "" },
           ],
-        },
-      },
+        }
+      ]),
+      approval: byId([
+        {
+          id: "a1",
+          verb: "Send email",
+          target: "restaurant@example.com",
+          detail: "Reserve a table for 4, Friday 7pm. Draft ready for your review.",
+          status: "pending",
+        }
+      ]),
+      connreq: byId([
+        { id: "cr1", app: "Google Sheets", capability: "Read spreadsheets", status: "pending" }
+      ]),
+      browser: byId([
+        { id: "b1", title: "Monterey Bay Aquarium exhibits", site: "mbayaq.org", path: "/exhibits", status: "completed", control: "agent", thumbnailHue: 200 },
+        { id: "b2", title: "Check the tide schedule", site: "tidesandcurrents.noaa.gov", path: "/stationhome", status: "working", control: "agent", thumbnailHue: 170 },
+        { id: "b3", title: "Log in to the trip portal", site: "portal.example.edu", path: "/login", status: "waiting", control: "agent", thumbnailHue: 30 }
+      ]),
+    },
+    feed: [
+      { id: "m1", role: "user", text: "Check the school-trip email and research exhibits at the aquarium", time: "8:24 AM" },
       {
-        id: "c3",
-        role: "card",
-        kind: "browser",
-        browser: { id: "b1", title: "Monterey Bay Aquarium exhibits", site: "mbayaq.org", path: "/exhibits", status: "completed", control: "agent", thumbnailHue: 200 },
+        id: "m2",
+        role: "agent",
+        text: "I found the trip email, opened it, and pulled together the exhibit options. Here's the plan I'm following:",
+        time: "8:25 AM",
       },
+      { id: "c1", role: "card", kind: "task", ref: "t1" },
+      { id: "m3", role: "user", text: "Book the table for Friday", time: "8:27 AM" },
+      { id: "c2", role: "card", kind: "approval", ref: "a1" },
+      { id: "c5", role: "card", kind: "task", ref: "t2" },
+      { id: "c3", role: "card", kind: "browser", ref: "b1" },
       { id: "m5", role: "user", text: "Also check the tide schedule, and log in to the trip portal for me", time: "8:28 AM" },
-      {
-        id: "c6",
-        role: "card",
-        kind: "browser",
-        browser: { id: "b2", title: "Check the tide schedule", site: "tidesandcurrents.noaa.gov", path: "/stationhome", status: "working", control: "agent", thumbnailHue: 170 },
-      },
-      {
-        id: "c7",
-        role: "card",
-        kind: "browser",
-        browser: { id: "b3", title: "Log in to the trip portal", site: "portal.example.edu", path: "/login", status: "waiting", control: "agent", thumbnailHue: 30 },
-      },
+      { id: "c6", role: "card", kind: "browser", ref: "b2" },
+      { id: "c7", role: "card", kind: "browser", ref: "b3" },
       {
         id: "m6",
         role: "agent",
         text: "The portal is asking for your login. The browser is waiting for you: take control, sign in, then tap **Done** and I'll pick it up from there.",
         time: "8:28 AM",
       },
-      {
-        id: "c4",
-        role: "card",
-        kind: "connreq",
-        connreq: { id: "cr1", app: "Google Sheets", capability: "Read spreadsheets", status: "pending" },
-      },
+      { id: "c4", role: "card", kind: "connreq", ref: "cr1" },
       {
         id: "m4",
         role: "agent",
@@ -329,41 +361,33 @@ export const levelMeta: Record<Level, string> = {
   deny: "Deny",
 };
 
-/* ---------- feed helpers ---------- */
+/* ---------- store helpers ---------- */
 
-interface CardPayloads {
-  task: Task;
-  approval: Approval;
-  connreq: ConnectionRequest;
-  browser: BrowserRun;
+function byId<T extends { id: string }>(items: readonly T[]): ReadonlyMap<string, T> {
+  return new Map(items.map((item) => [item.id, item]));
 }
 
-/** Return a new feed where the `kind` card whose payload id is `id` is replaced by `fn(payload)`. */
-export function updateCard<K extends keyof CardPayloads>(
-  feed: FeedItem[],
+/** Store with entity `id` of `kind` replaced by `fn(entity)`; unchanged if it does not exist. */
+export function updateEntity<K extends CardKind>(
+  store: Store,
   kind: K,
   id: string,
-  fn: (payload: CardPayloads[K]) => CardPayloads[K],
-): FeedItem[] {
-  return feed.map((item) => {
-    if (item.role !== "card" || item.kind !== kind) return item;
-    const payload = (item as unknown as Record<K, CardPayloads[K]>)[kind];
-    return payload.id === id ? ({ ...item, [kind]: fn(payload) } as FeedItem) : item;
+  fn: (entity: Entities[K]) => Entities[K],
+): Store {
+  const current = store[kind].get(id);
+  return current ? { ...store, [kind]: new Map(store[kind]).set(id, fn(current)) } : store;
+}
+
+/** Entities of `kind` in feed order. */
+export function inFeed<K extends CardKind>(state: Pick<DemoState, "feed" | "store">, kind: K): Entities[K][] {
+  return state.feed.flatMap((item) => {
+    const entity = item.role === "card" && item.kind === kind ? state.store[kind].get(item.ref) : undefined;
+    return entity ? [entity] : [];
   });
 }
 
-export function findTask(feed: FeedItem[], id: string): Task | undefined {
-  for (const item of feed) if (item.role === "card" && item.kind === "task" && item.task.id === id) return item.task;
-  return undefined;
-}
-
-/** The browser run the floating task pill follows: newest waiting one, else newest working one. */
-export function pillBrowser(feed: FeedItem[]): BrowserRun | undefined {
-  const runs = feed.flatMap((i) => (i.role === "card" && i.kind === "browser" ? [i.browser] : [])).reverse();
+/** The browser run the task indicator follows: newest waiting one, else newest working one. */
+export function pillBrowser(state: Pick<DemoState, "feed" | "store">): BrowserRun | undefined {
+  const runs = inFeed(state, "browser").reverse();
   return runs.find((b) => b.status === "waiting") ?? runs.find((b) => b.status === "working");
-}
-
-export function findBrowser(feed: FeedItem[], id: string): BrowserRun | undefined {
-  for (const item of feed) if (item.role === "card" && item.kind === "browser" && item.browser.id === id) return item.browser;
-  return undefined;
 }

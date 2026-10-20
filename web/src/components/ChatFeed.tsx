@@ -7,13 +7,27 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { ArrowDown, ChevronDown, Copy, MoreHorizontal, Share, Smile } from "lucide-react";
-import type { DemoState, FeedItem } from "../data/fakeMuse";
+import type { Card, DemoState, FeedItem, Message } from "../data/fakeMuse";
+import { resolve } from "../data/fakeMuse";
 import type { MuseActions } from "./actions";
 import { ApprovalCard, BrowserCard, ConnReqCard, TaskCard } from "./cards";
 import { RichText } from "./markdown";
 
-function isMsg(item: FeedItem): item is Extract<FeedItem, { role: "user" | "agent" }> {
-  return item.role === "user" || item.role === "agent";
+function isMsg(item: FeedItem): item is Message {
+  return item.role !== "card";
+}
+
+function CardView({ card, actions }: { card: Card; actions: MuseActions }) {
+  switch (card.kind) {
+    case "task":
+      return <TaskCard task={card.entity} actions={actions} />;
+    case "approval":
+      return <ApprovalCard approval={card.entity} actions={actions} />;
+    case "connreq":
+      return <ConnReqCard connreq={card.entity} actions={actions} />;
+    case "browser":
+      return <BrowserCard browser={card.entity} actions={actions} />;
+  }
 }
 
 function ActionRow({ role, text }: { role: "user" | "agent"; text: string }) {
@@ -39,7 +53,7 @@ function ActionRow({ role, text }: { role: "user" | "agent"; text: string }) {
   );
 }
 
-function MessageGroup({ item }: { item: Extract<FeedItem, { role: "user" | "agent" }> }) {
+function MessageGroup({ item }: { item: Message }) {
   const isUser = item.role === "user";
   return (
     <div className={`anim-fade-in flex flex-col ${isUser ? "items-end" : "items-start"}`}>
@@ -132,16 +146,8 @@ export function ChatFeed({ state, actions }: { state: DemoState; actions: MuseAc
         <div className="mx-auto flex max-w-3xl flex-col gap-3">
         {state.feed.map((item, idx) => {
           if (!isMsg(item)) {
-            switch (item.kind) {
-              case "task":
-                return <TaskCard key={item.id} task={item.task} actions={actions} />;
-              case "approval":
-                return <ApprovalCard key={item.id} approval={item.approval} actions={actions} />;
-              case "connreq":
-                return <ConnReqCard key={item.id} connreq={item.connreq} actions={actions} />;
-              case "browser":
-                return <BrowserCard key={item.id} browser={item.browser} actions={actions} />;
-            }
+            const card = resolve(state.store, item);
+            return card && <CardView key={item.id} card={card} actions={actions} />;
           }
           const prev = state.feed[idx - 1];
           const newGroup = !prev || !isMsg(prev) || prev.role !== item.role;

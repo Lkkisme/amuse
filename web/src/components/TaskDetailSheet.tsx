@@ -5,7 +5,7 @@
  */
 import { CircleCheck } from "lucide-react";
 import type { DemoState } from "../data/fakeMuse";
-import { findTask, taskStatusMeta } from "../data/fakeMuse";
+import { taskStatusMeta } from "../data/fakeMuse";
 import type { MuseActions } from "./actions";
 import { Sheet } from "./Sheet";
 import { useLastValue } from "./usePresence";
@@ -13,11 +13,11 @@ import { useLastValue } from "./usePresence";
 export function TaskDetailSheet({ state, actions }: { state: DemoState; actions: MuseActions }) {
   // keep showing the last task while the sheet animates out
   const taskId = useLastValue(state.taskDetail);
-  const task = taskId ? findTask(state.feed, taskId) : undefined;
+  const task = taskId === null ? undefined : state.store.task.get(taskId);
   if (!task) return null;
   const close = () => actions.openTaskDetail(null);
   const meta = taskStatusMeta[task.status];
-  const answers = (task.form ?? []).filter((f) => f.value);
+  const answers = task.form.filter((f) => f.value);
 
   return (
     <Sheet open={state.taskDetail !== null} onClose={close}>

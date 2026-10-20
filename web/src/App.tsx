@@ -4,8 +4,8 @@
  * No network, no backend: all "live" behavior is scripted timers.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { BrowserRun, DemoState, FeedItem, Level, Task } from "./data/fakeMuse";
-import { seedDemo, updateCard } from "./data/fakeMuse";
+import type { BrowserRun, CardKind, DemoState, Entities, FeedItem, Level } from "./data/fakeMuse";
+import { inFeed, seedDemo, updateEntity } from "./data/fakeMuse";
 import type { MuseActions } from "./components/actions";
 import { ChatFeed } from "./components/ChatFeed";
 import { Composer } from "./components/Composer";
@@ -37,15 +37,15 @@ export default function App() {
     setState((s) => ({ ...s, feed: fn(s.feed) }));
   }, []);
 
-  const patchTask = useCallback(
-    (taskId: string, fn: (t: Task) => Task) => patchFeed((feed) => updateCard(feed, "task", taskId, fn)),
-    [patchFeed],
+  const patchEntity = useCallback(
+    <K extends CardKind>(kind: K, id: string, fn: (entity: Entities[K]) => Entities[K]) =>
+      setState((s) => ({ ...s, store: updateEntity(s.store, kind, id, fn) })),
+    [],
   );
 
   const patchBrowser = useCallback(
-    (browserId: string, patch: Partial<BrowserRun>) =>
-      patchFeed((feed) => updateCard(feed, "browser", browserId, (b) => ({ ...b, ...patch }))),
-    [patchFeed],
+    (browserId: string, patch: Partial<BrowserRun>) => patchEntity("browser", browserId, (b) => ({ ...b, ...patch })),
+    [patchEntity],
   );
 
   /** Stream an agent reply: chunked word-by-word with the shimmer treatment. */
@@ -101,23 +101,23 @@ export default function App() {
       },
 
       resolveApproval(id, approved) {
-        patchFeed((feed) => updateCard(feed, "approval", id, (a) => ({ ...a, status: approved ? ("approved" as const) : ("denied" as const) })));
+        patchEntity("approval", id, (a) => ({ ...a, status: approved ? "approved" : "denied" }));
         later(() => {
           streamAgentReply(approved ? "Approved — **sending it now**." : "Understood, I dropped the draft.");
         }, 500);
       },
 
       submitTaskForm(taskId, values) {
-        patchTask(taskId, (t) => ({
+        patchEntity("task", taskId, (t) => ({
           ...t,
           status: "working",
-          form: t.form?.map((f) => ({ ...f, value: values[f.field] ?? f.value })),
+          form: t.form.map((f) => ({ ...f, value: values[f.field] ?? f.value })),
         }));
         setState((s) => ({ ...s, activityStatus: "working", activityOpen: true }));
         // fake the remaining steps completing one by one
         [900, 1700, 2500].forEach((delay) => {
           later(() => {
-            patchTask(taskId, (t) => {
+            patchEntity("task", taskId, (t) => {
               const next = t.steps.findIndex((s) => !s.done);
               if (next === -1) return t;
               const steps = t.steps.map((s, i) => (i === next ? { ...s, done: true } : s));
@@ -126,20 +126,20 @@ export default function App() {
           }, delay);
         });
         later(() => {
-          patchTask(taskId, (t) => ({ ...t, steps: t.steps.map((s) => ({ ...s, done: true })), status: "completed" }));
+          patchEntity("task", taskId, (t) => ({ ...t, steps: t.steps.map((s) => ({ ...s, done: true })), status: "completed" }));
           setState((s) => ({ ...s, activityStatus: "connected" }));
           streamAgentReply("Thanks — answers noted and the task is **complete**.");
         }, 3400);
       },
 
       requestConnect(connreqId) {
-        patchFeed((feed) => updateCard(feed, "connreq", connreqId, (c) => ({ ...c, status: "explaining" as const })));
+        patchEntity("connreq", connreqId, (c) => ({ ...c, status: "explaining" }));
         setState((s) => ({ ...s, explainerFor: connreqId }));
       },
 
       confirmConnect(connreqId) {
         setState((s) => ({ ...s, explainerFor: null }));
-        patchFeed((feed) => updateCard(feed, "connreq", connreqId, (c) => ({ ...c, status: "connected" as const })));
+        patchEntity("connreq", connreqId, (c) => ({ ...c, status: "connected" }));
         later(() => {
           streamAgentReply("**Connected.** I can read from it now — want me to pull a sample?");
         }, 500);
@@ -147,7 +147,7 @@ export default function App() {
 
       dismissConnect(connreqId) {
         setState((s) => ({ ...s, explainerFor: null }));
-        patchFeed((feed) => updateCard(feed, "connreq", connreqId, (c) => ({ ...c, status: "pending" as const })));
+        patchEntity("connreq", connreqId, (c) => ({ ...c, status: "pending" }));
       },
 
       openViewer(browserId) {
@@ -166,11 +166,12 @@ export default function App() {
         setState((s) => {
           if (!s.viewer) return s;
           const closedTabs = [...s.viewer.closedTabs, browserId];
-          const open = s.feed.flatMap((i) =>
-            i.role === "card" && i.kind === "browser" && !closedTabs.includes(i.browser.id) ? [i.browser.id] : [],
-          );
-          if (open.length === 0) return { ...s, viewer: null };
-          const active = s.viewer.browserId === browserId ? open[open.length - 1] : s.viewer.browserId;
+          const last = inFeed(s, "browser")
+            .map((b) => b.id)
+            .filter((id) => !closedTabs.includes(id))
+            .at(-1);
+          if (!last) return { ...s, viewer: null };
+          const active = s.viewer.browserId === browserId ? last : s.viewer.browserId;
           return { ...s, viewer: { browserId: active, closedTabs } };
         });
       },
@@ -241,7 +242,7 @@ export default function App() {
         setState((s) => ({ ...s })); // re-render for the checkmark
       },
     }),
-    [later, patchFeed, patchBrowser, patchTask, streamAgentReply],
+    [later, patchFeed, patchBrowser, patchEntity, streamAgentReply],
   );
 
   return (

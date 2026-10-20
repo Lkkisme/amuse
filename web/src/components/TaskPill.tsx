@@ -12,7 +12,7 @@ import { browserStatusMeta, pillBrowser } from "../data/fakeMuse";
 import type { MuseActions } from "./actions";
 
 export function TaskPill({ state, actions }: { state: DemoState; actions: MuseActions }) {
-  const run = pillBrowser(state.feed);
+  const run = pillBrowser(state);
   // closed -> open -> closing (exit animation) -> closed
   const [phase, setPhase] = useState<"closed" | "open" | "closing">("closed");
   const open = phase === "open";
@@ -23,7 +23,7 @@ export function TaskPill({ state, actions }: { state: DemoState; actions: MuseAc
   useEffect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) close();
+      if (!(e.target instanceof Node && rootRef.current?.contains(e.target))) close();
     };
     document.addEventListener("pointerdown", onDown);
     return () => document.removeEventListener("pointerdown", onDown);

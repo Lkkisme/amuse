@@ -23,7 +23,7 @@ import {
   X,
 } from "lucide-react";
 import type { DemoState, Level } from "../data/fakeMuse";
-import { levelMeta } from "../data/fakeMuse";
+import { LEVELS, levelMeta, parseLevel } from "../data/fakeMuse";
 import type { MuseActions, SettingsSection } from "./actions";
 import { usePresence } from "./usePresence";
 
@@ -54,10 +54,13 @@ function LevelSelect({ value, onChange }: { value: Level; onChange: (l: Level) =
         color: value === "deny" ? "var(--fill-red)" : value === "ask" ? "var(--fill-orange)" : "var(--text-primary)",
       }}
       value={value}
-      onChange={(e) => onChange(e.target.value as Level)}
+      onChange={(e) => {
+        const level = parseLevel(e.target.value);
+        if (level) onChange(level);
+      }}
       onClick={(e) => e.stopPropagation()}
     >
-      {(Object.keys(levelMeta) as Level[]).map((l) => (
+      {LEVELS.map((l) => (
         <option key={l} value={l}>
           {levelMeta[l]}
         </option>

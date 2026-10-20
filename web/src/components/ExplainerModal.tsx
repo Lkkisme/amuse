@@ -14,10 +14,7 @@ import { useLastValue } from "./usePresence";
 export function ExplainerModal({ state, actions }: { state: DemoState; actions: MuseActions }) {
   // keep showing the last request while the sheet animates out
   const reqId = useLastValue(state.explainerFor);
-  const req = state.feed.find(
-    (i): i is Extract<typeof i, { role: "card"; kind: "connreq" }> =>
-      i.role === "card" && i.kind === "connreq" && i.connreq.id === reqId,
-  )?.connreq;
+  const req = reqId === null ? undefined : state.store.connreq.get(reqId);
   if (!req) return null;
   return <ExplainerBody req={req} open={state.explainerFor !== null} actions={actions} />;
 }

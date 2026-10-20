@@ -5,7 +5,8 @@
  * Enters with hatch-pane-enter-from-right.
  */
 import { Check, List, Pencil, Radio, Shield, Clock } from "lucide-react";
-import type { DemoState, FeedItem } from "../data/fakeMuse";
+import type { Card, DemoState } from "../data/fakeMuse";
+import { resolve } from "../data/fakeMuse";
 import type { MuseActions } from "./actions";
 import { usePresence } from "./usePresence";
 
@@ -20,29 +21,50 @@ function plain(text: string): string {
   return text.replace(/[*`]/g, "");
 }
 
-function receiptsFromFeed(feed: FeedItem[]): Receipt[] {
-  const out: Receipt[] = [];
-  for (const item of feed) {
-    if (item.role === "user") {
-      out.push({ title: "You asked Muse", sub: plain(item.text), time: item.time, done: true });
-    } else if (item.role === "agent") {
-      out.push({
-        title: item.streaming ? "Muse is replying" : "Muse replied",
-        sub: plain(item.text.slice(0, 80)) || "Composing a response…",
-        time: item.time,
-        done: !item.streaming,
-      });
-    } else if (item.kind === "task") {
-      out.push({ title: item.task.title, sub: `${item.task.steps.filter((s) => s.done).length} of ${item.task.steps.length} steps done`, time: "8:25 AM", done: item.task.status === "completed" });
-    } else if (item.kind === "approval") {
-      out.push({ title: item.approval.verb, sub: item.approval.status === "pending" ? "Waiting for your approval" : item.approval.status === "approved" ? "Approved" : "Denied", time: "8:26 AM", done: item.approval.status !== "pending" });
-    } else if (item.kind === "browser") {
-      out.push({ title: item.browser.title, sub: item.browser.site, time: "8:26 AM", done: item.browser.status === "completed" });
-    } else if (item.kind === "connreq") {
-      out.push({ title: `Connect ${item.connreq.app}`, sub: item.connreq.capability, time: "8:27 AM", done: item.connreq.status === "connected" });
+function receipt(card: Card): Receipt {
+  switch (card.kind) {
+    case "task": {
+      const t = card.entity;
+      const done = t.steps.filter((s) => s.done).length;
+      return { title: t.title, sub: `${done} of ${t.steps.length} steps done`, time: "8:25 AM", done: t.status === "completed" };
     }
+    case "approval": {
+      const a = card.entity;
+      const sub = { pending: "Waiting for your approval", approved: "Approved", denied: "Denied" }[a.status];
+      return { title: a.verb, sub, time: "8:26 AM", done: a.status !== "pending" };
+    }
+    case "browser":
+      return { title: card.entity.title, sub: card.entity.site, time: "8:26 AM", done: card.entity.status === "completed" };
+    case "connreq":
+      return {
+        title: `Connect ${card.entity.app}`,
+        sub: card.entity.capability,
+        time: "8:27 AM",
+        done: card.entity.status === "connected",
+      };
   }
-  return out;
+}
+
+function receipts(state: DemoState): Receipt[] {
+  return state.feed.flatMap((item): Receipt[] => {
+    switch (item.role) {
+      case "user":
+        return [{ title: "You asked Muse", sub: plain(item.text), time: item.time, done: true }];
+      case "agent":
+        return [
+          {
+            title: item.streaming ? "Muse is replying" : "Muse replied",
+            sub: plain(item.text.slice(0, 80)) || "Composing a response…",
+            time: item.time,
+            done: !item.streaming,
+          },
+        ];
+      case "card": {
+        const card = resolve(state.store, item);
+        return card ? [receipt(card)] : [];
+      }
+    }
+  });
 }
 
 export function ActivityPanel({ state, actions }: { state: DemoState; actions: MuseActions }) {
@@ -52,7 +74,7 @@ export function ActivityPanel({ state, actions }: { state: DemoState; actions: M
   const { mounted, closing, onAnimationEnd } = usePresence(state.activityOpen);
 
   if (!mounted) return null;
-  const receipts = receiptsFromFeed(state.feed);
+  const list = receipts(state);
 
   return (
     <aside
@@ -126,7 +148,7 @@ export function ActivityPanel({ state, actions }: { state: DemoState; actions: M
           Today
         </p>
         <ul className="mt-2 space-y-3">
-          {receipts.map((r, i) => (
+          {list.map((r, i) => (
             <li key={i} className="flex items-start gap-2.5">
               <span
                 className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full"

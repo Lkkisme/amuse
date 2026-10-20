@@ -12,7 +12,7 @@
  */
 import { ArrowLeft, ArrowRight, Check, CircleCheck, CircleDot, Copy, Globe, Menu, Plus, RotateCw, X } from "lucide-react";
 import type { BrowserRun, DemoState } from "../data/fakeMuse";
-import { browserStatusMeta, findBrowser } from "../data/fakeMuse";
+import { browserStatusMeta, inFeed } from "../data/fakeMuse";
 import type { MuseActions } from "./actions";
 import { useLastValue, usePresence } from "./usePresence";
 
@@ -20,11 +20,9 @@ export function Viewer({ state, actions }: { state: DemoState; actions: MuseActi
   const { mounted, closing, onAnimationEnd } = usePresence(state.viewer !== null);
   const viewer = useLastValue(state.viewer);
   if (!mounted || !viewer) return null;
-  const browser = findBrowser(state.feed, viewer.browserId);
+  const browser = state.store.browser.get(viewer.browserId);
   if (!browser) return null;
-  const tabs = state.feed.flatMap((i) =>
-    i.role === "card" && i.kind === "browser" && !viewer.closedTabs.includes(i.browser.id) ? [i.browser] : [],
-  );
+  const tabs = inFeed(state, "browser").filter((b) => !viewer.closedTabs.includes(b.id));
 
   return (
     <div

@@ -34,10 +34,10 @@ function StatusChip({ status }: { status: TaskStatus }) {
 
 export function TaskCard({ task, actions }: { task: Task; actions: MuseActions }) {
   const [values, setValues] = useState<Record<string, string>>(() =>
-    Object.fromEntries((task.form ?? []).map((f) => [f.field, f.value])),
+    Object.fromEntries(task.form.map((f) => [f.field, f.value])),
   );
   const doneCount = task.steps.filter((s) => s.done).length;
-  const showForm = task.status === "waiting_input" && task.form && task.form.length > 0;
+  const showForm = task.status === "waiting_input" && task.form.length > 0;
 
   return (
     <div className="w-full max-w-[340px] rounded-2xl p-4" style={{ background: CARD_BG }}>
@@ -99,7 +99,7 @@ export function TaskCard({ task, actions }: { task: Task; actions: MuseActions }
             actions.submitTaskForm(task.id, values);
           }}
         >
-          {(task.form ?? []).map((f) => (
+          {task.form.map((f) => (
             <label key={f.field} className="block">
               <span className="mb-1 block text-[12px]" style={{ color: "var(--text-secondary)" }}>
                 {f.label}
