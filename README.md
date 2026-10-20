@@ -31,12 +31,19 @@ mise run //api:try   # a throwaway API for live tests (own port, temp journal)
 
 ## Deploy (Docker)
 
-One container serves the web app, `/rpc` and `/live`, and runs headless Chromium.
+The `remuse` container serves the web app, `/rpc` and `/live`; browsers run in an
+auto-browser pool (`compose.browsers.yaml`: pairs of a headful Chromium desktop and its
+controller, one browser run per pair).
 
 ```
-cp deploy/remuse.env.example deploy/remuse.env   # set REMUSE_TOKEN and the model
-PI_AUTH=~/path/to/pi/auth.json COMPOSIO_KEY=~/path/to/composio.key docker compose up -d --build
+cp deploy/remuse.env.example deploy/remuse.env   # set REMUSE_TOKEN, the model, AUTO_BROWSER_TOKEN
+PI_AUTH=~/path/to/pi/auth.json COMPOSIO_KEY=~/path/to/composio.key \
+  docker compose --env-file deploy/remuse.env up -d --build
 ```
+
+The auto-browser images (`auto-browser-browser-node`, `auto-browser-controller`) come from the
+auto-browser repo (`docker compose build` there) or its ghcr images (`AB_NODE_IMAGE`,
+`AB_CONTROLLER_IMAGE`).
 
 It listens on 127.0.0.1:8080 (`REMUSE_PUBLISH_PORT` to change); put `tailscale serve` or a
 reverse proxy in front. Open `https://<host>/#token=<REMUSE_TOKEN>` once per device; the

@@ -27,11 +27,13 @@ depends = ["dockerfile-check", "//protocol:kotlin", "//protocol:check", "//core:
 run = "true"
 
 [tasks.dev]
-description = "Dev preview: API (restarts on change) + Vite with HMR, using ~/.config/remuse/dev.env; web on $REMUSE_HOST:5184"
+description = "Dev preview: the browser pool (Docker), API (restarts on change) + Vite with HMR, using ~/.config/remuse/dev.env; web on $REMUSE_HOST:5184"
 depends = ["install"]
 run = '''
 set -a; . "$HOME/.config/remuse/dev.env"; set +a
 export VITE_REMUSE_URL="ws://$REMUSE_HOST:$REMUSE_PORT/rpc?token=$REMUSE_TOKEN"
+# the auto-browser pool, published on localhost (REMUSE_BROWSERS in the dev env points at it)
+docker compose -p remuse-browsers -f compose.browsers.yaml -f compose.dev.yaml up -d --wait
 trap 'kill 0' EXIT
 (cd api && node --watch src/main.ts) &
 (cd web && npx vite --port 5184 --strictPort --host "$REMUSE_HOST") &

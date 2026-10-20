@@ -1,5 +1,5 @@
-# remuse: one container — the API serves the web app, /rpc and /live, and runs
-# headless Chromium for browser tasks. Secrets are mounted files, never baked in.
+# remuse: the API serves the web app, /rpc and /live. Browsers run in the auto-browser pool
+# (compose.browsers.yaml). Secrets are mounted files, never baked in.
 
 FROM node:24-bookworm-slim AS deps
 WORKDIR /app
@@ -23,10 +23,7 @@ RUN npm ci --omit=dev --workspace api --no-audit --no-fund
 
 FROM node:24-bookworm-slim
 WORKDIR /app
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 COPY --from=runtime-deps /app/node_modules node_modules
-# headless only: the shell build, not full Chromium
-RUN npx playwright-core install --with-deps --only-shell chromium && rm -rf /var/lib/apt/lists/*
 COPY --from=deps /app/package.json /app/tsconfig.base.json ./
 COPY protocol protocol
 COPY core core
@@ -41,9 +38,7 @@ USER node
 ENV REMUSE_HOST=0.0.0.0 \
     REMUSE_PORT=8080 \
     REMUSE_WEB=/app/web/dist \
-    REMUSE_JOURNAL=/data/events.jsonl \
-    REMUSE_BROWSER_STATE=/data/browser-state.json \
-    REMUSE_BROWSER=chromium
+    REMUSE_JOURNAL=/data/events.jsonl
 EXPOSE 8080
 VOLUME /data
 CMD ["node", "api/src/main.ts"]

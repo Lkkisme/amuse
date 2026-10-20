@@ -15,8 +15,6 @@ import { ArrowLeft, ArrowRight, Check, CircleCheck, CircleDot, Copy, Globe, Menu
 import type { Browser, State } from "@remuse/protocol";
 import type { Actions, Ui } from "../ui.ts";
 import { browserStatus, browsers, byId, host, hue, path, stoppable } from "../view.ts";
-import { useState } from "react";
-import type { Screen } from "@remuse/protocol";
 import { LiveView } from "./LiveView";
 import { useLastValue, usePresence } from "./usePresence";
 
@@ -144,22 +142,11 @@ function RunTabs({ tabs, activeId, actions }: { tabs: Browser[]; activeId: strin
   );
 }
 
-/** The real page, with an address bar showing where it actually is. */
+/** The real Chrome window (its own tabs and address bar), live. */
 function LivePage({ browser, url }: { browser: Browser; url: string }) {
-  const [screen, setScreen] = useState<Screen | null>(null);
-  const where = screen?.url ?? browser.url;
   return (
     <div className="flex min-h-0 flex-1 flex-col" style={{ background: "var(--fill-primary)" }}>
-      <div className="flex items-center gap-3 px-3 py-1.5" style={{ borderBottom: "1px solid var(--fill-divider)" }}>
-        <span
-          className="flex-1 truncate rounded-full px-4 py-1.5 text-[14px]"
-          style={{ background: "var(--fill-secondary)", color: "var(--text-primary)" }}
-        >
-          {URL.canParse(where) ? host(where) : where}
-          <span style={{ color: "var(--text-secondary)" }}>{URL.canParse(where) ? path(where) : ""}</span>
-        </span>
-      </div>
-      <LiveView url={url} interactive={browser.status === "paused"} onScreen={setScreen} />
+      <LiveView url={url} interactive={browser.status === "paused"} />
     </div>
   );
 }

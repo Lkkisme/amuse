@@ -6,10 +6,9 @@
  * to the main agent. While the user holds the browser, every tool waits.
  */
 import { type AgentSession, type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
-import type { Pool } from "@remuse/browser";
+import type { Browsers, PageView, Step } from "@remuse/browser";
 import type { AgentIO, BrowserProgress, Ports } from "@remuse/core";
 import type { Browser } from "@remuse/protocol";
-import type { Page } from "playwright-core";
 import { Type } from "typebox";
 import { status } from "./status.ts";
 import { redact } from "./redact.ts";
@@ -18,7 +17,7 @@ import { statusOf } from "./status.ts";
 import { untrusted } from "./untrusted.ts";
 
 const system = `You operate a real web browser to do one task for the user.
-Work from what \`observe\` shows and act on elements by their ref; every action returns the new page state.
+Work from what \`observe\` shows and act on elements by their ref (e1, e2, …); every action returns the new page state.
 Use as few steps as you can.
 If something only the user can do is needed (logging in, a captcha, a choice only they can make, confirming a payment), call need_user with a short reason; it returns once they hand the browser back.
 Never buy anything, send messages, or submit forms that commit the user to something unless the task explicitly asks for it.
@@ -32,7 +31,9 @@ const snapshotLimit = 15_000;
 /** Per-run state the tools close over. */
 interface Run {
   browser: Browser;
-  page: Page;
+  browsers: Browsers;
+  /** where the page was at the last look, for approval cards */
+  url: string;
   io: AgentIO;
   session: AgentSession | null;
   /** Aborted on stop: every wait in the run ends at once. */
@@ -63,10 +64,20 @@ function untilStopped<T>(run: Run, promise: Promise<T>): Promise<T | "stopped"> 
   });
 }
 
-async function observe(page: Page): Promise<string> {
-  const snapshot = await page.ariaSnapshot({ mode: "ai", timeout: 10_000 }).catch(() => "(the page could not be read)");
-  const cut = snapshot.length > snapshotLimit ? `${snapshot.slice(0, snapshotLimit)}\n… (truncated)` : snapshot;
-  return `URL: ${page.url()}\nTitle: ${await page.title().catch(() => "")}\n${cut}`;
+/** The page as the model reads it: where it is, its text, and the elements it can act on by ref. */
+function render(view: PageView): string {
+  const text = view.text.length > snapshotLimit ? `${view.text.slice(0, snapshotLimit)}\n… (truncated)` : view.text;
+  const elements = view.elements.map(
+    (e) => `[${e.ref}] ${e.role} "${e.label.slice(0, 120)}"${e.href ? ` → ${e.href}` : ""}${e.disabled ? " (disabled)" : ""}`,
+  );
+  return `URL: ${view.url}\nTitle: ${view.title}\n\n${text}\n\nElements:\n${elements.join("\n") || "(none)"}`;
+}
+
+async function observe(run: Run): Promise<string> {
+  const view = await run.browsers.look(run.browser.id).catch(() => null);
+  if (!view) return "(the page could not be read)";
+  run.url = view.url;
+  return render(view);
 }
 
 function runTools(run: Run): ToolDefinition[] {
@@ -74,23 +85,21 @@ function runTools(run: Run): ToolDefinition[] {
   const set = (status: BrowserProgress) => {
     if (!run.stop.signal.aborted) run.io.act({ kind: "browserStatus", id: run.browser.id, status });
   };
-  /** Wait out a takeover, count the step, then act and return the new page state. */
-  const act = async (what: () => Promise<unknown>) => {
+  /** Wait out a takeover, count the step, then take it (if any) and return the new page state. */
+  const act = async (step: Step | null) => {
     if (run.held && (await untilStopped(run, run.held.promise)) === "stopped") return stoppedText();
     if (run.stop.signal.aborted) return stoppedText();
     if (++run.steps > maxSteps) return text(`Step limit reached; call finish now.`);
     try {
-      await what();
-      await run.page.waitForLoadState("domcontentloaded", { timeout: 5_000 }).catch(() => {});
+      if (step) await run.browsers.step(run.browser.id, step);
     } catch (error) {
-      return text(`That did not work: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}\n\n${await observe(run.page)}`);
+      return text(`That did not work: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}\n\n${await observe(run)}`);
     }
-    return text(await observe(run.page));
+    return text(await observe(run));
   };
-  const ref = (r: string) => run.page.locator(`aria-ref=${r}`);
   /** Ask the user before a consequential step; true when approved (false if stopped meanwhile). */
   const approve = async (action: string, detail: string) => {
-    const asked = run.io.act({ kind: "ask", action, target: new URL(run.page.url()).host, detail });
+    const asked = run.io.act({ kind: "ask", action, target: URL.canParse(run.url) ? new URL(run.url).host : run.url, detail });
     if (!asked.ok) return false;
     set("waiting");
     const decided = await untilStopped(run, run.io.decision(asked.id));
@@ -108,9 +117,9 @@ function runTools(run: Run): ToolDefinition[] {
     defineTool({
       name: "observe",
       label: "Look at the page",
-      description: "The current page as an accessibility tree; elements carry refs like [ref=e12] for the other tools.",
+      description: "The current page: its text, and the elements you can act on, each with a ref like e12 for the other tools.",
       parameters: Type.Object({ status }),
-      execute: async () => act(async () => {}),
+      execute: async () => act(null),
     }),
     defineTool({
       name: "click",
@@ -118,7 +127,7 @@ function runTools(run: Run): ToolDefinition[] {
       description: "Click the element with this ref. Mark consequential clicks; they wait for the user's approval.",
       parameters: Type.Object({ status, ref: Type.String(), consequential, what: Type.Optional(Type.String({ description: "for consequential clicks: what it will do, for the user" })) }),
       execute: async (_, { ref: r, consequential: risky, what }) =>
-        risky && !(await approve("Click", what ?? `Click ${r}`)) ? refused() : act(() => ref(r).click({ timeout: 8_000 })),
+        risky && !(await approve("Click", what ?? `Click ${r}`)) ? refused() : act({ kind: "click", ref: r }),
     }),
     defineTool({
       name: "type",
@@ -128,17 +137,14 @@ function runTools(run: Run): ToolDefinition[] {
       execute: async (_, { ref: r, text: value, submit, consequential: risky }) =>
         risky && submit && !(await approve("Submit", `Enter "${value}" and submit`))
           ? refused()
-          : act(async () => {
-              await ref(r).fill(value, { timeout: 8_000 });
-              if (submit) await ref(r).press("Enter");
-            }),
+          : act({ kind: "type", ref: r, text: value, submit: submit === true }),
     }),
     defineTool({
       name: "press",
       label: "Press a key",
       description: "Press a key on the focused element, e.g. Enter, Escape, ArrowDown.",
       parameters: Type.Object({ status, key: Type.String() }),
-      execute: async (_, { key }) => act(() => run.page.keyboard.press(key)),
+      execute: async (_, { key }) => act({ kind: "press", key }),
     }),
     defineTool({
       name: "navigate",
@@ -146,16 +152,14 @@ function runTools(run: Run): ToolDefinition[] {
       description: "Open an absolute http(s) URL in this browser.",
       parameters: Type.Object({ status, url: Type.String() }),
       execute: async (_, { url }) =>
-        URL.canParse(url) && /^https?:$/.test(new URL(url).protocol)
-          ? act(() => run.page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 }))
-          : text(`"${url}" is not an http(s) URL.`),
+        URL.canParse(url) && /^https?:$/.test(new URL(url).protocol) ? act({ kind: "navigate", url }) : text(`"${url}" is not an http(s) URL.`),
     }),
     defineTool({
       name: "scroll",
       label: "Scroll",
       description: "Scroll the page by about one screen.",
       parameters: Type.Object({ status, direction: Type.Union([Type.Literal("down"), Type.Literal("up")]) }),
-      execute: async (_, { direction }) => act(() => run.page.mouse.wheel(0, direction === "down" ? 700 : -700)),
+      execute: async (_, { direction }) => act({ kind: "scroll", direction }),
     }),
     defineTool({
       name: "need_user",
@@ -167,7 +171,7 @@ function runTools(run: Run): ToolDefinition[] {
         set("needs_you");
         run.io.report(`[browser task "${run.browser.title}" needs the user]\n${untrusted(reason)}`);
         if ((await untilStopped(run, run.held.promise)) === "stopped") return stoppedText();
-        return text(`The user handed the browser back.\n\n${await observe(run.page)}`);
+        return text(`The user handed the browser back.\n\n${await observe(run)}`);
       },
     }),
     defineTool({
@@ -199,11 +203,11 @@ const browserLabels: Record<string, string> = {
   need_user: "Waiting for you",
 };
 
-/** A finished run's page stays open this long for the user to look at, then closes. */
+/** A finished run's browser stays open this long for the user to look at, then closes (freeing its node). */
 const keepFinishedMs = 30 * 60_000;
 
 /** browse + browser control on real pages, with a Pi agent per run. */
-export function piBrowserAgent(cfg: PiModelConfig, pool: Pool): Pick<Ports, "browse" | "browser"> {
+export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers): Pick<Ports, "browse" | "browser"> {
   /** Every run from browse until it ends; its controller is there before its page is. */
   const stops = new Map<string, AbortController>();
   const runs = new Map<string, Run>();
@@ -242,16 +246,15 @@ export function piBrowserAgent(cfg: PiModelConfig, pool: Pool): Pick<Ports, "bro
       const end = () => {
         stops.delete(browser.id);
         runs.delete(browser.id);
-        setTimeout(() => void pool.close(browser.id), keepFinishedMs).unref?.();
+        setTimeout(() => void browsers.close(browser.id), keepFinishedMs).unref?.();
       };
-      pool
-        .open(browser.id, browser.url)
-        .then(async (page) => {
-          if (stop.signal.aborted) return void pool.close(browser.id); // stopped while the page was opening
-          const run: Run = { browser, page, io, session: null, stop, held: null, steps: 0, finished: false };
+      browsers
+        .open(browser.id, browser.url, stop.signal)
+        .then(async () => {
+          if (stop.signal.aborted) return void browsers.close(browser.id); // stopped while it was opening
+          const run: Run = { browser, browsers, url: browser.url, io, session: null, stop, held: null, steps: 0, finished: false };
           runs.set(browser.id, run);
           await drive(run);
-          await pool.save(browser.id).catch(() => {});
         })
         .catch((error: unknown) => {
           if (!stop.signal.aborted) fail(browser, io, redact(error instanceof Error ? error.message : String(error), [cfg.authPath, cfg.modelsPath]));
@@ -265,7 +268,7 @@ export function piBrowserAgent(cfg: PiModelConfig, pool: Pool): Pick<Ports, "bro
           if (run) run.held ??= hold();
           return;
         case "handBack":
-          void pool.save(browser.id).catch(() => {}); // the user may have just logged in
+          void browsers.remember(browser.id).catch(() => {}); // the user may have just logged in
           if (!run) return void io.act({ kind: "browserStatus", id: browser.id, status: "completed" }); // nothing left to resume
           run.held?.settle();
           run.held = null;
@@ -273,7 +276,7 @@ export function piBrowserAgent(cfg: PiModelConfig, pool: Pool): Pick<Ports, "bro
         case "stop":
           stops.get(browser.id)?.abort();
           void run?.session?.abort();
-          void pool.close(browser.id);
+          void browsers.close(browser.id);
           return;
       }
     },

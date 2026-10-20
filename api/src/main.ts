@@ -8,9 +8,8 @@
  *   REMUSE_COMPOSIO_KEY_FILE  file holding a Composio developer key (ak_…): connectors go
  *                 through Composio; read once, never logged
  *   REMUSE_JOURNAL  JSONL file the event log lives in (survives restarts); in memory if unset
- *   REMUSE_BROWSER=chromium  browser runs open real pages (headless Chromium) with live views
- *                 at /live; scripted otherwise
- *   REMUSE_BROWSER_STATE  file keeping browser logins between runs (cookies; mode 600)
+ *   REMUSE_BROWSERS  the auto-browser pool: name|controller URL|noVNC URL, comma-separated
+ *                 (see compose.browsers.yaml); with AUTO_BROWSER_TOKEN, the controllers' bearer token
  *   REMUSE_PUBLIC_URL  this server's address as the user's browser reaches it (http://host:port);
  *                 lets connectors send the user straight back for an instant "connected"
  *   REMUSE_ALLOWED_ORIGINS  comma-separated origins of other pages allowed to open the sockets (dev web server)
@@ -19,7 +18,7 @@
 import { readFileSync } from "node:fs";
 import { composio, composioApps, composioConnector } from "@remuse/composio";
 import { fileJournal } from "./journal.ts";
-import { browserPorts, pool } from "@remuse/browser";
+import { browserPool, controller } from "@remuse/browser";
 import { type Ports, createHost, realTimers } from "@remuse/core";
 import { demoPorts, seed } from "@remuse/demo";
 import { type State, apply, empty } from "@remuse/protocol";
@@ -57,8 +56,19 @@ const connector =
     timers: realTimers,
     ...(publicUrl ? { callbackUrl: (key: string) => `${new URL("/connected", publicUrl)}?key=${key}` } : {}),
   });
-const browserState = process.env["REMUSE_BROWSER_STATE"];
-const browsers = process.env["REMUSE_BROWSER"] === "chromium" ? pool(browserState ? { stateFile: browserState } : {}) : undefined;
+/** "name|http://controller:8000|http://node:6080, …" → nodes whose noVNC websocket is …/websockify */
+const browserToken = process.env["AUTO_BROWSER_TOKEN"] ?? "";
+const nodes = (process.env["REMUSE_BROWSERS"] ?? "")
+  .split(",")
+  .map((entry) => entry.trim().split("|"))
+  .flatMap(([name, api, novnc]) => {
+    if (!name || !api || !novnc) return [];
+    const vnc = new URL("/websockify", novnc);
+    vnc.protocol = vnc.protocol === "https:" ? "wss:" : "ws:";
+    return [{ name, controller: controller(api, browserToken), vnc: vnc.toString() }];
+  });
+const browsers = nodes.length > 0 ? browserPool(nodes) : undefined;
+await browsers?.reset();
 /**
  * With a model, every port is real and chosen here on purpose; a capability
  * that is not configured fails plainly instead of falling back to a script.
@@ -84,7 +94,7 @@ const real = (model: string, authPath: string): Ports => ({
       },
 });
 const demo = !(model && authPath);
-const ports: Ports = model && authPath ? real(model, authPath) : { ...demoPorts(realTimers), ...(browsers ? browserPorts(browsers) : {}) };
+const ports: Ports = model && authPath ? real(model, authPath) : demoPorts(realTimers);
 
 const journalPath = process.env["REMUSE_JOURNAL"];
 const journal = journalPath ? { journal: fileJournal(journalPath) } : {};
@@ -95,7 +105,7 @@ const synced = await session.call("session.sync", { since: null });
 let state: State = synced.kind === "snapshot" ? synced.state : empty;
 session.subscribe((update) => (state = update.kind === "event" ? apply(state, update.envelope) : update.state));
 const live = browsers && {
-  pool: browsers,
+  browsers,
   controlled: (id: string) => state.entities.some((e) => e.kind === "browser" && e.id === id && e.status === "paused"),
 };
 
@@ -103,7 +113,7 @@ const web = process.env["REMUSE_WEB"];
 const origins = (process.env["REMUSE_ALLOWED_ORIGINS"] ?? "").split(",").map((o) => o.trim()).filter(Boolean);
 await listen({ session, ...(live ? { live } : {}), ...(web ? { web } : {}), ...(connector ? { returned: connector.returned } : {}), origins, token, port, host });
 for (const signal of ["SIGINT", "SIGTERM"] as const)
-  process.once(signal, () => void (browsers?.shutdown() ?? Promise.resolve()).finally(() => process.exit(0)));
+  process.once(signal, () => process.exit(0));
 console.log(
-  `remuse api on ws://${host}:${port}/rpc (agent: ${model && authPath ? model : "scripted"}, connectors: ${keyFile ? "composio" : "scripted"}, browser: ${browsers ? "chromium" : "scripted"})`,
+  `remuse api on ws://${host}:${port}/rpc (agent: ${model && authPath ? model : "scripted"}, connectors: ${keyFile ? "composio" : "scripted"}, browsers: ${nodes.length ? nodes.map((n) => n.name).join(",") : "none"})`,
 );

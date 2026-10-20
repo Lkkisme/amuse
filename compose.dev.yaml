@@ -1,0 +1,10 @@
+# Dev: the browser pool with controllers and noVNC published on localhost, for `mise run dev`
+# (the API runs outside Docker). `docker compose -f compose.browsers.yaml -f compose.dev.yaml up -d`
+services:
+  ab-controller-1: { ports: ["127.0.0.1:18101:8000"] }
+  ab-node-1: { ports: ["127.0.0.1:18102:6080"] }
+  ab-controller-2: { ports: ["127.0.0.1:18201:8000"] }
+  ab-node-2: { ports: ["127.0.0.1:18202:6080"] }
+networks:
+  pair-1: { internal: false }
+  pair-2: { internal: false }

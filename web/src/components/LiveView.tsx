@@ -1,119 +1,75 @@
 /**
- * A browser run's live page: JPEG frames drawn on a canvas, and — while the
- * user is in control — pointer, wheel and keyboard input sent back as
- * protocol Input with coordinates as fractions of the frame. Text from
- * mobile keyboards and IMEs goes through a hidden input as committed text.
+ * A browser run's live desktop — the real Chrome window, tabs and address bar
+ * included — over noVNC, drawn into our own box and scaled to fit (the
+ * desktop keeps its size; we never ask it to resize). Input is off unless the
+ * user holds the run, here and, regardless, at the server's gate. Phones get
+ * a keyboard button: what its hidden input commits is typed as keystrokes.
  */
 import { useEffect, useRef, useState } from "react";
 import { Keyboard } from "lucide-react";
-import { type Input, Screen } from "@remuse/protocol";
+import RFB from "@novnc/novnc";
 
-/** Keys sent as key presses; anything else that is one character is typed as text. */
-const namedKeys = new Set(["Enter", "Backspace", "Tab", "Escape", "Delete", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"]);
+/** X keysym for a character: Latin-1 maps directly, the rest of Unicode is offset. */
+const keysym = (char: string) => {
+  const code = char.codePointAt(0) ?? 0;
+  return code < 0x100 ? code : 0x01000000 + code;
+};
+const namedKeys: Record<string, number> = { Enter: 0xff0d, Backspace: 0xff08, Tab: 0xff09, Escape: 0xff1b };
 
-export function LiveView({ url, interactive, onScreen }: { url: string; interactive: boolean; onScreen: (screen: Screen) => void }) {
-  const canvas = useRef<HTMLCanvasElement>(null);
+export function LiveView({ url, interactive }: { url: string; interactive: boolean }) {
+  const box = useRef<HTMLDivElement>(null);
   const typing = useRef<HTMLInputElement>(null);
-  const socket = useRef<WebSocket | null>(null);
+  const client = useRef<RFB | null>(null);
   const [state, setState] = useState<"connecting" | "live" | "gone">("connecting");
-  // the latest callback, so a new parent render does not reconnect the stream
-  const screenTo = useRef(onScreen);
-  screenTo.current = onScreen;
 
   useEffect(() => {
-    const ws = new WebSocket(url);
-    ws.binaryType = "blob";
-    socket.current = ws;
-    ws.onmessage = async ({ data }) => {
-      if (data instanceof Blob) {
-        const frame = await createImageBitmap(data);
-        const c = canvas.current;
-        const g = c?.getContext("2d");
-        if (!c || !g) return frame.close();
-        if (c.width !== frame.width || c.height !== frame.height) {
-          c.width = frame.width;
-          c.height = frame.height;
-        }
-        g.drawImage(frame, 0, 0);
-        frame.close();
-        setState("live");
-      } else if (typeof data === "string") {
-        const screen = Screen.safeParse(JSON.parse(data));
-        if (screen.success) screenTo.current(screen.data);
-      }
+    const target = box.current;
+    if (!target) return;
+    const rfb = new RFB(target, url, { wsProtocols: ["binary"] });
+    rfb.scaleViewport = true;
+    rfb.resizeSession = false;
+    rfb.background = "transparent";
+    rfb.addEventListener("connect", () => setState("live"));
+    rfb.addEventListener("disconnect", () => setState("gone"));
+    client.current = rfb;
+    return () => {
+      client.current = null;
+      rfb.disconnect();
     };
-    ws.onclose = () => setState("gone");
-    return () => ws.close();
   }, [url]);
 
-  const send = (input: Input) => {
-    if (interactive && socket.current?.readyState === WebSocket.OPEN) socket.current.send(JSON.stringify(input));
-  };
+  useEffect(() => {
+    const rfb = client.current;
+    if (!rfb) return;
+    rfb.viewOnly = !interactive;
+    rfb.focusOnClick = interactive;
+  }, [interactive, state]);
 
-  /** Pointer position as fractions of the drawn frame (the canvas is letterboxed by object-fit). */
-  const at = (e: { clientX: number; clientY: number }) => {
-    const c = canvas.current;
-    if (!c || !c.width) return null;
-    const box = c.getBoundingClientRect();
-    const scale = Math.min(box.width / c.width, box.height / c.height);
-    const w = c.width * scale;
-    const h = c.height * scale;
-    const x = (e.clientX - box.left - (box.width - w) / 2) / w;
-    const y = (e.clientY - box.top - (box.height - h) / 2) / h;
-    return x >= 0 && x <= 1 && y >= 0 && y <= 1 ? { x, y } : null;
-  };
-  const button = (b: number) => (b === 1 ? "middle" : b === 2 ? "right" : "left");
-  const pointer = (action: "down" | "up" | "move") => (e: React.PointerEvent) => {
-    const p = at(e);
-    if (p) send({ kind: "pointer", action, ...p, button: button(e.button) });
+  const press = (sym: number) => {
+    client.current?.sendKey(sym, null, true);
+    client.current?.sendKey(sym, null, false);
   };
 
   return (
     <div className="relative flex min-h-0 flex-1 items-center justify-center" style={{ background: "var(--bg-secondary)" }}>
-      <canvas
-        ref={canvas}
-        tabIndex={interactive ? 0 : -1}
-        className="h-full w-full object-contain outline-none"
-        style={{ touchAction: interactive ? "none" : "auto", cursor: interactive ? "default" : "not-allowed" }}
-        onPointerDown={(e) => {
-          e.currentTarget.focus();
-          pointer("down")(e);
-        }}
-        onPointerUp={pointer("up")}
-        onPointerMove={(e) => e.buttons && pointer("move")(e)}
-        onWheel={(e) => {
-          const p = at(e);
-          if (p) send({ kind: "wheel", ...p, dx: e.deltaX, dy: e.deltaY });
-        }}
-        onKeyDown={(e) => {
-          if (!interactive) return;
-          e.preventDefault();
-          if (namedKeys.has(e.key)) send({ kind: "key", action: "down", key: e.key });
-          else if (e.key.length === 1) send({ kind: "text", text: e.key });
-        }}
-        onKeyUp={(e) => {
-          if (interactive && namedKeys.has(e.key)) send({ kind: "key", action: "up", key: e.key });
-        }}
-        onContextMenu={(e) => e.preventDefault()}
-      />
+      <div ref={box} className="absolute inset-0" style={{ cursor: interactive ? "default" : "not-allowed" }} />
 
       {interactive && (
         <>
-          {/* phones: a hidden input brings up the keyboard; whatever it commits is typed into the page */}
           <input
             ref={typing}
             aria-label="Type into the page"
             className="absolute bottom-0 left-0 size-px opacity-0"
             onInput={(e) => {
-              const text = e.currentTarget.value;
-              if (text) send({ kind: "text", text });
+              for (const char of e.currentTarget.value) press(keysym(char));
               e.currentTarget.value = "";
             }}
             onKeyDown={(e) => {
-              if (namedKeys.has(e.key)) send({ kind: "key", action: "down", key: e.key });
-            }}
-            onKeyUp={(e) => {
-              if (namedKeys.has(e.key)) send({ kind: "key", action: "up", key: e.key });
+              const sym = namedKeys[e.key];
+              if (sym !== undefined) {
+                e.preventDefault();
+                press(sym);
+              }
             }}
           />
           <button

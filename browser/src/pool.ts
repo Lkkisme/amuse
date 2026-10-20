@@ -1,144 +1,195 @@
 /**
- * Real browsers for browser runs: one headless Chromium, one context and
- * page per run, keyed by the run's id. Chromium starts on first use and is
- * shared after that. With a state file, logins carry over between runs:
- * each run starts from the saved cookies and storage, and `save` writes them
- * back (mode 600 — they are credentials).
+ * Browser runs on a pool of auto-browser nodes. A node has one desktop, so a
+ * run leases a whole node (one controller session) and gives it back when it
+ * closes; when every node is busy, runs wait their turn (and leave the queue
+ * if they are stopped). The agent sees elements by refs this pool issues
+ * (e1, e2, …): only refs from the run's latest look are accepted, and any
+ * step that changes the URL retires them all — a stale ref is refused, never
+ * retargeted.
  */
-import { mkdir, rename, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
-import { dirname } from "node:path";
-import { type BrowserContext, type Browser as Chromium, type Page, chromium } from "playwright-core";
+import type { Controller, Element, Observation } from "./controller.ts";
 
-type StorageState = Awaited<ReturnType<BrowserContext["storageState"]>>;
+export interface Node {
+  name: string;
+  controller: Controller;
+  /** noVNC's websocket on this node (…/websockify), for the live view and takeover */
+  vnc: string;
+}
 
-/**
- * Apply what one context changed — `before` is its state when it opened (or
- * last saved), `after` is now — to the stored state: changed and new cookies
- * and origins replace theirs, removed ones are removed. What the context did
- * not touch stays as stored, so another run's fresh login survives a stale
- * context's save, and a logout sticks.
- */
-export function applyChanges(stored: StorageState, before: StorageState, after: StorageState): StorageState {
-  const cookieKey = (c: StorageState["cookies"][number]) => `${c.name}\0${c.domain}\0${c.path}`;
-  const originKey = (o: StorageState["origins"][number]) => o.origin;
-  function merge<T>(stored: T[], before: T[], after: T[], key: (t: T) => string): T[] {
-    const was = new Map(before.map((t) => [key(t), JSON.stringify(t)]));
-    const now = new Map(after.map((t) => [key(t), t]));
-    const result = new Map(stored.map((t) => [key(t), t]));
-    for (const k of was.keys()) if (!now.has(k)) result.delete(k);
-    for (const [k, t] of now) if (was.get(k) !== JSON.stringify(t)) result.set(k, t);
-    return [...result.values()];
+export type Step =
+  | { kind: "click"; ref: string }
+  | { kind: "type"; ref: string; text: string; submit: boolean }
+  | { kind: "press"; key: string }
+  | { kind: "navigate"; url: string }
+  | { kind: "scroll"; direction: "up" | "down" };
+
+export interface PageView {
+  url: string;
+  title: string;
+  text: string;
+  elements: { ref: string; role: string; label: string; href: string | null; disabled: boolean }[];
+}
+
+/** What the browser agent and the API need from browsers, per run. */
+export interface Browsers {
+  /** Lease a browser and open `url`; waits while the pool is busy; rejects if `signal` aborts first. */
+  open(run: string, url: string, signal?: AbortSignal): Promise<void>;
+  look(run: string): Promise<PageView>;
+  step(run: string, step: Step): Promise<void>;
+  screenshot(run: string): Promise<Uint8Array | null>;
+  /** Keep this run's logins for later runs (the user just held the browser). */
+  remember(run: string): Promise<void>;
+  close(run: string): Promise<void>;
+  /** The run's live desktop (noVNC websocket), while it has one. */
+  vnc(run: string): string | null;
+}
+
+export class StaleRef extends Error {
+  constructor(ref: string) {
+    super(`Unknown or stale element ref "${ref.slice(0, 40)}". Look at the page again and use a fresh ref.`);
   }
-  return {
-    cookies: merge(stored.cookies, before.cookies, after.cookies, cookieKey),
-    origins: merge(stored.origins, before.origins, after.origins, originKey),
-  };
 }
 
-export interface Pool {
-  /** Open the run's page at `url` (or return it if it is already open). */
-  open(id: string, url: string): Promise<Page>;
-  page(id: string): Page | undefined;
-  close(id: string): Promise<void>;
-  /** Keep the run's cookies and storage for later runs (no-op without a state file). */
-  save(id: string): Promise<void>;
-  shutdown(): Promise<void>;
+interface Run {
+  node: Node;
+  session: string;
+  /** ref → controller id, for the latest look only */
+  current: Map<string, string>;
+  /** controller id → ref, stable for the run so an element keeps its ref */
+  refs: Map<string, string>;
 }
 
-export const viewport = { width: 1280, height: 800 };
+const describe = (e: Element) => e.label?.trim() || e.href || e.tag || "";
 
-export function pool(options: { stateFile?: string } = {}): Pool {
-  const { stateFile } = options;
-  let browser: Promise<Chromium> | undefined;
-  const pages = new Map<string, Page>();
-  /** Each page's state as of opening or its last save: what its next save compares against. */
-  const baseline = new Map<string, StorageState>();
-  /** Opens in flight, so two opens of one run share one context. */
-  const opening = new Map<string, Promise<Page>>();
-  const launch = () => {
-    browser ??= chromium.launch({ headless: true }).catch((error: unknown) => {
-      browser = undefined; // try again next time
-      throw error;
+export function browserPool(nodes: Node[], options: { profile?: string } = {}): Browsers & { reset(): Promise<void> } {
+  const profile = options.profile ?? "remuse";
+  const free = [...nodes];
+  const waiting: { take: (node: Node) => void; signal: AbortSignal | undefined }[] = [];
+  const runs = new Map<string, Run>();
+
+  const lease = (signal?: AbortSignal) =>
+    new Promise<Node>((resolve, reject) => {
+      if (signal?.aborted) return reject(new Error("stopped"));
+      const node = free.pop();
+      if (node) return resolve(node);
+      const onAbort = () => {
+        const at = waiting.indexOf(entry);
+        if (at >= 0) waiting.splice(at, 1);
+        reject(new Error("stopped"));
+      };
+      const entry = {
+        take: (node: Node) => {
+          signal?.removeEventListener("abort", onAbort);
+          resolve(node);
+        },
+        signal,
+      };
+      waiting.push(entry);
+      signal?.addEventListener("abort", onAbort, { once: true });
     });
-    return browser;
+  const release = (node: Node) => {
+    const next = waiting.shift();
+    if (next) next.take(node);
+    else free.push(node);
   };
 
-  /** The saved state as Playwright reads it (it parses the file for us), or nothing yet. */
-  const stored = async (file: string): Promise<StorageState> => {
-    const empty: StorageState = { cookies: [], origins: [] };
-    if (!existsSync(file)) return empty;
-    const context = await (await launch()).newContext({ storageState: file }).catch(() => null);
-    if (!context) return empty;
-    const state = await context.storageState();
-    await context.close();
-    return state;
+  const run = (id: string) => {
+    const r = runs.get(id);
+    if (!r) throw new Error(`browser run ${id} is not open`);
+    return r;
   };
-
-  /** One save at a time: merge into what is stored, write a private temp file, rename it into place. */
-  let saving: Promise<void> = Promise.resolve();
-  const save = (id: string) => {
-    const run = async () => {
-      const page = pages.get(id);
-      const before = baseline.get(id);
-      if (!stateFile || !page || !before) return;
-      const after = await page.context().storageState();
-      const merged = applyChanges(await stored(stateFile), before, after);
-      baseline.set(id, after);
-      await mkdir(dirname(stateFile), { recursive: true, mode: 0o700 });
-      const temp = `${stateFile}.${crypto.randomUUID()}.tmp`;
-      await writeFile(temp, JSON.stringify(merged), { mode: 0o600 });
-      await rename(temp, stateFile);
-    };
-    const done = saving.then(run);
-    saving = done.catch(() => {});
-    return done;
+  const viewOf = (r: Run, o: Observation): PageView => {
+    r.current = new Map();
+    const elements = o.interactables.map((e) => {
+      let ref = r.refs.get(e.element_id);
+      if (!ref) {
+        ref = `e${r.refs.size + 1}`;
+        r.refs.set(e.element_id, ref);
+      }
+      r.current.set(ref, e.element_id);
+      return { ref, role: e.role ?? e.tag ?? "element", label: describe(e), href: e.href, disabled: e.disabled === true };
+    });
+    return { url: o.url, title: o.title, text: o.text_excerpt ?? "", elements };
   };
-
-  const create = async (id: string, url: string): Promise<Page> => {
-    const saved = stateFile && existsSync(stateFile) ? { storageState: stateFile } : {};
-    const context = await (await launch()).newContext({ viewport, ...saved });
-    try {
-      const page = await context.newPage();
-      baseline.set(id, await context.storageState());
-      // registered before it loads, so it can be watched (live view, thumbnail) while it does
-      pages.set(id, page);
-      page.on("close", () => {
-        pages.delete(id);
-        baseline.delete(id);
-      });
-      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
-      return page;
-    } catch (error) {
-      pages.delete(id);
-      baseline.delete(id);
-      await context.close().catch(() => {}); // a page that never opened leaves nothing behind
-      throw error;
-    }
+  const target = (r: Run, ref: string) => {
+    const id = r.current.get(ref);
+    if (!id) throw new StaleRef(ref);
+    return id;
+  };
+  /** Act; refs are retired when the step moved the page somewhere else. */
+  const act = async (r: Run, action: Parameters<Controller["act"]>[1]) => {
+    const { before, after } = await r.node.controller.act(r.session, action);
+    if (after && before !== after.url) r.current = new Map();
   };
 
   return {
-    open(id, url) {
-      const existing = pages.get(id);
-      if (existing) return Promise.resolve(existing);
-      const pending = opening.get(id) ?? create(id, url).finally(() => opening.delete(id));
-      opening.set(id, pending);
-      return pending;
+    async reset() {
+      // these nodes are ours alone: sessions still live there were left by an earlier process
+      await Promise.all(nodes.map(async (n) => Promise.all((await n.controller.live()).map((s) => n.controller.delete(s).catch(() => {})))));
     },
-    page: (id) => pages.get(id),
-    save,
+    async open(id, url, signal) {
+      const node = await lease(signal);
+      try {
+        const session = await node.controller
+          .create(url, profile)
+          .catch(() => node.controller.create(url, null)); // no saved logins yet
+        if (signal?.aborted) {
+          await node.controller.delete(session).catch(() => {});
+          throw new Error("stopped");
+        }
+        runs.set(id, { node, session, current: new Map(), refs: new Map() });
+      } catch (error) {
+        release(node);
+        throw error;
+      }
+    },
+    async look(id) {
+      const r = run(id);
+      return viewOf(r, await r.node.controller.observe(r.session));
+    },
+    async step(id, step) {
+      const r = run(id);
+      switch (step.kind) {
+        case "click":
+          return act(r, { name: "click", body: { element_id: target(r, step.ref) } });
+        case "type": {
+          const element_id = target(r, step.ref);
+          if (step.text.length > 5000) throw new Error("That text is too long to type at once (5000 characters at most).");
+          if (step.text) await act(r, { name: "type", body: { element_id, text: step.text, clear_first: true } });
+          else {
+            // the controller refuses empty text: clear the field by hand
+            await act(r, { name: "click", body: { element_id } });
+            await act(r, { name: "press", body: { key: "Control+a" } });
+            await act(r, { name: "press", body: { key: "Delete" } });
+          }
+          if (step.submit) await act(r, { name: "press", body: { key: "Enter" } });
+          return;
+        }
+        case "press":
+          return act(r, { name: "press", body: { key: step.key } });
+        case "navigate": {
+          if (!URL.canParse(step.url) || !/^https?:$/.test(new URL(step.url).protocol)) throw new Error(`"${step.url}" is not an http(s) URL.`);
+          return act(r, { name: "navigate", body: { url: new URL(step.url).href } });
+        }
+        case "scroll":
+          return act(r, { name: "scroll", body: { delta_x: 0, delta_y: step.direction === "down" ? 700 : -700 } });
+      }
+    },
+    async screenshot(id) {
+      const r = runs.get(id);
+      return r ? r.node.controller.screenshot(r.session).catch(() => null) : null;
+    },
+    async remember(id) {
+      const r = run(id);
+      await r.node.controller.saveProfile(r.session, profile);
+    },
     async close(id) {
-      await opening.get(id)?.catch(() => {}); // an open in flight finishes first, so its context is closed too
-      await save(id).catch(() => {});
-      const page = pages.get(id);
-      pages.delete(id);
-      await page?.context().close();
+      const r = runs.get(id);
+      if (!r) return;
+      runs.delete(id);
+      await r.node.controller.delete(r.session).catch(() => {});
+      release(r.node);
     },
-    async shutdown() {
-      pages.clear();
-      const running = browser;
-      browser = undefined;
-      await (await running)?.close();
-    },
+    vnc: (id) => runs.get(id)?.node.vnc ?? null,
   };
 }

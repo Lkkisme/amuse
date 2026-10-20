@@ -105,12 +105,12 @@ export function listen({ session, live, web, returned, origins = [], token, port
     res.end();
   };
 
-  /** GET /thumb?id=<run> → the run's page as a small JPEG, for its card. */
+  /** GET /thumb?id=<run> → a screenshot of the run's page, for its card. */
   const thumb = async (req: IncomingMessage, url: URL, res: ServerResponse) => {
     const id = url.searchParams.get("id");
     const image = live && id && allowed(req, url) ? await thumbnail(live, id) : null;
     if (!image) return void res.writeHead(404).end();
-    res.writeHead(200, { "content-type": "image/jpeg", "cache-control": "no-store" }).end(image);
+    res.writeHead(200, { "content-type": "image/png", "cache-control": "no-store" }).end(image);
   };
   /** GET /connected?key=… → check the connection now, then tell the user they can go back. */
   const back = async (url: URL, res: ServerResponse) => {
@@ -130,7 +130,8 @@ export function listen({ session, live, web, returned, origins = [], token, port
       : Promise.resolve(void res.writeHead(404).end());
     handled.catch(() => res.writeHead(500).end());
   });
-  const wss = new WebSocketServer({ noServer: true });
+  // noVNC viewers ask for the "binary" subprotocol; the RPC client asks for none
+  const wss = new WebSocketServer({ noServer: true, handleProtocols: (offered) => (offered.has("binary") ? "binary" : false) });
 
   http.on("upgrade", (req, socket, head) => {
     const url = new URL(req.url ?? "/", "http://local");
@@ -143,7 +144,7 @@ export function listen({ session, live, web, returned, origins = [], token, port
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
-      if (target.kind === "live") return void attach(ws, target.id, target.live).catch(() => ws.close(4500, "the live view failed"));
+      if (target.kind === "live") return attach(ws, target.id, target.live);
       const peer = serve(session, (frame) => ws.send(frame));
       ws.on("message", (data, binary) => void (binary ? undefined : peer.receive(data.toString())));
       ws.on("close", peer.close);

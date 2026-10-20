@@ -1,62 +1,51 @@
 /**
- * One live view: frames from the run's page to the socket, input from the
- * socket to the page — but only while the conversation says the user holds
- * the run (status paused). Bad input is dropped, never applied.
+ * The live view of a browser run: a relay between the viewer's websocket and
+ * the run's noVNC desktop. Frames flow to the viewer untouched; what the
+ * viewer sends passes the VNC gate, so input reaches the desktop only while
+ * the conversation says the user holds the run (status paused).
  */
-import { type Frame, type Pool, replay, watch } from "@remuse/browser";
-import { Input } from "@remuse/protocol";
-import type { WebSocket } from "ws";
+import type { Browsers } from "@remuse/browser";
+import { WebSocket } from "ws";
+import { vncGate } from "./vnc.ts";
 
 export interface Live {
-  pool: Pool;
+  browsers: Browsers;
   /** True while the user controls run `id`. */
   controlled(id: string): boolean;
 }
 
-/** Above this many unsent bytes on the socket, frames are dropped (see watch). */
-const maxBuffered = 1 << 20;
+/** noVNC admits only its own origin (NOVNC_ALLOWED_ORIGINS in compose.browsers.yaml). */
+const nodeOrigin = "http://localhost:6080";
 
-export async function attach(ws: WebSocket, id: string, live: Live): Promise<void> {
-  const page = live.pool.page(id);
-  if (!page) return ws.close(4404, "no live page for this run");
-  const send = (frame: Frame) => {
-    if (ws.readyState !== ws.OPEN) return;
-    if (frame.kind === "frame") ws.send(frame.jpeg, { binary: true });
-    else ws.send(JSON.stringify(frame));
+export function attach(viewer: WebSocket, id: string, live: Live): void {
+  const target = live.browsers.vnc(id);
+  if (!target) return viewer.close(4404, "no live browser for this run");
+  const desktop = new WebSocket(target, ["binary"], { headers: { origin: nodeOrigin } });
+  const gate = vncGate();
+  const queued: Uint8Array[] = [];
+  const end = (code: number, reason: string) => {
+    if (viewer.readyState === WebSocket.OPEN) viewer.close(code, reason);
+    if (desktop.readyState === WebSocket.OPEN || desktop.readyState === WebSocket.CONNECTING) desktop.terminate();
   };
 
-  // input is replayed strictly in order: a pointer down is a move then a press, nothing may land between
-  let inputs: Promise<void> = Promise.resolve();
-  ws.on("message", (data, binary) => {
-    if (binary || !live.controlled(id)) return;
-    let raw: unknown;
-    try {
-      raw = JSON.parse(data.toString());
-    } catch {
-      return;
-    }
-    const input = Input.safeParse(raw);
-    if (input.success) inputs = inputs.then(() => replay(page, input.data)).catch(() => {});
+  viewer.on("message", (data, binary) => {
+    if (!binary || !(data instanceof Buffer)) return;
+    const passed = gate.pass(data, live.controlled(id));
+    if (passed === "close") return end(4400, "unexpected viewer message");
+    if (passed.length === 0) return;
+    if (desktop.readyState === WebSocket.OPEN) desktop.send(passed);
+    else queued.push(passed);
   });
-
-  const pageClosed = () => ws.close(4410, "the run's page closed");
-  page.once("close", pageClosed);
-  let stop: (() => Promise<void>) | null = null;
-  ws.on("close", () => {
-    page.off("close", pageClosed);
-    void stop?.();
+  desktop.on("open", () => queued.splice(0).forEach((part) => desktop.send(part)));
+  desktop.on("message", (data, binary) => {
+    if (viewer.readyState === WebSocket.OPEN) viewer.send(data, { binary });
   });
-
-  try {
-    stop = await watch(page, send, () => ws.bufferedAmount < maxBuffered);
-  } catch {
-    return ws.close(4500, "the live view could not start");
-  }
-  if (ws.readyState !== ws.OPEN) await stop(); // the viewer left while it was starting
+  desktop.on("close", () => end(4410, "the browser closed"));
+  desktop.on("error", () => end(4502, "the browser is unreachable"));
+  viewer.on("close", () => end(1000, "viewer left"));
 }
 
-/** A small, recent JPEG of the run's page for its card; null when it has no live page. */
-export async function thumbnail(live: Live, id: string): Promise<Buffer | null> {
-  const page = live.pool.page(id);
-  return page ? page.screenshot({ type: "jpeg", quality: 45, timeout: 5_000 }).catch(() => null) : null;
+/** A recent screenshot of the run's page for its card; null when it has no browser. */
+export function thumbnail(live: Live, id: string): Promise<Uint8Array | null> {
+  return live.browsers.screenshot(id);
 }
