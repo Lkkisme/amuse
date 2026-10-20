@@ -1,6 +1,7 @@
-# remuse with its browser pool: `cp .env.example .env`, fill it in, `docker compose up -d --build`.
-# Secrets come from .env (gitignored); the browser pool's own secrets are generated on first
-# start (compose.browsers.yaml). Without a model key, remuse runs a scripted demo.
+# remuse with its browser pool: `cp .env.example .env`, fill it in, `docker compose up -d --build`,
+# then open the link in `docker compose logs remuse`. Model keys come from .env (gitignored); the
+# access token and the browser pool's secrets are made on first start and kept in volumes.
+# Without a model key, remuse runs a scripted demo.
 # Published on 127.0.0.1 only; put tailscale serve or a reverse proxy in front for other devices.
 include:
   - compose.browsers.yaml
@@ -13,7 +14,6 @@ services:
     # everything in .env: the models, and any provider's key under its standard name
     env_file: .env
     environment:
-      REMUSE_TOKEN: ${REMUSE_TOKEN:?set REMUSE_TOKEN in .env}
       REMUSE_PUBLIC_URL: ${REMUSE_PUBLIC_URL:-http://localhost:8080}
       REMUSE_BROWSERS: pool1|http://ab-controller-1:8000|http://ab-node-1:6080,pool2|http://ab-controller-2:8000|http://ab-node-2:6080
       AUTO_BROWSER_TOKEN_FILE: /secrets/auto-browser-token

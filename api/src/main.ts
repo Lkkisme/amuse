@@ -1,6 +1,7 @@
 /**
  * Dev entry: the core host with the demo ports, served on 127.0.0.1.
- *   REMUSE_TOKEN  required access token (refuses to start without one)
+ *   REMUSE_TOKEN  the access token; or REMUSE_TOKEN_FILE, where one is made on first start and kept
+ *                 (refuses to start with neither)
  *   REMUSE_PORT   default 8797
  *   REMUSE_HOST   default 127.0.0.1
  *   REMUSE_PI_MODEL  when set, the agents are Pi with this model (provider/model-id); else a scripted demo
@@ -17,7 +18,8 @@
  *   REMUSE_ALLOWED_ORIGINS  comma-separated origins of other pages allowed to open the sockets (dev web server)
  *   REMUSE_WEB    directory of the built web app to serve (same origin as /rpc and /live)
  */
-import { readFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { composio, composioApps, composioConnector } from "@remuse/composio";
 import { fileJournal } from "./journal.ts";
 import { browserPool, controller } from "@remuse/browser";
@@ -27,9 +29,18 @@ import { type State, apply, empty } from "@remuse/protocol";
 import { type PiAuth, piAgent, piBrowserAgent, untrustedRule } from "@remuse/pi";
 import { listen } from "./server.ts";
 
-const token = process.env["REMUSE_TOKEN"];
+/** The access token: given, or made on first start and kept in REMUSE_TOKEN_FILE (owner-only). */
+function accessToken(): string | undefined {
+  const given = process.env["REMUSE_TOKEN"];
+  if (given) return given;
+  const file = process.env["REMUSE_TOKEN_FILE"];
+  if (!file) return undefined;
+  if (!existsSync(file)) writeFileSync(file, randomBytes(24).toString("hex"), { mode: 0o600, flag: "wx" });
+  return readFileSync(file, "utf8").trim();
+}
+const token = accessToken();
 if (!token) {
-  console.error("REMUSE_TOKEN is not set; refusing to start.");
+  console.error("Set REMUSE_TOKEN (or REMUSE_TOKEN_FILE, to have one made); refusing to start.");
   process.exit(1);
 }
 const port = Number(process.env["REMUSE_PORT"] ?? 8797);
@@ -124,6 +135,8 @@ const origins = (process.env["REMUSE_ALLOWED_ORIGINS"] ?? "").split(",").map((o)
 await listen({ session, ...(live ? { live } : {}), ...(web ? { web } : {}), ...(connector ? { returned: connector.returned } : {}), origins, token, port, host });
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.once(signal, () => process.exit(0));
+// the way in, for whoever reads the logs of their own instance: open it once per device
+if (publicUrl) console.log(`remuse is ready. Open this link once on each device: ${new URL(`/#token=${token}`, publicUrl).href}`);
 console.log(
   `remuse api on ws://${host}:${port}/rpc (agent: ${model ? (browserModel === model ? model : `${model}, browser ${browserModel}`) : "scripted"}, connectors: ${composioClient ? "composio" : "scripted"}, browsers: ${nodes.length ? nodes.map((n) => n.name).join(",") : "none"})`,
 );
