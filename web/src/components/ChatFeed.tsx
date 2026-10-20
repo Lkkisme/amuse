@@ -18,8 +18,11 @@ type Thumb = ((id: string) => string) | null;
 
 /** Messages this close together, from the same side, read as one group (Muse). */
 const GROUP_GAP_MS = 5 * 60_000;
+/** Who an entity comes from: the user's messages, or Muse (its replies and every card). */
+const side = (e: Entity) => (e.kind === "prompt" ? "user" : "muse");
 const joins = (a: Entity | undefined, b: Entity | undefined): boolean =>
-  !!a && !!b && (a.kind === "prompt" || a.kind === "reply") && a.kind === b.kind && Date.parse(b.at) - Date.parse(a.at) < GROUP_GAP_MS;
+  !!a && !!b && side(a) === side(b) && Date.parse(b.at) - Date.parse(a.at) < GROUP_GAP_MS;
+const isMessage = (e: Entity | undefined) => e?.kind === "prompt" || e?.kind === "reply";
 
 /** A time line goes in only after a pause this long (and before the first item). */
 const STAMP_GAP_MS = 10 * 60_000;
@@ -374,8 +377,12 @@ export function ChatFeed({ conversation, older, release, thumb, actions }: Props
       >
         <div ref={contentRef} className="mx-auto flex max-w-3xl flex-col gap-3">
         {feed.map((entity, i) => (
-          // a message joining the one above sits 2px under it (the feed's gap is 12px)
-          <div key={entity.id} data-entity={entity.id} className={`flex flex-col gap-3 ${joins(feed[i - 1], entity) ? "-mt-2.5" : ""}`}>
+          // joining the one above: 2px under it between bubbles, 4px where a card is involved (the feed's gap is 12px)
+          <div
+            key={entity.id}
+            data-entity={entity.id}
+            className={`flex flex-col gap-3 ${joins(feed[i - 1], entity) ? (isMessage(entity) && isMessage(feed[i - 1]) ? "-mt-2.5" : "-mt-2") : ""}`}
+          >
             {stamped(feed[i - 1], entity) && <TimeDivider time={time(entity.at)} />}
             <EntityView entity={entity} place={{ joinsPrevious: joins(feed[i - 1], entity), joinsNext: joins(entity, feed[i + 1]) }} thumb={thumb} actions={actions} onMenu={setMenu} />
           </div>
