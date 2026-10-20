@@ -11,12 +11,11 @@ import {
   CircleCheck,
   Globe,
   ListTodo,
-  Loader,
   ShieldCheck,
   Table,
 } from "lucide-react";
 import type { Approval, BrowserRun, ConnectionRequest, Task, TaskStatus } from "../data/fakeMuse";
-import { taskStatusMeta } from "../data/fakeMuse";
+import { browserStatusMeta, taskStatusMeta } from "../data/fakeMuse";
 import type { MuseActions } from "./actions";
 
 const CARD_BG = "var(--fill-secondary)";
@@ -228,59 +227,51 @@ export function ConnReqCard({ connreq, actions }: { connreq: ConnectionRequest; 
 
 /* ---------- Browser run card (surface 4) ---------- */
 
+/**
+ * Muse browser card: tinted globe tile + "Browser" + "<status> · <task>", a
+ * page thumbnail, and one pill button. Blue = working, orange = waiting for
+ * you (needs help), green = completed. Refs 06-card-desktop, 02-run-*, 08-now.
+ */
 export function BrowserCard({ browser, actions }: { browser: BrowserRun; actions: MuseActions }) {
-  const working = browser.status === "working";
+  const meta = browserStatusMeta[browser.status];
+  const open = () => actions.openViewer(browser.id);
   return (
-    <div className="w-full max-w-[420px] rounded-2xl p-3" style={{ background: CARD_BG }}>
-      <div className="flex items-center gap-2.5 px-1 pb-2 pt-1">
+    <div className="w-full max-w-[314px] rounded-[22px] p-4" style={{ background: CARD_BG }}>
+      <div className="flex items-center gap-3">
         <span
-          className="flex size-8 shrink-0 items-center justify-center rounded-[9px]"
-          style={{ background: "var(--fill-primary)", color: "var(--icon-primary)" }}
+          className="flex size-10 shrink-0 items-center justify-center rounded-[12px]"
+          style={{ background: `color-mix(in srgb, ${meta.color} 12%, var(--fill-primary))`, color: meta.color }}
         >
-          <Globe size={16} />
+          <Globe size={20} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-[14px] font-semibold" style={{ color: "var(--text-primary)" }}>
+          <p className="text-[14px] font-medium" style={{ color: "var(--text-primary)" }}>
             Browser
           </p>
-          <p className="flex items-center gap-1 truncate text-[12px]" style={{ color: "var(--text-secondary)" }}>
-            {working && <Loader size={11} className="animate-spin" />}
-            {taskStatusMeta[browser.status].label} · {browser.site}
+          <p className="truncate text-[13px]" style={{ color: "var(--text-secondary)" }}>
+            {meta.label} · {browser.title}
           </p>
         </div>
       </div>
 
-      {/* thumbnail placeholder — never a real page, just a sketched canvas */}
+      {/* thumbnail: a sketch of the page, never a real one */}
       <button
         aria-label="Open browser viewer"
-        className="block w-full overflow-hidden rounded-xl text-left"
-        style={{ background: "var(--fill-primary)" }}
-        onClick={() => actions.openViewer(browser.id)}
+        className="mt-3 flex h-[178px] w-full flex-col gap-2 overflow-hidden rounded-[10px] p-3 text-left"
+        style={{ background: "var(--fill-primary)", border: "1px solid var(--fill-divider)" }}
+        onClick={open}
       >
-        <div className="flex items-center gap-1.5 px-3 py-2" style={{ borderBottom: "1px solid var(--fill-divider)" }}>
-          <span className="size-2 rounded-full" style={{ background: "var(--fill-tertiary)" }} />
-          <span className="size-2 rounded-full" style={{ background: "var(--fill-tertiary)" }} />
-          <span className="size-2 rounded-full" style={{ background: "var(--fill-tertiary)" }} />
-          <span
-            className="ml-2 flex-1 truncate rounded-full px-2.5 py-0.5 text-[11px]"
-            style={{ background: "var(--fill-secondary)", color: "var(--text-tertiary)" }}
-          >
-            {browser.site}
-          </span>
-        </div>
-        <div className="flex h-32 flex-col justify-end gap-2 p-3" style={{ background: `hsl(${browser.thumbnailHue} 45% 96%)` }}>
-          <div className="h-3 w-2/3 rounded" style={{ background: `hsl(${browser.thumbnailHue} 45% 78%)` }} />
-          <div className="h-2 w-1/2 rounded" style={{ background: `hsl(${browser.thumbnailHue} 30% 85%)` }} />
-          <div className="h-2 w-3/4 rounded" style={{ background: `hsl(${browser.thumbnailHue} 30% 85%)` }} />
-        </div>
+        <div className="h-2.5 w-1/3 rounded-sm" style={{ background: `hsl(${browser.thumbnailHue} 40% 80%)` }} />
+        <div className="h-2 w-1/2 rounded-sm" style={{ background: "var(--fill-tertiary)" }} />
+        <div className="h-2 w-2/5 rounded-sm" style={{ background: "var(--fill-tertiary)" }} />
       </button>
 
       <button
-        className="mt-2 h-10 w-full rounded-full text-[15px] font-semibold"
+        className="mt-3 h-9 w-full rounded-full text-[14px] font-medium"
         style={{ background: "var(--fill-primary)", color: "var(--text-primary)" }}
-        onClick={() => actions.openViewer(browser.id)}
+        onClick={open}
       >
-        Open preview
+        {browser.status === "working" ? "Open browser" : "Open preview"}
       </button>
     </div>
   );

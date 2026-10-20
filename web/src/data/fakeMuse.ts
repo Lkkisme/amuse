@@ -33,11 +33,22 @@ export interface ConnectionRequest {
   status: "pending" | "explaining" | "connected" | "dismissed";
 }
 
+/**
+ * Browser run states, as Muse shows them on the card and in the viewer header:
+ * working (blue) -> waiting = needs your help (orange, "Action required")
+ * -> completed (green). stopped is what Stop leaves behind.
+ */
+export type BrowserStatus = "working" | "waiting" | "completed" | "stopped";
+
 export interface BrowserRun {
   id: string;
+  /** task title, shown after the status on the card and as the viewer title */
   title: string;
   site: string;
-  status: "working" | "completed" | "failed";
+  path: string;
+  status: BrowserStatus;
+  /** who drives this browser: agent, or user during takeover */
+  control: "agent" | "user";
   thumbnailHue: number;
 }
 
@@ -80,9 +91,10 @@ export interface WebsiteRule {
 }
 
 export interface ViewerState {
+  /** active tab */
   browserId: string;
-  /** agent = Muse is driving (offers Take control); user = takeover active */
-  control: "agent" | "user";
+  /** browser runs whose tab the user closed; every other run in the chat is a tab */
+  closedTabs: string[];
 }
 
 export type ActivityStatus = "idle" | "working" | "connected";
@@ -243,7 +255,26 @@ export function seedDemo(): DemoState {
         id: "c3",
         role: "card",
         kind: "browser",
-        browser: { id: "b1", title: "Monterey Bay Aquarium — exhibits", site: "mbayaq.org", status: "completed", thumbnailHue: 200 },
+        browser: { id: "b1", title: "Monterey Bay Aquarium exhibits", site: "mbayaq.org", path: "/exhibits", status: "completed", control: "agent", thumbnailHue: 200 },
+      },
+      { id: "m5", role: "user", text: "Also check the tide schedule, and log in to the trip portal for me", time: "8:28 AM" },
+      {
+        id: "c6",
+        role: "card",
+        kind: "browser",
+        browser: { id: "b2", title: "Check the tide schedule", site: "tidesandcurrents.noaa.gov", path: "/stationhome", status: "working", control: "agent", thumbnailHue: 170 },
+      },
+      {
+        id: "c7",
+        role: "card",
+        kind: "browser",
+        browser: { id: "b3", title: "Log in to the trip portal", site: "portal.example.edu", path: "/login", status: "waiting", control: "agent", thumbnailHue: 30 },
+      },
+      {
+        id: "m6",
+        role: "agent",
+        text: "The portal is asking for your login. The browser is waiting for you: take control, sign in, then tap **Done** and I'll pick it up from there.",
+        time: "8:28 AM",
       },
       {
         id: "c4",
@@ -269,8 +300,43 @@ export const taskStatusMeta: Record<TaskStatus, { label: string; color: string }
   failed: { label: "Failed", color: "var(--fill-red)" },
 };
 
+export const browserStatusMeta: Record<BrowserStatus, { label: string; color: string }> = {
+  working: { label: "Working", color: "var(--fill-blue)" },
+  waiting: { label: "Waiting for you", color: "var(--fill-orange)" },
+  completed: { label: "Completed", color: "var(--fill-green)" },
+  stopped: { label: "Stopped", color: "var(--icon-secondary)" },
+};
+
 export const levelMeta: Record<Level, string> = {
   allow: "Allow",
   ask: "Ask",
   deny: "Deny",
 };
+
+/* ---------- feed helpers ---------- */
+
+interface CardPayloads {
+  task: Task;
+  approval: Approval;
+  connreq: ConnectionRequest;
+  browser: BrowserRun;
+}
+
+/** Return a new feed where the `kind` card whose payload id is `id` is replaced by `fn(payload)`. */
+export function updateCard<K extends keyof CardPayloads>(
+  feed: FeedItem[],
+  kind: K,
+  id: string,
+  fn: (payload: CardPayloads[K]) => CardPayloads[K],
+): FeedItem[] {
+  return feed.map((item) => {
+    if (item.role !== "card" || item.kind !== kind) return item;
+    const payload = (item as unknown as Record<K, CardPayloads[K]>)[kind];
+    return payload.id === id ? ({ ...item, [kind]: fn(payload) } as FeedItem) : item;
+  });
+}
+
+export function findBrowser(feed: FeedItem[], id: string): BrowserRun | undefined {
+  for (const item of feed) if (item.role === "card" && item.kind === "browser" && item.browser.id === id) return item.browser;
+  return undefined;
+}

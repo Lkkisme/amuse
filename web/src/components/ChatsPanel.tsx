@@ -5,6 +5,7 @@
 import { MessageCircle, Menu, Plus, Search, Settings, X } from "lucide-react";
 import type { DemoState } from "../data/fakeMuse";
 import type { MuseActions } from "./actions";
+import { NAV_PAGES } from "./nav";
 
 const RECENT_CHATS = [
   { title: "Aquarium trip research", time: "32m" },
@@ -48,6 +49,27 @@ export function ChatsPanel({ state, actions }: { state: DemoState; actions: Muse
             placeholder="Search"
           />
         </div>
+
+        {/* pages: the rail is hidden below md, so the drawer carries them */}
+        <nav className="mt-3 grid grid-cols-3 gap-1 md:hidden" aria-label="Pages">
+          {NAV_PAGES.map(({ icon: Icon, label, ...rest }) => {
+            const active = "active" in rest;
+            return (
+              <button
+                key={label}
+                className="hover-fade flex flex-col items-center gap-1 rounded-xl py-2.5 text-[12px] font-medium"
+                style={{
+                  background: active ? "var(--fill-secondary)" : "transparent",
+                  color: active ? "var(--text-primary)" : "var(--text-secondary)",
+                }}
+                onClick={() => actions.setChats(false)}
+              >
+                <Icon size={20} />
+                {label}
+              </button>
+            );
+          })}
+        </nav>
 
         <div className="mt-3 flex-1 overflow-y-auto">
           {/* Main chat */}

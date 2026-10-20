@@ -19,10 +19,12 @@ export interface MuseActions {
   // Browser viewer / takeover
   openViewer(browserId: string): void;
   closeViewer(): void;
-  takeControl(): void;
-  handBack(): void;
-  viewerStop(): void;
-  viewerDone(): void;
+  selectViewerTab(browserId: string): void;
+  closeViewerTab(browserId: string): void;
+  takeControl(browserId: string): void;
+  /** Done: hand the browser back to the agent, which re-observes and finishes */
+  handBack(browserId: string): void;
+  viewerStop(browserId: string): void;
 
   // Chats panel + activity panel
   setChats(open: boolean): void;

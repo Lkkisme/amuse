@@ -4,8 +4,8 @@
  * No network, no backend: all "live" behavior is scripted timers.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DemoState, FeedItem, Level } from "./data/fakeMuse";
-import { seedDemo } from "./data/fakeMuse";
+import type { BrowserRun, DemoState, FeedItem, Level, Task } from "./data/fakeMuse";
+import { seedDemo, updateCard } from "./data/fakeMuse";
 import type { MuseActions } from "./components/actions";
 import { ChatFeed } from "./components/ChatFeed";
 import { Composer } from "./components/Composer";
@@ -36,26 +36,13 @@ export default function App() {
   }, []);
 
   const patchTask = useCallback(
-    (taskId: string, fn: (t: Extract<FeedItem, { kind: "task" }>["task"]) => Extract<FeedItem, { kind: "task" }>["task"]) => {
-      patchFeed((feed) =>
-        feed.map((item) =>
-          item.role === "card" && item.kind === "task" && item.task.id === taskId ? { ...item, task: fn(item.task) } : item,
-        ),
-      );
-    },
+    (taskId: string, fn: (t: Task) => Task) => patchFeed((feed) => updateCard(feed, "task", taskId, fn)),
     [patchFeed],
   );
 
   const patchBrowser = useCallback(
-    (browserId: string, patch: Partial<Extract<FeedItem, { kind: "browser" }>["browser"]>) => {
-      patchFeed((feed) =>
-        feed.map((item) =>
-          item.role === "card" && item.kind === "browser" && item.browser.id === browserId
-            ? { ...item, browser: { ...item.browser, ...patch } }
-            : item,
-        ),
-      );
-    },
+    (browserId: string, patch: Partial<BrowserRun>) =>
+      patchFeed((feed) => updateCard(feed, "browser", browserId, (b) => ({ ...b, ...patch }))),
     [patchFeed],
   );
 
@@ -108,13 +95,7 @@ export default function App() {
       },
 
       resolveApproval(id, approved) {
-        patchFeed((feed) =>
-          feed.map((item) =>
-            item.role === "card" && item.kind === "approval" && item.approval.id === id
-              ? { ...item, approval: { ...item.approval, status: approved ? "approved" : "denied" } }
-              : item,
-          ),
-        );
+        patchFeed((feed) => updateCard(feed, "approval", id, (a) => ({ ...a, status: approved ? ("approved" as const) : ("denied" as const) })));
         later(() => {
           streamAgentReply(approved ? "Approved — **sending it now**." : "Understood, I dropped the draft.");
         }, 500);
@@ -146,25 +127,13 @@ export default function App() {
       },
 
       requestConnect(connreqId) {
-        patchFeed((feed) =>
-          feed.map((item) =>
-            item.role === "card" && item.kind === "connreq" && item.connreq.id === connreqId
-              ? { ...item, connreq: { ...item.connreq, status: "explaining" } }
-              : item,
-          ),
-        );
+        patchFeed((feed) => updateCard(feed, "connreq", connreqId, (c) => ({ ...c, status: "explaining" as const })));
         setState((s) => ({ ...s, explainerFor: connreqId }));
       },
 
       confirmConnect(connreqId) {
         setState((s) => ({ ...s, explainerFor: null }));
-        patchFeed((feed) =>
-          feed.map((item) =>
-            item.role === "card" && item.kind === "connreq" && item.connreq.id === connreqId
-              ? { ...item, connreq: { ...item.connreq, status: "connected" } }
-              : item,
-          ),
-        );
+        patchFeed((feed) => updateCard(feed, "connreq", connreqId, (c) => ({ ...c, status: "connected" as const })));
         later(() => {
           streamAgentReply("**Connected.** I can read from it now — want me to pull a sample?");
         }, 500);
@@ -172,40 +141,45 @@ export default function App() {
 
       dismissConnect(connreqId) {
         setState((s) => ({ ...s, explainerFor: null }));
-        patchFeed((feed) =>
-          feed.map((item) =>
-            item.role === "card" && item.kind === "connreq" && item.connreq.id === connreqId
-              ? { ...item, connreq: { ...item.connreq, status: "pending" } }
-              : item,
-          ),
-        );
+        patchFeed((feed) => updateCard(feed, "connreq", connreqId, (c) => ({ ...c, status: "pending" as const })));
       },
 
       openViewer(browserId) {
-        setState((s) => ({ ...s, viewer: { browserId, control: "agent" } }));
+        setState((s) => ({
+          ...s,
+          viewer: { browserId, closedTabs: (s.viewer?.closedTabs ?? []).filter((id) => id !== browserId) },
+        }));
       },
       closeViewer() {
         setState((s) => ({ ...s, viewer: null }));
       },
-      takeControl() {
-        setState((s) => (s.viewer ? { ...s, viewer: { ...s.viewer, control: "user" } } : s));
+      selectViewerTab(browserId) {
+        setState((s) => (s.viewer ? { ...s, viewer: { ...s.viewer, browserId } } : s));
       },
-      handBack() {
-        setState((s) => (s.viewer ? { ...s, viewer: { ...s.viewer, control: "agent" } } : s));
-      },
-      viewerStop() {
+      closeViewerTab(browserId) {
         setState((s) => {
-          if (s.viewer) patchBrowser(s.viewer.browserId, { status: "failed" });
-          return { ...s, viewer: null };
+          if (!s.viewer) return s;
+          const closedTabs = [...s.viewer.closedTabs, browserId];
+          const open = s.feed.flatMap((i) =>
+            i.role === "card" && i.kind === "browser" && !closedTabs.includes(i.browser.id) ? [i.browser.id] : [],
+          );
+          if (open.length === 0) return { ...s, viewer: null };
+          const active = s.viewer.browserId === browserId ? open[open.length - 1] : s.viewer.browserId;
+          return { ...s, viewer: { browserId: active, closedTabs } };
         });
+      },
+      takeControl(browserId) {
+        patchBrowser(browserId, { control: "user" });
+      },
+      handBack(browserId) {
+        // Muse: Done returns the browser; the agent re-observes the page, then finishes.
+        patchBrowser(browserId, { control: "agent", status: "working" });
+        streamAgentReply("Thanks, I have the browser back. Re-checking the page and finishing up.");
+        later(() => patchBrowser(browserId, { status: "completed" }), 2500);
+      },
+      viewerStop(browserId) {
+        patchBrowser(browserId, { control: "agent", status: "stopped" });
         streamAgentReply("Stopped the browser run where it was. Nothing was submitted.");
-      },
-      viewerDone() {
-        setState((s) => {
-          if (s.viewer) patchBrowser(s.viewer.browserId, { status: "completed" });
-          return { ...s, viewer: null };
-        });
-        streamAgentReply("Session closed and control is back with me. Continuing the task.");
       },
 
       setChats(open) {
@@ -263,7 +237,8 @@ export default function App() {
   return (
     <div className="flex h-full" style={{ background: "var(--chat-background)" }}>
       <IconRail />
-      <div className="flex min-w-0 flex-1 flex-col">
+      {/* with the viewer open on desktop, the chat keeps the left 482px (Muse layout) */}
+      <div className={`relative flex min-w-0 flex-1 flex-col ${state.viewer ? "lg:max-w-[410px]" : ""}`}>
         <ChatFeed state={state} actions={actions} />
         <TopBar state={state} actions={actions} />
         <Composer assistantThinking={state.assistantThinking} actions={actions} />

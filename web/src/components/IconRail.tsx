@@ -2,25 +2,8 @@
  * Left icon rail (Muse layout): chat, search, doc, lightbulb, checklist,
  * apps grid — download pinned at the bottom. Narrow, icon-only, hover .18s.
  */
-import {
-  Download,
-  FileText,
-  LayoutGrid,
-  Lightbulb,
-  ListTodo,
-  MessageCircle,
-  Search,
-} from "lucide-react";
-import type { MuseActions } from "./actions";
-
-const RAIL_ICONS = [
-  { icon: MessageCircle, label: "Chat", active: true },
-  { icon: Search, label: "Search" },
-  { icon: FileText, label: "Docs" },
-  { icon: Lightbulb, label: "Ideas" },
-  { icon: ListTodo, label: "Tasks" },
-  { icon: LayoutGrid, label: "Apps" },
-];
+import { Download } from "lucide-react";
+import { NAV_PAGES } from "./nav";
 
 export function IconRail() {
   return (
@@ -29,7 +12,9 @@ export function IconRail() {
       style={{ borderColor: "var(--fill-divider)", background: "var(--chat-background)" }}
       aria-label="Navigation rail"
     >
-      {RAIL_ICONS.map(({ icon: Icon, label, active }) => (
+      {NAV_PAGES.map(({ icon: Icon, label, ...rest }) => {
+        const active = "active" in rest;
+        return (
         <button
           key={label}
           aria-label={label}
@@ -42,7 +27,8 @@ export function IconRail() {
         >
           <Icon size={20} />
         </button>
-      ))}
+        );
+      })}
       <button
         aria-label="Download app"
         title="Download app"
