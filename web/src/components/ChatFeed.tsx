@@ -115,20 +115,49 @@ export function ChatFeed({ conversation, older, release, thumb, actions }: Props
   /** messages in the whole feed: what "new" is counted against, so pages fetched back are not new */
   const total = conversation.earlier + feed.length;
   const scrollRef = useRef<HTMLDivElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
   /** far enough from the bottom to offer the jump button, new messages or not */
   const [far, setFar] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
   const seenRef = useRef(0);
-  const atBottomRef = useRef(true);
+  /**
+   * The view sticks to the end while the user leaves it there: only their own scrolling
+   * changes this, so content that grows (a streaming reply, a thumbnail loading) is followed.
+   */
+  const stick = useRef(true);
+  /** a smooth scroll to the end is under way: the positions it passes through are not the user's */
+  const gliding = useRef(false);
 
-  const scrollToBottom = () => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-    atBottomRef.current = true;
+  const toEnd = (smooth: boolean) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stick.current = true;
     setAtBottom(true);
     seenRef.current = total;
     setPendingCount(0);
+    if (smooth) {
+      gliding.current = true;
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    } else el.scrollTop = el.scrollHeight;
+  };
+  const scrollToBottom = () => toEnd(true);
+
+  // stuck to the end, it stays there whatever grows or shrinks: content, or the view (the keyboard)
+  useEffect(() => {
+    const el = scrollRef.current;
+    const content = contentRef.current;
+    if (!el || !content) return;
+    const follow = new ResizeObserver(() => {
+      if (stick.current && !gliding.current) el.scrollTop = el.scrollHeight;
+    });
+    follow.observe(content);
+    follow.observe(el);
+    return () => follow.disconnect();
+  }, []);
+  /** the user's own hand on the scroll ends a glide: from then on, where they scroll counts */
+  const handOn = () => {
+    gliding.current = false;
   };
 
   /** Where the first message held sat before older ones went in above it, to put it back there. */
@@ -165,10 +194,12 @@ export function ChatFeed({ conversation, older, release, thumb, actions }: Props
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
     const near = distance < 80;
     setFar(distance > JUMP_BUTTON_DISTANCE);
-    if (near !== atBottomRef.current) {
-      atBottomRef.current = near;
-      setAtBottom(near);
+    if (gliding.current) {
+      if (distance < 2) gliding.current = false; // arrived
+      return;
     }
+    stick.current = near;
+    setAtBottom(near);
     if (near) {
       seenRef.current = total;
       setPendingCount(0);
@@ -177,21 +208,26 @@ export function ChatFeed({ conversation, older, release, thumb, actions }: Props
   };
 
   const arrived = useRef(false);
+  /** the newest message the user sent: sending one takes the view back to the end */
+  const lastPrompt = useRef<string | null>(null);
   useEffect(() => {
+    const newestPrompt = feed.findLast((e) => e.kind === "prompt")?.id ?? null;
     // The first content (the initial sync) lands at the bottom at once, like opening a chat.
     if (!arrived.current && feed.length > 0) {
       arrived.current = true;
-      bottomRef.current?.scrollIntoView({ block: "end" });
-      seenRef.current = total;
+      lastPrompt.current = newestPrompt;
+      toEnd(false);
       return;
     }
-    // New content: follow it only when the user is already at the bottom (and let go of
-    // pages fetched back). Otherwise leave the scroll position alone and surface a jump-to-latest pill.
-    if (atBottomRef.current) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    if (newestPrompt !== lastPrompt.current && feed.at(-1)?.id === newestPrompt) {
+      lastPrompt.current = newestPrompt;
+      toEnd(true); // the user just sent it
+    } else if (stick.current) {
+      // at the end: the view follows (the resize observer); pages fetched back can go
       seenRef.current = total;
       release();
     } else {
+      // reading back: leave the view alone and count what is new for the jump-to-latest pill
       setPendingCount(Math.max(0, total - seenRef.current));
     }
     fetchOlder(); // the feed may not fill the screen yet
@@ -202,10 +238,13 @@ export function ChatFeed({ conversation, older, release, thumb, actions }: Props
       <div
         ref={scrollRef}
         onScroll={onScroll}
+        onWheel={handOn}
+        onTouchStart={handOn}
+        onKeyDown={handOn}
         className="h-full overflow-y-auto px-4 pt-16 pb-28 chat-scroll-fade"
         style={{ background: "var(--chat-background)" }}
       >
-        <div className="mx-auto flex max-w-3xl flex-col gap-3">
+        <div ref={contentRef} className="mx-auto flex max-w-3xl flex-col gap-3">
         {feed.map((entity, i) => (
           <div key={entity.id} data-entity={entity.id} className="flex flex-col">
             <EntityView entity={entity} previous={feed[i - 1]} thumb={thumb} actions={actions} />
@@ -224,7 +263,6 @@ export function ChatFeed({ conversation, older, release, thumb, actions }: Props
             </div>
           </div>
         )}
-        <div ref={bottomRef} />
       </div>
       {/* Jump-to-bottom: a plain down-arrow button while far from the bottom;
           "N messages" pill (Muse ref 09-waiting) when new ones arrived. */}
