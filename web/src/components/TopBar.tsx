@@ -13,7 +13,7 @@ export function TopBar({ state, actions }: { state: DemoState; actions: MuseActi
     >
       <button
         aria-label="Open chats"
-        className="hover-fade pointer-events-auto flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[14px] font-semibold"
+        className="hover-fade pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full sm:h-9 sm:w-auto sm:px-3.5 sm:text-[14px] sm:font-semibold"
         style={{ background: "var(--fill-primary)", color: "var(--text-primary)", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}
         onClick={() => actions.setChats(!state.chatsOpen)}
       >
@@ -38,7 +38,7 @@ export function TopBar({ state, actions }: { state: DemoState; actions: MuseActi
       </div>
 
       <button
-        className="hover-fade pointer-events-auto flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[14px] font-semibold"
+        className="hover-fade pointer-events-auto hidden h-9 items-center gap-1.5 rounded-full px-3.5 text-[14px] font-semibold sm:flex"
         style={{ background: "var(--fill-primary)", color: "var(--text-primary)", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}
       >
         <Gift size={16} /> Invite
