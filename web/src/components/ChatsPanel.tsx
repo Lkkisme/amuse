@@ -1,8 +1,8 @@
 /**
- * Left drawer (the ☰ button opens it): search + close, page grid on mobile, Main chat row with
+ * Left drawer (the ☰ button opens it): Settings + close, page grid on mobile, Main chat row with
  * timestamp, Side chats + add row, recent chats. Slide-over from the left.
  */
-import { MessageCircle, Plus, Search, Settings, X } from "lucide-react";
+import { MessageCircle, Plus, Settings, X } from "lucide-react";
 import type { DemoState } from "../data/fakeMuse";
 import type { MuseActions } from "./actions";
 import { NAV_PAGES } from "./nav";
@@ -23,19 +23,19 @@ export function ChatsPanel({ state, actions }: { state: DemoState; actions: Muse
         style={{ background: "var(--chat-background)", boxShadow: "4px 0 24px rgba(0,0,0,0.12)" }}
         aria-label="Menu"
       >
-        {/* search + close share the top row; no title, the drawer holds pages and chats */}
-        <div className="flex items-center gap-2">
-          <div
-            className="flex h-10 flex-1 items-center gap-2 rounded-full px-3"
-            style={{ background: "var(--fill-secondary)", color: "var(--text-tertiary)" }}
+        {/* top row: Settings + close (Search is a page in the grid below) */}
+        <div className="flex items-center justify-between">
+          <button
+            className="hover-fade flex h-10 items-center gap-2 rounded-full pl-3 pr-4 text-[15px] font-medium"
+            style={{ background: "var(--fill-secondary)", color: "var(--text-primary)" }}
+            onClick={() => {
+              actions.setChats(false);
+              actions.openSettings("connectors");
+            }}
           >
-            <Search size={16} />
-            <input
-              className="w-full bg-transparent text-[14px] outline-none"
-              style={{ color: "var(--text-primary)" }}
-              placeholder="Search"
-            />
-          </div>
+            <Settings size={18} />
+            Settings
+          </button>
           <button
             aria-label="Close menu"
             className="hover-fade rounded-full p-2"
@@ -118,20 +118,6 @@ export function ChatsPanel({ state, actions }: { state: DemoState; actions: Muse
               </button>
             ))}
           </div>
-        </div>
-
-        <div className="pt-2" style={{ borderTop: "1px solid var(--fill-divider)" }}>
-          <button
-            className="hover-fade flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15px] font-medium"
-            style={{ color: "var(--text-primary)" }}
-            onClick={() => {
-              actions.setChats(false);
-              actions.openSettings("connectors");
-            }}
-          >
-            <Settings size={18} />
-            Settings
-          </button>
         </div>
       </aside>
     </div>
