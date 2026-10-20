@@ -147,3 +147,12 @@ const agentRules: AgentRules = {
 export function decideAgent<K extends keyof Actions>(state: State, kind: K, action: Actions[K], ctx: Context): Decision<{ id: string }> {
   return agentRules[kind](state, action, ctx);
 }
+
+/**
+ * After a restart nothing is mid-run any more: replies that were streaming
+ * end where they stopped, and the activity line clears.
+ */
+export function recover(state: State): Event[] {
+  const cut = state.entities.flatMap((e) => (e.kind === "reply" && e.streaming ? [upsert({ ...e, streaming: false })] : []));
+  return state.activity === null ? cut : [...cut, { kind: "activity", activity: null }];
+}

@@ -18,9 +18,12 @@ import {
   dispatch,
   empty,
 } from "@remuse/protocol";
-import { type AgentAction, type Command, type Context, type Effect, type Rejection, decide, decideAgent } from "./decide.ts";
+import { type AgentAction, type Command, type Context, type Effect, type Rejection, decide, decideAgent, recover } from "./decide.ts";
 
 export type Emit = (event: Event) => void;
+
+/** Ids that stay unique across restarts and processes (a journal outlives any counter). */
+export const newId = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
 
 /** What the agent can do while it runs: report events, and act through the rules. */
 export interface AgentIO {
@@ -47,6 +50,12 @@ export interface Clock {
   now(): string;
 }
 
+/** Where the event log survives restarts. The host replays it on start and appends every event. */
+export interface Journal {
+  load(): Envelope[];
+  append(envelope: Envelope): void;
+}
+
 /** A rejected command, carried to the transport as a JSON-RPC error. */
 export class Rejected extends Error {
   readonly rejection: Rejection;
@@ -56,21 +65,24 @@ export class Rejected extends Error {
   }
 }
 
-export function createHost(ports: Ports, options: { seed?: Entity[]; clock?: Clock } = {}): Session {
+export function createHost(ports: Ports, options: { seed?: Entity[]; clock?: Clock; journal?: Journal } = {}): Session {
   const clock = options.clock ?? { now: () => new Date().toISOString() };
   let state: State = empty;
   const log: Envelope[] = [];
   const listeners = new Set<(envelope: Envelope) => void>();
-  let ids = 0;
 
-  const emit: Emit = (event) => {
-    const envelope = { seq: state.seq + 1, event };
+  const record = (envelope: Envelope) => {
     state = apply(state, envelope);
     log.push(envelope);
+  };
+  const emit: Emit = (event) => {
+    const envelope = { seq: state.seq + 1, event };
+    record(envelope);
+    options.journal?.append(envelope);
     for (const listener of listeners) listener(envelope);
   };
 
-  const context = (): Context => ({ now: clock.now(), id: (prefix) => `${prefix}${++ids}` });
+  const context = (): Context => ({ now: clock.now(), id: newId });
 
   const agent: AgentIO = {
     emit,
@@ -109,7 +121,11 @@ export function createHost(ports: Ports, options: { seed?: Entity[]; clock?: Clo
     return decision.output;
   };
 
-  for (const entity of options.seed ?? []) emit({ kind: "upserted", entity });
+  // a journal with history wins over the seed
+  const history = options.journal?.load() ?? [];
+  history.forEach(record);
+  recover(state).forEach(emit);
+  if (history.length === 0) for (const entity of options.seed ?? []) emit({ kind: "upserted", entity });
 
   const handlers: Handlers = {
     "session.sync": async ({ since }) =>

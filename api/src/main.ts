@@ -7,10 +7,12 @@
  *                 Pi auth file)
  *   REMUSE_COMPOSIO_KEY_FILE  file holding a Composio developer key (ak_…): connectors go
  *                 through Composio; read once, never logged
+ *   REMUSE_JOURNAL  JSONL file the event log lives in (survives restarts); in memory if unset
  *   Browser and approvals stay scripted for now.
  */
 import { readFileSync } from "node:fs";
 import { composio, composioConnector } from "@remuse/composio";
+import { fileJournal } from "./journal.ts";
 import { createHost, demoPorts, realTimers, seed } from "@remuse/core";
 import { piAgent } from "@remuse/pi";
 import { listen } from "./server.ts";
@@ -38,5 +40,7 @@ const ports = {
   ...(keyFile ? composioConnector(composio(readFileSync(keyFile, "utf8").trim()), { userId: "owner", timers: realTimers }) : {}),
 };
 
-await listen({ session: createHost(ports, { seed: seed() }), token, port, host });
+const journalPath = process.env["REMUSE_JOURNAL"];
+const journal = journalPath ? { journal: fileJournal(journalPath) } : {};
+await listen({ session: createHost(ports, { seed: seed(), ...journal }), token, port, host });
 console.log(`remuse api on ws://${host}:${port}/rpc (agent: ${model && authPath ? model : "scripted"}, connectors: ${keyFile ? "composio" : "scripted"})`);

@@ -4,7 +4,7 @@
  * in. Behavior lives here only as port reactions; the rules stay in decide.
  */
 import type { Entity } from "@remuse/protocol";
-import type { Emit, Ports } from "./host.ts";
+import { type Emit, type Ports, newId } from "./host.ts";
 
 /** Scheduling, injectable so tests can run the script without waiting. */
 export interface Timers<H> {
@@ -19,7 +19,6 @@ export const realTimers: Timers<ReturnType<typeof setTimeout>> = {
 
 export function demoPorts<H>(timers: Timers<H>): Ports {
   let replying: H[] = [];
-  let ids = 0;
   const later = (ms: number, fn: () => void) => replying.push(timers.set(ms, fn));
   const now = () => new Date().toISOString();
 
@@ -27,7 +26,7 @@ export function demoPorts<H>(timers: Timers<H>): Ports {
   const reply = (emit: Emit, text: string, delay = 600) => {
     emit({ kind: "activity", activity: { kind: "responding", label: null } });
     later(delay, () => {
-      const id = `r-demo${++ids}`;
+      const id = newId("r");
       const [first = "", ...rest] = text.split(" ");
       emit({ kind: "upserted", entity: { kind: "reply", id, at: now(), text: first, streaming: true } });
       rest.forEach((word, i) => later(70 * (i + 1), () => emit({ kind: "appended", id, text: ` ${word}` })));

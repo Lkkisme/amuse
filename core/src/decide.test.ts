@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Browser, type BrowserStatus, type Entity, type State, apply, empty } from "@remuse/protocol";
-import { type Context, decide, decideAgent } from "./decide.ts";
+import { type Context, decide, decideAgent, recover } from "./decide.ts";
 
 const at = "2026-10-20T08:00:00Z";
 const ctx: Context = { now: at, id: (prefix) => `${prefix}1` };
@@ -96,4 +96,16 @@ test("agent actions: connect reuses a pending request for the same provider; bro
   const run: Browser = { kind: "browser", id: "b1", at, title: "Tides", url: "https://tides.example/", status: "working" };
   assert.deepEqual(browse.events, [{ kind: "upserted", entity: run }]);
   assert.deepEqual(browse.effects, [{ kind: "browse", browser: run }]);
+});
+
+test("recovery ends interrupted replies and clears the activity; a quiet state needs nothing", () => {
+  const busy = apply(stateOf({ kind: "reply", id: "r1", at, text: "Hal", streaming: true }), {
+    seq: 2,
+    event: { kind: "activity", activity: { kind: "responding", label: null } },
+  });
+  assert.deepEqual(recover(busy), [
+    { kind: "upserted", entity: { kind: "reply", id: "r1", at, text: "Hal", streaming: false } },
+    { kind: "activity", activity: null },
+  ]);
+  assert.deepEqual(recover(stateOf({ kind: "prompt", id: "p1", at, text: "hi" })), []);
 });

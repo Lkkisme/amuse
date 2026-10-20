@@ -16,7 +16,7 @@ import {
   createAgentSession,
   createExtensionRuntime,
 } from "@earendil-works/pi-coding-agent";
-import type { AgentIO, Ports } from "@remuse/core";
+import { type AgentIO, type Ports, newId } from "@remuse/core";
 import { tools } from "./tools.ts";
 import { redact } from "./redact.ts";
 
@@ -98,7 +98,6 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt"> {
     return session;
   };
   let queue: Promise<void> = Promise.resolve();
-  let ids = 0;
 
   const run = async (text: string, agent: AgentIO) => {
     const { emit } = agent;
@@ -117,7 +116,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt"> {
           const delta = event.assistantMessageEvent.delta;
           if (!delta) return;
           if (!reply) {
-            reply = { id: `r-pi${++ids}`, at: new Date().toISOString(), text: delta };
+            reply = { id: newId("r"), at: new Date().toISOString(), text: delta };
             emit({ kind: "upserted", entity: { kind: "reply", ...reply, streaming: true } });
           } else {
             reply.text += delta;
@@ -142,7 +141,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt"> {
     } catch (error) {
       finish();
       const message = redact(error instanceof Error ? error.message : String(error), [cfg.authPath, cfg.modelsPath]);
-      emit({ kind: "upserted", entity: { kind: "reply", id: `r-pi${++ids}`, at: new Date().toISOString(), text: `Something went wrong: ${message}`, streaming: false } });
+      emit({ kind: "upserted", entity: { kind: "reply", id: newId("r"), at: new Date().toISOString(), text: `Something went wrong: ${message}`, streaming: false } });
     } finally {
       current = undefined;
       emit({ kind: "activity", activity: null });
