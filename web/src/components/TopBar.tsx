@@ -18,10 +18,10 @@ export function TopBar({ conversation }: { conversation: State }) {
       {/* spacer: the menu button lives outside the header (MenuButton) so it can sit above the drawer */}
       <span className="size-10" />
 
-      {/* Muse avatar bubble */}
-      <div className="pointer-events-none absolute left-1/2 top-1 z-10 flex -translate-x-1/2 flex-col items-center">
+      {/* Muse avatar bubble, drawn over the top of its name badge (Muse: 52px avatar, badge tucked 4px under) */}
+      <div className="pointer-events-none absolute left-1/2 top-2 z-10 flex -translate-x-1/2 flex-col items-center">
         <span
-          className="flex size-11 items-center justify-center rounded-full text-[17px] font-semibold"
+          className="relative z-10 flex size-[52px] items-center justify-center rounded-full text-[20px] font-semibold"
           style={{ background: "var(--fill-primary)", color: "var(--text-primary)", boxShadow: "0 1px 6px rgba(0,0,0,0.10)" }}
         >
           M
@@ -37,19 +37,19 @@ function AvatarBadge({ line }: { line: AgentLine | null }) {
   const Icon = line ? LINE_ICONS[line.icon] : null;
   return (
     <span
-      className="-mt-1.5 flex flex-col items-center rounded-full px-2.5 py-0.5 transition-all duration-200"
+      className="-mt-1 flex min-w-[52px] flex-col items-center rounded-[20px] px-3.5 pb-1.5 pt-[5px] transition-all duration-200"
       style={{ background: "var(--fill-primary)", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}
     >
-      <span className="text-[11px] font-semibold" style={{ color: "var(--text-primary)" }}>
+      <span className="text-[14px] font-semibold leading-[18px]" style={{ color: "var(--text-primary)" }}>
         Muse
       </span>
       {line && Icon && (
         <span
           key={line.text}
-          className="anim-fade-in flex items-center gap-1 whitespace-nowrap text-[10px]"
+          className="anim-fade-in flex items-center gap-1.5 whitespace-nowrap text-[12.5px] leading-[17px]"
           style={{ color: "var(--text-secondary)" }}
         >
-          <Icon size={10} />
+          <Icon size={12} />
           {line.text}
         </span>
       )}
