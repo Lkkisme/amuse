@@ -187,7 +187,8 @@
   transition: opacity 0.2s ease;
 }
 
-html, body, #root { height: 100%; }
+/* the app fills what is visible: the on-screen keyboard shrinks it rather than pushing it up (main.tsx) */
+html, body, #root { height: var(--visible-height, 100%); overflow: hidden; }
 body {
   margin: 0;
   background: var(--bg-primary);
