@@ -5,8 +5,8 @@
  * timestamps ('8:27 AM') centered between message groups, and the three-dot
  * hatch-dot-pulse thinking indicator in a small gray bubble.
  */
-import { useEffect, useRef } from "react";
-import { Copy, MoreHorizontal, Share, Smile } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ChevronDown, Copy, MoreHorizontal, Share, Smile } from "lucide-react";
 import type { DemoState, FeedItem } from "../data/fakeMuse";
 import type { MuseActions } from "./actions";
 import { ApprovalCard, BrowserCard, ConnReqCard, TaskCard } from "./cards";
@@ -74,15 +74,51 @@ function TimeDivider({ time }: { time: string }) {
 }
 
 export function ChatFeed({ state, actions }: { state: DemoState; actions: MuseActions }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [atBottom, setAtBottom] = useState(true);
+  const [pendingCount, setPendingCount] = useState(0);
+  const seenRef = useRef(state.feed.length);
+  const atBottomRef = useRef(true);
+
+  const scrollToBottom = () => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    atBottomRef.current = true;
+    setAtBottom(true);
+    seenRef.current = state.feed.length;
+    setPendingCount(0);
+  };
+
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (near !== atBottomRef.current) {
+      atBottomRef.current = near;
+      setAtBottom(near);
+    }
+    if (near) {
+      seenRef.current = state.feed.length;
+      setPendingCount(0);
+    }
+  };
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [state.feed.length, state.assistantThinking, state.feed]);
+    // New content: follow it only when the user is already at the bottom.
+    // Otherwise leave the scroll position alone and surface a jump-to-latest pill.
+    if (atBottomRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+      seenRef.current = state.feed.length;
+    } else {
+      setPendingCount(Math.max(0, state.feed.length - seenRef.current));
+    }
+  }, [state.feed, state.assistantThinking]);
 
   return (
     <div className="relative min-h-0 flex-1">
       <div
+        ref={scrollRef}
+        onScroll={onScroll}
         className="h-full overflow-y-auto px-4 pt-16 pb-28 chat-scroll-fade"
         style={{ background: "var(--chat-background)" }}
       >
@@ -124,6 +160,17 @@ export function ChatFeed({ state, actions }: { state: DemoState; actions: MuseAc
         )}
         <div ref={bottomRef} />
       </div>
+      {/* Jump-to-latest pill (Muse): appears when new messages arrive while scrolled up. */}
+      {pendingCount > 0 && (
+        <button
+          className="absolute bottom-24 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full px-4 py-2 text-[14px] font-semibold"
+          style={{ background: "var(--fill-blue)", color: "#fff", boxShadow: "0 2px 8px rgba(0,0,0,0.15)" }}
+          onClick={scrollToBottom}
+        >
+          {pendingCount} {pendingCount === 1 ? "message" : "messages"}
+          <ChevronDown size={16} />
+        </button>
+      )}
       {/* Muse-style scroll fade: a mask dissolves the content itself under the
           floating top bar and composer — no solid overlay sits on top. */}
       </div>
