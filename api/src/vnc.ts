@@ -15,7 +15,7 @@ function messageLength(type: number, b: Uint8Array): number | null | "unknown" {
   const byte = (at: number) => b[at] ?? 0; // only read after the length check below
   const u8 = (at: number) => (b.length > at ? byte(at) : null);
   const u16 = (at: number) => (b.length >= at + 2 ? (byte(at) << 8) | byte(at + 1) : null);
-  const u32 = (at: number) => (b.length >= at + 4 ? ((byte(at) << 24) | (byte(at + 1) << 16) | (byte(at + 2) << 8) | byte(at + 3)) >>> 0 : null);
+  const s32 = (at: number) => (b.length >= at + 4 ? (byte(at) << 24) | (byte(at + 1) << 16) | (byte(at + 2) << 8) | byte(at + 3) : null);
   switch (type) {
     case 0: // SetPixelFormat
       return 20;
@@ -30,8 +30,8 @@ function messageLength(type: number, b: Uint8Array): number | null | "unknown" {
     case 5: // PointerEvent
       return 6;
     case 6: {
-      const n = u32(4); // ClientCutText
-      return n === null ? null : 8 + n;
+      const n = s32(4); // ClientCutText; a negative length is the extended clipboard format, |n| bytes
+      return n === null ? null : 8 + Math.abs(n);
     }
     case 150: // EnableContinuousUpdates
       return 10;
@@ -43,12 +43,17 @@ function messageLength(type: number, b: Uint8Array): number | null | "unknown" {
       const n = u8(6); // SetDesktopSize
       return n === null ? null : 8 + 16 * n;
     }
+    case 255: {
+      const subtype = u8(1); // QEMU client message; noVNC sends keys this way when the server offers it
+      return subtype === null ? null : subtype === 0 ? 12 : "unknown"; // 0: QEMU extended key event
+    }
     default:
       return "unknown";
   }
 }
 
-const input = new Set([4, 5, 6]);
+/** keys (plain and QEMU extended), pointer, clipboard */
+const input = new Set([4, 5, 6, 255]);
 const resize = 251;
 
 export interface Gate {

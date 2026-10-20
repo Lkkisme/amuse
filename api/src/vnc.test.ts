@@ -35,3 +35,19 @@ test("an unknown message closes the stream instead of being forwarded", () => {
   const gate = vncGate();
   assert.equal(gate.pass(cat(handshake, new Uint8Array([77, 0, 0])), true), "close");
 });
+
+// as noVNC sent them to TigerVNC on an auto-browser node (captured): extended clipboard caps, then QEMU keys
+const clipboardCaps = new Uint8Array([6, 0, 0, 0, 255, 255, 255, 248, 31, 0, 0, 1, 0, 0, 0, 0]);
+const qemuKey = new Uint8Array([255, 0, 0, 1, 0, 0, 0, 104, 0, 0, 0, 35]);
+
+test("an extended clipboard message (negative length) does not hold up what follows", () => {
+  const gate = vncGate();
+  assert.deepEqual(gate.pass(cat(handshake, clipboardCaps, pointer), true), cat(handshake, clipboardCaps, pointer));
+  assert.deepEqual(vncGate().pass(cat(handshake, clipboardCaps, update), false), cat(handshake, update));
+});
+
+test("QEMU extended key events are keys: through while the user holds the run, dropped otherwise", () => {
+  assert.deepEqual(vncGate().pass(cat(handshake, qemuKey, update), true), cat(handshake, qemuKey, update));
+  assert.deepEqual(vncGate().pass(cat(handshake, qemuKey, update), false), cat(handshake, update));
+  assert.equal(vncGate().pass(cat(handshake, new Uint8Array([255, 1, 0, 0])), true), "close"); // other QEMU messages
+});
