@@ -6,7 +6,7 @@
  * Its badge follows the newest run that needs the user, else the newest one
  * in flight: an orange "!" while one waits for you, a pulsing dot while one works.
  */
-import { Monitor, PanelRightClose } from "lucide-react";
+import { Monitor, PanelRightClose, X } from "lucide-react";
 import type { State } from "@remuse/protocol";
 import type { Actions } from "../ui.ts";
 import { browserStatus, pillBrowser } from "../view.ts";
@@ -27,7 +27,9 @@ export function BrowserButton({ conversation, open, actions }: { conversation: S
       onClick={() => (open ? actions.closeViewer() : actions.openViewer(run?.id ?? null))}
     >
       <Monitor size={18} className={icon} style={{ opacity: open ? 0 : 1, transform: open ? "rotate(90deg) scale(0.6)" : "none" }} />
-      <PanelRightClose size={18} className={icon} style={{ opacity: open ? 1 : 0, transform: open ? "none" : "rotate(-90deg) scale(0.6)" }} />
+      {/* the viewer is a side panel from lg up (collapse it), a full screen below (close it) */}
+      <PanelRightClose size={18} className={`${icon} hidden lg:block`} style={{ opacity: open ? 1 : 0, transform: open ? "none" : "rotate(-90deg) scale(0.6)" }} />
+      <X size={19} className={`${icon} lg:hidden`} style={{ opacity: open ? 1 : 0, transform: open ? "none" : "rotate(-90deg) scale(0.6)" }} />
       {meta &&
         (waiting ? (
           <span
