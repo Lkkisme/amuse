@@ -10,24 +10,26 @@ export function IconRail({ actions }: { actions: Actions }) {
   return (
     <nav
       className="hidden w-14 shrink-0 flex-col items-center gap-1 border-r py-3 md:flex"
-      style={{ borderColor: "var(--fill-divider)", background: "var(--chat-background)" }}
+      style={{
+        borderColor: "var(--fill-divider)",
+        background: "var(--chat-background)",
+      }}
       aria-label="Navigation rail"
     >
-      {NAV_PAGES.map(({ icon: Icon, label, ...rest }) => {
-        const active = "active" in rest;
+      {NAV_PAGES.map(({ icon: Icon, label, active }) => {
         return (
-        <button
-          key={label}
-          aria-label={label}
-          title={label}
-          className="hover-fade flex size-10 items-center justify-center rounded-xl"
-          style={{
-            color: active ? "var(--icon-primary)" : "var(--icon-secondary)",
-            background: active ? "var(--fill-secondary)" : "transparent",
-          }}
-        >
-          <Icon size={20} />
-        </button>
+          <button
+            key={label}
+            aria-label={label}
+            title={label}
+            className="hover-fade flex size-10 items-center justify-center rounded-xl"
+            style={{
+              color: active ? "var(--icon-primary)" : "var(--icon-secondary)",
+              background: active ? "var(--fill-secondary)" : "transparent",
+            }}
+          >
+            <Icon size={20} />
+          </button>
         );
       })}
       <button
