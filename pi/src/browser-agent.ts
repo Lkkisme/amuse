@@ -68,6 +68,19 @@ function runTools(run: Run): ToolDefinition[] {
     return text(await observe(run.page));
   };
   const ref = (r: string) => run.page.locator(`aria-ref=${r}`);
+  /** Ask the user before a consequential step; true when approved. */
+  const approve = async (action: string, detail: string) => {
+    const asked = run.io.act({ kind: "ask", action, target: new URL(run.page.url()).host, detail });
+    if (!asked.ok) return false;
+    set("waiting");
+    const decided = await run.io.decision(asked.id);
+    set("working");
+    return decided === "approved";
+  };
+  const consequential = Type.Optional(
+    Type.Boolean({ description: "true when this step buys, sends, deletes, publishes, books or submits something that commits the user" }),
+  );
+  const refused = () => text("The user did not approve this step. Do not do it; finish or ask what they want instead.");
 
   return [
     defineTool({
@@ -80,20 +93,23 @@ function runTools(run: Run): ToolDefinition[] {
     defineTool({
       name: "click",
       label: "Click",
-      description: "Click the element with this ref.",
-      parameters: Type.Object({ ref: Type.String() }),
-      execute: async (_, { ref: r }) => act(() => ref(r).click({ timeout: 8_000 })),
+      description: "Click the element with this ref. Mark consequential clicks; they wait for the user's approval.",
+      parameters: Type.Object({ ref: Type.String(), consequential, what: Type.Optional(Type.String({ description: "for consequential clicks: what it will do, for the user" })) }),
+      execute: async (_, { ref: r, consequential: risky, what }) =>
+        risky && !(await approve("Click", what ?? `Click ${r}`)) ? refused() : act(() => ref(r).click({ timeout: 8_000 })),
     }),
     defineTool({
       name: "type",
       label: "Type",
-      description: "Replace the text in a field; set submit to press Enter afterwards.",
-      parameters: Type.Object({ ref: Type.String(), text: Type.String(), submit: Type.Optional(Type.Boolean()) }),
-      execute: async (_, { ref: r, text: value, submit }) =>
-        act(async () => {
-          await ref(r).fill(value, { timeout: 8_000 });
-          if (submit) await ref(r).press("Enter");
-        }),
+      description: "Replace the text in a field; set submit to press Enter afterwards. Mark consequential submits.",
+      parameters: Type.Object({ ref: Type.String(), text: Type.String(), submit: Type.Optional(Type.Boolean()), consequential }),
+      execute: async (_, { ref: r, text: value, submit, consequential: risky }) =>
+        risky && submit && !(await approve("Submit", `Enter "${value}" and submit`))
+          ? refused()
+          : act(async () => {
+              await ref(r).fill(value, { timeout: 8_000 });
+              if (submit) await ref(r).press("Enter");
+            }),
     }),
     defineTool({
       name: "press",

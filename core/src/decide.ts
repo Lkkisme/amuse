@@ -28,7 +28,9 @@ export type AgentAction =
   /** Ask the user to connect an app; a pending request for the same provider is reused. */
   | { kind: "connect"; provider: string; title: string }
   /** Hand a browser task to the browser port; it starts working at once. */
-  | { kind: "browse"; title: string; url: string };
+  | { kind: "browse"; title: string; url: string }
+  /** Ask the user to approve a consequential step before taking it. */
+  | { kind: "ask"; action: string; target: string; detail: string };
 
 type Actions = { [A in AgentAction as A["kind"]]: A };
 
@@ -59,6 +61,9 @@ const browserMoves: Record<BrowserAction, { from: readonly BrowserStatus[]; to: 
 
 const runningTask = ["queued", "working", "waiting"] as const;
 
+/** allow_* approves, deny_* denies. */
+export const verdict = (resolution: Resolution): "approved" | "denied" => (resolution.startsWith("allow") ? "approved" : "denied");
+
 const ok = <T>(events: Event[], effects: Effect[], output: T): Decision<T> => ({ ok: true, events, effects, output });
 const reject = (rejection: Rejection): Decision<never> => ({ ok: false, rejection });
 const upsert = (entity: Entity): Event => ({ kind: "upserted", entity });
@@ -84,8 +89,7 @@ const rules: Rules = {
     const approval = find(state, "approval", id);
     if (!approval) return reject({ kind: "notFound", entity: "approval", id });
     if (approval.status !== "pending") return reject({ kind: "invalid", action: "resolve", from: approval.status });
-    const status = resolution.startsWith("allow") ? "approved" : "denied";
-    return ok([upsert({ ...approval, status })], [{ kind: "approval", id, resolution }], null);
+    return ok([upsert({ ...approval, status: verdict(resolution) })], [{ kind: "approval", id, resolution }], null);
   },
 
   "connection.begin": (state, { id }) => {
@@ -136,6 +140,10 @@ const agentRules: AgentRules = {
     if (pending) return ok([], [], { id: pending.id });
     const id = ctx.id("c");
     return ok([upsert({ kind: "connection", id, at: ctx.now, provider, title, status: "pending" })], [], { id });
+  },
+  ask: (_, { action, target, detail }, ctx) => {
+    const id = ctx.id("a");
+    return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, status: "pending" })], [], { id });
   },
   browse: (_, { title, url }, ctx) => {
     const browser: Browser = { kind: "browser", id: ctx.id("b"), at: ctx.now, title, url, status: "working" };

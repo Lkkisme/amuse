@@ -4,6 +4,7 @@
  * in. Behavior lives here only as port reactions; the rules stay in decide.
  */
 import type { Entity } from "@remuse/protocol";
+import { verdict } from "./decide.ts";
 import { type Emit, type Ports, newId } from "./host.ts";
 
 /** Scheduling, injectable so tests can run the script without waiting. */
@@ -69,7 +70,7 @@ export function demoPorts<H>(timers: Timers<H>): Ports {
       if (action === "stop") reply(emit, "Stopped the browser run where it was. Nothing was submitted.");
     },
     approval: ({ resolution }, emit) =>
-      reply(emit, resolution.startsWith("allow") ? "Approved — **sending it now**." : "Understood, I dropped the draft."),
+      reply(emit, verdict(resolution) === "approved" ? "Approved — **sending it now**." : "Understood, I dropped the draft."),
     stopTask: () => {},
     connect: async (connection, emit) => {
       // the provider's hosted page would call back; here it just succeeds

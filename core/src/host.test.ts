@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Envelope, type State, apply, empty } from "@remuse/protocol";
 import { demoPorts, seed, type Timers } from "./demo.ts";
-import { Rejected, createHost } from "./host.ts";
+import { type AgentIO, Rejected, createHost } from "./host.ts";
 
 /** Timers that only fire when the test says so. */
 function manualTimers() {
@@ -109,4 +109,23 @@ test("the agent acts through the rules: a URL in the prompt starts a browser run
   advance(10_000);
   const done = run();
   assert.ok(done?.kind === "browser" && done.status === "completed");
+});
+
+test("an agent's ask becomes a pending approval; resolving it answers the waiting agent", async () => {
+  const { timers } = manualTimers();
+  let io: AgentIO | undefined;
+  const ports = {
+    ...demoPorts(timers),
+    prompt: (_: string, agent: AgentIO) => {
+      io = agent;
+    },
+  };
+  const host = createHost(ports, { clock });
+  await host.call("chat.send", { text: "book it" });
+  assert.ok(io);
+  const asked = io.act({ kind: "ask", action: "Submit", target: "opentable.com", detail: "Book a table for 4" });
+  assert.ok(asked.ok);
+  const verdict = io.decision(asked.id);
+  await host.call("approval.resolve", { id: asked.id, resolution: "deny" });
+  assert.equal(await verdict, "denied");
 });

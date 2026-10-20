@@ -18,22 +18,23 @@ import {
   dispatch,
   empty,
 } from "@remuse/protocol";
-import { type AgentAction, type Command, type Context, type Effect, type Rejection, decide, decideAgent, recover } from "./decide.ts";
+import { type AgentAction, type Command, type Context, type Effect, type Rejection, decide, decideAgent, recover, verdict } from "./decide.ts";
 
 export type Emit = (event: Event) => void;
 
 /** Ids that stay unique across restarts and processes (a journal outlives any counter). */
 export const newId = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
 
-/** What the agent can do while it runs: report events, and act through the rules. */
+/** What the agent can do while it runs: report events, act through the rules, wait for approvals. */
 export interface AgentIO {
   emit: Emit;
   act(action: AgentAction): { ok: true; id: string } | { ok: false; reason: string };
+  /** Resolves when the user decides approval `id` (from an `ask`). */
+  decision(id: string): Promise<"approved" | "denied">;
 }
 
-/** What a browser run can do: report events, and tell the agent how it went. */
-export interface RunIO {
-  emit: Emit;
+/** What a browser run can do: everything the agent can, and tell the agent how it went. */
+export interface RunIO extends AgentIO {
   /** Wake the agent with a note (not shown as a user message), e.g. a finished run's result. */
   report(note: string): void;
 }
@@ -91,8 +92,12 @@ export function createHost(ports: Ports, options: { seed?: Entity[]; clock?: Clo
 
   const context = (): Context => ({ now: clock.now(), id: newId });
 
+  /** Callers waiting on an approval, settled when the user resolves it. */
+  const waiting = new Map<string, (verdict: "approved" | "denied") => void>();
+
   const agent: AgentIO = {
     emit,
+    decision: (id) => new Promise((resolve) => waiting.set(id, resolve)),
     act(action) {
       const decision = decideAgent(state, action.kind, action, context());
       if (!decision.ok) return { ok: false, reason: new Rejected(decision.rejection).message };
@@ -111,11 +116,13 @@ export function createHost(ports: Ports, options: { seed?: Entity[]; clock?: Clo
       case "browser":
         return ports.browser(effect, emit);
       case "approval":
+        waiting.get(effect.id)?.(verdict(effect.resolution));
+        waiting.delete(effect.id);
         return ports.approval(effect, emit);
       case "stopTask":
         return ports.stopTask(effect.id, emit);
       case "browse":
-        return ports.browse(effect.browser, { emit, report: (note) => ports.prompt(note, agent) });
+        return ports.browse(effect.browser, { ...agent, report: (note) => ports.prompt(note, agent) });
     }
   }
 
