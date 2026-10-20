@@ -42,8 +42,8 @@ export interface BrowserRun {
 }
 
 export type FeedItem =
-  | { id: string; role: "user"; text: string }
-  | { id: string; role: "agent"; text: string }
+  | { id: string; role: "user"; text: string; time: string }
+  | { id: string; role: "agent"; text: string; time: string; streaming?: boolean }
   | { id: string; role: "card"; kind: "task"; task: Task }
   | { id: string; role: "card"; kind: "approval"; approval: Approval }
   | { id: string; role: "card"; kind: "connreq"; connreq: ConnectionRequest }
@@ -85,12 +85,15 @@ export interface ViewerState {
   control: "agent" | "user";
 }
 
+export type ActivityStatus = "idle" | "working" | "connected";
+
 export interface DemoState {
   feed: FeedItem[];
   assistantThinking: boolean;
-  statusPill: string | null;
-  drawerOpen: boolean;
-  drawerView: "main" | "tasks";
+  /** right activity panel: idle (closed) / working / connected */
+  activityStatus: ActivityStatus;
+  activityOpen: boolean;
+  chatsOpen: boolean;
   settingsOpen: boolean;
   settingsSection: "general" | "connectors" | "permissions" | "secure-store";
   connectorDetail: string | null;
@@ -105,9 +108,9 @@ export interface DemoState {
 export function seedDemo(): DemoState {
   return {
     assistantThinking: false,
-    statusPill: null,
-    drawerOpen: false,
-    drawerView: "main",
+    activityStatus: "idle",
+    activityOpen: false,
+    chatsOpen: false,
     settingsOpen: false,
     settingsSection: "connectors",
     connectorDetail: null,
@@ -182,11 +185,12 @@ export function seedDemo(): DemoState {
     ],
     credentials: [{ id: "cred1", domain: "ucsd.edu", username: "student portal" }],
     feed: [
-      { id: "m1", role: "user", text: "Check the school-trip email and research exhibits at the aquarium" },
+      { id: "m1", role: "user", text: "Check the school-trip email and research exhibits at the aquarium", time: "8:24 AM" },
       {
         id: "m2",
         role: "agent",
         text: "I found the trip email, opened it, and pulled together the exhibit options. Here's the plan I'm following:",
+        time: "8:25 AM",
       },
       {
         id: "c1",
@@ -204,7 +208,7 @@ export function seedDemo(): DemoState {
           ],
         },
       },
-      { id: "m3", role: "user", text: "Book the table for Friday" },
+      { id: "m3", role: "user", text: "Book the table for Friday", time: "8:27 AM" },
       {
         id: "c2",
         role: "card",
@@ -251,6 +255,7 @@ export function seedDemo(): DemoState {
         id: "m4",
         role: "agent",
         text: "While you review those, I can also track the tide-schedule page for changes — just say the word.",
+        time: "8:27 AM",
       },
     ],
   };

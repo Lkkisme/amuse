@@ -28,7 +28,7 @@ function ViewerBody({
 }) {
   const userInControl = control === "user";
   return (
-    <div className="fixed inset-0 z-50 flex flex-col" style={{ background: "var(--bg-primary)" }}>
+    <div className="anim-pane-from-right fixed inset-0 z-50 flex flex-col" style={{ background: "var(--bg-primary)", animationDuration: "0.2s", animationTimingFunction: "ease-out" }}>
       {/* viewer header */}
       <header
         className="flex items-center gap-2 px-3 py-2"
@@ -36,24 +36,24 @@ function ViewerBody({
       >
         <button
           aria-label="Close viewer"
-          className="flex size-9 items-center justify-center rounded-full"
+          className="flex size-9 shrink-0 items-center justify-center rounded-full"
           style={{ color: "var(--icon-primary)" }}
           onClick={() => actions.closeViewer()}
         >
           <X size={20} />
         </button>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 overflow-hidden">
           <p className="truncate text-[15px] font-semibold" style={{ color: "var(--text-primary)" }}>
             {browser.title}
           </p>
-          <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
+          <p className="truncate text-[12px]" style={{ color: "var(--text-secondary)" }}>
             {userInControl ? "You're in control" : "Muse is driving"} · {browser.site}
           </p>
         </div>
 
         {userInControl ? (
           <button
-            className="flex h-9 items-center gap-1.5 rounded-full px-4 text-[14px] font-semibold"
+            className="flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-4 text-[14px] font-semibold"
             style={{ background: "var(--fill-secondary)", color: "var(--text-primary)" }}
             onClick={() => actions.handBack()}
           >
@@ -61,7 +61,7 @@ function ViewerBody({
           </button>
         ) : (
           <button
-            className="flex h-9 items-center gap-1.5 rounded-full px-4 text-[14px] font-semibold text-white"
+            className="flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-4 text-[14px] font-semibold text-white"
             style={{ background: "var(--fill-blue)" }}
             onClick={() => actions.takeControl()}
           >
@@ -69,14 +69,14 @@ function ViewerBody({
           </button>
         )}
         <button
-          className="flex h-9 items-center gap-1.5 rounded-full px-4 text-[14px] font-semibold"
+          className="flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-[14px] font-semibold sm:px-4"
           style={{ background: "var(--fill-secondary)", color: "var(--text-primary)" }}
           onClick={() => actions.viewerStop()}
         >
-          <Square size={12} fill="currentColor" /> Stop
+          <Square size={12} fill="currentColor" /> <span className="hidden sm:inline">Stop</span>
         </button>
         <button
-          className="flex h-9 items-center rounded-full px-4 text-[14px] font-semibold text-white"
+          className="flex h-9 shrink-0 items-center whitespace-nowrap rounded-full px-3 text-[14px] font-semibold text-white sm:px-4"
           style={{ background: "var(--fill-blue)" }}
           onClick={() => actions.viewerDone()}
         >

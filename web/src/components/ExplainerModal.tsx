@@ -21,7 +21,7 @@ function ExplainerBody({ req, actions }: { req: ConnectionRequest; actions: Muse
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/30" onClick={() => actions.dismissConnect(req.id)} />
       <div
-        className="relative w-full max-w-sm rounded-2xl p-6 text-center"
+        className="anim-modal-in relative w-full max-w-sm rounded-2xl p-6 text-center"
         style={{ background: "var(--fill-primary)", boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}
       >
         <button

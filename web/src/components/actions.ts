@@ -24,8 +24,9 @@ export interface MuseActions {
   viewerStop(): void;
   viewerDone(): void;
 
-  // Drawer + settings
-  setDrawer(open: boolean, view?: "main" | "tasks"): void;
+  // Chats panel + activity panel
+  setChats(open: boolean): void;
+  setActivity(open: boolean): void;
   openSettings(section: "general" | "connectors" | "permissions" | "secure-store"): void;
   closeSettings(): void;
   openConnectorDetail(id: string | null): void;

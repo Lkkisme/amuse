@@ -1,22 +1,24 @@
 /**
- * Top chrome of the chat surface: drawer hamburger, Muse avatar bubble,
- * Invite button — plus the fake status pill ("Muse is responding") that
- * appears while the assistant timer runs (surfaces 1 + 6).
+ * Top chrome: '☰ Chats' pill top-left (opens the Chats panel), centered Muse
+ * avatar bubble, 'Invite' pill top-right.
  */
-import { Loader, Menu, Gift } from "lucide-react";
+import { Menu, Gift } from "lucide-react";
 import type { DemoState } from "../data/fakeMuse";
 import type { MuseActions } from "./actions";
 
 export function TopBar({ state, actions }: { state: DemoState; actions: MuseActions }) {
   return (
-    <header className="relative flex items-center justify-between px-3 py-2" style={{ background: "var(--chat-background)" }}>
+    <header
+      className="relative flex items-center justify-between px-3 py-2"
+      style={{ background: "var(--chat-background)" }}
+    >
       <button
-        aria-label="Open menu"
-        className="flex size-10 items-center justify-center rounded-full"
-        style={{ color: "var(--icon-primary)" }}
-        onClick={() => actions.setDrawer(true)}
+        aria-label="Open chats"
+        className="hover-fade flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[14px] font-semibold"
+        style={{ background: "var(--fill-primary)", color: "var(--text-primary)", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}
+        onClick={() => actions.setChats(!state.chatsOpen)}
       >
-        <Menu size={22} />
+        <Menu size={16} /> Chats
       </button>
 
       {/* Muse avatar bubble */}
@@ -36,26 +38,11 @@ export function TopBar({ state, actions }: { state: DemoState; actions: MuseActi
       </div>
 
       <button
-        className="flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[14px] font-semibold"
+        className="hover-fade flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[14px] font-semibold"
         style={{ background: "var(--fill-primary)", color: "var(--text-primary)", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}
       >
         <Gift size={16} /> Invite
       </button>
     </header>
-  );
-}
-
-export function StatusPill({ state }: { state: DemoState }) {
-  if (!state.statusPill) return null;
-  return (
-    <div className="flex justify-center pb-1" style={{ background: "var(--chat-background)" }}>
-      <span
-        className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-medium"
-        style={{ background: "var(--fill-primary)", color: "var(--text-secondary)", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}
-      >
-        <Loader size={12} className="animate-spin" />
-        {state.statusPill}
-      </span>
-    </div>
   );
 }

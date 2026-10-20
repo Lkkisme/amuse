@@ -1,9 +1,10 @@
 /**
- * Composer pill (surface 1): plus, text input, and a send arrow that becomes
- * a stop square while the assistant is "thinking" — driven by the fake timer.
+ * Composer pill (surface 1): '+' icon left, 'Message' placeholder, mic icon
+ * right, and a send arrow that morphs into a dark circle with a small white
+ * stop square while the assistant works (border-radius transition ~.2s).
  */
 import { useState } from "react";
-import { ArrowUp, Plus, Square } from "lucide-react";
+import { ArrowUp, Mic, Plus, Square } from "lucide-react";
 import type { MuseActions } from "./actions";
 
 export function Composer({
@@ -29,7 +30,7 @@ export function Composer({
           className="flex items-center gap-2 rounded-full py-2 pl-4 pr-2"
           style={{ background: "var(--fill-primary)", boxShadow: "0 1px 6px rgba(0,0,0,0.06)" }}
         >
-          <button aria-label="Add attachment" className="shrink-0 rounded-full p-1" style={{ color: "var(--icon-secondary)" }}>
+          <button aria-label="Add attachment" className="hover-fade shrink-0 rounded-full p-1" style={{ color: "var(--icon-secondary)" }}>
             <Plus size={20} />
           </button>
           <input
@@ -42,25 +43,31 @@ export function Composer({
               if (e.key === "Enter") submit();
             }}
           />
-          {assistantThinking ? (
-            <button
-              aria-label="Stop"
-              className="flex size-9 shrink-0 items-center justify-center rounded-full text-white"
-              style={{ background: "var(--text-primary)" }}
-              onClick={() => actions.stopAssistant()}
-            >
-              <Square size={12} fill="currentColor" />
-            </button>
-          ) : (
-            <button
-              aria-label="Send"
-              className="flex size-9 shrink-0 items-center justify-center rounded-full text-white"
-              style={{ background: draft.trim() ? "var(--fill-blue)" : "var(--fill-tertiary)" }}
-              onClick={submit}
-            >
+          <button aria-label="Dictate" className="hover-fade shrink-0 rounded-full p-1" style={{ color: "var(--icon-secondary)" }}>
+            <Mic size={19} />
+          </button>
+          {/* send arrow ⇄ stop square: one button, border-radius/background morph ~.2s */}
+          <button
+            aria-label={assistantThinking ? "Stop" : "Send"}
+            className="flex size-9 shrink-0 items-center justify-center"
+            style={{
+              borderRadius: "9999px",
+              background: assistantThinking
+                ? "var(--text-primary)"
+                : draft.trim()
+                  ? "var(--fill-blue)"
+                  : "var(--fill-tertiary)",
+              color: "#fff",
+              transition: "background-color .2s ease, border-radius .2s ease",
+            }}
+            onClick={assistantThinking ? () => actions.stopAssistant() : submit}
+          >
+            {assistantThinking ? (
+              <Square size={11} fill="currentColor" strokeWidth={0} />
+            ) : (
               <ArrowUp size={18} />
-            </button>
-          )}
+            )}
+          </button>
         </div>
       </div>
     </div>
