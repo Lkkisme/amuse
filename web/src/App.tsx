@@ -3,7 +3,7 @@
  * Ui is local panel state; Actions turn clicks into protocol calls or panel
  * changes. Components get exactly the slices they render.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { connect } from "@remuse/api/client";
 import { createHost, realTimers } from "@remuse/core";
 import { demoPorts, seed } from "@remuse/demo";
@@ -52,6 +52,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
   const { session } = link;
   const { state: conversation, older, release } = useConversation(session);
   const [ui, setUi] = useState<Ui>(initialUi);
+  const museOpen = useRef(ui.museOpen);
+  museOpen.current = ui.museOpen;
   const [settings, setSettings] = useState(seedSettings);
 
   useEffect(() => {
@@ -89,10 +91,14 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         );
       },
       // the browser takes the right: a docked Muse panel gives it up, and its avatar goes back to the top
-      openViewer: (browserId) =>
-        transition(() =>
-          patch((u) => ({ ...u, museOpen: false, viewer: { browserId, closedTabs: (u.viewer?.closedTabs ?? []).filter((t) => t !== browserId) } })),
-        ),
+      openViewer: (browserId) => {
+        const open = () =>
+          patch((u) => ({ ...u, museOpen: false, viewer: { browserId, closedTabs: (u.viewer?.closedTabs ?? []).filter((t) => t !== browserId) } }));
+        // only a docked Muse panel's avatar has somewhere to travel; otherwise the viewer just slides in
+        // (a transition would lift the avatar over the viewer, then drop it at the end)
+        if (museOpen.current) transition(open);
+        else open();
+      },
       closeViewer: () => patch((u) => ({ ...u, viewer: null })),
       selectTab: (browserId) => patch((u) => (u.viewer ? { ...u, viewer: { ...u.viewer, browserId } } : u)),
       closeTab: (browserId) =>
