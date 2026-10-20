@@ -18,7 +18,8 @@ const TABS: Tab[] = ["available", "connected"];
 /** Wait this long after the last keystroke before searching. */
 const TYPING_MS = 250;
 
-export function Connectors({ session }: { session: Session }) {
+/** `viewing`: the app whose page is open (the settings' own state, so a phone's back button can leave it). */
+export function Connectors({ session, viewing, onView }: { session: Session; viewing: App | null; onView: (app: App | null) => void }) {
   const [tab, setTab] = useState<Tab>("available");
   const [query, setQuery] = useState("");
   const [found, setFound] = useState<{
@@ -26,8 +27,6 @@ export function Connectors({ session }: { session: Session }) {
     cursor: string | null;
   } | null>(null);
   const [accounts, setAccounts] = useState<Account[] | null>(null);
-  /** the app whose page is open */
-  const [viewing, setViewing] = useState<App | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** the app or account an action is running for */
   const [busy, setBusy] = useState<string | null>(null);
@@ -136,7 +135,7 @@ export function Connectors({ session }: { session: Session }) {
         accounts={accountsOf(viewing.id)}
         busy={busy}
         error={errorLine}
-        onBack={() => setViewing(null)}
+        onBack={() => onView(null)}
         onConnect={() => connect(viewing.id)}
         onDisconnect={disconnect}
       />
@@ -147,7 +146,7 @@ export function Connectors({ session }: { session: Session }) {
       key={app.id}
       app={app}
       connected={accountsOf(app.id).length > 0}
-      onOpen={() => setViewing(app)}
+      onOpen={() => onView(app)}
     />
   );
 
@@ -260,10 +259,12 @@ function AppPage({
   useEffect(() => void load(), [load]);
   const permit = (kind: ToolKind, permission: Permission | null) => void session.call("apps.permit", { app: app.id, kind, permission }).then(load, load);
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pb-6 pt-3 sm:px-6">
+    // a block, not a flex column: a flex column would squeeze its rows to fit instead of scrolling them
+    <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6 pt-3 sm:px-6">
       <button
         aria-label="Back"
-        className="hover-fade flex size-8 shrink-0 items-center justify-center rounded-full"
+        // a desktop's way back to the apps (a phone's is in the settings' own bar)
+        className="hover-fade hidden size-8 shrink-0 items-center justify-center rounded-full sm:flex"
         style={{
           background: "var(--fill-primary)",
           color: "var(--icon-primary)",

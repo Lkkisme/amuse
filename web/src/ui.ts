@@ -2,6 +2,7 @@
  * UI-only state: which panels are open and what they show. Server state is
  * the conversation (session.ts); this never duplicates it, only ids into it.
  */
+import type { App } from "@remuse/protocol";
 import type { SettingsData } from "./demo/settings.ts";
 
 export type SettingsSection = "general" | "connectors" | "permissions" | "secure-store";
@@ -13,7 +14,8 @@ export interface Ui {
   chatsOpen: boolean;
   /** the Muse panel (profile and activity): docked on the right, or floating over the chat while the browser has the right */
   museOpen: boolean;
-  settings: { open: boolean; section: SettingsSection };
+  /** section null: on a phone, the list of sections (on a desktop, the first one) */
+  settings: { open: boolean; section: SettingsSection | null; app: App | null };
   /** browser viewer: active tab, and tabs the user closed (every other run is a tab) */
   viewer: { browserId: string | null; closedTabs: string[] } | null;
   /** connection whose pre-connect explainer is open */
@@ -28,7 +30,7 @@ export const initialUi: Ui = {
   theme: "light",
   chatsOpen: false,
   museOpen: false,
-  settings: { open: false, section: "connectors" },
+  settings: { open: false, section: null, app: null },
   viewer: null,
   explainer: null,
   taskDetail: null,
@@ -54,7 +56,9 @@ export interface Actions {
   openTaskDetail(taskId: string | null): void;
   setChats(open: boolean): void;
   setMuse(open: boolean): void;
-  openSettings(section: SettingsSection): void;
+  openSettings(section: SettingsSection | null): void;
+  /** Settings › Connectors: an app's page, or back to the list (null) */
+  openApp(app: App | null): void;
   closeSettings(): void;
   addCredential(domain: string, username: string): void;
   setTheme(theme: Theme): void;

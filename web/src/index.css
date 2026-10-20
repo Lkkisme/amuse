@@ -158,6 +158,14 @@
   animation: popover-out 0.15s ease-in both;
 }
 
+/* Settings: a page sliding in from the right on a phone; a modal scaling in on sm+ */
+.anim-settings-in { animation: hatch-pane-enter-from-right 0.25s cubic-bezier(0.32, 0.72, 0, 1) both; }
+.anim-settings-out { animation: hatch-pane-exit-to-right 0.16s ease-in both; }
+@media (min-width: 640px) {
+  .anim-settings-in { animation: modal-scale-in 0.3s ease-out both; }
+  .anim-settings-out { animation: modal-scale-in 0.15s ease-in reverse both; }
+}
+
 /* Modals: bottom drawer on mobile (slide-up), centered scale-in sheet on sm+ */
 @keyframes modal-scale-in {
   from { transform: scale(0.985); opacity: 0; }

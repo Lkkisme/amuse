@@ -63,7 +63,7 @@ export function ChatsPanel({ open, actions }: { open: boolean; actions: Actions 
             style={{ color: "var(--text-secondary)" }}
             onClick={() => {
               actions.setChats(false);
-              actions.openSettings("connectors");
+              actions.openSettings(null);
             }}
           >
             <Settings size={20} />

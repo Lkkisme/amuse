@@ -117,7 +117,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
       setChats: (chatsOpen) => patch((u) => ({ ...u, chatsOpen })),
       // the avatar travels between the top and the panel
       setMuse: (museOpen) => transition(() => patch((u) => ({ ...u, museOpen }))),
-      openSettings: (section) => patch((u) => ({ ...u, chatsOpen: false, settings: { open: true, section } })),
+      openSettings: (section) => patch((u) => ({ ...u, chatsOpen: false, settings: { open: true, section, app: null } })),
+      openApp: (app) => patch((u) => ({ ...u, settings: { ...u.settings, app } })),
       closeSettings: () => patch((u) => ({ ...u, settings: { ...u.settings, open: false } })),
       addCredential: (domain, username) =>
         setSettings((s) => ({ ...s, credentials: [...s.credentials, { id: `cred${s.credentials.length + 1}`, domain, username }] })),

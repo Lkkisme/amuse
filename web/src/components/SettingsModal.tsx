@@ -6,6 +6,7 @@
  */
 import { useState } from "react";
 import {
+  ChevronLeft,
   ChevronRight,
   Check,
   Globe,
@@ -178,20 +179,46 @@ export function SettingsModal({
 }) {
   const { mounted, closing, onAnimationEnd } = usePresence(ui.open);
   if (!mounted) return null;
+  // a phone shows the sections as a list first, then one section as a page of its own; a desktop shows both side by side
+  const section = ui.section;
+  const shown = section ?? "general";
+  const round = "flex size-8 shrink-0 items-center justify-center rounded-full";
   return (
-    <div className={`fixed inset-0 z-[80] flex items-end justify-center sm:items-center sm:p-4 ${closing ? "pointer-events-none" : ""}`}>
+    <div className={`fixed inset-0 z-[80] flex justify-center sm:items-center sm:p-4 ${closing ? "pointer-events-none" : ""}`}>
       <div
-        className={`${closing ? "anim-fade-out" : "anim-fade-in"} absolute inset-0 bg-black/30`}
+        className={`${closing ? "anim-fade-out" : "anim-fade-in"} absolute inset-0 hidden bg-black/30 sm:block`}
         onClick={() => actions.closeSettings()}
       />
       <div
         onAnimationEnd={onAnimationEnd}
-        className={`${closing ? "anim-modal-out" : "anim-modal-in"} relative flex h-[72vh] max-h-[620px] w-full max-w-3xl flex-col overflow-hidden rounded-t-[28px] sm:flex-row sm:rounded-[28px]`}
+        className={`${closing ? "anim-settings-out" : "anim-settings-in"} relative flex h-full w-full flex-col overflow-hidden sm:h-[72vh] sm:max-h-[620px] sm:max-w-3xl sm:flex-row sm:rounded-[28px]`}
         style={{ background: "var(--chat-background)", boxShadow: "var(--shadow-sheet)" }}
       >
-        {/* left nav — horizontal icon row on mobile, column on sm+ */}
+        {/* phone: the page's own bar — back to the list from a section, and close */}
+        <header className="flex h-14 shrink-0 items-center gap-2 px-3 sm:hidden">
+          {section ? (
+            // back one level: from an app's page to the apps, from a section to all settings
+            <button
+              aria-label={ui.app ? "All connectors" : "All settings"}
+              className={round}
+              style={{ background: "var(--fill-secondary)", color: "var(--icon-primary)" }}
+              onClick={() => (ui.app ? actions.openApp(null) : actions.openSettings(null))}
+            >
+              <ChevronLeft size={18} />
+            </button>
+          ) : (
+            <p className="px-2 text-[20px] font-semibold" style={{ color: "var(--text-primary)" }}>
+              Settings
+            </p>
+          )}
+          <button aria-label="Close settings" className={`${round} ml-auto`} style={{ background: "var(--fill-secondary)", color: "var(--icon-primary)" }} onClick={() => actions.closeSettings()}>
+            <X size={17} />
+          </button>
+        </header>
+
+        {/* the sections: a list on a phone (until one is open), a column on a desktop */}
         <nav
-          className="flex shrink-0 items-center gap-1 overflow-x-auto border-b p-2 sm:w-[220px] sm:flex-col sm:items-stretch sm:border-b-0 sm:border-r sm:p-4"
+          className={`${section ? "hidden sm:flex" : "flex"} shrink-0 flex-col gap-1 px-3 sm:w-[220px] sm:border-r sm:p-4`}
           style={{ borderColor: "var(--fill-divider)" }}
         >
           <p className="hidden px-2 pb-2 text-[19px] font-semibold sm:block" style={{ color: "var(--text-primary)" }}>
@@ -200,17 +227,13 @@ export function SettingsModal({
           {NAV.map((n) => (
             <button
               key={n.id}
-              className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl px-3 py-2 text-left text-[14px] font-medium sm:gap-3 sm:py-2.5 sm:text-[15px]"
-              style={{
-                background: ui.section === n.id ? "var(--fill-secondary)" : "transparent",
-                color: "var(--text-primary)",
-              }}
-              onClick={() => {
-                actions.openSettings(n.id);
-              }}
+              className="flex items-center gap-3 rounded-xl px-3 py-3 text-left text-[16px] font-medium sm:py-2.5 sm:text-[15px]"
+              style={{ background: shown === n.id && section ? "var(--fill-secondary)" : "transparent", color: "var(--text-primary)" }}
+              onClick={() => actions.openSettings(n.id)}
             >
               {n.icon}
-              {n.label}
+              <span className="flex-1">{n.label}</span>
+              <ChevronRight size={16} className="sm:hidden" style={{ color: "var(--icon-secondary)" }} />
             </button>
           ))}
           <button
@@ -222,20 +245,20 @@ export function SettingsModal({
           </button>
         </nav>
 
-        {/* right pane */}
-        <div className="relative flex min-w-0 flex-1 flex-col">
+        {/* the section */}
+        <div className={`${section ? "flex" : "hidden sm:flex"} relative min-h-0 min-w-0 flex-1 flex-col`}>
           <button
             aria-label="Close settings"
-            className="absolute right-3 top-3 z-10 flex size-8 items-center justify-center rounded-full"
+            className={`${round} absolute right-3 top-3 z-10 hidden sm:flex`}
             style={{ background: "var(--fill-secondary)", color: "var(--icon-primary)" }}
             onClick={() => actions.closeSettings()}
           >
             <X size={17} />
           </button>
-          {ui.section === "connectors" && <Connectors session={session} />}
-          {ui.section === "permissions" && <SitePermissions session={session} />}
-          {ui.section === "secure-store" && <SecureStoreSection data={data} actions={actions} />}
-          {ui.section === "general" && <GeneralSection theme={theme} actions={actions} />}
+          {shown === "connectors" && <Connectors session={session} viewing={ui.app} onView={actions.openApp} />}
+          {shown === "permissions" && <SitePermissions session={session} />}
+          {shown === "secure-store" && <SecureStoreSection data={data} actions={actions} />}
+          {shown === "general" && <GeneralSection theme={theme} actions={actions} />}
         </div>
       </div>
     </div>
