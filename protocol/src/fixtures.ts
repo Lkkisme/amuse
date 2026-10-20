@@ -44,7 +44,7 @@ export const envelopes: Envelope[] = [
     event: {
       kind: "upserted",
       index: 5,
-      entity: { kind: "browser", id: "b1", at, title: "Log in", url: "https://portal.example.edu/login", status: "paused", live: true },
+      entity: { kind: "browser", id: "b1", at, title: "Log in", url: "https://portal.example.edu/login", status: "paused", instructions: "Log in to the trip portal; stop at the dashboard", result: null, live: true },
     },
   },
   {
@@ -52,7 +52,7 @@ export const envelopes: Envelope[] = [
     event: {
       kind: "upserted",
       index: 5,
-      entity: { kind: "browser", id: "b1", at, title: "Log in", url: "https://portal.example.edu/login", status: "stopped", live: false },
+      entity: { kind: "browser", id: "b1", at, title: "Log in", url: "https://portal.example.edu/login", status: "stopped", instructions: "Log in to the trip portal; stop at the dashboard", result: null, live: false },
     },
   },
   { seq: 10, event: { kind: "activity", activity: { kind: "responding", label: null } } },

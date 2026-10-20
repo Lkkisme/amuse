@@ -44,8 +44,10 @@ export type Effect =
   /** shape the run's desktop like the user's screen */
   | { kind: "fit"; id: string; viewer: { width: number; height: number } };
 
-/** Statuses an agent may report for a browser run (paused and stopped belong to the user). */
-export type BrowserProgress = Extract<BrowserStatus, "working" | "waiting" | "needs_you" | "completed" | "failed">;
+/** Statuses an agent may report for a browser run in flight (paused and stopped belong to the user). */
+export type BrowserProgress = Extract<BrowserStatus, "working" | "waiting" | "needs_you">;
+/** How a run the agent drove may end: always with a result. */
+export type BrowserEnd = Extract<BrowserStatus, "completed" | "failed">;
 export type TaskProgress = Extract<TaskStatus, "working" | "waiting" | "completed" | "failed">;
 
 /**
@@ -57,12 +59,14 @@ export type TaskProgress = Extract<TaskStatus, "working" | "waiting" | "complete
 export type AgentAction =
   /** Ask the user to connect an app; a pending request for the same provider is reused. */
   | { kind: "connect"; provider: string; title: string }
-  /** Hand a browser task to the browser port; it starts working at once. */
-  | { kind: "browse"; title: string; url: string }
+  /** Hand a browser task to the browser port; it starts working at once. `instructions`: the user's ask in full. */
+  | { kind: "browse"; title: string; url: string; instructions: string }
   /** Ask the user to approve a consequential step before taking it. */
   | { kind: "ask"; action: string; target: string; detail: string }
   /** A browser run's progress, from the agent driving it. */
   | { kind: "browserStatus"; id: string; status: BrowserProgress }
+  /** A browser run's end, from the agent driving it, with what came of it. */
+  | { kind: "browserEnded"; id: string; status: BrowserEnd; result: string }
   | { kind: "taskStatus"; id: string; status: TaskProgress }
   /** The run's browser is gone (closed): its card is only a record from now on. */
   | { kind: "released"; id: string }
@@ -209,8 +213,8 @@ const agentRules: AgentRules = {
     const id = ctx.id("a");
     return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, status: "pending" })], [], { id });
   },
-  browse: (_, { title, url }, ctx) => {
-    const browser: Browser = { kind: "browser", id: ctx.id("b"), at: ctx.now, title, url, status: "working", live: true };
+  browse: (_, { title, url, instructions }, ctx) => {
+    const browser: Browser = { kind: "browser", id: ctx.id("b"), at: ctx.now, title, url, status: "working", instructions, result: null, live: true };
     return ok([upsert(browser)], [{ kind: "browse", browser }], { id: browser.id });
   },
   released: (state, { id }) => {
@@ -223,6 +227,13 @@ const agentRules: AgentRules = {
     if (!browser) return reject({ kind: "notFound", entity: "browser", id });
     if (!agentHeld.includes(browser.status)) return reject({ kind: "invalid", action: "browserStatus", from: browser.status });
     return ok(browser.status === status ? [] : [upsert({ ...browser, status })], [], { id });
+  },
+  browserEnded: (state, { id, status, result }) => {
+    const browser = find(state, "browser", id);
+    if (!browser) return reject({ kind: "notFound", entity: "browser", id });
+    // a run the user holds ends too when they hand back what was left of it (paused → completed)
+    if (!agentHeld.includes(browser.status) && browser.status !== "paused") return reject({ kind: "invalid", action: "browserEnded", from: browser.status });
+    return ok([upsert({ ...browser, status, result })], [], { id });
   },
   taskStatus: (state, { id, status }) => {
     const task = find(state, "task", id);

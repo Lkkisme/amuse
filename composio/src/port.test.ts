@@ -14,6 +14,8 @@ function recording(onAct: (action: AgentAction) => void = () => {}): AgentIO {
     act: (action) => (onAct(action), { ok: true, id: "x" }),
     decision: async () => "denied",
     report: () => {},
+    context: () => "",
+    recall: () => "",
   };
 }
 

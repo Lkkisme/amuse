@@ -16,6 +16,16 @@ const text = (value: string) => ({ content: [{ type: "text" as const, text: valu
 export function tools(io: () => AgentIO): ToolDefinition[] {
   return [
     defineTool({
+      name: "recall",
+      label: "Search the conversation",
+      description:
+        "Search the whole conversation with the user, however old (what they said, what you said, browser tasks and their results). Use it when something older than what you see is needed.",
+      parameters: Type.Object({ status, query: Type.String({ description: "Words to look for" }) }),
+      async execute(_, { query }) {
+        return text(io().recall(query));
+      },
+    }),
+    defineTool({
       name: "browse",
       label: "Browser task",
       description:
@@ -23,10 +33,14 @@ export function tools(io: () => AgentIO): ToolDefinition[] {
       parameters: Type.Object({ status,
         title: Type.String({ description: "Short task title the user will see, e.g. 'Check the tide schedule'" }),
         url: Type.String({ description: "Absolute http(s) URL to start from" }),
+        instructions: Type.String({
+          description:
+            "Everything the browser agent must know, in full: what to do, what to bring back, and every limit the user set (e.g. 'open it but do not fill or submit anything'). It sees nothing of the chat but this.",
+        }),
       }),
-      async execute(_, { title, url }) {
+      async execute(_, { title, url, instructions }) {
         if (!URL.canParse(url) || !/^https?:$/.test(new URL(url).protocol)) return text(`Not started: "${url}" is not an http(s) URL.`);
-        const result = io().act({ kind: "browse", title, url });
+        const result = io().act({ kind: "browse", title, url, instructions });
         return text(result.ok ? `Started browser task ${result.id}. The user sees it as a card; it continues in the background.` : `Not started: ${describe(result.rejection)}.`);
       },
     }),

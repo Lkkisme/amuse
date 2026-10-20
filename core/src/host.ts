@@ -35,6 +35,7 @@ import {
   recover,
   verdict,
 } from "./decide.ts";
+import { agentContext, recall } from "./context.ts";
 
 /**
  * What ports may record directly: what the agent says (its replies, streamed)
@@ -56,6 +57,10 @@ export type Acted = { ok: true; id: string } | { ok: false; rejection: Rejection
 export interface AgentIO {
   emit: Emit;
   act(action: AgentAction): Acted;
+  /** The conversation so far, as the agent should know it (context.ts): newest in full, older in brief. */
+  context(): string;
+  /** Search the whole conversation, however old. */
+  recall(query: string): string;
   /** Resolves when the user decides approval `id` (from an `ask`); at once if already decided. */
   decision(id: string): Promise<Verdict>;
   report(note: string): void;
@@ -63,8 +68,8 @@ export interface AgentIO {
 
 /** The outside world. Every port gets the same AgentIO. */
 export interface Ports {
-  /** Run the agent on a new prompt. */
-  prompt(text: string, io: AgentIO): void;
+  /** Run the agent: on what the user just said (already in the conversation), or on a note from background work. */
+  prompt(turn: Turn, io: AgentIO): void;
   /** Stop the agent's current run. */
   interrupt(io: AgentIO): void;
   /** Run a browser task the agent started. */
@@ -77,6 +82,9 @@ export interface Ports {
   /** Start connecting an app; resolves to the provider's hosted link. */
   connect(connection: Connection, io: AgentIO): Promise<string>;
 }
+
+/** What wakes the agent: the user's message, or a note from its background work (not shown as a message). */
+export type Turn = { kind: "message"; text: string } | { kind: "note"; text: string };
 
 /** A rejection in words, for errors and for agents. */
 export function describe(rejection: Rejection): string {
@@ -154,7 +162,9 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
       if (approval?.kind === "approval" && approval.status !== "pending") return Promise.resolve(approval.status === "approved" ? "approved" : "denied");
       return new Promise((resolve) => waiting.set(id, [...(waiting.get(id) ?? []), resolve]));
     },
-    report: (note) => ports.prompt(note, agent),
+    report: (note) => ports.prompt({ kind: "note", text: note }, agent),
+    context: () => agentContext(state),
+    recall: (query) => recall(state, query),
     act(action) {
       const decision = decideAgent(state, action.kind, action, context());
       if (!decision.ok) return decision;
@@ -167,7 +177,7 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
   function run(effect: Effect): void {
     switch (effect.kind) {
       case "prompt":
-        return ports.prompt(effect.text, agent);
+        return ports.prompt({ kind: "message", text: effect.text }, agent);
       case "interrupt":
         return ports.interrupt(agent);
       case "browser":

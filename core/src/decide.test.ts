@@ -8,7 +8,7 @@ const ctx: Context = { now: at, id: (prefix) => `${prefix}1` };
 const record = (state: State, changes: Change[]): State =>
   changes.reduce((s, change) => apply(s, { seq: s.seq + 1, event: place(s, change) }), state);
 const stateOf = (...entities: Entity[]): State => record(empty, entities.map((entity) => ({ kind: "upserted", entity })));
-const browser = (status: BrowserStatus, live = true): Browser => ({ kind: "browser", id: "b1", at, title: "Log in", url: "https://x.example/", status, live });
+const browser = (status: BrowserStatus, live = true): Browser => ({ kind: "browser", id: "b1", at, title: "Log in", url: "https://x.example/", status, instructions: "Log in", result: null, live });
 
 test("chat.send records the prompt and asks the agent", () => {
   const d = decide(empty, { method: "chat.send", params: { text: "hi" } }, ctx);
@@ -93,9 +93,9 @@ test("agent actions: connect reuses a pending request for the same provider; bro
   assert.deepEqual(again.changes, []);
   assert.equal(again.output.id, first.output.id);
 
-  const browse = decideAgent(empty, "browse", { kind: "browse", title: "Tides", url: "https://tides.example/" }, ctx);
+  const browse = decideAgent(empty, "browse", { kind: "browse", title: "Tides", url: "https://tides.example/", instructions: "Read today's tides" }, ctx);
   assert.ok(browse.ok);
-  const run: Browser = { kind: "browser", id: "b1", at, title: "Tides", url: "https://tides.example/", status: "working", live: true };
+  const run: Browser = { kind: "browser", id: "b1", at, title: "Tides", url: "https://tides.example/", status: "working", instructions: "Read today's tides", result: null, live: true };
   assert.deepEqual(browse.changes, [{ kind: "upserted", entity: run }]);
   assert.deepEqual(browse.effects, [{ kind: "browse", browser: run }]);
 });
@@ -142,4 +142,14 @@ test("after a restart no browser is live", () => {
   assert.deepEqual(recover(stateOf(browser("completed"))), [{ kind: "upserted", entity: browser("completed", false) }]);
   assert.deepEqual(recover(stateOf(browser("working"))), [{ kind: "upserted", entity: browser("stopped", false) }]);
   assert.deepEqual(recover(stateOf(browser("stopped", false))), []);
+});
+
+test("a run ends with what came of it, from in flight or from the user's hold; not once it has ended", () => {
+  const end = (from: BrowserStatus) =>
+    decideAgent(stateOf(browser(from)), "browserEnded", { kind: "browserEnded", id: "b1", status: "completed", result: "Found it" }, ctx);
+  const ended = end("working");
+  assert.ok(ended.ok);
+  assert.deepEqual(ended.changes, [{ kind: "upserted", entity: { ...browser("completed"), result: "Found it" } }]);
+  assert.ok(end("paused").ok);
+  assert.deepEqual(end("stopped"), { ok: false, rejection: { kind: "invalid", action: "browserEnded", from: "stopped" } });
 });

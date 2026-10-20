@@ -53,6 +53,8 @@ test("folded state is a valid State, and envelopes round-trip through JSON", () 
         title: "Log in to the trip portal",
         url: "https://portal.example.edu/login",
         status: "needs_you",
+        instructions: "Log in",
+        result: null,
         live: true,
       },
     },
@@ -65,7 +67,7 @@ test("folded state is a valid State, and envelopes round-trip through JSON", () 
 });
 
 test("fields outside the schema are dropped at the boundary", () => {
-  const browser = { kind: "browser", id: "b1", at, title: "t", url: "https://x.example/", status: "paused", live: true, control: "user" };
+  const browser = { kind: "browser", id: "b1", at, title: "t", url: "https://x.example/", status: "paused", instructions: "t", result: null, live: true, control: "user" };
   const parsed = EnvelopeSchema.parse({ seq: 1, event: { kind: "upserted", index: 0, entity: browser } });
   assert.ok(parsed.event.kind === "upserted");
   assert.equal("control" in parsed.event.entity, false);
@@ -102,7 +104,7 @@ test("the recent end of the feed holds its last entities, and folds on like the 
 });
 
 test("the recent end reaches back to whatever is still in play", () => {
-  const running: Entity = { kind: "browser", id: "b", at, title: "t", url: "https://x.example/", status: "working", live: true };
+  const running: Entity = { kind: "browser", id: "b", at, title: "t", url: "https://x.example/", status: "working", instructions: "t", result: null, live: true };
   const state = apply(feed(10), { seq: 11, event: { kind: "upserted", index: 2, entity: { ...running, id: "p2" } } });
   assert.equal(state.entities[2]?.kind, "prompt"); // an id keeps its kind
   const withRun = fold([

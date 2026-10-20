@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Envelope, type State, apply, empty } from "@remuse/protocol";
-import { type AgentIO, Rejected, type Timers, createHost } from "@remuse/core";
+import { type AgentIO, Rejected, type Timers, type Turn, createHost } from "@remuse/core";
 import { demoPorts, seed } from "./index.ts";
 
 /** Timers that only fire when the test says so. */
@@ -116,7 +116,7 @@ test("an agent's ask becomes a pending approval; resolving it answers the waitin
   let io: AgentIO | undefined;
   const ports = {
     ...demoPorts(timers),
-    prompt: (_: string, agent: AgentIO) => {
+    prompt: (_: Turn, agent: AgentIO) => {
       io = agent;
     },
   };

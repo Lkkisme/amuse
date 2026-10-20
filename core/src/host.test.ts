@@ -39,12 +39,12 @@ test("an agent cannot move a run the user stopped", async () => {
   await host.call("chat.send", { text: "go" });
   const agent = io();
   assert.ok(agent);
-  const started = agent.act({ kind: "browse", title: "t", url: "https://x.example/" });
+  const started = agent.act({ kind: "browse", title: "t", url: "https://x.example/", instructions: "t" });
   assert.ok(started.ok);
   await host.call("browser.control", { id: started.id, action: "stop" });
-  assert.deepEqual(agent.act({ kind: "browserStatus", id: started.id, status: "completed" }), {
+  assert.deepEqual(agent.act({ kind: "browserEnded", id: started.id, status: "completed", result: "done" }), {
     ok: false,
-    rejection: { kind: "invalid", action: "browserStatus", from: "stopped" },
+    rejection: { kind: "invalid", action: "browserEnded", from: "stopped" },
   });
 });
 
@@ -54,7 +54,7 @@ test("a client holding only the recent end sees what the whole feed shows there,
   for (const text of ["a", "b", "c", "d", "e"]) await host.call("chat.send", { text });
   const agent = io();
   assert.ok(agent);
-  const run = agent.act({ kind: "browse", title: "t", url: "https://x.example/" });
+  const run = agent.act({ kind: "browse", title: "t", url: "https://x.example/", instructions: "t" });
   assert.ok(run.ok);
   for (const text of ["f", "g", "h", "i"]) await host.call("chat.send", { text });
 
@@ -64,7 +64,7 @@ test("a client holding only the recent end sees what the whole feed shows there,
   assert.equal(client.earlier, 5); // reaches back to the run still in play
   host.subscribe((u) => (client = u.kind === "event" ? apply(client, u.envelope) : u.state));
 
-  agent.act({ kind: "browserStatus", id: run.id, status: "completed" });
+  agent.act({ kind: "browserEnded", id: run.id, status: "completed", result: "done" });
   await host.call("chat.send", { text: "j" });
   while (client.earlier > 0) {
     const page = await host.call("session.history", { before: client.earlier, limit: 2 });

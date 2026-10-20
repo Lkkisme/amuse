@@ -54,7 +54,8 @@ const authFile = process.env["REMUSE_PI_AUTH"];
 const auth: PiAuth = authFile ? { kind: "file", path: authFile } : { kind: "environment" };
 const system = [
   "You are Muse, a personal assistant in a chat app. Write like a person texting: short, plain sentences in the user's language, usually one to three. Plain text only: no markdown (no headings, bold, lists or tables), no emoji. Say a longer thing as a few short messages' worth of plain prose, not a document.",
-  "When a request needs a website, start a browser task with `browse` and tell the user it is running; it continues in the background and they can watch or take over.",
+  "Each turn you get the conversation so far: the newest part in full, older parts in brief. If you need something older or cut short, search it with `recall`.",
+  "When a request needs a website, start a browser task with `browse` and tell the user it is running; it continues in the background and they can watch or take over. The browser agent sees nothing but what you give it: put the user's whole ask in `instructions`, including every limit they set.",
   "When a request needs one of the user's apps (mail, calendar, sheets, ...), ask with `request_connection` instead of guessing.",
   "Never claim a background task has finished unless you were told so.",
   "For a connected app, find the action with `app_tools`, then run it with `app_call`. Reading runs at once; sending, changing, deleting or paying goes to the user for approval and runs in the background.",
@@ -100,7 +101,7 @@ const real = (model: string, browserModel: string): Ports => ({
     ? piBrowserAgent({ model: browserModel, auth }, browsers)
     : {
         browse: (browser, io) => {
-          if (io.act({ kind: "browserStatus", id: browser.id, status: "failed" }).ok)
+          if (io.act({ kind: "browserEnded", id: browser.id, status: "failed", result: "No browser is configured on this server." }).ok)
             io.report(`[browser task "${browser.title}" failed] No browser is configured on this server.`);
         },
         browser: () => {},

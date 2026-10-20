@@ -80,6 +80,10 @@ export const Browser = z.object({
   title: z.string(),
   url: z.url(),
   status: BrowserStatus,
+  /** what the user asked of this run, in full: what to do and what not to (the title is only its name) */
+  instructions: z.string(),
+  /** how it ended, in a few words, once it has (completed or failed); null before */
+  result: z.string().nullable(),
   /** the run still has its browser, to watch and take over; once it is gone the card is only a record */
   live: z.boolean(),
 });

@@ -29,17 +29,21 @@ export function demoPorts<H>(timers: Timers<H>): Ports {
 
   return {
     fit: () => {}, // the demo's browsers are sketches
-    prompt: (text, { emit, act }) => {
+    prompt: ({ text }, { emit, act }) => {
       // the scripted agent shows its tools on cue: a URL starts a browser task, "connect <app>" asks to connect
       const url = text.match(/https?:\/\/\S+/)?.[0];
       const app = text.match(/connect\s+(\w+)/i)?.[1];
-      if (url) act({ kind: "browse", title: `Look at ${new URL(url).host}`, url });
+      if (url) act({ kind: "browse", title: `Look at ${new URL(url).host}`, url, instructions: text });
       if (app) act({ kind: "connect", provider: app.toLowerCase(), title: app.charAt(0).toUpperCase() + app.slice(1) });
       reply(emit, url || app ? "On it — follow along in the card below." : `Got it — **"${text}"**. I'll take that from here and post updates in this chat.`, 1400);
     },
     browse: (browser, { act }) => {
       // a login page needs the user; anything else finishes on its own
-      timers.set(3000, () => act({ kind: "browserStatus", id: browser.id, status: /login|signin/.test(browser.url) ? "needs_you" : "completed" }));
+      timers.set(3000, () =>
+        /login|signin/.test(browser.url)
+          ? act({ kind: "browserStatus", id: browser.id, status: "needs_you" })
+          : act({ kind: "browserEnded", id: browser.id, status: "completed", result: "Looked the page over." }),
+      );
     },
     interrupt: () => {
       replying.forEach(timers.clear);
@@ -50,7 +54,7 @@ export function demoPorts<H>(timers: Timers<H>): Ports {
         emit({ kind: "activity", activity: { kind: "working", label: "Re-observing page" } });
         timers.set(2500, () => {
           emit({ kind: "activity", activity: null });
-          if (act({ kind: "browserStatus", id: browser.id, status: "completed" }).ok)
+          if (act({ kind: "browserEnded", id: browser.id, status: "completed", result: "Signed in; the page checks out." }).ok)
             reply(emit, "Thanks, I have the browser back. The page checks out and the run is **complete**.", 0);
         });
       }
@@ -104,10 +108,10 @@ export function seed(): Entity[] {
       detail: "Reserve a table for 4, Friday 7pm. Draft ready for your review.",
       status: "pending",
     },
-    { kind: "browser", id: "b-seed1", at: minutesAgo(28), title: "Monterey Bay Aquarium exhibits", url: "https://mbayaq.org/exhibits", status: "completed", live: false },
+    { kind: "browser", id: "b-seed1", at: minutesAgo(28), title: "Monterey Bay Aquarium exhibits", url: "https://mbayaq.org/exhibits", status: "completed", instructions: "List the current exhibits", result: "Found 12 exhibits; the kelp forest feeding is at 11:30.", live: false },
     { kind: "prompt", id: "p-seed3", at: minutesAgo(5), text: "Also check the tide schedule, and log in to the trip portal for me" },
-    { kind: "browser", id: "b-seed2", at: minutesAgo(5), title: "Check the tide schedule", url: "https://tidesandcurrents.noaa.gov/stationhome", status: "working", live: true },
-    { kind: "browser", id: "b-seed3", at: minutesAgo(4), title: "Log in to the trip portal", url: "https://portal.example.edu/login", status: "needs_you", live: true },
+    { kind: "browser", id: "b-seed2", at: minutesAgo(5), title: "Check the tide schedule", url: "https://tidesandcurrents.noaa.gov/stationhome", status: "working", instructions: "Check Saturday's low tide at Monterey", result: null, live: true },
+    { kind: "browser", id: "b-seed3", at: minutesAgo(4), title: "Log in to the trip portal", url: "https://portal.example.edu/login", status: "needs_you", instructions: "Log in to the trip portal and open the itinerary", result: null, live: true },
     {
       kind: "reply",
       id: "r-seed2",

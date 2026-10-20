@@ -184,7 +184,7 @@ function runTools(run: Run): ToolDefinition[] {
         if (run.held && (await untilStopped(run, run.held.promise)) === "stopped") return stoppedText();
         if (run.stop.signal.aborted) return stoppedText();
         run.finished = true;
-        set(done ? "completed" : "failed");
+        if (!run.stop.signal.aborted) run.io.act({ kind: "browserEnded", id: run.browser.id, status: done ? "completed" : "failed", result });
         run.io.report(`[browser task "${run.browser.title}" ${done ? "finished" : "failed"}]\n${untrusted(result)}`);
         void run.session?.abort();
         return text("Finished.");
@@ -213,7 +213,7 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers): Pick<Por
   const runs = new Map<string, Run>();
 
   const fail = (browser: Browser, io: AgentIO, why: string) => {
-    if (io.act({ kind: "browserStatus", id: browser.id, status: "failed" }).ok) io.report(`[browser task "${browser.title}" failed]\n${untrusted(why)}`);
+    if (io.act({ kind: "browserEnded", id: browser.id, status: "failed", result: why }).ok) io.report(`[browser task "${browser.title}" failed]\n${untrusted(why)}`);
   };
 
   const drive = async (run: Run) => {
@@ -228,7 +228,8 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers): Pick<Por
     });
     try {
       if (run.stop.signal.aborted) return;
-      await pi.session.prompt(`Task: ${run.browser.title}\nThe start page ${run.browser.url} is open.`, { expandPromptTemplates: false });
+      // the user's ask in full: what to do and what not to (page content stays data, see untrusted.ts)
+      await pi.session.prompt(`Task: ${run.browser.title}\n\n${run.browser.instructions}\n\nThe start page ${run.browser.url} is open.`, { expandPromptTemplates: false });
       if (!run.finished && !run.stop.signal.aborted)
         await pi.session.prompt("Call finish now with the result, or need_user if you are blocked.", { expandPromptTemplates: false });
       if (!run.finished && !run.stop.signal.aborted) fail(run.browser, run.io, "It stopped without a result.");
@@ -278,7 +279,8 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers): Pick<Por
         case "handBack":
           void browsers.remember(browser.id).catch(() => {}); // the user may have just logged in
           void browsers.fit(browser.id, null).catch(() => {}); // back to the size the agent works at
-          if (!run) return void io.act({ kind: "browserStatus", id: browser.id, status: "completed" }); // nothing left to resume
+          // nothing left to resume: it ends as it had, or as the user left it
+          if (!run) return void io.act({ kind: "browserEnded", id: browser.id, status: "completed", result: browser.result ?? "The user finished it in the browser." });
           run.held?.settle();
           run.held = null;
           return;
