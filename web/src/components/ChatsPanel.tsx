@@ -1,8 +1,8 @@
 /**
- * Left drawer (the ☰ button opens it): Settings + close, page grid on mobile, Main chat row with
+ * Left drawer (the ☰ button opens it): search + close, page grid on mobile, Main chat row with
  * timestamp, Side chats + add row, recent chats. Slide-over from the left.
  */
-import { MessageCircle, Plus, Settings, X } from "lucide-react";
+import { MessageCircle, Plus, Search, Settings, X } from "lucide-react";
 import type { DemoState } from "../data/fakeMuse";
 import type { MuseActions } from "./actions";
 import { NAV_PAGES } from "./nav";
@@ -23,19 +23,19 @@ export function ChatsPanel({ state, actions }: { state: DemoState; actions: Muse
         style={{ background: "var(--chat-background)", boxShadow: "4px 0 24px rgba(0,0,0,0.12)" }}
         aria-label="Menu"
       >
-        {/* top row: Settings + close (Search is a page in the grid below) */}
-        <div className="flex items-center justify-between">
-          <button
-            className="hover-fade flex h-10 items-center gap-2 rounded-full pl-3 pr-4 text-[15px] font-medium"
-            style={{ background: "var(--fill-secondary)", color: "var(--text-primary)" }}
-            onClick={() => {
-              actions.setChats(false);
-              actions.openSettings("connectors");
-            }}
+        {/* search + close share the top row */}
+        <div className="flex items-center gap-2">
+          <div
+            className="flex h-10 flex-1 items-center gap-2 rounded-full px-3"
+            style={{ background: "var(--fill-secondary)", color: "var(--text-tertiary)" }}
           >
-            <Settings size={18} />
-            Settings
-          </button>
+            <Search size={16} />
+            <input
+              className="w-full bg-transparent text-[14px] outline-none"
+              style={{ color: "var(--text-primary)" }}
+              placeholder="Search"
+            />
+          </div>
           <button
             aria-label="Close menu"
             className="hover-fade rounded-full p-2"
@@ -46,9 +46,10 @@ export function ChatsPanel({ state, actions }: { state: DemoState; actions: Muse
           </button>
         </div>
 
-        {/* pages: the rail is hidden below md, so the drawer carries them */}
+        {/* pages: the rail is hidden below md, so the drawer carries them. Search is
+            the box above, so its tile gives way to Settings at the end. */}
         <nav className="mt-3 grid grid-cols-3 gap-1 md:hidden" aria-label="Pages">
-          {NAV_PAGES.map(({ icon: Icon, label, ...rest }) => {
+          {NAV_PAGES.filter((p) => p.label !== "Search").map(({ icon: Icon, label, ...rest }) => {
             const active = "active" in rest;
             return (
               <button
@@ -65,6 +66,17 @@ export function ChatsPanel({ state, actions }: { state: DemoState; actions: Muse
               </button>
             );
           })}
+          <button
+            className="hover-fade flex flex-col items-center gap-1 rounded-xl py-2.5 text-[12px] font-medium"
+            style={{ color: "var(--text-secondary)" }}
+            onClick={() => {
+              actions.setChats(false);
+              actions.openSettings("connectors");
+            }}
+          >
+            <Settings size={20} />
+            Settings
+          </button>
         </nav>
 
         <div className="mt-3 flex-1 overflow-y-auto">
