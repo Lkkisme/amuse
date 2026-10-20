@@ -45,7 +45,7 @@ export function Viewer({
     >
       <ViewerHeader browser={browser} actions={actions} />
       <RunTabs tabs={tabs} activeId={browser.id} actions={actions} />
-      {live ? <LivePage key={browser.id} browser={browser} url={live(browser.id)} /> : <FakeChrome browser={browser} />}
+      {live ? <LivePage key={browser.id} browser={browser} url={live(browser.id)} actions={actions} /> : <FakeChrome browser={browser} />}
     </div>
   );
 }
@@ -143,10 +143,10 @@ function RunTabs({ tabs, activeId, actions }: { tabs: Browser[]; activeId: strin
 }
 
 /** The real Chrome window (its own tabs and address bar), live. */
-function LivePage({ browser, url }: { browser: Browser; url: string }) {
+function LivePage({ browser, url, actions }: { browser: Browser; url: string; actions: Actions }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col" style={{ background: "var(--fill-primary)" }}>
-      <LiveView url={url} interactive={browser.status === "paused"} />
+      <LiveView url={url} interactive={browser.status === "paused"} onFit={(view) => actions.fit(browser.id, view)} />
     </div>
   );
 }

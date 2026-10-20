@@ -40,7 +40,9 @@ export type Effect =
   | { kind: "browser"; browser: Browser; action: BrowserAction }
   | { kind: "approval"; id: string; resolution: Resolution }
   | { kind: "stopTask"; id: string }
-  | { kind: "browse"; browser: Browser };
+  | { kind: "browse"; browser: Browser }
+  /** shape the run's desktop like the user's screen */
+  | { kind: "fit"; id: string; viewer: { width: number; height: number } };
 
 /** Statuses an agent may report for a browser run (paused and stopped belong to the user). */
 export type BrowserProgress = Extract<BrowserStatus, "working" | "waiting" | "needs_you" | "completed" | "failed">;
@@ -72,7 +74,7 @@ export type Rejection =
   | { kind: "notFound"; entity: Entity["kind"]; id: string }
   | {
       kind: "invalid";
-      action: BrowserAction | "resolve" | "begin" | "dismiss" | "stop" | AgentAction["kind"];
+      action: BrowserAction | "fit" | "resolve" | "begin" | "dismiss" | "stop" | AgentAction["kind"];
       from: BrowserStatus | TaskStatus | Approval["status"] | Connection["status"];
     };
 
@@ -161,6 +163,14 @@ const rules: Rules = {
     if (!move.from.includes(browser.status)) return reject({ kind: "invalid", action, from: browser.status });
     const moved: Browser = { ...browser, status: move.to };
     return ok([upsert(moved)], [{ kind: "browser", browser: moved, action }], null);
+  },
+
+  /** Only the user's own hold reshapes the desktop; the agent keeps its standard size. */
+  "browser.fit": (state, { id, width, height }) => {
+    const browser = find(state, "browser", id);
+    if (!browser) return reject({ kind: "notFound", entity: "browser", id });
+    if (browser.status !== "paused") return reject({ kind: "invalid", action: "fit", from: browser.status });
+    return ok([], [{ kind: "fit", id, viewer: { width, height } }], null);
   },
 
   "task.stop": (state, { id }) => {

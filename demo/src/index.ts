@@ -28,6 +28,7 @@ export function demoPorts<H>(timers: Timers<H>): Ports {
   };
 
   return {
+    fit: () => {}, // the demo's browsers are sketches
     prompt: (text, { emit, act }) => {
       // the scripted agent shows its tools on cue: a URL starts a browser task, "connect <app>" asks to connect
       const url = text.match(/https?:\/\/\S+/)?.[0];

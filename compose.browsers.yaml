@@ -30,8 +30,9 @@ x-node: &node
     start_period: 15s
 
 x-node-env: &node-env
-  BROWSER_WIDTH: "1280"
-  BROWSER_HEIGHT: "800"
+  # 4:3, the classic desktop breakpoint: full desktop layouts, and bigger on a phone than 16:10
+  BROWSER_WIDTH: "1024"
+  BROWSER_HEIGHT: "768"
   BROWSER_URL: about:blank
   BROWSER_WS_ENDPOINT_FILE: /data/profile/browser-ws-endpoint.txt
   PLAYWRIGHT_SERVER_HOST: 0.0.0.0

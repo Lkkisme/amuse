@@ -207,7 +207,7 @@ const browserLabels: Record<string, string> = {
 const keepFinishedMs = 30 * 60_000;
 
 /** browse + browser control on real pages, with a Pi agent per run. */
-export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers): Pick<Ports, "browse" | "browser"> {
+export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers): Pick<Ports, "browse" | "browser" | "fit"> {
   /** Every run from browse until it ends; its controller is there before its page is. */
   const stops = new Map<string, AbortController>();
   const runs = new Map<string, Run>();
@@ -269,6 +269,7 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers): Pick<Por
           return;
         case "handBack":
           void browsers.remember(browser.id).catch(() => {}); // the user may have just logged in
+          void browsers.fit(browser.id, null).catch(() => {}); // back to the size the agent works at
           if (!run) return void io.act({ kind: "browserStatus", id: browser.id, status: "completed" }); // nothing left to resume
           run.held?.settle();
           run.held = null;
@@ -279,6 +280,9 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers): Pick<Por
           void browsers.close(browser.id);
           return;
       }
+    },
+    fit({ id, viewer }) {
+      void browsers.fit(id, viewer).catch(() => {}); // a desktop that keeps its size is still usable
     },
   };
 }

@@ -8,6 +8,7 @@
  * retargeted.
  */
 import type { Controller, Element, Observation } from "./controller.ts";
+import { type Size, fitted, resize, standard } from "./desktop.ts";
 
 export interface Node {
   name: string;
@@ -39,6 +40,8 @@ export interface Browsers {
   screenshot(run: string): Promise<Uint8Array | null>;
   /** Keep this run's logins for later runs (the user just held the browser). */
   remember(run: string): Promise<void>;
+  /** Shape the run's desktop for a viewer of this size; null: back to the agent's standard size. */
+  fit(run: string, viewer: Size | null): Promise<void>;
   close(run: string): Promise<void>;
   /** The run's live desktop (noVNC websocket), while it has one. */
   vnc(run: string): string | null;
@@ -61,8 +64,12 @@ interface Run {
 
 const describe = (e: Element) => e.label?.trim() || e.href || e.tag || "";
 
-export function browserPool(nodes: Node[], options: { profile?: string } = {}): Browsers & { reset(): Promise<void> } {
+export function browserPool(
+  nodes: Node[],
+  options: { profile?: string; desktop?: (vnc: string, size: Size) => Promise<void> } = {},
+): Browsers & { reset(): Promise<void> } {
   const profile = options.profile ?? "remuse";
+  const desktop = options.desktop ?? resize;
   const free = [...nodes];
   const waiting: { take: (node: Node) => void; signal: AbortSignal | undefined }[] = [];
   const runs = new Map<string, Run>();
@@ -130,6 +137,8 @@ export function browserPool(nodes: Node[], options: { profile?: string } = {}): 
     async open(id, url, signal) {
       const node = await lease(signal);
       try {
+        // the last user may have left the desktop in their screen's shape; a run starts at the standard size
+        await desktop(node.vnc, standard).catch(() => {});
         const session = await node.controller
           .create(url, profile)
           .catch(() => node.controller.create(url, null)); // no saved logins yet
@@ -182,6 +191,9 @@ export function browserPool(nodes: Node[], options: { profile?: string } = {}): 
     async remember(id) {
       const r = run(id);
       await r.node.controller.saveProfile(r.session, profile);
+    },
+    async fit(id, viewer) {
+      await desktop(run(id).node.vnc, viewer ? fitted(viewer) : standard);
     },
     async close(id) {
       const r = runs.get(id);

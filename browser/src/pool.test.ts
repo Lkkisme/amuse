@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type Action, type Controller, type Observation, StaleRef, browserPool, controller } from "./index.ts";
+import { type Action, type Controller, type Observation, type Size, StaleRef, browserPool, controller } from "./index.ts";
+
+/** Desktop sizes set, as "vnc WxH". */
+const sizes = (log: string[] = []) => async (vnc: string, { width, height }: Size) => void log.push(`${vnc} ${width}x${height}`);
 
 /** A controller over a scripted page: a link and a search box, both pages share ids. */
 function fakeController(log: string[] = []): Controller {
@@ -33,7 +36,7 @@ function fakeController(log: string[] = []): Controller {
 }
 
 test("refs come from the latest look; a page change retires them; unknown refs are refused", async () => {
-  const pool = browserPool([{ name: "n1", controller: fakeController(), vnc: "ws://n1/websockify" }]);
+  const pool = browserPool([{ name: "n1", controller: fakeController(), vnc: "ws://n1/websockify" }], { desktop: sizes() });
   await pool.open("r1", "https://a.example/");
   const view = await pool.look("r1");
   assert.deepEqual(view.elements.map((e) => [e.ref, e.role, e.label]), [["e1", "link", "Next"], ["e2", "textbox", "Search"]]);
@@ -47,7 +50,7 @@ test("refs come from the latest look; a page change retires them; unknown refs a
 
 test("typing nothing clears the field; submit presses Enter; navigate checks the URL", async () => {
   const log: string[] = [];
-  const pool = browserPool([{ name: "n1", controller: fakeController(log), vnc: "ws://n1/websockify" }]);
+  const pool = browserPool([{ name: "n1", controller: fakeController(log), vnc: "ws://n1/websockify" }], { desktop: sizes() });
   await pool.open("r1", "https://a.example/");
   await pool.look("r1");
   await pool.step("r1", { kind: "type", ref: "e2", text: "", submit: true });
@@ -57,7 +60,7 @@ test("typing nothing clears the field; submit presses Enter; navigate checks the
 
 test("a busy pool queues runs; a stopped waiter leaves the queue; closing hands the node on", async () => {
   const log: string[] = [];
-  const pool = browserPool([{ name: "n1", controller: fakeController(log), vnc: "ws://n1/websockify" }]);
+  const pool = browserPool([{ name: "n1", controller: fakeController(log), vnc: "ws://n1/websockify" }], { desktop: sizes() });
   await pool.open("first", "https://a.example/");
   let second = false;
   const waiting = pool.open("second", "https://a.example/").then(() => (second = true));
@@ -106,4 +109,14 @@ test("a real auto-browser node opens, looks, acts and closes", { skip: !real }, 
   const png = await pool.screenshot("r");
   assert.ok(png && png[0] === 0x89);
   await pool.close("r");
+});
+
+test("a run starts at the standard desktop size; the user's screen reshapes it; handing back restores it", async () => {
+  const set: string[] = [];
+  const pool = browserPool([{ name: "n1", controller: fakeController(), vnc: "ws://n1/websockify" }], { desktop: sizes(set) });
+  await pool.open("r1", "https://a.example/");
+  await pool.fit("r1", { width: 390, height: 560 });
+  await pool.fit("r1", null);
+  assert.deepEqual(set, ["ws://n1/websockify 1024x768", "ws://n1/websockify 720x1034", "ws://n1/websockify 1024x768"]);
+  await assert.rejects(pool.fit("r9", null), /not open/);
 });

@@ -11,6 +11,7 @@ const handlers: Handlers = {
   "connection.begin": async ({ id }) => ({ url: `https://connect.example/${id}` }),
   "connection.dismiss": async () => null,
   "browser.control": async () => null,
+  "browser.fit": async () => null,
   "task.stop": async () => null,
 };
 

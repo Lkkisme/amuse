@@ -46,6 +46,8 @@ export interface Actions {
   selectTab(browserId: string): void;
   closeTab(browserId: string): void;
   control(browserId: string, action: "take" | "handBack" | "stop"): void;
+  /** while the user holds it: shape the run's desktop like this view (CSS px) */
+  fit(browserId: string, view: { width: number; height: number }): void;
   stopTask(taskId: string): void;
   openTaskDetail(taskId: string | null): void;
   setChats(open: boolean): void;

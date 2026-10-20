@@ -98,6 +98,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           return { ...u, viewer: { browserId: u.viewer.browserId === browserId ? last : u.viewer.browserId, closedTabs } };
         }),
       control: (id, action) => call("browser.control", { id, action }),
+      // best effort and quiet: a desktop that keeps its shape still works
+      fit: (id, { width, height }) => void session.call("browser.fit", { id, width, height }).catch(() => {}),
       stopTask: (id) => call("task.stop", { id }),
       openTaskDetail: (taskDetail) => patch((u) => ({ ...u, taskDetail })),
       setChats: (chatsOpen) => patch((u) => ({ ...u, chatsOpen })),

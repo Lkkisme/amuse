@@ -22,7 +22,10 @@ import { TouchSurface } from "./TouchSurface";
 const touchScreen = () => window.matchMedia("(pointer: coarse)").matches;
 
 
-export function LiveView({ url, interactive }: { url: string; interactive: boolean }) {
+/** Width change (px) that reshapes the desktop again: a turned phone, a resized window; not the keyboard (height only). */
+const REFIT = 24;
+
+export function LiveView({ url, interactive, onFit }: { url: string; interactive: boolean; onFit: (view: { width: number; height: number }) => void }) {
   const box = useRef<HTMLDivElement>(null);
   const client = useRef<RFB | null>(null);
   const [state, setState] = useState<"connecting" | "live" | "gone">("connecting");
@@ -105,6 +108,24 @@ export function LiveView({ url, interactive }: { url: string; interactive: boole
       target.removeEventListener("paste", pasted);
     };
   }, [interactive, touch]);
+
+  // while the user holds the run, its desktop takes this view's shape (the server keeps it within sane sizes)
+  const fit = useRef(onFit);
+  fit.current = onFit;
+  useEffect(() => {
+    const target = box.current;
+    if (!target || !interactive || state !== "live") return;
+    let fittedWidth = 0;
+    const measure = () => {
+      const { width, height } = target.getBoundingClientRect();
+      if (Math.abs(width - fittedWidth) < REFIT) return;
+      fittedWidth = width;
+      fit.current({ width: Math.round(width), height: Math.round(height) });
+    };
+    const watch = new ResizeObserver(measure);
+    watch.observe(target);
+    return () => watch.disconnect();
+  }, [interactive, state]);
 
   const controls = interactive && touch && state === "live";
 

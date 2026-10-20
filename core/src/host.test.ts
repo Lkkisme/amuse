@@ -13,6 +13,7 @@ function capture() {
     browser: () => {},
     approval: () => {},
     stopTask: () => {},
+    fit: () => {},
     connect: async () => "https://connect.example/",
   };
   return { ports, io: () => io };

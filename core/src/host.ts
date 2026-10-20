@@ -72,6 +72,8 @@ export interface Ports {
   browser(effect: Extract<Effect, { kind: "browser" }>, io: AgentIO): void;
   approval(effect: Extract<Effect, { kind: "approval" }>, io: AgentIO): void;
   stopTask(id: string, io: AgentIO): void;
+  /** Shape a held run's desktop like the user's screen. */
+  fit(effect: Extract<Effect, { kind: "fit" }>, io: AgentIO): void;
   /** Start connecting an app; resolves to the provider's hosted link. */
   connect(connection: Connection, io: AgentIO): Promise<string>;
 }
@@ -170,6 +172,8 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
         return ports.stopTask(effect.id, agent);
       case "browse":
         return ports.browse(effect.browser, agent);
+      case "fit":
+        return ports.fit(effect, agent);
     }
   }
 
@@ -204,6 +208,7 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     "connection.begin": async (params) => ({ url: await ports.connect(command("connection.begin", params), agent) }),
     "connection.dismiss": async (params) => command("connection.dismiss", params),
     "browser.control": async (params) => command("browser.control", params),
+    "browser.fit": async (params) => command("browser.fit", params),
     "task.stop": async (params) => command("task.stop", params),
   };
 

@@ -4,7 +4,7 @@
  * viewer sends passes the VNC gate, so input reaches the desktop only while
  * the conversation says the user holds the run (status paused).
  */
-import type { Browsers } from "@remuse/browser";
+import { type Browsers, nodeOrigin } from "@remuse/browser";
 import { WebSocket } from "ws";
 import { vncGate } from "./vnc.ts";
 
@@ -13,9 +13,6 @@ export interface Live {
   /** True while the user controls run `id`. */
   controlled(id: string): boolean;
 }
-
-/** noVNC admits only its own origin (NOVNC_ALLOWED_ORIGINS in compose.browsers.yaml). */
-const nodeOrigin = "http://localhost:6080";
 
 export function attach(viewer: WebSocket, id: string, live: Live): void {
   const target = live.browsers.vnc(id);

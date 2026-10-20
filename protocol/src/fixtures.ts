@@ -69,5 +69,6 @@ export const calls: Call[] = [
   { method: "connection.begin", params: { id: "c1" } },
   { method: "connection.dismiss", params: { id: "c1" } },
   { method: "browser.control", params: { id: "b1", action: "handBack" } },
+  { method: "browser.fit", params: { id: "b1", width: 390, height: 560 } },
   { method: "task.stop", params: { id: "t1" } },
 ];

@@ -25,6 +25,8 @@ export const Call = z.discriminatedUnion("method", [
   call("connection.dismiss", z.object({ id: Id })),
   /** take: → paused (user in control); handBack: → working; stop: → stopped. */
   call("browser.control", z.object({ id: Id, action: z.enum(["take", "handBack", "stop"]) })),
+  /** While the user holds a run: shape its desktop like their screen (CSS px of the view). */
+  call("browser.fit", z.object({ id: Id, width: z.int().min(200).max(8000), height: z.int().min(200).max(8000) })),
   call("task.stop", z.object({ id: Id })),
 ]);
 
@@ -46,6 +48,7 @@ export const results = {
   "connection.begin": z.object({ url: z.url() }),
   "connection.dismiss": done,
   "browser.control": done,
+  "browser.fit": done,
   "task.stop": done,
 } satisfies Record<Method, z.ZodType>;
 
@@ -65,6 +68,7 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "connection.begin": (raw) => results["connection.begin"].parse(raw),
   "connection.dismiss": (raw) => results["connection.dismiss"].parse(raw),
   "browser.control": (raw) => results["browser.control"].parse(raw),
+  "browser.fit": (raw) => results["browser.fit"].parse(raw),
   "task.stop": (raw) => results["task.stop"].parse(raw),
 };
 

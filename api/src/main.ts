@@ -86,6 +86,7 @@ const real = (model: string, authPath: string): Ports => ({
             io.report(`[browser task "${browser.title}" failed] No browser is configured on this server.`);
         },
         browser: () => {},
+        fit: () => {},
       }),
   approval: () => {}, // waiting agents get the verdict through AgentIO.decision
   stopTask: () => {}, // no task runner yet: the rules already recorded the stop

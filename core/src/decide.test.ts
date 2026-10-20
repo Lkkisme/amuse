@@ -110,3 +110,12 @@ test("recovery ends interrupted replies and clears the activity; a quiet state n
   ]);
   assert.deepEqual(recover(stateOf({ kind: "prompt", id: "p1", at, text: "hi" })), []);
 });
+
+test("only a run the user holds is reshaped to their screen", () => {
+  const fit = (status: BrowserStatus) => decide(stateOf(browser(status)), { method: "browser.fit", params: { id: "b1", width: 390, height: 560 } }, ctx);
+  const held = fit("paused");
+  assert.ok(held.ok);
+  assert.deepEqual(held.changes, []);
+  assert.deepEqual(held.effects, [{ kind: "fit", id: "b1", viewer: { width: 390, height: 560 } }]);
+  assert.deepEqual(fit("working"), { ok: false, rejection: { kind: "invalid", action: "fit", from: "working" } });
+});
