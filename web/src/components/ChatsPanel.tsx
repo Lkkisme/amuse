@@ -23,7 +23,8 @@ export function ChatsPanel({ open, actions }: { open: boolean; actions: Actions 
   const recent = q ? RECENT_CHATS.filter((c) => c.title.toLowerCase().includes(q)) : RECENT_CHATS;
   // on md+ the drawer opens beside the icon rail (w-14), so the ☰ button lines up with its padding
   return (
-    <div className={`fixed inset-0 z-40 flex md:left-14 ${closing ? "pointer-events-none" : ""}`}>
+    // starts right of the rail (md up) and clips the slide, so the panel comes out from under the rail, never over it
+    <div className={`fixed inset-0 z-40 flex overflow-hidden md:left-14 ${closing ? "pointer-events-none" : ""}`}>
       <div
         className={`${closing ? "anim-fade-out" : "anim-fade-in"} absolute inset-0 bg-black/30`}
         onClick={() => actions.setChats(false)}
