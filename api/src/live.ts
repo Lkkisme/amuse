@@ -36,3 +36,9 @@ export async function attach(ws: WebSocket, id: string, live: Live): Promise<voi
   ws.on("close", () => void stop());
   page.once("close", () => ws.close(4410, "the run's page closed"));
 }
+
+/** A small, recent JPEG of the run's page for its card; null when it has no live page. */
+export async function thumbnail(live: Live, id: string): Promise<Buffer | null> {
+  const page = live.pool.page(id);
+  return page ? page.screenshot({ type: "jpeg", quality: 45, timeout: 5_000 }).catch(() => null) : null;
+}

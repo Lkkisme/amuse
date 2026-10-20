@@ -8,19 +8,22 @@
  */
 const tokenKey = "remuse.token";
 
-export type Connection = { kind: "demo" } | { kind: "locked" } | { kind: "server"; rpc: string; live: (id: string) => string };
+export type Connection =
+  | { kind: "demo" }
+  | { kind: "locked" }
+  | { kind: "server"; rpc: string; live: (id: string) => string; thumb: (id: string) => string };
+
+/** A route next to /rpc on the same server, for a run id (ws for /live, http for /thumb). */
+function route(rpc: string, path: string, id: string, http: boolean) {
+  const url = new URL(rpc);
+  url.pathname = path;
+  url.searchParams.set("id", id);
+  if (http) url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+  return url.toString();
+}
 
 function server(rpc: string): Connection {
-  return {
-    kind: "server",
-    rpc,
-    live: (id) => {
-      const url = new URL(rpc);
-      url.pathname = "/live";
-      url.searchParams.set("id", id);
-      return url.toString();
-    },
-  };
+  return { kind: "server", rpc, live: (id) => route(rpc, "/live", id, false), thumb: (id) => route(rpc, "/thumb", id, true) };
 }
 
 export function connection(): Connection {

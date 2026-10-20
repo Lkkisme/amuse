@@ -14,9 +14,10 @@ import { ApprovalCard, BrowserCard, ConnectionCard, TaskCard } from "./cards";
 import { RichText } from "./markdown";
 
 type Message = Prompt | Reply;
+type Thumb = ((id: string) => string) | null;
 
 /** Messages render as bubbles; every other entity is a card. */
-function EntityView({ entity, previous, actions }: { entity: Entity; previous: Entity | undefined; actions: Actions }) {
+function EntityView({ entity, previous, thumb, actions }: { entity: Entity; previous: Entity | undefined; thumb: Thumb; actions: Actions }) {
   switch (entity.kind) {
     case "prompt":
     case "reply":
@@ -33,7 +34,7 @@ function EntityView({ entity, previous, actions }: { entity: Entity; previous: E
     case "connection":
       return <ConnectionCard connection={entity} actions={actions} />;
     case "browser":
-      return <BrowserCard browser={entity} actions={actions} />;
+      return <BrowserCard browser={entity} thumb={thumb} actions={actions} />;
   }
 }
 
@@ -97,7 +98,7 @@ function TimeDivider({ time }: { time: string }) {
 /** px from the bottom past which the jump-to-bottom button shows */
 const JUMP_BUTTON_DISTANCE = 240;
 
-export function ChatFeed({ conversation, actions }: { conversation: State; actions: Actions }) {
+export function ChatFeed({ conversation, thumb, actions }: { conversation: State; thumb: Thumb; actions: Actions }) {
   const feed = conversation.entities;
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -161,7 +162,7 @@ export function ChatFeed({ conversation, actions }: { conversation: State; actio
       >
         <div className="mx-auto flex max-w-3xl flex-col gap-3">
         {feed.map((entity, i) => (
-          <EntityView key={entity.id} entity={entity} previous={feed[i - 1]} actions={actions} />
+          <EntityView key={entity.id} entity={entity} previous={feed[i - 1]} thumb={thumb} actions={actions} />
         ))}
         {thinking(conversation) && (
           <div className="anim-fade-in flex justify-start">

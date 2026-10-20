@@ -117,7 +117,7 @@ function Chat() {
       <IconRail />
       {/* with the viewer open on desktop, the chat keeps the left 482px (Muse layout) */}
       <div className={`relative flex min-w-0 flex-1 flex-col ${ui.viewer ? "lg:max-w-[410px]" : ""}`}>
-        <ChatFeed conversation={conversation} actions={actions} />
+        <ChatFeed conversation={conversation} thumb={where.kind === "server" ? where.thumb : null} actions={actions} />
         <TopBar conversation={conversation} />
         <MenuButton open={ui.chatsOpen} actions={actions} />
         <TaskPill conversation={conversation} actions={actions} />

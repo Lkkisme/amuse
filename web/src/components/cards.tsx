@@ -5,7 +5,8 @@
 import { Check, ChevronRight, CircleAlert, CircleCheck, Globe, ListTodo, ShieldCheck, Table } from "lucide-react";
 import type { Approval, Browser, Connection, Task } from "@remuse/protocol";
 import type { Actions } from "../ui.ts";
-import { browserStatus, hue, taskStatus } from "../view.ts";
+import { useEffect, useState } from "react";
+import { bannerActive, browserStatus, hue, taskStatus } from "../view.ts";
 
 const CARD_BG = "var(--fill-secondary)";
 
@@ -189,11 +190,50 @@ export function ConnectionCard({ connection, actions }: { connection: Connection
 
 /* ---------- Browser run ---------- */
 
+/** A sketch of a page, for the demo or when the real page is gone. */
+function Sketch({ id }: { id: string }) {
+  return (
+    <div className="flex h-full flex-col gap-2 p-3">
+      <div className="h-2.5 w-1/3 rounded-sm" style={{ background: `hsl(${hue(id)} 40% 80%)` }} />
+      <div className="h-2 w-1/2 rounded-sm" style={{ background: "var(--fill-tertiary)" }} />
+      <div className="h-2 w-2/5 rounded-sm" style={{ background: "var(--fill-tertiary)" }} />
+    </div>
+  );
+}
+
+/**
+ * The real page, refreshed every few seconds while the run is in flight.
+ * Until a frame loads (the page may not be open yet) the sketch shows; every
+ * refresh tries again.
+ */
+function Thumbnail({ src, live, id }: { src: string; live: boolean; id: string }) {
+  const [tick, setTick] = useState(0);
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    if (!live) return;
+    const timer = setInterval(() => setTick((t) => t + 1), 3000);
+    return () => clearInterval(timer);
+  }, [live]);
+  return (
+    <div className="relative h-full w-full">
+      {!shown && <Sketch id={id} />}
+      <img
+        alt=""
+        src={`${src}&t=${tick}`}
+        className="absolute inset-0 h-full w-full object-cover object-top"
+        style={{ visibility: shown ? "visible" : "hidden" }}
+        onError={() => setShown(false)}
+        onLoad={() => setShown(true)}
+      />
+    </div>
+  );
+}
+
 /**
  * Muse browser card: tinted globe tile + "Browser" + "<status> · <task>", a
  * page thumbnail, and one pill button. Refs 06-card-desktop, 02-run-*, 08-now.
  */
-export function BrowserCard({ browser, actions }: { browser: Browser; actions: Actions }) {
+export function BrowserCard({ browser, thumb, actions }: { browser: Browser; thumb: ((id: string) => string) | null; actions: Actions }) {
   const meta = browserStatus[browser.status];
   const open = () => actions.openViewer(browser.id);
   return (
@@ -215,16 +255,13 @@ export function BrowserCard({ browser, actions }: { browser: Browser; actions: A
         </div>
       </div>
 
-      {/* thumbnail: a sketch of the page, never a real one */}
       <button
         aria-label="Open browser viewer"
-        className="mt-3 flex h-[178px] w-full flex-col gap-2 overflow-hidden rounded-[10px] p-3 text-left"
+        className="mt-3 block h-[178px] w-full overflow-hidden rounded-[10px] text-left"
         style={{ background: "var(--fill-primary)", border: "1px solid var(--fill-divider)" }}
         onClick={open}
       >
-        <div className="h-2.5 w-1/3 rounded-sm" style={{ background: `hsl(${hue(browser.id)} 40% 80%)` }} />
-        <div className="h-2 w-1/2 rounded-sm" style={{ background: "var(--fill-tertiary)" }} />
-        <div className="h-2 w-2/5 rounded-sm" style={{ background: "var(--fill-tertiary)" }} />
+        {thumb ? <Thumbnail src={thumb(browser.id)} live={bannerActive(browser)} id={browser.id} /> : <Sketch id={browser.id} />}
       </button>
 
       <button

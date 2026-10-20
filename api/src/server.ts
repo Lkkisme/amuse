@@ -1,16 +1,16 @@
 /**
- * The network edge: an HTTP server (optionally serving the built web app)
- * with two WebSocket routes: /rpc (one
+ * The network edge: an HTTP server (the built web app, and /thumb?id=<run>
+ * for card thumbnails) with two WebSocket routes: /rpc (one
  * shared Session, one Peer per socket) and /live?id=<run> (a run's live
  * browser view). The access token rides in
  * the query string (browsers cannot set WebSocket headers) and is compared
  * in constant time; anything else is refused before the upgrade.
  */
 import { createHash, timingSafeEqual } from "node:crypto";
-import { type Server, createServer } from "node:http";
+import { type Server, type ServerResponse, createServer } from "node:http";
 import type { Session } from "@remuse/protocol";
 import { WebSocketServer } from "ws";
-import { type Live, attach } from "./live.ts";
+import { type Live, attach, thumbnail } from "./live.ts";
 import { serve } from "./rpc.ts";
 import { staticFiles } from "./static.ts";
 
@@ -37,7 +37,18 @@ export function listen({ session, live, web, token, port, host }: Options): Prom
     return url.pathname === "/live" && live && id ? { kind: "live", id, live } : null;
   };
   const files = web ? staticFiles(web) : null;
-  const http = createServer((req, res) => void (files ? files(req, res).catch(() => res.writeHead(500).end()) : res.writeHead(404).end()));
+  /** GET /thumb?id=<run>&token=… → the run's page as a small JPEG, for its card. */
+  const thumb = async (url: URL, res: ServerResponse) => {
+    const id = url.searchParams.get("id");
+    const image = live && id && sameToken(url.searchParams.get("token") ?? "", token) ? await thumbnail(live, id) : null;
+    if (!image) return void res.writeHead(404).end();
+    res.writeHead(200, { "content-type": "image/jpeg", "cache-control": "no-store" }).end(image);
+  };
+  const http = createServer((req, res) => {
+    const url = new URL(req.url ?? "/", "http://local");
+    const handled = url.pathname === "/thumb" ? thumb(url, res) : files ? files(req, res) : Promise.resolve(void res.writeHead(404).end());
+    handled.catch(() => res.writeHead(500).end());
+  });
   const wss = new WebSocketServer({ noServer: true });
 
   http.on("upgrade", (req, socket, head) => {
