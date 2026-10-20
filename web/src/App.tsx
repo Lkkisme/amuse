@@ -12,7 +12,7 @@ import { Composer } from "./components/Composer";
 import { ChatsPanel } from "./components/ChatsPanel";
 import { IconRail } from "./components/IconRail";
 import { ActivityPanel } from "./components/ActivityPanel";
-import { TopBar } from "./components/TopBar";
+import { MenuButton, TopBar } from "./components/TopBar";
 import { SettingsModal } from "./components/SettingsModal";
 import { ExplainerModal } from "./components/ExplainerModal";
 import { Viewer } from "./components/Viewer";
@@ -251,6 +251,7 @@ export default function App() {
       <div className={`relative flex min-w-0 flex-1 flex-col ${state.viewer ? "lg:max-w-[410px]" : ""}`}>
         <ChatFeed state={state} actions={actions} />
         <TopBar state={state} actions={actions} />
+        <MenuButton state={state} actions={actions} />
         <TaskPill state={state} actions={actions} />
         <Composer assistantThinking={state.assistantThinking} actions={actions} />
       </div>

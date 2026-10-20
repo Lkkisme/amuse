@@ -1,10 +1,10 @@
 /**
- * Left drawer (the ☰ button opens it; a collapse button in the same spot closes it): page grid on mobile, then the
+ * Left drawer, toggled by the ☰ button, which stays above it and turns into a collapse icon: page grid on mobile, then the
  * chat search box right above the list it filters (Main chat, Side chats +
  * add, recent chats). Slide-over from the left.
  */
 import { useState } from "react";
-import { MessageCircle, PanelLeftClose, Plus, Search, Settings } from "lucide-react";
+import { MessageCircle, Plus, Search, Settings } from "lucide-react";
 import type { DemoState } from "../data/fakeMuse";
 import type { MuseActions } from "./actions";
 import { NAV_PAGES } from "./nav";
@@ -22,8 +22,9 @@ export function ChatsPanel({ state, actions }: { state: DemoState; actions: Muse
   if (!mounted) return null;
   const q = query.trim().toLowerCase();
   const recent = q ? RECENT_CHATS.filter((c) => c.title.toLowerCase().includes(q)) : RECENT_CHATS;
+  // on md+ the drawer opens beside the icon rail (w-14), so the ☰ button lines up with its padding
   return (
-    <div className={`fixed inset-0 z-40 flex ${closing ? "pointer-events-none" : ""}`}>
+    <div className={`fixed inset-0 z-40 flex md:left-14 ${closing ? "pointer-events-none" : ""}`}>
       <div
         className={`${closing ? "anim-fade-out" : "anim-fade-in"} absolute inset-0 bg-black/30`}
         onClick={() => actions.setChats(false)}
@@ -34,18 +35,8 @@ export function ChatsPanel({ state, actions }: { state: DemoState; actions: Muse
         style={{ background: "var(--chat-background)", boxShadow: "4px 0 24px rgba(0,0,0,0.12)" }}
         aria-label="Menu"
       >
-        {/* collapse button sits exactly where the ☰ button was (top-2 left-3,
-            size-10), so the same tap opens and closes the drawer */}
-        <div className="-mt-1">
-          <button
-            aria-label="Close menu"
-            className="hover-fade flex size-10 items-center justify-center rounded-full"
-            style={{ background: "var(--fill-primary)", color: "var(--text-primary)", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}
-            onClick={() => actions.setChats(false)}
-          >
-            <PanelLeftClose size={18} />
-          </button>
-        </div>
+        {/* room for the ☰ button (TopBar's MenuButton), which stays put above the drawer */}
+        <div className="h-10 shrink-0" />
 
         {/* pages: the rail is hidden below md, so the drawer carries them. Search is
             the chat search below, so its tile gives way to Settings at the end. */}

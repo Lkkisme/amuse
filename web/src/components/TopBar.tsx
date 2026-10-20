@@ -3,7 +3,7 @@
  * Muse avatar with its name badge. While Muse works, the badge grows a status
  * line ("is responding", "Re-observing page", ...).
  */
-import { Globe, List, Menu, Wrench } from "lucide-react";
+import { Globe, List, Menu, PanelLeftClose, Wrench } from "lucide-react";
 import type { AgentStatus, DemoState } from "../data/fakeMuse";
 
 const STATUS_ICONS = { web: Globe, list: List, tool: Wrench } as const;
@@ -20,14 +20,8 @@ export function TopBar({ state, actions }: { state: DemoState; actions: MuseActi
     <header
       className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between px-3 py-2"
     >
-      <button
-        aria-label="Open menu"
-        className="hover-fade pointer-events-auto flex size-10 items-center justify-center rounded-full"
-        style={{ background: "var(--fill-primary)", color: "var(--text-primary)", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}
-        onClick={() => actions.setChats(!state.chatsOpen)}
-      >
-        <Menu size={18} />
-      </button>
+      {/* spacer: the menu button lives outside the header (MenuButton) so it can sit above the drawer */}
+      <span className="size-10" />
 
       {/* Muse avatar bubble */}
       <div className="pointer-events-none absolute left-1/2 top-1 z-10 flex -translate-x-1/2 flex-col items-center">
@@ -65,5 +59,31 @@ function AvatarBadge({ status }: { status: AgentStatus | null }) {
         </span>
       )}
     </span>
+  );
+}
+
+/**
+ * The ☰ button. It stays put above the drawer (z-45: over the drawer's z-40,
+ * under the viewer's z-50) and morphs into a collapse icon while the drawer
+ * is open, so one tap target opens and closes it.
+ */
+export function MenuButton({ state, actions }: { state: DemoState; actions: MuseActions }) {
+  const open = state.chatsOpen;
+  const icon = "absolute transition-all duration-200 ease-out";
+  return (
+    <button
+      aria-label={open ? "Close menu" : "Open menu"}
+      aria-expanded={open}
+      className="hover-fade absolute left-3 top-2 z-[45] flex size-10 items-center justify-center rounded-full"
+      style={{ background: "var(--fill-primary)", color: "var(--text-primary)", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}
+      onClick={() => actions.setChats(!open)}
+    >
+      <Menu size={18} className={icon} style={{ opacity: open ? 0 : 1, transform: open ? "rotate(90deg) scale(0.6)" : "none" }} />
+      <PanelLeftClose
+        size={18}
+        className={icon}
+        style={{ opacity: open ? 1 : 0, transform: open ? "none" : "rotate(-90deg) scale(0.6)" }}
+      />
+    </button>
   );
 }
