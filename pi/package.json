@@ -2,7 +2,9 @@
   "name": "@remuse/pi",
   "private": true,
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "typecheck": "tsc -p .",
     "test": "node --test 'src/**/*.test.ts'"
@@ -10,6 +12,7 @@
   "dependencies": {
     "@earendil-works/pi-coding-agent": "1.3.0",
     "@remuse/core": "*",
-    "@remuse/protocol": "*"
+    "@remuse/protocol": "*",
+    "typebox": "1.3.27"
   }
 }

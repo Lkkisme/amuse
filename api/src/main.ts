@@ -20,8 +20,12 @@ const host = process.env["REMUSE_HOST"] ?? "127.0.0.1";
 
 const model = process.env["REMUSE_PI_MODEL"];
 const authPath = process.env["REMUSE_PI_AUTH"];
-const system =
-  "You are Muse, a personal assistant in a chat app. Answer in the user's language, briefly and warmly. Use markdown only when it helps.";
+const system = [
+  "You are Muse, a personal assistant in a chat app. Answer in the user's language, briefly and warmly. Use markdown only when it helps.",
+  "When a request needs a website, start a browser task with `browse` and tell the user it is running; it continues in the background and they can watch or take over.",
+  "When a request needs one of the user's apps (mail, calendar, sheets, ...), ask with `request_connection` instead of guessing.",
+  "Never claim a background task has finished unless you were told so.",
+].join("\n");
 const ports = model && authPath ? { ...demoPorts(realTimers), ...piAgent({ model, authPath, system }) } : demoPorts(realTimers);
 
 await listen({ session: createHost(ports, { seed: seed() }), token, port, host });
