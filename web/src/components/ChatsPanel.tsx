@@ -1,8 +1,8 @@
 /**
- * Chats panel ('☰ Chats' pill opens it): search input, Main chat row with
+ * Left drawer (the ☰ button opens it): search + close, page grid on mobile, Main chat row with
  * timestamp, Side chats + add row, recent chats. Slide-over from the left.
  */
-import { MessageCircle, Menu, Plus, Search, Settings, X } from "lucide-react";
+import { MessageCircle, Plus, Search, Settings, X } from "lucide-react";
 import type { DemoState } from "../data/fakeMuse";
 import type { MuseActions } from "./actions";
 import { NAV_PAGES } from "./nav";
@@ -21,33 +21,29 @@ export function ChatsPanel({ state, actions }: { state: DemoState; actions: Muse
       <aside
         className="anim-pane-from-left relative flex h-full w-[300px] max-w-[85vw] flex-col p-3"
         style={{ background: "var(--chat-background)", boxShadow: "4px 0 24px rgba(0,0,0,0.12)" }}
-        aria-label="Chats"
+        aria-label="Menu"
       >
-        <div className="flex items-center justify-between px-1 pb-2">
-          <span className="flex items-center gap-2 text-[17px] font-semibold" style={{ color: "var(--text-primary)" }}>
-            <Menu size={18} /> Chats
-          </span>
+        {/* search + close share the top row; no title, the drawer holds pages and chats */}
+        <div className="flex items-center gap-2">
+          <div
+            className="flex h-10 flex-1 items-center gap-2 rounded-full px-3"
+            style={{ background: "var(--fill-secondary)", color: "var(--text-tertiary)" }}
+          >
+            <Search size={16} />
+            <input
+              className="w-full bg-transparent text-[14px] outline-none"
+              style={{ color: "var(--text-primary)" }}
+              placeholder="Search"
+            />
+          </div>
           <button
-            aria-label="Close chats"
+            aria-label="Close menu"
             className="hover-fade rounded-full p-2"
             style={{ color: "var(--icon-secondary)" }}
             onClick={() => actions.setChats(false)}
           >
             <X size={20} />
           </button>
-        </div>
-
-        {/* search */}
-        <div
-          className="flex h-10 items-center gap-2 rounded-full px-3"
-          style={{ background: "var(--fill-secondary)", color: "var(--text-tertiary)" }}
-        >
-          <Search size={16} />
-          <input
-            className="w-full bg-transparent text-[14px] outline-none"
-            style={{ color: "var(--text-primary)" }}
-            placeholder="Search"
-          />
         </div>
 
         {/* pages: the rail is hidden below md, so the drawer carries them */}

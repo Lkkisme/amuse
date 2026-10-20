@@ -1,5 +1,5 @@
 /**
- * Top chrome: '☰ Chats' pill top-left (opens the Chats panel) and the centered
+ * Top chrome: round ☰ menu button top-left (opens the drawer: pages + chats) and the centered
  * Muse avatar with its name badge. While Muse works, the badge grows a status
  * line ("is responding", "Re-observing page", ...).
  */
@@ -21,13 +21,12 @@ export function TopBar({ state, actions }: { state: DemoState; actions: MuseActi
       className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between px-3 py-2"
     >
       <button
-        aria-label="Open chats"
-        className="hover-fade pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full sm:h-9 sm:w-auto sm:px-3.5 sm:text-[14px] sm:font-semibold"
+        aria-label="Open menu"
+        className="hover-fade pointer-events-auto flex size-10 items-center justify-center rounded-full"
         style={{ background: "var(--fill-primary)", color: "var(--text-primary)", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}
         onClick={() => actions.setChats(!state.chatsOpen)}
       >
-        <Menu size={16} />
-        <span className="hidden sm:inline">Chats</span>
+        <Menu size={18} />
       </button>
 
       {/* Muse avatar bubble */}
