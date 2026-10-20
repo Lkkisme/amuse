@@ -58,3 +58,6 @@ element is a scripted fake.
   travels there too). With the browser open, Muse's panel floats over the chat instead. On a
   desktop the browser's left edge drags to resize it (the chat keeps at least 360px).
 - Buttons show the pointer cursor.
+- Layers, bottom up: the feed and its top bar; the chats drawer (40), the menu button over it (45);
+  the browser viewer (50) and the browser button over it (60); then everything modal — settings,
+  sheets, a message's menu — at 80, over every button, so nothing behind a modal can be pressed.

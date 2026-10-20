@@ -12,7 +12,7 @@ export function Sheet({ open, onClose, children }: { open: boolean; onClose: () 
   const { mounted, closing, onAnimationEnd } = usePresence(open);
   if (!mounted) return null;
   return (
-    <div className={`fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4 ${closing ? "pointer-events-none" : ""}`}>
+    <div className={`fixed inset-0 z-[80] flex items-end justify-center sm:items-center sm:p-4 ${closing ? "pointer-events-none" : ""}`}>
       <div className={`${closing ? "anim-fade-out" : "anim-fade-in"} absolute inset-0 bg-black/50`} onClick={onClose} />
       <div
         onAnimationEnd={onAnimationEnd}

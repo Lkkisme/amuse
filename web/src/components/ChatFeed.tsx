@@ -93,7 +93,7 @@ function MessageMenu({ menu, onClose }: { menu: Menu | null; onClose: () => void
   };
   const row = "hover-fade flex h-12 w-full items-center gap-3 rounded-xl px-3 text-[16px]";
   return (
-    <div className="fixed inset-0 z-50" onClick={onClose}>
+    <div className="fixed inset-0 z-[80]" onClick={onClose}>
       <div
         ref={card}
         role="menu"

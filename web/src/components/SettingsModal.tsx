@@ -275,7 +275,7 @@ export function SettingsModal({
   const { mounted, closing, onAnimationEnd } = usePresence(ui.open);
   if (!mounted) return null;
   return (
-    <div className={`fixed inset-0 z-40 flex items-end justify-center sm:items-center sm:p-4 ${closing ? "pointer-events-none" : ""}`}>
+    <div className={`fixed inset-0 z-[80] flex items-end justify-center sm:items-center sm:p-4 ${closing ? "pointer-events-none" : ""}`}>
       <div
         className={`${closing ? "anim-fade-out" : "anim-fade-in"} absolute inset-0 bg-black/30`}
         onClick={() => actions.closeSettings()}
