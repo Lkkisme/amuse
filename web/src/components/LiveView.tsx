@@ -139,70 +139,95 @@ export function LiveView({ url, interactive }: { url: string; interactive: boole
 
 type Point = { x: number; y: number };
 
+/** Two-finger travel → wheel travel (the desktop is drawn small, so a finger's px are worth more). */
+const SCROLL_SPEED = 3;
+/** Holding this long (ms) before moving drags instead of moving the cursor. */
+const HOLD_TO_DRAG = 400;
+
 /**
- * Trackpad mode: the desktop is a touchpad. A finger moves a cursor (drawn
- * here), a tap clicks where it is. Clicks reach noVNC as ordinary mouse
+ * Trackpad mode: the desktop is a touchpad. One finger moves the cursor and a
+ * tap clicks where it is; hold, then move, to drag (select text, a slider);
+ * two fingers scroll the page. The cursor is the desktop's own (no second
+ * one drawn here). Everything reaches noVNC as ordinary mouse and wheel
  * events on its canvas, so its own scaling maps them onto the desktop.
  */
 function Trackpad({ screen }: { screen: RefObject<HTMLDivElement | null> }) {
-  const [cursor, setCursor] = useState<Point | null>(null);
-  const finger = useRef<(Point & { moved: number }) | null>(null);
+  const cursor = useRef<Point | null>(null);
+  /** fingers down, by pointer id, where each last was */
+  const fingers = useRef(new Map<number, Point>());
+  const gesture = useRef<{ kind: "move" | "drag" | "scroll"; started: number; moved: number } | null>(null);
 
   const canvas = () => screen.current?.querySelector("canvas") ?? null;
-  const rect = () => canvas()?.getBoundingClientRect() ?? null;
   /** cursor position on the canvas; starts in the middle */
   const at = (): Point => {
-    const r = rect();
-    return cursor ?? (r ? { x: r.width / 2, y: r.height / 2 } : { x: 0, y: 0 });
+    const r = canvas()?.getBoundingClientRect();
+    return cursor.current ?? (r ? { x: r.width / 2, y: r.height / 2 } : { x: 0, y: 0 });
   };
-  const mouse = (kind: "mousemove" | "mousedown" | "mouseup", p: Point) => {
+  const send = (event: (init: MouseEventInit) => Event, p: Point, to?: Element) => {
     const target = canvas();
-    const r = rect();
+    const r = target?.getBoundingClientRect();
     if (!target || !r) return;
-    const init = { clientX: r.left + p.x, clientY: r.top + p.y, buttons: kind === "mousedown" ? 1 : 0, bubbles: true };
+    (to ?? target).dispatchEvent(event({ clientX: r.left + p.x, clientY: r.top + p.y, bubbles: true }));
+  };
+  const mouse = (kind: "mousemove" | "mousedown" | "mouseup", p: Point, held: boolean) => {
     // while noVNC holds the mouse after a press, the release goes to its capture element
     const capture = document.getElementById("noVNC_mouse_capture_elem");
-    const to = kind === "mouseup" && capture && capture.style.display !== "none" ? capture : target;
-    to.dispatchEvent(new MouseEvent(kind, init));
+    const to = kind === "mouseup" && capture && capture.style.display !== "none" ? capture : undefined;
+    send((init) => new MouseEvent(kind, { ...init, buttons: held ? 1 : 0 }), p, to);
   };
 
-  const r = rect();
-  const host = screen.current?.getBoundingClientRect();
-  const p = at();
   return (
     <div
       className="absolute inset-0"
       style={{ touchAction: "none" }}
-      onPointerDown={(e) => (finger.current = { x: e.clientX, y: e.clientY, moved: 0 })}
+      onPointerDown={(e) => {
+        fingers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        const g = gesture.current;
+        if (fingers.current.size === 1) gesture.current = { kind: "move", started: e.timeStamp, moved: 0 };
+        else if (g && g.kind !== "drag") gesture.current = { ...g, kind: "scroll" };
+      }}
       onPointerMove={(e) => {
-        const f = finger.current;
-        const bounds = rect();
-        if (!f || !bounds) return;
+        const last = fingers.current.get(e.pointerId);
+        const g = gesture.current;
+        const r = canvas()?.getBoundingClientRect();
+        if (!last || !g || !r) return;
+        const d = { x: e.clientX - last.x, y: e.clientY - last.y };
+        fingers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        g.moved += Math.hypot(d.x, d.y);
+        if (g.kind === "scroll") {
+          // fingers up, page down, as on a phone; the two fingers' moves add up, so halve each
+          const deltaY = (-d.y * SCROLL_SPEED) / fingers.current.size;
+          const deltaX = (-d.x * SCROLL_SPEED) / fingers.current.size;
+          return send((init) => new WheelEvent("wheel", { ...init, deltaX, deltaY, deltaMode: 0 }), at());
+        }
+        if (g.kind === "move" && g.moved > TAP_SLOP && e.timeStamp - g.started > HOLD_TO_DRAG && g.moved - Math.hypot(d.x, d.y) <= TAP_SLOP) {
+          g.kind = "drag"; // held still, now moving: press first
+          mouse("mousedown", at(), true);
+        }
         const from = at();
         const next = {
-          x: Math.min(bounds.width - 1, Math.max(0, from.x + (e.clientX - f.x) * TRACKPAD_SPEED)),
-          y: Math.min(bounds.height - 1, Math.max(0, from.y + (e.clientY - f.y) * TRACKPAD_SPEED)),
+          x: Math.min(r.width - 1, Math.max(0, from.x + d.x * TRACKPAD_SPEED)),
+          y: Math.min(r.height - 1, Math.max(0, from.y + d.y * TRACKPAD_SPEED)),
         };
-        finger.current = { x: e.clientX, y: e.clientY, moved: f.moved + Math.hypot(e.clientX - f.x, e.clientY - f.y) };
-        setCursor(next);
-        mouse("mousemove", next);
+        cursor.current = next;
+        mouse("mousemove", next, g.kind === "drag");
       }}
-      onPointerUp={() => {
-        const f = finger.current;
-        finger.current = null;
-        if (!f || f.moved > TAP_SLOP) return;
-        mouse("mousedown", at());
-        mouse("mouseup", at());
+      onPointerUp={(e) => {
+        fingers.current.delete(e.pointerId);
+        const g = gesture.current;
+        if (!g || fingers.current.size > 0) return;
+        gesture.current = null;
+        if (g.kind === "drag") mouse("mouseup", at(), false);
+        else if (g.kind === "move" && g.moved <= TAP_SLOP) {
+          mouse("mousedown", at(), true);
+          mouse("mouseup", at(), false);
+        }
       }}
-    >
-      {r && host && (
-        <MousePointer2
-          size={20}
-          className="pointer-events-none absolute"
-          style={{ left: r.left - host.left + p.x - 3, top: r.top - host.top + p.y - 2, color: "#111", fill: "#fff" }}
-        />
-      )}
-    </div>
+      onPointerCancel={(e) => {
+        fingers.current.delete(e.pointerId);
+        if (fingers.current.size === 0) gesture.current = null;
+      }}
+    />
   );
 }
 
