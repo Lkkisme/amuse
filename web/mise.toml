@@ -1,9 +1,17 @@
 [tasks.check]
-description = "Type-check and build the web app"
+description = "Type-check and build the web app (into a temp dir, leaving dist alone)"
 depends = ["//:install"]
-run = "npm run typecheck && npm run build"
+run = "npm run typecheck && npx vite build --outDir \"$(mktemp -d)\" --emptyOutDir --logLevel warn"
 
 [tasks.dev]
 description = "Vite dev server"
 depends = ["//:install"]
 run = "npm run dev"
+
+[tasks.build-dev]
+description = "Build dist against the dev API in ~/.config/remuse/dev.env (token stays out of the repo)"
+depends = ["//:install"]
+run = '''
+set -a; . "$HOME/.config/remuse/dev.env"; set +a
+VITE_REMUSE_URL="ws://$REMUSE_HOST:$REMUSE_PORT/rpc?token=$REMUSE_TOKEN" npx vite build --logLevel warn
+'''
