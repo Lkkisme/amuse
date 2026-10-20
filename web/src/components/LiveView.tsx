@@ -28,12 +28,15 @@ const REFIT = 24;
 export function LiveView({ url, interactive, onFit }: { url: string; interactive: boolean; onFit: (view: { width: number; height: number }) => void }) {
   const box = useRef<HTMLDivElement>(null);
   const client = useRef<RFB | null>(null);
-  const [state, setState] = useState<"connecting" | "live" | "gone">("connecting");
+  /** the viewer shows only runs whose browser is there, so a dropped or refused connection is tried again */
+  const [state, setState] = useState<"connecting" | "live">("connecting");
+  const [attempt, setAttempt] = useState(0);
   const [touch] = useState(touchScreen);
   const [trackpad, setTrackpad] = useState(false);
   /** actual size instead of fit: the desktop is bigger than the box, dragged around to see it all */
   const [zoom, setZoom] = useState(false);
 
+  const failures = useRef(0);
   useEffect(() => {
     const target = box.current;
     if (!target) return;
@@ -41,16 +44,28 @@ export function LiveView({ url, interactive, onFit }: { url: string; interactive
     rfb.scaleViewport = true;
     rfb.resizeSession = false;
     rfb.background = "transparent";
-    rfb.addEventListener("connect", () => setState("live"));
-    rfb.addEventListener("disconnect", () => setState("gone"));
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let left = false; // our own disconnect on leaving is not a dropped connection
+    rfb.addEventListener("connect", () => {
+      failures.current = 0;
+      setState("live");
+    });
+    // a run still opening its browser is refused; one whose connection dropped comes back: try again, slower each time
+    rfb.addEventListener("disconnect", () => {
+      if (left) return;
+      setState("connecting");
+      retry = setTimeout(() => setAttempt((a) => a + 1), Math.min(5000, 500 * 2 ** failures.current++));
+    });
     // copied on the remote desktop: offer it to this device's clipboard (needs a secure page; best effort)
     rfb.addEventListener("clipboard", (e) => void navigator.clipboard?.writeText(e.detail.text).catch(() => {}));
     client.current = rfb;
     return () => {
+      left = true;
+      clearTimeout(retry);
       client.current = null;
       rfb.disconnect();
     };
-  }, [url]);
+  }, [url, attempt]);
 
   useEffect(() => {
     const rfb = client.current;
@@ -140,11 +155,6 @@ export function LiveView({ url, interactive, onFit }: { url: string; interactive
       <div className="relative flex min-h-0 flex-1 items-center justify-center" style={{ touchAction: "none" }}>
         <div ref={box} className="absolute inset-0" style={{ cursor: interactive ? "default" : "not-allowed" }} />
         {state === "connecting" && <div aria-label="Connecting to the browser" className="skeleton absolute inset-0" />}
-        {state === "gone" && (
-          <p className="absolute text-[14px]" style={{ color: "var(--text-secondary)" }}>
-            This browser is no longer live.
-          </p>
-        )}
         {controls && <TouchSurface screen={box} mode={trackpad ? "trackpad" : zoom ? "pan" : "touch"} />}
       </div>
       {controls && (
