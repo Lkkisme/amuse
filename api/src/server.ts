@@ -20,6 +20,8 @@ export interface Options {
   live?: Live;
   /** Directory of the built web app to serve over HTTP; 404 for everything when absent. */
   web?: string;
+  /** The user's browser is back from a connector's hosted page with a one-time key (GET /connected?key=…). */
+  returned?: (key: string) => Promise<boolean>;
   token: string;
   port: number;
   host: string;
@@ -30,7 +32,7 @@ const sameToken = (a: string, b: string) => timingSafeEqual(digest(a), digest(b)
 
 type Target = { kind: "rpc" } | { kind: "live"; id: string; live: Live };
 
-export function listen({ session, live, web, token, port, host }: Options): Promise<Server> {
+export function listen({ session, live, web, returned, token, port, host }: Options): Promise<Server> {
   const route = (url: URL): Target | null => {
     if (url.pathname === "/rpc") return { kind: "rpc" };
     const id = url.searchParams.get("id");
@@ -44,9 +46,21 @@ export function listen({ session, live, web, token, port, host }: Options): Prom
     if (!image) return void res.writeHead(404).end();
     res.writeHead(200, { "content-type": "image/jpeg", "cache-control": "no-store" }).end(image);
   };
+  /** GET /connected?key=… → check the connection now, then tell the user they can go back. */
+  const back = async (url: URL, res: ServerResponse) => {
+    const key = url.searchParams.get("key");
+    const connected = key && returned ? await returned(key) : false;
+    const message = connected ? "Connected — you can close this tab and go back to Muse." : "Thanks — you can close this tab and go back to Muse.";
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+    res.end(`<!doctype html><meta name="viewport" content="width=device-width"><title>Muse</title><p style="font:16px system-ui;text-align:center;margin-top:30vh">${message}</p><script>setTimeout(()=>window.close(),1500)</script>`);
+  };
   const http = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://local");
-    const handled = url.pathname === "/thumb" ? thumb(url, res) : files ? files(req, res) : Promise.resolve(void res.writeHead(404).end());
+    const handled =
+      url.pathname === "/thumb" ? thumb(url, res)
+      : url.pathname === "/connected" ? back(url, res)
+      : files ? files(req, res)
+      : Promise.resolve(void res.writeHead(404).end());
     handled.catch(() => res.writeHead(500).end());
   });
   const wss = new WebSocketServer({ noServer: true });

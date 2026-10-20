@@ -11,6 +11,8 @@
  *   REMUSE_BROWSER=chromium  browser runs open real pages (headless Chromium) with live views
  *                 at /live; scripted otherwise
  *   REMUSE_BROWSER_STATE  file keeping browser logins between runs (cookies; mode 600)
+ *   REMUSE_PUBLIC_URL  this server's address as the user's browser reaches it (http://host:port);
+ *                 lets connectors send the user straight back for an instant "connected"
  *   REMUSE_WEB    directory of the built web app to serve (same origin as /rpc and /live)
  */
 import { readFileSync } from "node:fs";
@@ -43,13 +45,21 @@ const system = [
 const keyFile = process.env["REMUSE_COMPOSIO_KEY_FILE"];
 const composioClient = keyFile ? composio(readFileSync(keyFile, "utf8").trim()) : undefined;
 const composioUser = "owner";
+const publicUrl = process.env["REMUSE_PUBLIC_URL"];
+const connector =
+  composioClient &&
+  composioConnector(composioClient, {
+    userId: composioUser,
+    timers: realTimers,
+    ...(publicUrl ? { callbackUrl: (key: string) => `${new URL("/connected", publicUrl)}?key=${key}` } : {}),
+  });
 const browserState = process.env["REMUSE_BROWSER_STATE"];
 const browsers = process.env["REMUSE_BROWSER"] === "chromium" ? pool(browserState ? { stateFile: browserState } : {}) : undefined;
 const ports = {
   ...demoPorts(realTimers),
   ...(browsers ? (model && authPath ? piBrowserAgent({ model, authPath }, browsers) : browserPorts(browsers)) : {}),
   ...(model && authPath ? piAgent({ model, authPath, system, ...(composioClient ? { apps: composioApps(composioClient, composioUser) } : {}) }) : {}),
-  ...(composioClient ? composioConnector(composioClient, { userId: composioUser, timers: realTimers }) : {}),
+  ...(connector ? { connect: connector.connect } : {}),
 };
 
 const journalPath = process.env["REMUSE_JOURNAL"];
@@ -66,7 +76,7 @@ const live = browsers && {
 };
 
 const web = process.env["REMUSE_WEB"];
-await listen({ session, ...(live ? { live } : {}), ...(web ? { web } : {}), token, port, host });
+await listen({ session, ...(live ? { live } : {}), ...(web ? { web } : {}), ...(connector ? { returned: connector.returned } : {}), token, port, host });
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.once(signal, () => void (browsers?.shutdown() ?? Promise.resolve()).finally(() => process.exit(0)));
 console.log(

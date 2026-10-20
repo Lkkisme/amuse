@@ -84,3 +84,21 @@ test("tools search, connection check and execute parse Composio's responses", as
   ]);
   assert.deepEqual(await client.execute("GMAIL_FETCH_EMAILS", "owner", {}), { ok: true, data: { messages: [] } });
 });
+
+test("the user's return connects at once, exactly once; a forged key does nothing", async () => {
+  const { timers, tick } = ticks();
+  const events: Event[] = [];
+  let callback = "";
+  const client: Pick<Composio, "link" | "status"> = {
+    link: async (_toolkit, _user, url) => ((callback = url ?? ""), { url: "https://connect.example/x", account: "ca_1" }),
+    status: async () => "active",
+  };
+  const port = composioConnector(client, { userId: "owner", timers, callbackUrl: (key) => `https://remuse.example/connected?key=${key}` });
+  await port.connect(connection, (e) => events.push(e));
+  const key = new URL(callback).searchParams.get("key") ?? "";
+  assert.equal(await port.returned("forged"), false);
+  assert.equal(await port.returned(key), true);
+  await tick(); // the poll fires too, finds it settled
+  assert.equal(await port.returned(key), false);
+  assert.deepEqual(events, [{ kind: "upserted", entity: { ...connection, status: "connected" } }]);
+});
