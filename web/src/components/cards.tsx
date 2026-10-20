@@ -5,18 +5,22 @@
 import { Check, ChevronRight, CircleAlert, CircleCheck, Globe, ListTodo, ShieldCheck, Table } from "lucide-react";
 import type { Approval, Browser, Connection, Task } from "@remuse/protocol";
 import type { Actions } from "../ui.ts";
+import { type Place, alone, corners } from "./shape.ts";
 import { useEffect, useState } from "react";
 import { bannerActive, browserStatus, hue, taskStatus } from "../view.ts";
 
 const CARD_BG = "var(--fill-secondary)";
 
+/** A card's outer box: Muse's side, its corners set by its place in the feed (shape.ts). */
+const shell = (place: Place, className: string, round?: number) => ({ className, style: { background: CARD_BG, ...corners("muse", place, round) } });
+
 /* ---------- Task ---------- */
 
-export function TaskCard({ task, actions }: { task: Task; actions: Actions }) {
+export function TaskCard({ task, place = alone, actions }: { task: Task; place?: Place; actions: Actions }) {
   const meta = taskStatus[task.status];
   const done = task.steps.filter((s) => s.done).length;
   return (
-    <div className="w-full max-w-[340px] rounded-2xl p-4" style={{ background: CARD_BG }}>
+    <div {...shell(place, "w-full max-w-[340px] p-4")}>
       <div className="flex items-start gap-3">
         <span
           className="flex size-9 shrink-0 items-center justify-center rounded-[10px]"
@@ -79,9 +83,9 @@ const approvalOutcome = {
   timed_out: { label: "Timed out", color: "var(--icon-secondary)", Icon: CircleAlert },
 } as const;
 
-export function ApprovalCard({ approval, actions }: { approval: Approval; actions: Actions }) {
+export function ApprovalCard({ approval, place = alone, actions }: { approval: Approval; place?: Place; actions: Actions }) {
   return (
-    <div className="w-full max-w-[340px] rounded-2xl p-4" style={{ background: CARD_BG }}>
+    <div {...shell(place, "w-full max-w-[340px] p-4")}>
       <div className="flex items-start gap-3">
         <span
           className="flex size-9 shrink-0 items-center justify-center rounded-[10px]"
@@ -152,10 +156,10 @@ function Outcome({ label, color, Icon }: { label: string; color: string; Icon: t
  * Muse connection request (ref 52-connreq-desktop): compact card, white tile
  * with the app glyph, name + "Connector", and a neutral Connect pill.
  */
-export function ConnectionCard({ connection, actions }: { connection: Connection; actions: Actions }) {
+export function ConnectionCard({ connection, place = alone, actions }: { connection: Connection; place?: Place; actions: Actions }) {
   const label = { pending: "Connect", connected: "Connected", dismissed: "Not now" }[connection.status];
   return (
-    <div className="w-full max-w-[260px] rounded-[18px] p-2.5" style={{ background: CARD_BG }}>
+    <div {...shell(place, "w-full max-w-[260px] p-2.5", 18)}>
       <div className="flex items-center gap-2.5 px-0.5 pt-0.5">
         <span
           className="flex size-10 shrink-0 items-center justify-center rounded-[10px]"
@@ -235,9 +239,9 @@ function Thumbnail({ src, live, id }: { src: string; live: boolean; id: string }
  * A run whose browser is gone: only a record of it. No page, nothing to open
  * (a button there would lead nowhere).
  */
-function EndedBrowserCard({ browser }: { browser: Browser }) {
+function EndedBrowserCard({ browser, place }: { browser: Browser; place: Place }) {
   return (
-    <div className="flex w-full max-w-[314px] items-center gap-3 rounded-[22px] p-4" style={{ background: CARD_BG }}>
+    <div {...shell(place, "flex w-full max-w-[314px] items-center gap-3 p-4")}>
       <span
         className="flex size-10 shrink-0 items-center justify-center rounded-[12px]"
         style={{ background: "var(--fill-primary)", color: "var(--icon-secondary)" }}
@@ -260,12 +264,22 @@ function EndedBrowserCard({ browser }: { browser: Browser }) {
  * Muse browser card: tinted globe tile + "Browser" + "<status> · <task>", a
  * page thumbnail, and one pill button. Refs 06-card-desktop, 02-run-*, 08-now.
  */
-export function BrowserCard({ browser, thumb, actions }: { browser: Browser; thumb: ((id: string) => string) | null; actions: Actions }) {
+export function BrowserCard({
+  browser,
+  thumb,
+  place = alone,
+  actions,
+}: {
+  browser: Browser;
+  thumb: ((id: string) => string) | null;
+  place?: Place;
+  actions: Actions;
+}) {
   const meta = browserStatus[browser.status];
   const open = () => actions.openViewer(browser.id);
-  if (!browser.live) return <EndedBrowserCard browser={browser} />;
+  if (!browser.live) return <EndedBrowserCard browser={browser} place={place} />;
   return (
-    <div className="w-full max-w-[314px] rounded-[22px] p-4" style={{ background: CARD_BG }}>
+    <div {...shell(place, "w-full max-w-[314px] p-4")}>
       <div className="flex items-center gap-3">
         <span
           className="flex size-10 shrink-0 items-center justify-center rounded-[12px]"

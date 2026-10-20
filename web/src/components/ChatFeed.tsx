@@ -12,6 +12,7 @@ import type { Actions } from "../ui.ts";
 import { thinking, time } from "../view.ts";
 import { ApprovalCard, BrowserCard, ConnectionCard, TaskCard } from "./cards";
 import { RichText } from "./markdown";
+import { type Place, type Side, corners } from "./shape.ts";
 
 type Message = Prompt | Reply;
 type Thumb = ((id: string) => string) | null;
@@ -19,7 +20,7 @@ type Thumb = ((id: string) => string) | null;
 /** Messages this close together, from the same side, read as one group (Muse). */
 const GROUP_GAP_MS = 5 * 60_000;
 /** Who an entity comes from: the user's messages, or Muse (its replies and every card). */
-const side = (e: Entity) => (e.kind === "prompt" ? "user" : "muse");
+const side = (e: Entity): Side => (e.kind === "prompt" ? "user" : "muse");
 const joins = (a: Entity | undefined, b: Entity | undefined): boolean =>
   !!a && !!b && side(a) === side(b) && Date.parse(b.at) - Date.parse(a.at) < GROUP_GAP_MS;
 const isMessage = (e: Entity | undefined) => e?.kind === "prompt" || e?.kind === "reply";
@@ -28,8 +29,6 @@ const isMessage = (e: Entity | undefined) => e?.kind === "prompt" || e?.kind ===
 const STAMP_GAP_MS = 10 * 60_000;
 const stamped = (previous: Entity | undefined, entity: Entity) => !previous || Date.parse(entity.at) - Date.parse(previous.at) > STAMP_GAP_MS;
 
-/** Where a message sits in its group: whether one before and one after join it. */
-type Place = { joinsPrevious: boolean; joinsNext: boolean };
 
 /** Messages render as bubbles; every other entity is a card. */
 function EntityView({ entity, place, thumb, actions, onMenu }: { entity: Entity; place: Place; thumb: Thumb; actions: Actions; onMenu: (menu: Menu) => void }) {
@@ -38,13 +37,13 @@ function EntityView({ entity, place, thumb, actions, onMenu }: { entity: Entity;
     case "reply":
       return <Bubble item={entity} place={place} onMenu={onMenu} />;
     case "task":
-      return <TaskCard task={entity} actions={actions} />;
+      return <TaskCard task={entity} place={place} actions={actions} />;
     case "approval":
-      return <ApprovalCard approval={entity} actions={actions} />;
+      return <ApprovalCard approval={entity} place={place} actions={actions} />;
     case "connection":
-      return <ConnectionCard connection={entity} actions={actions} />;
+      return <ConnectionCard connection={entity} place={place} actions={actions} />;
     case "browser":
-      return <BrowserCard browser={entity} thumb={thumb} actions={actions} />;
+      return <BrowserCard browser={entity} thumb={thumb} place={place} actions={actions} />;
   }
 }
 
@@ -161,17 +160,6 @@ function useLongPress(onPress: () => void) {
   };
 }
 
-/** Corners: round, but tight on the sender's side where a bubble joins the one above or below. */
-const ROUND = 22;
-const JOINED = 6;
-function corners(mine: boolean, { joinsPrevious, joinsNext }: Place) {
-  const top = joinsPrevious ? JOINED : ROUND;
-  const bottom = joinsNext ? JOINED : ROUND;
-  return mine
-    ? { borderRadius: `${ROUND}px ${top}px ${bottom}px ${ROUND}px` }
-    : { borderRadius: `${top}px ${ROUND}px ${ROUND}px ${bottom}px` };
-}
-
 function Bubble({ item, place, onMenu }: { item: Message; place: Place; onMenu: (menu: Menu) => void }) {
   const isUser = item.kind === "prompt";
   const bubble = useRef<HTMLDivElement>(null);
@@ -186,7 +174,7 @@ function Bubble({ item, place, onMenu }: { item: Message; place: Place; onMenu: 
         ref={bubble}
         className="msg relative w-fit max-w-[78%] px-4 py-2.5 text-[15px] leading-snug"
         style={{
-          ...corners(isUser, place),
+          ...corners(isUser ? "user" : "muse", place),
           background: isUser ? "var(--chat-user-bubble)" : "var(--fill-secondary)",
           color: isUser ? "var(--chat-user-text)" : "var(--chat-agent-text)",
         }}
