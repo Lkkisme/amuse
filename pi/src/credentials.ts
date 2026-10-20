@@ -43,15 +43,17 @@ export function readOnlyCredentials(path: string): CredentialStore {
   };
 }
 
-/** One API key for one provider (from the environment), in the same read-only shape. */
-export function keyCredentials(provider: string, key: string): CredentialStore {
-  const readOnly = async (): Promise<never> => {
-    throw new Error("Pi credentials are read-only here");
-  };
-  return {
-    read: async (id) => (id === provider ? { type: "api_key", key } : undefined),
-    list: async () => [{ providerId: provider, type: "api_key" }],
-    modify: readOnly,
-    delete: readOnly,
-  };
-}
+/**
+ * No stored credentials: Pi then takes each provider's key from its standard
+ * environment variable (OPENROUTER_API_KEY, ANTHROPIC_API_KEY, …).
+ */
+export const environmentCredentials: CredentialStore = {
+  read: async () => undefined,
+  list: async () => [],
+  modify: async () => {
+    throw new Error("Pi credentials come from the environment here");
+  },
+  delete: async () => {
+    throw new Error("Pi credentials come from the environment here");
+  },
+};

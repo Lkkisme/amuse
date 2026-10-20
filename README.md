@@ -13,7 +13,7 @@ can watch and take over (from a phone, too), and works with your apps.
 
 ```sh
 git clone git@github.com:Microwave-WYB/remuse.git && cd remuse
-cp .env.example .env    # set REMUSE_TOKEN (openssl rand -hex 24), and a model and its API key
+cp .env.example .env    # set REMUSE_TOKEN (openssl rand -hex 24), a model, and its provider's API key
 docker compose up -d --build
 ```
 

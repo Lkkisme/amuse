@@ -10,11 +10,10 @@ services:
     build: .
     image: remuse:local
     restart: unless-stopped
+    # everything in .env: the models, and any provider's key under its standard name
+    env_file: .env
     environment:
       REMUSE_TOKEN: ${REMUSE_TOKEN:?set REMUSE_TOKEN in .env}
-      REMUSE_PI_MODEL: ${REMUSE_PI_MODEL:-}
-      REMUSE_PI_API_KEY: ${REMUSE_PI_API_KEY:-}
-      REMUSE_COMPOSIO_KEY: ${REMUSE_COMPOSIO_KEY:-}
       REMUSE_PUBLIC_URL: ${REMUSE_PUBLIC_URL:-http://localhost:8080}
       REMUSE_BROWSERS: pool1|http://ab-controller-1:8000|http://ab-node-1:6080,pool2|http://ab-controller-2:8000|http://ab-node-2:6080
       AUTO_BROWSER_TOKEN_FILE: /secrets/auto-browser-token

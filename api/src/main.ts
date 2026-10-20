@@ -3,9 +3,11 @@
  *   REMUSE_TOKEN  required access token (refuses to start without one)
  *   REMUSE_PORT   default 8797
  *   REMUSE_HOST   default 127.0.0.1
- *   REMUSE_PI_MODEL, REMUSE_PI_AUTH  when both are set, the agent is Pi (provider/model-id,
- *                 Pi auth file)
- *   REMUSE_COMPOSIO_KEY_FILE  file holding a Composio developer key (ak_…): connectors go
+ *   REMUSE_PI_MODEL  when set, the agents are Pi with this model (provider/model-id); else a scripted demo
+ *   REMUSE_PI_BROWSER_MODEL  the browser agent's model, if not the same
+ *   REMUSE_PI_AUTH  a Pi auth file; without one, keys come from the providers' standard
+ *                 variables (OPENROUTER_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY, …)
+ *   REMUSE_COMPOSIO_KEY_FILE or REMUSE_COMPOSIO_KEY  a Composio developer key (ak_…): connectors go
  *                 through Composio; read once, never logged
  *   REMUSE_JOURNAL  JSONL file the event log lives in (survives restarts); in memory if unset
  *   REMUSE_BROWSERS  the auto-browser pool: name|controller URL|noVNC URL, comma-separated
@@ -33,11 +35,12 @@ if (!token) {
 const port = Number(process.env["REMUSE_PORT"] ?? 8797);
 const host = process.env["REMUSE_HOST"] ?? "127.0.0.1";
 
+/** the chat agent's model, and the browser agent's (the chat model unless set) */
 const model = process.env["REMUSE_PI_MODEL"];
+const browserModel = process.env["REMUSE_PI_BROWSER_MODEL"] || model;
 const authFile = process.env["REMUSE_PI_AUTH"];
-const apiKey = process.env["REMUSE_PI_API_KEY"];
-/** the model's credentials: a Pi auth file, or the provider's API key straight from the environment */
-const auth: PiAuth | undefined = authFile ? { kind: "file", path: authFile } : apiKey ? { kind: "key", key: apiKey } : undefined;
+/** a Pi auth file, else the providers' standard variables (OPENROUTER_API_KEY, ANTHROPIC_API_KEY, …) */
+const auth: PiAuth = authFile ? { kind: "file", path: authFile } : { kind: "environment" };
 const system = [
   "You are Muse, a personal assistant in a chat app. Answer in the user's language, briefly and warmly. Use markdown only when it helps.",
   "When a request needs a website, start a browser task with `browse` and tell the user it is running; it continues in the background and they can watch or take over.",
@@ -80,10 +83,10 @@ await browsers?.reset();
  * that is not configured fails plainly instead of falling back to a script.
  * Without a model the whole thing is the scripted demo (with its seed).
  */
-const real = (model: string, auth: PiAuth): Ports => ({
+const real = (model: string, browserModel: string): Ports => ({
   ...piAgent({ model, auth, system, ...(composioClient ? { apps: composioApps(composioClient, composioUser) } : {}) }),
   ...(browsers
-    ? piBrowserAgent({ model, auth }, browsers)
+    ? piBrowserAgent({ model: browserModel, auth }, browsers)
     : {
         browse: (browser, io) => {
           if (io.act({ kind: "browserStatus", id: browser.id, status: "failed" }).ok)
@@ -100,8 +103,8 @@ const real = (model: string, auth: PiAuth): Ports => ({
         throw new Error("No connector is configured (set REMUSE_COMPOSIO_KEY_FILE).");
       },
 });
-const demo = !(model && auth);
-const ports: Ports = model && auth ? real(model, auth) : demoPorts(realTimers);
+const demo = !(model && browserModel);
+const ports: Ports = model && browserModel ? real(model, browserModel) : demoPorts(realTimers);
 
 const journalPath = process.env["REMUSE_JOURNAL"];
 const journal = journalPath ? { journal: fileJournal(journalPath) } : {};
@@ -122,5 +125,5 @@ await listen({ session, ...(live ? { live } : {}), ...(web ? { web } : {}), ...(
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.once(signal, () => process.exit(0));
 console.log(
-  `remuse api on ws://${host}:${port}/rpc (agent: ${model && auth ? model : "scripted"}, connectors: ${composioClient ? "composio" : "scripted"}, browsers: ${nodes.length ? nodes.map((n) => n.name).join(",") : "none"})`,
+  `remuse api on ws://${host}:${port}/rpc (agent: ${model ? (browserModel === model ? model : `${model}, browser ${browserModel}`) : "scripted"}, connectors: ${composioClient ? "composio" : "scripted"}, browsers: ${nodes.length ? nodes.map((n) => n.name).join(",") : "none"})`,
 );
