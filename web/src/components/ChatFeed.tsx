@@ -254,10 +254,21 @@ export function ChatFeed({ conversation, older, release, thumb, actions }: Props
     setAtBottom(true);
     seenRef.current = total;
     setPendingCount(0);
-    if (smooth) {
-      gliding.current = true;
-      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-    } else el.scrollTop = el.scrollHeight;
+    if (!smooth) {
+      el.scrollTop = el.scrollHeight;
+      return;
+    }
+    gliding.current = true;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    // the glide aims where the end was; once it settles, land on where the end is now (content may have grown)
+    const land = () => {
+      el.removeEventListener("scrollend", land);
+      clearTimeout(fallback);
+      gliding.current = false;
+      if (stick.current) el.scrollTop = el.scrollHeight;
+    };
+    el.addEventListener("scrollend", land);
+    const fallback = setTimeout(land, 800); // where scrollend is not fired
   };
   const scrollToBottom = () => toEnd(true);
 
@@ -267,7 +278,9 @@ export function ChatFeed({ conversation, older, release, thumb, actions }: Props
     const content = contentRef.current;
     if (!el || !content) return;
     const follow = new ResizeObserver(() => {
-      if (stick.current && !gliding.current) el.scrollTop = el.scrollHeight;
+      if (!stick.current) return;
+      if (gliding.current) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" }); // keep the glide aimed at the end
+      else el.scrollTop = el.scrollHeight;
     });
     follow.observe(content);
     follow.observe(el);
@@ -312,10 +325,7 @@ export function ChatFeed({ conversation, older, release, thumb, actions }: Props
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
     const near = distance < 80;
     setFar(distance > JUMP_BUTTON_DISTANCE);
-    if (gliding.current) {
-      if (distance < 2) gliding.current = false; // arrived
-      return;
-    }
+    if (gliding.current) return; // positions a glide passes through are not the user's
     stick.current = near;
     setAtBottom(near);
     if (near) {
