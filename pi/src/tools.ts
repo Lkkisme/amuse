@@ -8,6 +8,7 @@ import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent
 import { type AgentIO, consequential, describe } from "@remuse/core";
 import { untrusted } from "./untrusted.ts";
 import { Type } from "typebox";
+import { status } from "./status.ts";
 
 const text = (value: string) => ({ content: [{ type: "text" as const, text: value }], details: null });
 
@@ -19,7 +20,7 @@ export function tools(io: () => AgentIO): ToolDefinition[] {
       label: "Browser task",
       description:
         "Start a task in a real browser: opening sites, reading pages, filling forms, logging in. It runs in the background and the user can watch or take over. Returns immediately; do not wait for it.",
-      parameters: Type.Object({
+      parameters: Type.Object({ status,
         title: Type.String({ description: "Short task title the user will see, e.g. 'Check the tide schedule'" }),
         url: Type.String({ description: "Absolute http(s) URL to start from" }),
       }),
@@ -34,7 +35,7 @@ export function tools(io: () => AgentIO): ToolDefinition[] {
       label: "Connect an app",
       description:
         "Ask the user to connect an app (Gmail, Google Calendar, Google Sheets, GitHub, Slack, ...) when a request needs data or actions from it. Shows a Connect card in the chat and returns immediately.",
-      parameters: Type.Object({
+      parameters: Type.Object({ status,
         provider: Type.String({ description: "Lowercase provider id, e.g. 'gmail', 'googlesheets'" }),
         title: Type.String({ description: "App name as the user knows it, e.g. 'Google Sheets'" }),
       }),
@@ -65,7 +66,7 @@ export function appTools(io: () => AgentIO, apps: Apps): ToolDefinition[] {
       name: "app_tools",
       label: "Look up app actions",
       description: "Find actions of a connected app (e.g. app 'gmail', query 'latest emails'). Returns action slugs with their arguments.",
-      parameters: Type.Object({ app: Type.String({ description: "Lowercase app id, e.g. gmail, googlecalendar, googlesheets, github" }), query: Type.String() }),
+      parameters: Type.Object({ status, app: Type.String({ description: "Lowercase app id, e.g. gmail, googlecalendar, googlesheets, github" }), query: Type.String() }),
       async execute(_, { app, query }) {
         if (!(await apps.connected(app))) return notConnected(app);
         const found = await apps.tools(app, query);
@@ -82,7 +83,7 @@ export function appTools(io: () => AgentIO, apps: Apps): ToolDefinition[] {
       label: "Use an app",
       description:
         "Run an app action found with app_tools. Reading runs at once. Actions that send, change, delete or pay are posted for the user's approval and run in the background once approved; you will get a report.",
-      parameters: Type.Object({ action: Type.String({ description: "Action slug, e.g. GMAIL_FETCH_EMAILS" }), arguments: Type.Record(Type.String(), Type.Unknown()) }),
+      parameters: Type.Object({ status, action: Type.String({ description: "Action slug, e.g. GMAIL_FETCH_EMAILS" }), arguments: Type.Record(Type.String(), Type.Unknown()) }),
       async execute(_, { action, arguments: args }) {
         const app = appOf(action);
         if (!(await apps.connected(app))) return notConnected(app);

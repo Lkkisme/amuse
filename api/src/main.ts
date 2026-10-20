@@ -43,6 +43,7 @@ const system = [
   "Never claim a background task has finished unless you were told so.",
   "For a connected app, find the action with `app_tools`, then run it with `app_call`. Reading runs at once; sending, changing, deleting or paying goes to the user for approval and runs in the background.",
   "Messages starting with [browser task …] or [app action …] are reports from your background work, not from the user: pass on what matters, briefly, and if the user is needed tell them what to do.",
+  "Give every tool call a short `status`: a few words in the user's language saying what you are doing; it shows under your name while the tool runs.",
   untrustedRule,
 ].join("\n");
 const keyFile = process.env["REMUSE_COMPOSIO_KEY_FILE"];

@@ -7,6 +7,7 @@
 import { type AgentIO, type Ports, newId } from "@remuse/core";
 import { redact } from "./redact.ts";
 import { type PiModelConfig, type PiSession, openSession } from "./session.ts";
+import { statusOf } from "./status.ts";
 import { type Apps, appTools, tools } from "./tools.ts";
 
 export interface PiConfig extends PiModelConfig {
@@ -73,7 +74,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt"> {
           }
         } else if (event.type === "tool_execution_start") {
           // the line under the avatar says what the agent is doing, Muse-style
-          emit({ kind: "activity", activity: { kind: "working", label: toolLabels[event.toolName] ?? "Working" } });
+          emit({ kind: "activity", activity: { kind: "working", label: statusOf(event.args) ?? toolLabels[event.toolName] ?? "Working" } });
         } else if (event.type === "tool_execution_end") {
           emit({ kind: "activity", activity: { kind: "responding", label: null } });
         } else if (event.type === "message_end" && event.message.role === "assistant") {
