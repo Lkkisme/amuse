@@ -2,7 +2,7 @@
  * Top chrome: '☰ Chats' pill top-left (opens the Chats panel), centered Muse
  * avatar bubble, 'Invite' pill top-right.
  */
-import { Menu, Gift } from "lucide-react";
+import { Menu } from "lucide-react";
 import type { DemoState } from "../data/fakeMuse";
 import type { MuseActions } from "./actions";
 
@@ -37,12 +37,6 @@ export function TopBar({ state, actions }: { state: DemoState; actions: MuseActi
         </span>
       </div>
 
-      <button
-        className="hover-fade pointer-events-auto hidden h-9 items-center gap-1.5 rounded-full px-3.5 text-[14px] font-semibold sm:flex"
-        style={{ background: "var(--fill-primary)", color: "var(--text-primary)", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}
-      >
-        <Gift size={16} /> Invite
-      </button>
     </header>
   );
 }
