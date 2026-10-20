@@ -25,6 +25,9 @@
   --shadow-raised: 0 6px 32px rgba(0, 0, 0, 0.08);
   --shadow-sheet: 0 12px 56px rgba(0, 0, 0, 0.1);
   --shadow-drawer: 8px 0 48px rgba(0, 0, 0, 0.08);
+  /* remuse: Muse's avatar, in the warm beige of its plush mascot */
+  --avatar-fill: linear-gradient(160deg, #f4e9da, #e0cbb0);
+  --avatar-text: #75583d;
 }
 /* .dark from Muse production CSS (2026-10-20). Web, not the Android app: the
    app's dark theme is true black; the web uses ai-gray-1075. */
@@ -52,6 +55,8 @@
   --shadow-raised: 0 6px 32px rgba(0, 0, 0, 0.3);
   --shadow-sheet: 0 12px 56px rgba(0, 0, 0, 0.4);
   --shadow-drawer: 8px 0 48px rgba(0, 0, 0, 0.32);
+  --avatar-fill: linear-gradient(160deg, #7a6650, #52443a);
+  --avatar-text: #f4e9da;
 }
 :root[data-accent-color="blue"] {
   --accent: #0064d4;

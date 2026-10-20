@@ -28,7 +28,7 @@ export function TopBar({ conversation }: { conversation: State }) {
         />
         <span
           className="relative z-[2] flex size-[52px] items-center justify-center rounded-full text-[20px] font-semibold"
-          style={{ background: "var(--fill-primary)", color: "var(--text-primary)" }}
+          style={{ background: "var(--avatar-fill)", color: "var(--avatar-text)" }}
         >
           M
         </span>
@@ -75,7 +75,7 @@ export function MenuButton({ open, actions }: { open: boolean; actions: Actions 
       aria-label={open ? "Close menu" : "Open menu"}
       aria-expanded={open}
       className="hover-fade absolute left-3 top-2 z-[45] flex size-10 items-center justify-center rounded-full"
-      style={{ background: "var(--fill-primary)", color: "var(--text-primary)", boxShadow: "var(--shadow-float)" }}
+      style={{ background: "var(--avatar-fill)", color: "var(--avatar-text)", boxShadow: "var(--shadow-float)" }}
       onClick={() => actions.setChats(!open)}
     >
       <Menu size={18} className={icon} style={{ opacity: open ? 0 : 1, transform: open ? "rotate(90deg) scale(0.6)" : "none" }} />
