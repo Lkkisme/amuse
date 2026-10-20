@@ -12,8 +12,6 @@ import type { Actions } from "../ui.ts";
 import { thinking, time } from "../view.ts";
 import { ApprovalCard, BrowserCard, ConnectionCard, TaskCard } from "./cards";
 import { RichText } from "./markdown";
-import { Sheet } from "./Sheet";
-import { useLastValue } from "./usePresence";
 
 type Message = Prompt | Reply;
 type Thumb = ((id: string) => string) | null;
@@ -31,7 +29,7 @@ const stamped = (previous: Entity | undefined, entity: Entity) => !previous || D
 type Place = { joinsPrevious: boolean; joinsNext: boolean };
 
 /** Messages render as bubbles; every other entity is a card. */
-function EntityView({ entity, place, thumb, actions, onMenu }: { entity: Entity; place: Place; thumb: Thumb; actions: Actions; onMenu: (message: Message) => void }) {
+function EntityView({ entity, place, thumb, actions, onMenu }: { entity: Entity; place: Place; thumb: Thumb; actions: Actions; onMenu: (menu: Menu) => void }) {
   switch (entity.kind) {
     case "prompt":
     case "reply":
@@ -68,32 +66,61 @@ function ActionRow({ mine, text }: { mine: boolean; text: string }) {
   );
 }
 
-/** Touch: a long press on a bubble opens this (Muse): when it was said, and what can be done with it. */
-function MessageSheet({ message, onClose }: { message: Message | null; onClose: () => void }) {
-  const shown = useLastValue(message);
+/** A message's long-press menu, and the bubble it came from (where it sits on screen). */
+type Menu = { message: Message; at: DOMRect };
+
+const MENU_WIDTH = 288;
+const MARGIN = 12;
+
+/**
+ * Touch: a long press on a bubble opens this (Muse): a card over the bubble, from its sender's
+ * side, kept on screen; when it was said, and what can be done with it. A tap elsewhere closes it.
+ */
+function MessageMenu({ menu, onClose }: { menu: Menu | null; onClose: () => void }) {
+  const card = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(0);
+  useLayoutEffect(() => setHeight(card.current?.offsetHeight ?? 0), [menu]);
+  if (!menu) return null;
+  const { message, at } = menu;
+  const mine = message.kind === "prompt";
+  const left = Math.min(Math.max(MARGIN, mine ? at.right - MENU_WIDTH : at.left), innerWidth - MENU_WIDTH - MARGIN);
+  const top = Math.min(Math.max(MARGIN, at.top + 10), innerHeight - height - MARGIN);
   const act = (fn: (text: string) => void) => () => {
-    if (shown) fn(shown.text);
+    fn(message.text);
     onClose();
   };
   const row = "hover-fade flex h-12 w-full items-center gap-3 rounded-xl px-3 text-[16px]";
   return (
-    <Sheet open={message !== null} onClose={onClose}>
-      <div className="px-5 pb-6 pt-5">
-        <p className="text-[14px]" style={{ color: "var(--text-secondary)" }}>
-          {shown ? `${sameDay(shown.at) ? "Today" : new Date(shown.at).toLocaleDateString()} at ${time(shown.at)}` : ""}
+    <div className="fixed inset-0 z-50" onClick={onClose}>
+      <div
+        ref={card}
+        role="menu"
+        className="anim-popover-in absolute rounded-[22px] px-3 pb-2 pt-3"
+        style={{
+          left,
+          top,
+          width: MENU_WIDTH,
+          transformOrigin: mine ? "top right" : "top left",
+          background: "var(--fill-primary)",
+          boxShadow: "var(--shadow-sheet)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="px-1 text-[13px]" style={{ color: "var(--text-secondary)" }}>
+          {`${sameDay(message.at) ? "Today" : new Date(message.at).toLocaleDateString()} at ${time(message.at)}`}
         </p>
-        <div className="mt-3 border-t pt-2" style={{ borderColor: "var(--fill-divider)" }}>
+        <div className="mt-2 border-t pt-1" style={{ borderColor: "var(--fill-divider)" }}>
           {canShare() && (
-            <button className={row} style={{ color: "var(--text-primary)" }} onClick={act(shareText)}>
+            <button role="menuitem" className={row} style={{ color: "var(--text-primary)" }} onClick={act(shareText)}>
               <Share size={18} /> Share
             </button>
           )}
-          <button className={row} style={{ color: "var(--text-primary)" }} onClick={act(copyText)}>
+          <button role="menuitem" className={row} style={{ color: "var(--text-primary)" }} onClick={act(copyText)}>
             <Copy size={18} /> Copy
           </button>
         </div>
       </div>
-    </Sheet>
+    </div>
   );
 }
 
@@ -142,13 +169,18 @@ function corners(mine: boolean, { joinsPrevious, joinsNext }: Place) {
     : { borderRadius: `${top}px ${ROUND}px ${ROUND}px ${bottom}px` };
 }
 
-function Bubble({ item, place, onMenu }: { item: Message; place: Place; onMenu: (message: Message) => void }) {
+function Bubble({ item, place, onMenu }: { item: Message; place: Place; onMenu: (menu: Menu) => void }) {
   const isUser = item.kind === "prompt";
-  const press = useLongPress(() => onMenu(item));
+  const bubble = useRef<HTMLDivElement>(null);
+  const press = useLongPress(() => {
+    const at = bubble.current?.getBoundingClientRect();
+    if (at) onMenu({ message: item, at });
+  });
   return (
     <div className={`anim-fade-in flex flex-col ${isUser ? "items-end" : "items-start"}`}>
       <div
         {...press}
+        ref={bubble}
         className="msg relative w-fit max-w-[78%] px-4 py-2.5 text-[15px] leading-snug"
         style={{
           ...corners(isUser, place),
@@ -199,7 +231,7 @@ export function ChatFeed({ conversation, older, release, thumb, actions }: Props
   /** messages in the whole feed: what "new" is counted against, so pages fetched back are not new */
   const total = conversation.earlier + feed.length;
   /** the message whose long-press menu is open (touch) */
-  const [menu, setMenu] = useState<Message | null>(null);
+  const [menu, setMenu] = useState<Menu | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -377,7 +409,7 @@ export function ChatFeed({ conversation, older, release, thumb, actions }: Props
       {/* Muse-style scroll fade: a mask dissolves the content itself under the
           floating top bar and composer — no solid overlay sits on top. */}
       </div>
-      <MessageSheet message={menu} onClose={() => setMenu(null)} />
+      <MessageMenu menu={menu} onClose={() => setMenu(null)} />
     </div>
   );
 }
