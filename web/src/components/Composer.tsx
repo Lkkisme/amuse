@@ -32,10 +32,11 @@ export function Composer({ conversation, actions }: { conversation: State; actio
       />
       <div className="relative mx-auto max-w-3xl px-4 pb-5 pt-1">
         <div
-          className="pointer-events-auto flex min-h-[52px] items-center gap-2 rounded-full py-2 pl-4 pr-2"
+          className="pointer-events-auto flex min-h-[52px] items-center gap-2 rounded-full px-2 py-2"
           style={{ background: "var(--fill-primary)", boxShadow: "0 1px 6px rgba(0,0,0,0.06)" }}
         >
-          <button aria-label="Add attachment" className="hover-fade shrink-0 rounded-full p-1" style={{ color: "var(--icon-primary)" }}>
+          {/* end buttons are 36px at an 8px inset: concentric with the pill's 26px-radius ends */}
+          <button aria-label="Add attachment" className="hover-fade flex size-9 shrink-0 items-center justify-center rounded-full" style={{ color: "var(--icon-primary)" }}>
             <Plus size={20} />
           </button>
           <input
@@ -48,7 +49,7 @@ export function Composer({ conversation, actions }: { conversation: State; actio
               if (e.key === "Enter") submit();
             }}
           />
-          <button aria-label="Dictate" className="hover-fade shrink-0 rounded-full p-1" style={{ color: "var(--icon-secondary)" }}>
+          <button aria-label="Dictate" className="hover-fade flex size-9 shrink-0 items-center justify-center rounded-full" style={{ color: "var(--icon-secondary)" }}>
             <Mic size={19} />
           </button>
           {trailing && (
