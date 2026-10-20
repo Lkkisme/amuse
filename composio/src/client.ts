@@ -20,12 +20,22 @@ const CreatedAuthConfig = z.object({ auth_config: z.object({ id: z.string() }) }
 const Link = z.object({ redirect_url: z.url(), connected_account_id: z.string() });
 const Account = z.object({ id: z.string(), status: z.string() });
 const Accounts = z.object({ items: z.array(Account) });
+const Tool = z.object({
+  slug: z.string(),
+  name: z.string(),
+  description: z.string().default(""),
+  human_description: z.string().nullable().default(null),
+  /** MCP hints among them: readOnlyHint, destructiveHint (see core/policy.ts) */
+  tags: z.array(z.string()).default([]),
+  input_parameters: z.looseObject({ properties: z.record(z.string(), z.unknown()).default({}), required: z.array(z.string()).default([]) }).default({ properties: {}, required: [] }),
+});
 const Tools = z.object({
   items: z.array(
     z.object({
       slug: z.string(),
       name: z.string(),
       description: z.string().default(""),
+      tags: z.array(z.string()).default([]),
       input_parameters: z.looseObject({ properties: z.record(z.string(), z.unknown()).default({}), required: z.array(z.string()).default([]) }).default({ properties: {}, required: [] }),
     }),
   ),
@@ -83,6 +93,7 @@ export interface AppTool {
   slug: string;
   name: string;
   description: string;
+  tags: string[];
   /** JSON Schema properties of the tool's arguments */
   parameters: Record<string, unknown>;
   required: string[];
@@ -107,6 +118,8 @@ export interface Composio {
   connected(toolkit: string, userId: string): Promise<boolean>;
   /** Tools of a toolkit matching `search`. */
   tools(toolkit: string, search: string): Promise<AppTool[]>;
+  /** One tool, by its slug. */
+  tool(slug: string): Promise<AppTool>;
   /** Every toolkit there is to connect, most used first (no-auth and deprecated ones left out). */
   toolkits(): Promise<Toolkit[]>;
   /** `userId`'s accounts (of one toolkit, if given), as Composio has them (status upper-case: ACTIVE, EXPIRED, …). */
@@ -116,6 +129,15 @@ export interface Composio {
   /** Run a tool for `userId`, as `account` when they have several; the tool's result, or its error. */
   execute(slug: string, userId: string, args: Record<string, unknown>, account?: string): Promise<{ ok: true; data: unknown } | { ok: false; error: string }>;
 }
+
+const appTool = (t: z.infer<typeof Tool>): AppTool => ({
+  slug: t.slug,
+  name: t.name,
+  description: t.human_description || t.description,
+  tags: t.tags,
+  parameters: t.input_parameters.properties,
+  required: t.input_parameters.required,
+});
 
 export function composio(apiKey: string, http: typeof fetch = fetch): Composio {
   async function call<T>(schema: z.ZodType<T>, path: string, init: { method?: string; query?: Record<string, string>; body?: unknown } = {}): Promise<T> {
@@ -169,8 +191,9 @@ export function composio(apiKey: string, http: typeof fetch = fetch): Composio {
         return words.filter((w) => hay.includes(w.toLowerCase().replace(/s$/, ""))).length;
       };
       const unique = [...new Map(items.map((t) => [t.slug, t])).values()].sort((a, b) => score(b) - score(a)).slice(0, 8);
-      return unique.map((t) => ({ slug: t.slug, name: t.name, description: t.description, parameters: t.input_parameters.properties, required: t.input_parameters.required }));
+      return unique.map((t) => ({ slug: t.slug, name: t.name, description: t.description, tags: t.tags, parameters: t.input_parameters.properties, required: t.input_parameters.required }));
     },
+    tool: async (slug) => appTool(await call(Tool, `/tools/${encodeURIComponent(slug)}`)),
     async toolkits() {
       const all: Toolkit[] = [];
       let cursor: string | null = null;

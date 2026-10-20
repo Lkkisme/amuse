@@ -63,8 +63,8 @@ export type AgentAction =
   | { kind: "connect"; provider: string; title: string }
   /** Hand a browser task to the browser port; it starts working at once. `instructions`: the user's ask in full. */
   | { kind: "browse"; title: string; url: string; instructions: string }
-  /** Ask the user to approve a consequential step before taking it. */
-  | { kind: "ask"; action: string; target: string; detail: string }
+  /** Ask the user to approve a consequential step before taking it; `remember`: the answer may become a rule. */
+  | { kind: "ask"; action: string; target: string; detail: string; remember: boolean }
   /** A browser run's progress, from the agent driving it. */
   | { kind: "browserStatus"; id: string; status: BrowserProgress }
   /** What the agent driving a run is doing right now (null: nothing in particular). */
@@ -86,7 +86,7 @@ export type Rejection =
   | { kind: "gone"; id: string }
   | {
       kind: "invalid";
-      action: BrowserAction | "fit" | "resolve" | "begin" | "dismiss" | "stop" | AgentAction["kind"];
+      action: BrowserAction | "fit" | "resolve" | "always" | "begin" | "dismiss" | "stop" | AgentAction["kind"];
       from: BrowserStatus | TaskStatus | Approval["status"] | Connection["status"];
     };
 
@@ -125,6 +125,11 @@ const verdicts: Record<Resolution, Verdict> = {
   deny_always: "denied",
 };
 export const verdict = (resolution: Resolution): Verdict => verdicts[resolution];
+/** Whether an answer is meant for next time too. */
+export const lasting = (resolution: Resolution): boolean => resolution === "allow_always" || resolution === "deny_always";
+
+/** What an agent learns of the user's answer to its ask: approved or not, and whether to keep it as a rule. */
+export type Answer = { verdict: Verdict; remember: boolean };
 
 const ok = <T>(changes: Change[], effects: Effect[], output: T): Decision<T> => ({ ok: true, changes, effects, output });
 const reject = (rejection: Rejection): Decision<never> => ({ ok: false, rejection });
@@ -151,6 +156,8 @@ const rules: Rules = {
     const approval = find(state, "approval", id);
     if (!approval) return reject({ kind: "notFound", entity: "approval", id });
     if (approval.status !== "pending") return reject({ kind: "invalid", action: "resolve", from: approval.status });
+    // "always" is offered only where a rule can hold it
+    if (lasting(resolution) && !approval.remember) return reject({ kind: "invalid", action: "always", from: approval.status });
     return ok([upsert({ ...approval, status: verdict(resolution) })], [{ kind: "approval", id, resolution }], null);
   },
 
@@ -214,9 +221,9 @@ const agentRules: AgentRules = {
     const id = ctx.id("c");
     return ok([upsert({ kind: "connection", id, at: ctx.now, provider, title, status: "pending" })], [], { id });
   },
-  ask: (_, { action, target, detail }, ctx) => {
+  ask: (_, { action, target, detail, remember }, ctx) => {
     const id = ctx.id("a");
-    return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, status: "pending" })], [], { id });
+    return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, remember, status: "pending" })], [], { id });
   },
   browse: (_, { title, url, instructions }, ctx) => {
     const browser: Browser = { kind: "browser", id: ctx.id("b"), at: ctx.now, title, url, status: "working", instructions, result: null, step: null, live: true };

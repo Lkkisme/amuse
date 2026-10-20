@@ -3,7 +3,7 @@
  * server run until the real agent, browser pool and connectors are plugged
  * in. Behavior lives here only as port reactions; the rules stay in decide.
  */
-import { type AppDirectory, type Emit, type Ports, type Timers, newId, verdict } from "@remuse/core";
+import { type AppDirectory, type Emit, type Ports, type Timers, kinds, memoryRules, newId, permissionOf, verdict } from "@remuse/core";
 import type { Account, App, Entity } from "@remuse/protocol";
 
 const demoApp = (id: string, name: string, description: string): App => ({ id, name, description, logo: `https://logos.composio.dev/api/${id}` });
@@ -20,6 +20,7 @@ const catalog: App[] = [
 
 /** The demo's apps: a short list, connected at once (there is no provider to authorize with). */
 function demoApps(): AppDirectory {
+  const rules = memoryRules();
   const accounts = new Map<string, Account>([["ca_demo_gmail", { id: "ca_demo_gmail", app: demoApp("gmail", "Gmail", "Read, search and send email"), label: "you@example.com", status: "active" }]]);
   return {
     async search(query) {
@@ -38,6 +39,11 @@ function demoApps(): AppDirectory {
     async disconnect(account) {
       accounts.delete(account);
     },
+    async permissions(app) {
+      const mine = await rules.of(app);
+      return kinds.map((kind) => ({ kind, permission: permissionOf(kind, mine), chosen: mine[kind] !== undefined }));
+    },
+    permit: (app, kind, permission) => rules.set(app, kind, permission),
   };
 }
 
@@ -142,6 +148,7 @@ export function seed(): Entity[] {
       action: "Send email",
       target: "restaurant@example.com",
       detail: "Reserve a table for 4, Friday 7pm. Draft ready for your review.",
+      remember: true,
       status: "pending",
     },
     { kind: "browser", id: "b-seed1", at: minutesAgo(28), title: "Monterey Bay Aquarium exhibits", url: "https://mbayaq.org/exhibits", status: "completed", instructions: "List the current exhibits", result: "Found 12 exhibits; the kelp forest feeding is at 11:30.", step: null, live: false },

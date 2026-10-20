@@ -4,7 +4,7 @@
  * most used first, is fetched once in a while and searched here: by name and
  * id first, then by description and category, each in order of use.
  */
-import type { AppDirectory } from "@remuse/core";
+import { type AppDirectory, type Rules, kinds, permissionOf } from "@remuse/core";
 import type { Account, AccountStatus, App } from "@remuse/protocol";
 import type { Composio, Toolkit } from "./client.ts";
 
@@ -43,7 +43,10 @@ export function score(t: Toolkit, words: string[]): number {
   return total;
 }
 
-export function composioDirectory(client: Pick<Composio, "toolkits" | "accounts" | "remove" | "link">, options: { userId: string; callbackUrl?: string }): AppDirectory {
+export function composioDirectory(
+  client: Pick<Composio, "toolkits" | "accounts" | "remove" | "link">,
+  options: { userId: string; rules: Rules; callbackUrl?: string },
+): AppDirectory {
   let list: { at: number; toolkits: Promise<Toolkit[]> } | null = null;
   const toolkits = () => {
     if (!list || Date.now() - list.at > FRESH_MS) {
@@ -78,5 +81,10 @@ export function composioDirectory(client: Pick<Composio, "toolkits" | "accounts"
       return (await client.link(appId, options.userId, options.callbackUrl)).url;
     },
     disconnect: (account) => client.remove(account),
+    async permissions(app) {
+      const rules = await options.rules.of(app);
+      return kinds.map((kind) => ({ kind, permission: permissionOf(kind, rules), chosen: rules[kind] !== undefined }));
+    },
+    permit: (app, kind, permission) => options.rules.set(app, kind, permission),
   };
 }

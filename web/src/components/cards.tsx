@@ -108,14 +108,24 @@ export function ApprovalCard({ approval, place = alone, actions }: { approval: A
       </p>
       {approval.status === "pending" ? (
         <>
+          {/* three answers: this once, always (only where a rule can hold it: app actions), or no */}
           <div className="mt-3 flex gap-2">
             <button
               className="h-9 flex-1 rounded-full text-[14px] font-semibold text-white"
               style={{ background: "var(--fill-blue)" }}
               onClick={() => actions.resolveApproval(approval.id, "allow_once")}
             >
-              Allow
+              Allow once
             </button>
+            {approval.remember && (
+              <button
+                className="h-9 flex-1 rounded-full text-[14px] font-semibold"
+                style={{ background: "var(--fill-card-button)", color: "var(--fill-blue)" }}
+                onClick={() => actions.resolveApproval(approval.id, "allow_always")}
+              >
+                Always allow
+              </button>
+            )}
             <button
               className="h-9 flex-1 rounded-full text-[14px] font-semibold"
               style={{ background: "var(--fill-card-button)", color: "var(--text-primary)" }}
@@ -124,13 +134,6 @@ export function ApprovalCard({ approval, place = alone, actions }: { approval: A
               Deny
             </button>
           </div>
-          <button
-            className="hover-fade mx-auto mt-2 block text-[13px] font-medium"
-            style={{ color: "var(--text-secondary)" }}
-            onClick={() => actions.resolveApproval(approval.id, "allow_always")}
-          >
-            Always allow
-          </button>
         </>
       ) : (
         <Outcome {...approvalOutcome[approval.status]} />

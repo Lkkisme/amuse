@@ -7,8 +7,8 @@
  * server's, asked again when the user comes back from authorizing.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft, MoreHorizontal, Search } from "lucide-react";
-import type { Account, App, Session } from "@remuse/protocol";
+import { ChevronDown, ChevronLeft, MoreHorizontal, Search } from "lucide-react";
+import type { Account, App, KindRule, Permission, Session, ToolKind } from "@remuse/protocol";
 import { AppLogo } from "./AppLogo";
 
 type Tab = "available" | "connected";
@@ -130,6 +130,7 @@ export function Connectors({ session }: { session: Session }) {
   if (viewing)
     return (
       <AppPage
+        session={session}
         app={viewing}
         accounts={accountsOf(viewing.id)}
         busy={busy}
@@ -233,6 +234,7 @@ export function Connectors({ session }: { session: Session }) {
 
 /** An app's page: its accounts, adding another, letting go of one or all. */
 function AppPage({
+  session,
   app,
   accounts,
   busy,
@@ -241,6 +243,7 @@ function AppPage({
   onConnect,
   onDisconnect,
 }: {
+  session: Session;
   app: App;
   accounts: Account[];
   busy: string | null;
@@ -251,6 +254,10 @@ function AppPage({
 }) {
   /** the account whose options are open */
   const [options, setOptions] = useState<string | null>(null);
+  const [rules, setRules] = useState<KindRule[] | null>(null);
+  const load = useCallback(() => session.call("apps.permissions", { app: app.id }).then(({ rules }) => setRules(rules), () => setRules([])), [session, app.id]);
+  useEffect(() => void load(), [load]);
+  const permit = (kind: ToolKind, permission: Permission | null) => void session.call("apps.permit", { app: app.id, kind, permission }).then(load, load);
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pb-6 pt-3 sm:px-6">
       <button
@@ -394,7 +401,69 @@ function AppPage({
           </li>
         </Group>
       )}
+      {rules && rules.length > 0 && (
+        <>
+          {rules.map((rule) => (
+            <section key={rule.kind}>
+              <p className="mb-1.5 mt-5 px-4 text-[13px] font-medium" style={{ color: "var(--text-secondary)" }}>
+                {kindTitle[rule.kind]}
+              </p>
+              <Group>
+                <li className="flex items-center gap-3 py-3">
+                  <span className="min-w-0 flex-1 text-[15px]" style={{ color: "var(--text-primary)" }}>
+                    {kindLine[rule.kind](app.name)}
+                  </span>
+                  <PermissionSelect value={rule.permission} onChange={(p) => permit(rule.kind, p)} />
+                </li>
+              </Group>
+            </section>
+          ))}
+          {rules.some((r) => r.chosen) && (
+            <button
+              className="hover-fade ml-auto mt-3 block px-4 text-[14px]"
+              style={{ color: "var(--fill-red)" }}
+              onClick={() => rules.filter((r) => r.chosen).forEach((r) => permit(r.kind, null))}
+            >
+              Reset to defaults
+            </button>
+          )}
+        </>
+      )}
     </div>
+  );
+}
+
+const kindTitle: Record<ToolKind, string> = { read: "Read permissions", write: "Write permissions", destructive: "Delete permissions" };
+const kindLine: Record<ToolKind, (app: string) => string> = {
+  read: (app) => `Read ${app} content`,
+  write: (app) => `Change ${app} content`,
+  destructive: (app) => `Delete or cancel in ${app}`,
+};
+const PERMISSIONS: Permission[] = ["allow", "ask", "deny"];
+const permissionName: Record<Permission, string> = { allow: "Allow", ask: "Ask", deny: "Deny" };
+
+/** Allow / Ask / Deny, as a plain select styled as Muse's dropdown. */
+function PermissionSelect({ value, onChange }: { value: Permission; onChange: (p: Permission) => void }) {
+  return (
+    <span className="relative flex items-center">
+      <select
+        aria-label="Permission"
+        className="cursor-pointer appearance-none bg-transparent py-1 pl-2 pr-6 text-right text-[15px] outline-none"
+        style={{ color: value === "deny" ? "var(--fill-red)" : "var(--text-primary)" }}
+        value={value}
+        onChange={(e) => {
+          const next = PERMISSIONS.find((p) => p === e.target.value);
+          if (next) onChange(next);
+        }}
+      >
+        {PERMISSIONS.map((p) => (
+          <option key={p} value={p}>
+            {permissionName[p]}
+          </option>
+        ))}
+      </select>
+      <ChevronDown size={15} className="pointer-events-none absolute right-0" style={{ color: "var(--icon-secondary)" }} />
+    </span>
   );
 }
 

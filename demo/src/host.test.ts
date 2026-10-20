@@ -123,9 +123,9 @@ test("an agent's ask becomes a pending approval; resolving it answers the waitin
   const host = createHost(ports, { clock });
   await host.call("chat.send", { text: "book it" });
   assert.ok(io);
-  const asked = io.act({ kind: "ask", action: "Submit", target: "opentable.com", detail: "Book a table for 4" });
+  const asked = io.act({ kind: "ask", action: "Submit", target: "opentable.com", detail: "Book a table for 4", remember: false });
   assert.ok(asked.ok);
   const verdict = io.decision(asked.id);
   await host.call("approval.resolve", { id: asked.id, resolution: "deny" });
-  assert.equal(await verdict, "denied");
+  assert.deepEqual(await verdict, { verdict: "denied", remember: false });
 });

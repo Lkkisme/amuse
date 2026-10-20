@@ -12,7 +12,7 @@ function recording(onAct: (action: AgentAction) => void = () => {}, onReport: (n
   return {
     emit: () => {},
     act: (action) => (onAct(action), { ok: true, id: "x" }),
-    decision: async () => "denied",
+    decision: async () => ({ verdict: "denied", remember: false }),
     report: onReport,
     context: () => "",
     recall: () => "",
@@ -92,7 +92,7 @@ test("tools search, connection check and execute parse Composio's responses", as
   assert.equal(await client.connected("gmail", "owner"), true);
   assert.equal(await client.connected("slack", "owner"), false);
   assert.deepEqual(await client.tools("gmail", "latest"), [
-    { slug: "GMAIL_FETCH_EMAILS", name: "Fetch", description: "Fetch emails", parameters: { max_results: { type: "integer" } }, required: [] },
+    { slug: "GMAIL_FETCH_EMAILS", name: "Fetch", description: "Fetch emails", tags: [], parameters: { max_results: { type: "integer" } }, required: [] },
   ]);
   assert.deepEqual(await client.execute("GMAIL_FETCH_EMAILS", "owner", {}), { ok: true, data: { messages: [] } });
 });

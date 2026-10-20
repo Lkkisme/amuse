@@ -99,13 +99,14 @@ function runTools(run: Run): ToolDefinition[] {
   };
   /** Ask the user before a consequential step; true when approved (false if stopped meanwhile). */
   const approve = async (action: string, detail: string) => {
-    const asked = run.io.act({ kind: "ask", action, target: URL.canParse(run.url) ? new URL(run.url).host : run.url, detail });
+    // a step on a web page is asked about every time: there is no rule that could name it
+    const asked = run.io.act({ kind: "ask", action, target: URL.canParse(run.url) ? new URL(run.url).host : run.url, detail, remember: false });
     if (!asked.ok) return false;
     set("waiting");
     const decided = await untilStopped(run, run.io.decision(asked.id));
     if (decided === "stopped") return false;
     set("working");
-    return decided === "approved";
+    return decided.verdict === "approved";
   };
   const consequential = Type.Optional(
     Type.Boolean({ description: "true when this step buys, sends, deletes, publishes, books or submits something that commits the user" }),

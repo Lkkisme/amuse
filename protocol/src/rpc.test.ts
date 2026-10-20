@@ -17,6 +17,8 @@ const handlers: Handlers = {
   "apps.accounts": async () => ({ accounts: [] }),
   "apps.connect": async ({ app }) => ({ url: `https://connect.example/${app}` }),
   "apps.disconnect": async () => null,
+  "apps.permissions": async () => ({ rules: [] }),
+  "apps.permit": async () => null,
 };
 
 test("a framed request parses into a typed call and dispatches to its handler", async () => {

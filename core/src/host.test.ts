@@ -15,7 +15,14 @@ function capture() {
     stopTask: () => {},
     fit: () => {},
     connect: async () => "https://connect.example/",
-    apps: { search: async () => ({ apps: [], cursor: null }), accounts: async () => [], connect: async () => "https://connect.example/", disconnect: async () => {} },
+    apps: {
+      search: async () => ({ apps: [], cursor: null }),
+      accounts: async () => [],
+      connect: async () => "https://connect.example/",
+      disconnect: async () => {},
+      permissions: async () => [],
+      permit: async () => {},
+    },
   };
   return { ports, io: () => io };
 }
@@ -26,12 +33,12 @@ test("a decision already made is answered at once; one still open waits for the 
   await host.call("chat.send", { text: "go" });
   const agent = io();
   assert.ok(agent);
-  const asked = agent.act({ kind: "ask", action: "send", target: "gmail", detail: "{}" });
+  const asked = agent.act({ kind: "ask", action: "send", target: "gmail", detail: "{}", remember: true });
   assert.ok(asked.ok);
   const early = agent.decision(asked.id);
   await host.call("approval.resolve", { id: asked.id, resolution: "allow_once" });
-  assert.equal(await early, "approved");
-  assert.equal(await agent.decision(asked.id), "approved"); // asked again after the fact
+  assert.deepEqual(await early, { verdict: "approved", remember: false });
+  assert.deepEqual(await agent.decision(asked.id), { verdict: "approved", remember: false }); // asked again after the fact
 });
 
 test("an agent cannot move a run the user stopped", async () => {

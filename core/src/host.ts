@@ -7,6 +7,9 @@
  */
 import {
   type Account,
+  type Permission,
+  type KindRule,
+  type ToolKind,
   type Browser,
   type Connection,
   type Entity,
@@ -30,11 +33,12 @@ import {
   type Context,
   type Effect,
   type Rejection,
-  type Verdict,
+  type Answer,
   decide,
   decideAgent,
   place,
   recover,
+  lasting,
   verdict,
 } from "./decide.ts";
 import { agentContext, recall } from "./context.ts";
@@ -64,7 +68,7 @@ export interface AgentIO {
   /** Search the whole conversation, however old. */
   recall(query: string): string;
   /** Resolves when the user decides approval `id` (from an `ask`); at once if already decided. */
-  decision(id: string): Promise<Verdict>;
+  decision(id: string): Promise<Answer>;
   report(note: string): void;
 }
 
@@ -97,6 +101,9 @@ export interface AppDirectory {
   /** The provider's hosted auth link for `app`. */
   connect(app: string): Promise<string>;
   disconnect(account: string): Promise<void>;
+  /** What the agent may do with the app, by kind of tool. */
+  permissions(app: string): Promise<KindRule[]>;
+  permit(app: string, kind: ToolKind, permission: Permission | null): Promise<void>;
 }
 
 /** A rejection in words, for errors and for agents. */
@@ -162,8 +169,8 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
   const context = (): Context => ({ now: clock.now(), id: options.ids ?? newId });
 
   /** Callers waiting on an approval, settled when the user resolves it. */
-  const waiting = new Map<string, ((verdict: Verdict) => void)[]>();
-  const settle = (id: string, outcome: Verdict) => {
+  const waiting = new Map<string, ((answer: Answer) => void)[]>();
+  const settle = (id: string, outcome: Answer) => {
     waiting.get(id)?.forEach((resolve) => resolve(outcome));
     waiting.delete(id);
   };
@@ -172,7 +179,7 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     emit: commit,
     decision(id) {
       const approval = state.entities.find((e) => e.kind === "approval" && e.id === id);
-      if (approval?.kind === "approval" && approval.status !== "pending") return Promise.resolve(approval.status === "approved" ? "approved" : "denied");
+      if (approval?.kind === "approval" && approval.status !== "pending") return Promise.resolve({ verdict: approval.status === "approved" ? "approved" : "denied", remember: false });
       return new Promise((resolve) => waiting.set(id, [...(waiting.get(id) ?? []), resolve]));
     },
     report: (note) => ports.prompt({ kind: "note", text: note }, agent),
@@ -196,7 +203,7 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
       case "browser":
         return ports.browser(effect, agent);
       case "approval":
-        settle(effect.id, verdict(effect.resolution));
+        settle(effect.id, { verdict: verdict(effect.resolution), remember: lasting(effect.resolution) });
         return ports.approval(effect, agent);
       case "stopTask":
         return ports.stopTask(effect.id, agent);
@@ -245,6 +252,11 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     "apps.connect": async ({ app }) => ({ url: await ports.apps.connect(app) }),
     "apps.disconnect": async ({ account }) => {
       await ports.apps.disconnect(account);
+      return null;
+    },
+    "apps.permissions": async ({ app }) => ({ rules: await ports.apps.permissions(app) }),
+    "apps.permit": async ({ app, kind, permission }) => {
+      await ports.apps.permit(app, kind, permission);
       return null;
     },
   };

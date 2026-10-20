@@ -5,7 +5,7 @@
  * Live browser pixels are not JSON-RPC; they stream on their own channel.
  */
 import { z } from "zod";
-import { Account, App } from "./apps.ts";
+import { Account, App, KindRule, Permission, ToolKind } from "./apps.ts";
 import { Id, Resolution } from "./entities.ts";
 import { Envelope, Index, Page, Seq, State } from "./events.ts";
 
@@ -36,6 +36,10 @@ export const Call = z.discriminatedUnion("method", [
   /** Start connecting `app`: returns the provider's hosted auth link. */
   call("apps.connect", z.object({ app: Id })),
   call("apps.disconnect", z.object({ account: Id })),
+  /** What the agent may do with an app: reading, changing, destroying (its tools sorted by their own hints). */
+  call("apps.permissions", z.object({ app: Id })),
+  /** Set what the agent may do with an app's tools of one kind; null: back to the default. */
+  call("apps.permit", z.object({ app: Id, kind: ToolKind, permission: Permission.nullable() })),
 ]);
 
 export type Call = z.infer<typeof Call>;
@@ -62,6 +66,8 @@ export const results = {
   "apps.accounts": z.object({ accounts: z.array(Account) }),
   "apps.connect": z.object({ url: z.url() }),
   "apps.disconnect": done,
+  "apps.permissions": z.object({ rules: z.array(KindRule) }),
+  "apps.permit": done,
 } satisfies Record<Method, z.ZodType>;
 
 export type Params = { [C in Call as C["method"]]: C["params"] };
@@ -86,6 +92,8 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "apps.accounts": (raw) => results["apps.accounts"].parse(raw),
   "apps.connect": (raw) => results["apps.connect"].parse(raw),
   "apps.disconnect": (raw) => results["apps.disconnect"].parse(raw),
+  "apps.permissions": (raw) => results["apps.permissions"].parse(raw),
+  "apps.permit": (raw) => results["apps.permit"].parse(raw),
 };
 
 /** What a server implements: one function per method. */

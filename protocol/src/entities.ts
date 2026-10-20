@@ -52,6 +52,8 @@ export const Approval = z.object({
   action: z.string(),
   target: z.string(),
   detail: z.string(),
+  /** whether the answer can be kept as a rule for next time (offer "always"); only actions a rule can name */
+  remember: z.boolean(),
   status: z.enum(["pending", "approved", "denied", "timed_out"]),
 });
 

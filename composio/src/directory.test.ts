@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Toolkit } from "./client.ts";
+import { memoryRules } from "@remuse/core";
 import { composioDirectory, score } from "./directory.ts";
 
 const tk = (slug: string, name: string, description = "", categories: string[] = []): Toolkit => ({ slug, name, description, logo: null, categories });
@@ -13,6 +14,7 @@ const all = [
   tk("zoho_mail", "Zoho Mail", "Email hosting"),
   tk("notion", "Notion", "Notes and docs"),
 ];
+const rules = memoryRules();
 const directory = (accounts: { id: string; toolkit: string; status: string; label: string | null }[] = []) =>
   composioDirectory(
     {
@@ -21,7 +23,7 @@ const directory = (accounts: { id: string; toolkit: string; status: string; labe
       remove: async () => {},
       link: async (app) => ({ url: `https://connect.example/${app}`, account: "ca_new" }),
     },
-    { userId: "owner" },
+    { userId: "owner", rules },
   );
 
 test("a name match outranks a description match; within a rank, the most used first", async () => {
@@ -48,4 +50,16 @@ test("accounts carry their app, and only settled ones show", async () => {
     { id: "ca_3", toolkit: "github", status: "INITIATED", label: null },
   ]).accounts();
   assert.deepEqual(accounts.map((a) => [a.id, a.app.name, a.label, a.status]), [["ca_1", "Gmail", "me@example.com", "active"], ["ca_2", "Notion", null, "expired"]]);
+});
+
+test("an app's permissions, by kind: reads allowed, the rest asked, the user's choice over both", async () => {
+  const d = directory();
+  assert.deepEqual(await d.permissions("gmail"), [
+    { kind: "read", permission: "allow", chosen: false },
+    { kind: "write", permission: "ask", chosen: false },
+    { kind: "destructive", permission: "ask", chosen: false },
+  ]);
+  await d.permit("gmail", "destructive", "deny");
+  assert.deepEqual((await d.permissions("gmail"))[2], { kind: "destructive", permission: "deny", chosen: true });
+  await d.permit("gmail", "destructive", null);
 });

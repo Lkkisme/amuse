@@ -5,7 +5,8 @@
  * background while the chat goes on.
  */
 import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
-import { type AgentIO, consequential, describe } from "@remuse/core";
+import { type AgentIO, describe } from "@remuse/core";
+import type { Permission } from "@remuse/protocol";
 import { untrusted } from "./untrusted.ts";
 import { Type } from "typebox";
 import { status } from "./status.ts";
@@ -65,7 +66,15 @@ export function tools(io: () => AgentIO): ToolDefinition[] {
 export interface Apps {
   /** The app's working accounts (an app may have several: two Gmail addresses). */
   accounts(app: string): Promise<{ id: string; label: string | null }[]>;
-  tools(app: string, query: string): Promise<{ slug: string; name: string; description: string; parameters: Record<string, unknown>; required: string[] }[]>;
+  /** Tools matching `query`; none the user denied; each with what the agent may do with it. */
+  tools(
+    app: string,
+    query: string,
+  ): Promise<{ slug: string; name: string; description: string; parameters: Record<string, unknown>; required: string[]; permission: Permission }[]>;
+  /** What the agent may do with a tool, under the user's rules. */
+  permission(app: string, slug: string): Promise<Permission>;
+  /** Keep an answer the user meant for next time. */
+  remember(app: string, slug: string, permission: Permission): Promise<void>;
   call(slug: string, args: Record<string, unknown>, account: string): Promise<{ ok: true; data: unknown } | { ok: false; error: string }>;
 }
 
@@ -108,7 +117,10 @@ export function appTools(io: () => AgentIO, apps: Apps): ToolDefinition[] {
         const which = accounts.length > 1 ? `\n\n${app} accounts: ${accounts.map(named).join(", ")} (pass \`account\` to app_call).` : "";
         return text(
           found
-            .map((t) => `- ${t.slug}: ${clip(t.description, 300)}\n  args: ${clip(JSON.stringify(t.parameters), 700)}\n  required: ${t.required.join(", ") || "none"}`)
+            .map(
+              (t) =>
+                `- ${t.slug}${t.permission === "ask" ? " (asks the user first)" : ""}: ${clip(t.description, 300)}\n  args: ${clip(JSON.stringify(t.parameters), 700)}\n  required: ${t.required.join(", ") || "none"}`,
+            )
             .join("\n") + which,
         );
       },
@@ -117,34 +129,51 @@ export function appTools(io: () => AgentIO, apps: Apps): ToolDefinition[] {
       name: "app_call",
       label: "Use an app",
       description:
-        "Run an app action found with app_tools. Reading runs at once. Actions that send, change, delete or pay are posted for the user's approval and run in the background once approved; you will get a report.",
+        "Run an app action found with app_tools. What the user allows runs at once; what they want asked about is posted for their approval and runs in the background once approved (you will get a report); what they do not allow does not run.",
       parameters: Type.Object({
         status,
         action: Type.String({ description: "Action slug, e.g. GMAIL_FETCH_EMAILS" }),
         arguments: Type.Record(Type.String(), Type.Unknown()),
         account: Type.Optional(Type.String({ description: "Which account (its email or id), when the app has several" })),
       }),
-      async execute(_, { action, arguments: args, account: asked }) {
-        const app = appOf(action);
-        const chosen = pick(app, await apps.accounts(app), asked);
-        if (!chosen.ok) return text(chosen.text);
-        const { account } = chosen;
-        const outcome = (r: Awaited<ReturnType<Apps["call"]>>) => untrusted(r.ok ? clip(JSON.stringify(r.data), 12_000) : `failed: ${r.error}`);
-        if (!consequential(action)) return text(outcome(await apps.call(action, args, account.id)));
-        // never hold the chat for an approval: ask, return, and finish in the background
-        const agent = io();
-        const label = action.replaceAll("_", " ").toLowerCase();
-        // the user approves exactly what will run: every argument (a huge one, e.g. an attachment, is cut and says so)
-        // ...and as which account
-        const approval = agent.act({ kind: "ask", action: label, target: account.label ? `${app} (${account.label})` : app, detail: clip(JSON.stringify(args, null, 2), 20_000) });
-        if (!approval.ok) return text(`Could not ask for approval: ${describe(approval.rejection)}.`);
-        void agent.decision(approval.id).then(async (verdict) => {
-          if (verdict === "denied") return agent.report(`[app action "${label}" declined by the user]`);
-          const result = await apps.call(action, args, account.id).catch((e: unknown) => ({ ok: false as const, error: String(e) }));
-          agent.report(`[app action "${label}" done]\n${outcome(result)}`);
-        });
-        return text("Posted for the user's approval. It runs once they approve; you will get a report. Tell the user briefly.");
-      },
+      execute: async (_, { action, arguments: args, account }) => text(await appCall(io(), apps, action, args, account)),
     }),
   ];
+}
+
+/**
+ * Run an app action as the user's rules say (core/policy.ts): not at all,
+ * at once, or once they approve (in the background; the agent gets a report),
+ * keeping an answer meant for always. Returns what the agent is told now.
+ */
+export async function appCall(io: AgentIO, apps: Apps, action: string, args: Record<string, unknown>, asked: string | undefined): Promise<string> {
+  const app = appOf(action);
+  const chosen = pick(app, await apps.accounts(app), asked);
+  if (!chosen.ok) return chosen.text;
+  const { account } = chosen;
+  type Result = Awaited<ReturnType<Apps["call"]>>;
+  const outcome = (r: Result) => untrusted(r.ok ? clip(JSON.stringify(r.data), 12_000) : `failed: ${r.error}`);
+  // the user's rules, not the agent, decide what runs (core/policy.ts)
+  const permission = await apps.permission(app, action);
+  if (permission === "deny") return `The user does not allow this kind of ${app} action. Do not try to do it another way; tell the user.`;
+  if (permission === "allow") return outcome(await apps.call(action, args, account.id));
+  // never hold the chat for an approval: ask, return, and finish in the background
+  const label = action.replaceAll("_", " ").toLowerCase();
+  const approval = io.act({
+    kind: "ask",
+    action: label,
+    // ...as which account
+    target: account.label ? `${app} (${account.label})` : app,
+    // the user approves exactly what will run: every argument (a huge one, e.g. an attachment, is cut and says so)
+    detail: clip(JSON.stringify(args, null, 2), 20_000),
+    remember: true, // an answer for always holds for the app's actions of this kind
+  });
+  if (!approval.ok) return `Could not ask for approval: ${describe(approval.rejection)}.`;
+  void io.decision(approval.id).then(async ({ verdict, remember }) => {
+    if (remember) await apps.remember(app, action, verdict === "approved" ? "allow" : "deny").catch(() => {});
+    if (verdict === "denied") return io.report(`[app action "${label}" declined by the user]`);
+    const result = await apps.call(action, args, account.id).catch((e: unknown): Result => ({ ok: false, error: String(e) }));
+    io.report(`[app action "${label}" done]\n${outcome(result)}`);
+  });
+  return "Posted for the user's approval. It runs once they approve; you will get a report. Tell the user briefly.";
 }

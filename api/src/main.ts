@@ -19,15 +19,17 @@
  *   REMUSE_WEB    directory of the built web app to serve (same origin as /rpc and /live)
  */
 import { randomBytes } from "node:crypto";
+import { dirname, join } from "node:path";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { composio, composioApps, composioConnector, composioDirectory } from "@remuse/composio";
 import { fileJournal } from "./journal.ts";
 import { browserPool, controller } from "@remuse/browser";
-import { type Ports, createHost, realTimers } from "@remuse/core";
+import { type Ports, createHost, memoryRules, realTimers } from "@remuse/core";
 import { demoPorts, seed } from "@remuse/demo";
 import { type State, apply, empty } from "@remuse/protocol";
 import { type PiAuth, piAgent, piBrowserAgent, untrustedRule } from "@remuse/pi";
 import { listen } from "./server.ts";
+import { fileRules } from "./rules.ts";
 
 /** The access token: given, or made on first start and kept in REMUSE_TOKEN_FILE (owner-only). */
 function accessToken(): string | undefined {
@@ -68,6 +70,9 @@ const composioKey = keyFile ? readFileSync(keyFile, "utf8").trim() : process.env
 const composioClient = composioKey ? composio(composioKey) : undefined;
 const composioUser = "owner";
 const noConnector = "No connector is configured (set REMUSE_COMPOSIO_KEY).";
+/** what the agent may do with apps (core/policy.ts): kept beside the journal, or in memory without one */
+const journalFile = process.env["REMUSE_JOURNAL"];
+const rules = journalFile ? fileRules(join(dirname(journalFile), "rules.json")) : memoryRules();
 const publicUrl = process.env["REMUSE_PUBLIC_URL"];
 const connector =
   composioClient &&
@@ -97,7 +102,7 @@ await browsers?.reset();
  * Without a model the whole thing is the scripted demo (with its seed).
  */
 const real = (model: string, browserModel: string): Ports => ({
-  ...piAgent({ model, auth, system, ...(composioClient ? { apps: composioApps(composioClient, composioUser) } : {}) }),
+  ...piAgent({ model, auth, system, ...(composioClient ? { apps: composioApps(composioClient, composioUser, rules) } : {}) }),
   ...(browsers
     ? piBrowserAgent({ model: browserModel, auth }, browsers)
     : {
@@ -116,7 +121,7 @@ const real = (model: string, browserModel: string): Ports => ({
         throw new Error(noConnector);
       },
   apps: composioClient
-    ? composioDirectory(composioClient, { userId: composioUser, ...(publicUrl ? { callbackUrl: new URL("/connected", publicUrl).href } : {}) })
+    ? composioDirectory(composioClient, { userId: composioUser, rules, ...(publicUrl ? { callbackUrl: new URL("/connected", publicUrl).href } : {}) })
     : {
         search: async () => {
           throw new Error(noConnector);
@@ -126,6 +131,10 @@ const real = (model: string, browserModel: string): Ports => ({
           throw new Error(noConnector);
         },
         disconnect: async () => {
+          throw new Error(noConnector);
+        },
+        permissions: async () => [],
+        permit: async () => {
           throw new Error(noConnector);
         },
       },
