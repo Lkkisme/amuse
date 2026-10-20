@@ -297,7 +297,7 @@ export function BrowserCard({ browser, thumb, actions }: { browser: Browser; thu
         style={{ background: "var(--fill-card-button)", color: "var(--text-primary)" }}
         onClick={open}
       >
-        {browser.status === "working" || browser.status === "queued" ? "Open browser" : "Open preview"}
+        Open browser
       </button>
     </div>
   );
