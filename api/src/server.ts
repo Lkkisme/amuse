@@ -1,5 +1,6 @@
 /**
- * The network edge: an HTTP server with two WebSocket routes: /rpc (one
+ * The network edge: an HTTP server (optionally serving the built web app)
+ * with two WebSocket routes: /rpc (one
  * shared Session, one Peer per socket) and /live?id=<run> (a run's live
  * browser view). The access token rides in
  * the query string (browsers cannot set WebSocket headers) and is compared
@@ -11,11 +12,14 @@ import type { Session } from "@remuse/protocol";
 import { WebSocketServer } from "ws";
 import { type Live, attach } from "./live.ts";
 import { serve } from "./rpc.ts";
+import { staticFiles } from "./static.ts";
 
 export interface Options {
   session: Session;
   /** Live browser views at /live?id=<run>; off when absent. */
   live?: Live;
+  /** Directory of the built web app to serve over HTTP; 404 for everything when absent. */
+  web?: string;
   token: string;
   port: number;
   host: string;
@@ -26,13 +30,14 @@ const sameToken = (a: string, b: string) => timingSafeEqual(digest(a), digest(b)
 
 type Target = { kind: "rpc" } | { kind: "live"; id: string; live: Live };
 
-export function listen({ session, live, token, port, host }: Options): Promise<Server> {
+export function listen({ session, live, web, token, port, host }: Options): Promise<Server> {
   const route = (url: URL): Target | null => {
     if (url.pathname === "/rpc") return { kind: "rpc" };
     const id = url.searchParams.get("id");
     return url.pathname === "/live" && live && id ? { kind: "live", id, live } : null;
   };
-  const http = createServer((_, res) => res.writeHead(404).end());
+  const files = web ? staticFiles(web) : null;
+  const http = createServer((req, res) => void (files ? files(req, res).catch(() => res.writeHead(500).end()) : res.writeHead(404).end()));
   const wss = new WebSocketServer({ noServer: true });
 
   http.on("upgrade", (req, socket, head) => {

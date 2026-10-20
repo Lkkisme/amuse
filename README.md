@@ -20,3 +20,25 @@ docs/      UI spec, measured design tokens, reference notes
 - No Meta assets (icons, images, fonts, sounds) may be copied from the APK into this repo.
   Recreate shapes and values in code.
 - Fake state is the only state. Every screen must render and be navigable without network.
+
+## Develop
+
+```
+mise run dev     # API (restarts on change) + Vite with HMR, from ~/.config/remuse/dev.env
+mise run check   # type-check and test every package
+mise run //api:try   # a throwaway API for live tests (own port, temp journal)
+```
+
+## Deploy (Docker)
+
+One container serves the web app, `/rpc` and `/live`, and runs headless Chromium.
+
+```
+cp deploy/remuse.env.example deploy/remuse.env   # set REMUSE_TOKEN and the model
+PI_AUTH=~/path/to/pi/auth.json COMPOSIO_KEY=~/path/to/composio.key docker compose up -d --build
+```
+
+It listens on 127.0.0.1:8080 (`REMUSE_PUBLISH_PORT` to change); put `tailscale serve` or a
+reverse proxy in front. Open `https://<host>/#token=<REMUSE_TOKEN>` once per device; the
+token is kept on the device and removed from the address bar. The conversation lives in
+the `remuse-data` volume.

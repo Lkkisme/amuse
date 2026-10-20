@@ -15,3 +15,20 @@ test("errors lose credentials and credential paths", () => {
   assert.match(text, /<redacted>/);
   assert.equal(redact(""), "The model run failed");
 });
+
+test("the read-only credential store parses Pi auth files and refuses writes", async () => {
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const { readOnlyCredentials } = await import("./credentials.ts");
+  const dir = mkdtempSync(join(tmpdir(), "remuse-auth-"));
+  const good = join(dir, "auth.json");
+  writeFileSync(good, JSON.stringify({ openrouter: { type: "api_key", key: "sk-test" } }));
+  const store = readOnlyCredentials(good);
+  assert.deepEqual(await store.read("openrouter"), { type: "api_key", key: "sk-test" });
+  assert.deepEqual(await store.list(), [{ providerId: "openrouter", type: "api_key" }]);
+  await assert.rejects(store.delete("openrouter"), /read-only/);
+  const bad = join(dir, "bad.json");
+  writeFileSync(bad, JSON.stringify({ x: { type: "password", value: "secret-value" } }));
+  await assert.rejects(readOnlyCredentials(bad).read("x"), (e: Error) => !e.message.includes("secret-value"));
+});

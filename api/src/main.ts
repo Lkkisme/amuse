@@ -10,7 +10,7 @@
  *   REMUSE_JOURNAL  JSONL file the event log lives in (survives restarts); in memory if unset
  *   REMUSE_BROWSER=chromium  browser runs open real pages (headless Chromium) with live views
  *                 at /live; scripted otherwise
- *   Approvals stay scripted for now.
+ *   REMUSE_WEB    directory of the built web app to serve (same origin as /rpc and /live)
  */
 import { readFileSync } from "node:fs";
 import { composio, composioConnector } from "@remuse/composio";
@@ -60,7 +60,8 @@ const live = browsers && {
   controlled: (id: string) => state.entities.some((e) => e.kind === "browser" && e.id === id && e.status === "paused"),
 };
 
-await listen({ session, ...(live ? { live } : {}), token, port, host });
+const web = process.env["REMUSE_WEB"];
+await listen({ session, ...(live ? { live } : {}), ...(web ? { web } : {}), token, port, host });
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.once(signal, () => void (browsers?.shutdown() ?? Promise.resolve()).finally(() => process.exit(0)));
 console.log(

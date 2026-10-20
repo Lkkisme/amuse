@@ -16,11 +16,12 @@ import {
   createAgentSession,
   createExtensionRuntime,
 } from "@earendil-works/pi-coding-agent";
+import { readOnlyCredentials } from "./credentials.ts";
 
 export interface PiModelConfig {
   /** "provider/model-id"; the id may contain slashes (openrouter/z-ai/glm-5.3-flash) */
   model: string;
-  /** Pi auth file (credentials per provider). Never read or logged here. */
+  /** Pi auth file (credentials per provider): read once into memory, never logged. */
   authPath: string;
   modelsPath?: string;
 }
@@ -55,7 +56,7 @@ function runtime(cfg: PiModelConfig): Promise<ModelRuntime> {
   const key = `${cfg.authPath}\0${cfg.modelsPath ?? ""}`;
   let made = runtimes.get(key);
   if (!made) {
-    made = ModelRuntime.create({ authPath: cfg.authPath, modelsPath: cfg.modelsPath ?? null, refreshOnCreate: false });
+    made = ModelRuntime.create({ credentials: readOnlyCredentials(cfg.authPath), modelsPath: cfg.modelsPath ?? null, refreshOnCreate: false });
     made.catch(() => runtimes.delete(key)); // a failed setup is retried next time
     runtimes.set(key, made);
   }
