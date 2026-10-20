@@ -43,7 +43,7 @@ test("holding still arms a drag: the button goes down, moves drag, lifting relea
   assert.deepEqual(actions(out), ["point", "press", "point", "release"]);
   assert.deepEqual(out.find((o) => o.kind === "point" && o.down), { kind: "point", at: at(120, 200), down: true });
   const hints = out.flatMap((o) => (o.kind === "hint" ? [o.hint.kind] : []));
-  assert.deepEqual(hints, ["holding", "armed", "armed", "none"]);
+  assert.deepEqual(hints, ["armed", "armed", "none"]); // nothing shows until the drag is armed
 });
 
 test("the hold timer after a slide has begun does nothing", () => {

@@ -9,7 +9,8 @@
  *   hold, then move   drag with the button down (select text, move a slider)
  *
  * A finger held still for HOLD ms arms the drag: the caller's timer sends
- * `held`, and the output says so, so the screen can show it. All points are
+ * `held`, and the output says so, so the screen can show it (only then:
+ * nothing shows while a finger merely rests). All points are
  * client (CSS px) coordinates.
  */
 
@@ -42,10 +43,10 @@ export type Output =
   | { kind: "scroll"; at: Point; by: Point }
   /** move the view by the finger's travel */
   | { kind: "pan"; by: Point }
-  /** what to show under the finger: holding (the drag arms at HOLD), armed (moves drag), or nothing */
+  /** what to show at the finger: armed (moves drag), or nothing */
   | { kind: "hint"; hint: Hint };
 
-export type Hint = { kind: "none" } | { kind: "holding"; at: Point } | { kind: "armed"; at: Point };
+export type Hint = { kind: "none" } | { kind: "armed"; at: Point };
 
 type Phase =
   | { kind: "idle" }
@@ -83,9 +84,9 @@ export function step(state: State, input: Input, mode: Mode, bounds: Bounds): [S
   switch (input.kind) {
     case "down": {
       fingers.set(input.id, input.at);
-      if (fingers.size === 1) return [next({ kind: "pending", travel: 0 }), [{ kind: "hint", hint: { kind: "holding", at: input.at } }]];
+      if (fingers.size === 1) return [next({ kind: "pending", travel: 0 }), []];
       if (state.phase.kind === "armed") return [next(state.phase), []]; // a drag keeps going
-      return [next({ kind: "scrolling" }), [none]];
+      return [next({ kind: "scrolling" }), []];
     }
 
     case "held": {
@@ -116,8 +117,7 @@ export function step(state: State, input: Input, mode: Mode, bounds: Bounds): [S
         case "pending": {
           const travel = phase.travel + Math.hypot(by.x, by.y);
           if (travel <= SLOP) return [next({ kind: "pending", travel }), []];
-          const [after, out] = slide();
-          return [after, [none, ...out]];
+          return slide();
         }
         case "sliding":
           return slide();
@@ -146,7 +146,7 @@ export function step(state: State, input: Input, mode: Mode, bounds: Bounds): [S
       const after = fingers.size === 0 ? { kind: "idle" as const } : { kind: "done" as const };
       if (phase.kind === "pending" && finger) {
         const at = cursorOf(finger);
-        return [next(after, at), [none, { kind: "point", at, down: false }, { kind: "press", at }, { kind: "release", at }]];
+        return [next(after, at), [{ kind: "point", at, down: false }, { kind: "press", at }, { kind: "release", at }]];
       }
       if (phase.kind === "armed") {
         if (fingers.size > 0) return [next(phase), []]; // the dragging finger may be another one
@@ -154,7 +154,7 @@ export function step(state: State, input: Input, mode: Mode, bounds: Bounds): [S
         return [next(after), [none, { kind: "release", at }]];
       }
       if (phase.kind === "scrolling" && fingers.size > 0) return [next(phase), []];
-      return [next(after), phase.kind === "idle" ? [] : [none]];
+      return [next(after), []];
     }
   }
 }

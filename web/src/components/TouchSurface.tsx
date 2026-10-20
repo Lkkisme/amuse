@@ -5,9 +5,8 @@
  * never sees a finger: it reads a slide as a mouse drag and a long press as
  * the right button.
  *
- * A finger held still shows a ring filling around it; when it is full the
- * drag is armed (a four-way arrow, and a short buzz where phones allow), and
- * moving drags with the button down.
+ * A finger held still arms a drag: a four-way arrow shows above it (and a
+ * short buzz where phones allow), and moving drags with the button down.
  */
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { Move } from "lucide-react";
@@ -91,51 +90,19 @@ export function TouchSurface({ screen, mode }: { screen: RefObject<HTMLDivElemen
       onPointerUp={(e) => feed({ kind: "up", id: e.pointerId })}
       onPointerCancel={(e) => feed({ kind: "up", id: e.pointerId })}
     >
-      {hint.kind !== "none" && <HoldHint hint={hint} at={place(hint.at)} />}
+      {hint.kind === "armed" && <DragHint at={place(hint.at)} />}
     </div>
   );
 }
 
-const RING = 76;
-const RADIUS = 34;
-const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
-
-/**
- * Around the finger, big enough to show past it: a ring that fills while the
- * finger holds still; once full, the drag is armed and a four-way arrow shows
- * above the finger, where it can be seen.
- */
-function HoldHint({ hint, at }: { hint: Exclude<Hint, { kind: "none" }>; at: { left: number; top: number } }) {
-  const armed = hint.kind === "armed";
+/** Above the armed finger, where it can be seen: a four-way arrow, saying moves now drag. */
+function DragHint({ at }: { at: { left: number; top: number } }) {
   return (
-    <div className="pointer-events-none absolute" style={{ left: at.left - RING / 2, top: at.top - RING / 2, width: RING, height: RING }}>
-      <svg width={RING} height={RING} className="absolute inset-0 -rotate-90">
-        <circle cx={RING / 2} cy={RING / 2} r={RADIUS} fill="none" stroke="rgba(255,255,255,0.7)" strokeWidth={5} />
-        <circle
-          key={armed ? "armed" : "holding"}
-          cx={RING / 2}
-          cy={RING / 2}
-          r={RADIUS}
-          fill="none"
-          stroke="var(--fill-blue)"
-          strokeWidth={4}
-          strokeLinecap="round"
-          strokeDasharray={CIRCUMFERENCE}
-          style={
-            armed
-              ? { strokeDashoffset: 0 }
-              : { strokeDashoffset: CIRCUMFERENCE, animation: `hold-ring ${HOLD}ms linear forwards`, ["--ring" as string]: `${CIRCUMFERENCE}px` }
-          }
-        />
-      </svg>
-      {armed && (
-        <span
-          className="anim-popover-in absolute left-1/2 flex size-11 -translate-x-1/2 items-center justify-center rounded-full"
-          style={{ top: -52, background: "var(--fill-blue)", color: "#fff", boxShadow: "var(--shadow-raised)" }}
-        >
-          <Move size={22} />
-        </span>
-      )}
-    </div>
+    <span
+      className="anim-popover-in pointer-events-none absolute flex size-11 -translate-x-1/2 items-center justify-center rounded-full"
+      style={{ left: at.left, top: at.top - 74, background: "var(--fill-blue)", color: "#fff", boxShadow: "var(--shadow-raised)" }}
+    >
+      <Move size={22} />
+    </span>
   );
 }
