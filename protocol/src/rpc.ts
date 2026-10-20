@@ -5,7 +5,7 @@
  * Live browser pixels are not JSON-RPC; they stream on their own channel.
  */
 import { z } from "zod";
-import { Id } from "./entities.ts";
+import { Id, Resolution } from "./entities.ts";
 import { Envelope, Seq, State } from "./events.ts";
 
 const call = <M extends string, P extends z.ZodObject>(method: M, params: P) =>
@@ -17,12 +17,13 @@ export const Call = z.discriminatedUnion("method", [
   call("chat.send", z.object({ text: z.string().min(1) })),
   /** Stop the agent's current reply. */
   call("chat.stop", z.object({})),
-  call("approval.decide", z.object({ id: Id, decision: z.enum(["approve", "deny"]) })),
-  call("task.answer", z.object({ id: Id, answers: z.array(z.object({ question: Id, answer: z.string() })) })),
+  call("approval.resolve", z.object({ id: Id, resolution: Resolution })),
   /** Start connecting: returns the provider's hosted auth link. */
   call("connection.begin", z.object({ id: Id })),
   call("connection.dismiss", z.object({ id: Id })),
+  /** take: → paused (user in control); handBack: → working; stop: → stopped. */
   call("browser.control", z.object({ id: Id, action: z.enum(["take", "handBack", "stop"]) })),
+  call("task.stop", z.object({ id: Id })),
 ]);
 
 export type Call = z.infer<typeof Call>;
@@ -38,11 +39,11 @@ export const results = {
   ]),
   "chat.send": z.object({ id: Id }),
   "chat.stop": done,
-  "approval.decide": done,
-  "task.answer": done,
+  "approval.resolve": done,
   "connection.begin": z.object({ url: z.url() }),
   "connection.dismiss": done,
   "browser.control": done,
+  "task.stop": done,
 } satisfies Record<Method, z.ZodType>;
 
 export type Params = { [C in Call as C["method"]]: C["params"] };

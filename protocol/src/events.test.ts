@@ -34,8 +34,8 @@ test("appended text streams into a reply and nothing else", () => {
 });
 
 test("activity is replaced, and cleared with null", () => {
-  const working = fold([{ kind: "activity", activity: { kind: "operating", label: "Re-observing page" } }]);
-  assert.deepEqual(working.activity, { kind: "operating", label: "Re-observing page" });
+  const working = fold([{ kind: "activity", activity: { kind: "working", label: "Re-observing page" } }]);
+  assert.deepEqual(working.activity, { kind: "working", label: "Re-observing page" });
   assert.equal(apply(working, { seq: 2, event: { kind: "activity", activity: null } }).activity, null);
 });
 
@@ -50,7 +50,7 @@ test("folded state is a valid State, and envelopes round-trip through JSON", () 
         at,
         title: "Log in to the trip portal",
         url: "https://portal.example.edu/login",
-        state: { kind: "waiting", control: "agent" },
+        status: "needs_you",
       },
     },
   ];
@@ -61,9 +61,14 @@ test("folded state is a valid State, and envelopes round-trip through JSON", () 
   }
 });
 
-test("a stopped browser has no controller: a stray one is dropped at the boundary", () => {
-  const stopped = { kind: "browser", id: "b1", at, title: "t", url: "https://x.example/", state: { kind: "stopped", control: "user" } };
-  const parsed = EnvelopeSchema.parse({ seq: 1, event: { kind: "upserted", entity: stopped } });
-  assert.ok(parsed.event.kind === "upserted" && parsed.event.entity.kind === "browser");
-  assert.deepEqual(parsed.event.entity.state, { kind: "stopped" });
+test("fields outside the schema are dropped at the boundary", () => {
+  const browser = { kind: "browser", id: "b1", at, title: "t", url: "https://x.example/", status: "paused", control: "user" };
+  const parsed = EnvelopeSchema.parse({ seq: 1, event: { kind: "upserted", entity: browser } });
+  assert.ok(parsed.event.kind === "upserted");
+  assert.equal("control" in parsed.event.entity, false);
+});
+
+test("statuses outside Muse's vocabulary are rejected", () => {
+  const browser = { kind: "browser", id: "b1", at, title: "t", url: "https://x.example/", status: "sleeping" };
+  assert.equal(EnvelopeSchema.safeParse({ seq: 1, event: { kind: "upserted", entity: browser } }).success, false);
 });

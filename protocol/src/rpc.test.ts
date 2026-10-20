@@ -6,11 +6,11 @@ const handlers: Handlers = {
   "session.sync": async () => ({ kind: "snapshot", state: { seq: 0, entities: [], activity: null } }),
   "chat.send": async ({ text }) => ({ id: `p:${text}` }),
   "chat.stop": async () => null,
-  "approval.decide": async () => null,
-  "task.answer": async () => null,
+  "approval.resolve": async () => null,
   "connection.begin": async ({ id }) => ({ url: `https://connect.example/${id}` }),
   "connection.dismiss": async () => null,
   "browser.control": async () => null,
+  "task.stop": async () => null,
 };
 
 test("a framed request parses into a typed call and dispatches to its handler", async () => {

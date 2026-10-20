@@ -28,21 +28,23 @@ export const Reply = z.object({
 
 export const Step = z.object({ label: z.string(), done: z.boolean() });
 
-/** A question the task needs answered; `answer` is null until it is. */
-export const Question = z.object({ id: Id, label: z.string(), answer: z.string().nullable() });
+/** waiting: it asked the user something in chat and is blocked on the answer. */
+export const TaskStatus = z.enum(["queued", "working", "waiting", "completed", "failed", "stopped"]);
 
+/** Work the agent runs in the background while the chat goes on. */
 export const Task = z.object({
   kind: z.literal("task"),
   id: Id,
   at: Instant,
   title: z.string(),
   steps: z.array(Step),
-  questions: z.array(Question),
-  /** waiting: blocked on unanswered questions */
-  status: z.enum(["working", "waiting", "completed", "failed"]),
+  status: TaskStatus,
 });
 
-/** A side effect the policy says to ask about (Allow / Ask / Deny → Ask). */
+/** How the user answers an approval; the *_always / session ones also create a rule. */
+export const Resolution = z.enum(["allow_once", "allow_session", "allow_always", "deny", "deny_always"]);
+
+/** An outbound action the policy says to ask about. */
 export const Approval = z.object({
   kind: z.literal("approval"),
   id: Id,
@@ -50,36 +52,26 @@ export const Approval = z.object({
   action: z.string(),
   target: z.string(),
   detail: z.string(),
-  decision: z.enum(["pending", "approved", "denied"]),
+  status: z.enum(["pending", "approved", "denied", "timed_out"]),
 });
 
-/** The agent asking the user to connect an app. */
+/** The agent asking the user to connect an app (provider: e.g. "gmail"). */
 export const Connection = z.object({
   kind: z.literal("connection"),
   id: Id,
   at: Instant,
-  app: z.string(),
-  capability: z.string(),
+  provider: z.string(),
+  title: z.string(),
   status: z.enum(["pending", "connected", "dismissed"]),
 });
 
-export const Controller = z.enum(["agent", "user"]);
-
-/** A live run has a controller (the agent, or the user during takeover). */
-const live = <K extends string>(kind: K) => z.object({ kind: z.literal(kind), control: Controller });
-
 /**
- * A browser run. Who controls it only means something while it is alive, so
- * a stopped run has no controller. waiting = it needs the user (Muse:
- * "Action required"). One literal per variant keeps every union a plain
- * tagged union in other languages too.
+ * Muse's browser task statuses. Takeover is a status, not a flag: paused
+ * means the user controls the browser.
+ *   waiting    the agent asked something in chat (shown "Waiting for you")
+ *   needs_you  the user must act in the browser ("Action required")
  */
-export const BrowserState = z.discriminatedUnion("kind", [
-  live("working"),
-  live("waiting"),
-  live("completed"),
-  z.object({ kind: z.literal("stopped") }),
-]);
+export const BrowserStatus = z.enum(["queued", "working", "waiting", "needs_you", "paused", "completed", "failed", "stopped"]);
 
 export const Browser = z.object({
   kind: z.literal("browser"),
@@ -87,18 +79,20 @@ export const Browser = z.object({
   at: Instant,
   title: z.string(),
   url: z.url(),
-  state: BrowserState,
+  status: BrowserStatus,
 });
 
 export const Entity = z.discriminatedUnion("kind", [Prompt, Reply, Task, Approval, Connection, Browser]);
 
 /**
- * The line under the agent's name while it works, e.g. responding "is
- * responding", reading "Reading entry", operating "Re-observing page".
+ * What the agent is doing, shown under its name. `label` overrides the
+ * default copy for the kind ("Re-observing page" instead of "Working").
+ * Idle is no activity (null); approvals and connection health are derived
+ * by the client, not sent.
  */
 export const Activity = z.object({
-  kind: z.enum(["responding", "reading", "operating"]),
-  label: z.string(),
+  kind: z.enum(["responding", "working", "making", "compacting", "waiting_for_agents"]),
+  label: z.string().nullable(),
 });
 
 export type Prompt = z.infer<typeof Prompt>;
@@ -107,7 +101,8 @@ export type Task = z.infer<typeof Task>;
 export type Approval = z.infer<typeof Approval>;
 export type Connection = z.infer<typeof Connection>;
 export type Browser = z.infer<typeof Browser>;
-export type BrowserState = z.infer<typeof BrowserState>;
-export type Controller = z.infer<typeof Controller>;
+export type BrowserStatus = z.infer<typeof BrowserStatus>;
+export type TaskStatus = z.infer<typeof TaskStatus>;
+export type Resolution = z.infer<typeof Resolution>;
 export type Entity = z.infer<typeof Entity>;
 export type Activity = z.infer<typeof Activity>;
