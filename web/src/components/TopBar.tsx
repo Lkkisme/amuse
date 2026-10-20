@@ -18,7 +18,8 @@ export function TopBar({ conversation }: { conversation: State }) {
       {/* spacer: the menu button lives outside the header (MenuButton) so it can sit above the drawer */}
       <span className="size-10" />
 
-      {/* Muse avatar bubble, drawn over the top of its name badge (Muse: 52px avatar, badge tucked 4px under).
+      {/* The avatar and its badge take the clicks that land on them (the bar around them lets them through).
+          Muse avatar bubble, drawn over the top of its name badge (Muse: 52px avatar, badge tucked 4px under).
           Its shadow is a layer of its own under the badge, so it falls on the chat, not on the badge. */}
       <div className="pointer-events-none absolute left-1/2 top-2 z-10 flex -translate-x-1/2 flex-col items-center">
         <span
@@ -27,7 +28,7 @@ export function TopBar({ conversation }: { conversation: State }) {
           style={{ boxShadow: "var(--shadow-float)" }}
         />
         <span
-          className="relative z-[2] flex size-[52px] items-center justify-center rounded-full text-[20px] font-semibold"
+          className="pointer-events-auto relative z-[2] flex size-[52px] items-center justify-center rounded-full text-[20px] font-semibold"
           style={{ background: "var(--avatar-fill)", color: "var(--avatar-text)" }}
         >
           M
@@ -43,7 +44,7 @@ function AvatarBadge({ line }: { line: AgentLine | null }) {
   const Icon = line ? LINE_ICONS[line.icon] : null;
   return (
     <span
-      className="relative z-[1] -mt-1 flex min-w-[52px] flex-col items-center rounded-[20px] px-3.5 pb-1.5 pt-[5px] transition-all duration-200"
+      className="pointer-events-auto relative z-[1] -mt-1 flex min-w-[52px] flex-col items-center rounded-[20px] px-3.5 pb-1.5 pt-[5px] transition-all duration-200"
       style={{ background: "var(--fill-primary)", boxShadow: "var(--shadow-float)" }}
     >
       <span className="text-[14px] font-semibold leading-[18px]" style={{ color: "var(--text-primary)" }}>
