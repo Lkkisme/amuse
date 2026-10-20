@@ -3,7 +3,7 @@
  * allows and nothing else:
  *   tagged union (oneOf, every variant has one const tag) → sealed interface
  *   object → data class (data object when empty)
- *   enum → enum class;  T | null → T?;  array → List;  string/integer/boolean
+ *   enum → enum class;  T | null → T?;  array → List;  string/integer/number/boolean
  * Anything else is an error, so a protocol change that Kotlin cannot express
  * fails the build instead of producing loose types.
  *
@@ -78,6 +78,8 @@ function primitive(s: Schema): string {
       return "String";
     case "integer":
       return "Long";
+    case "number":
+      return "Double";
     case "boolean":
       return "Boolean";
     default:

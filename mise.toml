@@ -23,7 +23,7 @@ run = "node scripts/check-dockerfile.ts"
 
 [tasks.check]
 description = "Type-check and test every package"
-depends = ["dockerfile-check", "//protocol:check", "//core:check", "//demo:check", "//pi:check", "//composio:check", "//browser:check", "//api:check", "//web:check"]
+depends = ["dockerfile-check", "//protocol:kotlin", "//protocol:check", "//core:check", "//demo:check", "//pi:check", "//composio:check", "//browser:check", "//api:check", "//web:check"]
 run = "true"
 
 [tasks.dev]
