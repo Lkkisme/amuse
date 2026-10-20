@@ -7,10 +7,12 @@ import { List, Menu, PanelLeftClose, ShieldAlert, Wrench } from "lucide-react";
 import type { State } from "@remuse/protocol";
 import type { Actions } from "../ui.ts";
 import { type AgentLine, agentLine } from "../view.ts";
+import { museAvatar } from "../transition.ts";
 
 const LINE_ICONS = { list: List, tool: Wrench, approval: ShieldAlert } as const;
 
-export function TopBar({ conversation }: { conversation: State }) {
+/** The top bar; while the Muse panel is open, the avatar is over there (it travels, see transition.ts). */
+export function TopBar({ conversation, museOpen, actions }: { conversation: State; museOpen: boolean; actions: Actions }) {
   return (
     <header
       className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between px-3 py-2"
@@ -21,20 +23,24 @@ export function TopBar({ conversation }: { conversation: State }) {
       {/* The avatar and its badge take the clicks that land on them (the bar around them lets them through).
           Muse avatar bubble, drawn over the top of its name badge (Muse: 52px avatar, badge tucked 4px under).
           Its shadow is a layer of its own under the badge, so it falls on the chat, not on the badge. */}
-      <div className="pointer-events-none absolute left-1/2 top-2 z-10 flex -translate-x-1/2 flex-col items-center">
-        <span
-          aria-hidden
-          className="absolute top-0 size-[52px] rounded-full"
-          style={{ boxShadow: "var(--shadow-float)" }}
-        />
-        <span
-          className="pointer-events-auto relative z-[2] flex size-[52px] items-center justify-center rounded-full text-[20px] font-semibold"
-          style={{ background: "var(--avatar-fill)", color: "var(--avatar-text)" }}
-        >
-          M
-        </span>
-        <AvatarBadge line={agentLine(conversation)} />
-      </div>
+      {!museOpen && (
+        <div className="pointer-events-none absolute left-1/2 top-2 z-10 flex -translate-x-1/2 flex-col items-center">
+          <span
+            aria-hidden
+            className="absolute top-0 size-[52px] rounded-full"
+            style={{ boxShadow: "var(--shadow-float)" }}
+          />
+          <button
+            aria-label="Muse"
+            className="pointer-events-auto relative z-[2] flex size-[52px] items-center justify-center rounded-full text-[20px] font-semibold"
+            style={{ ...museAvatar, background: "var(--avatar-fill)", color: "var(--avatar-text)" }}
+            onClick={() => actions.setMuse(true)}
+          >
+            M
+          </button>
+          <AvatarBadge line={agentLine(conversation)} />
+        </div>
+      )}
 
     </header>
   );

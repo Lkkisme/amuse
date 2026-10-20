@@ -1,14 +1,20 @@
 /**
  * The browser button, top-right where Muse has its Invite button (remuse has
- * no invites): always there, it opens the browser viewer. Its badge follows
- * the newest run that needs the user, else the newest one in flight: an
- * orange "!" while one waits for you, a pulsing dot while one works, nothing
- * when no browser is busy.
+ * no invites): always there, it opens the browser viewer. Open, the viewer
+ * carries it in its own top-right corner (where a close button would be) as
+ * its collapse button: one button, travelling there and back (a view
+ * transition). Its badge follows the newest run that needs the user, else the
+ * newest one in flight: an orange "!" while one waits for you, a pulsing dot
+ * while one works.
  */
-import { Monitor } from "lucide-react";
+import { Monitor, PanelRightClose } from "lucide-react";
 import type { State } from "@remuse/protocol";
+import { browserButton } from "../transition.ts";
 import type { Actions } from "../ui.ts";
 import { browserStatus, pillBrowser } from "../view.ts";
+
+const round = "flex size-10 shrink-0 items-center justify-center rounded-full";
+const look = { background: "var(--fill-primary)", boxShadow: "var(--shadow-float)" };
 
 export function BrowserButton({ conversation, actions }: { conversation: State; actions: Actions }) {
   const run = pillBrowser(conversation);
@@ -18,8 +24,8 @@ export function BrowserButton({ conversation, actions }: { conversation: State; 
   return (
     <button
       aria-label={meta ? `Browser: ${meta.label}` : "Browser"}
-      className="absolute right-3 top-2 z-30 flex size-10 items-center justify-center rounded-full"
-      style={{ background: "var(--fill-primary)", color: meta?.color ?? "var(--icon-primary)", boxShadow: "var(--shadow-float)" }}
+      className={`${round} absolute right-3 top-2 z-30`}
+      style={{ ...look, ...browserButton, color: meta?.color ?? "var(--icon-primary)" }}
       onClick={() => actions.openViewer(run?.id ?? null)}
     >
       <Monitor size={18} />
@@ -37,6 +43,23 @@ export function BrowserButton({ conversation, actions }: { conversation: State; 
             style={{ background: meta.color, boxShadow: "0 0 0 2px var(--fill-primary)" }}
           />
         ))}
+    </button>
+  );
+}
+
+/**
+ * The same button, open: in the viewer's corner, it collapses the viewer. While the viewer
+ * plays its way out (`leaving`), the button is already back in the chat, so this one lets go of the name.
+ */
+export function CollapseBrowser({ leaving, actions }: { leaving: boolean; actions: Actions }) {
+  return (
+    <button
+      aria-label="Close browser"
+      className={round}
+      style={{ ...look, ...(leaving ? {} : browserButton), color: "var(--icon-primary)" }}
+      onClick={() => actions.closeViewer()}
+    >
+      <PanelRightClose size={18} />
     </button>
   );
 }

@@ -16,6 +16,7 @@ import { ArrowLeft, ArrowRight, Check, CircleCheck, CircleDot, Copy, Globe, Menu
 import type { Browser, State } from "@remuse/protocol";
 import type { Actions, Ui } from "../ui.ts";
 import { browserStatus, host, hue, path, stoppable, viewerRun, viewerTabs } from "../view.ts";
+import { CollapseBrowser } from "./BrowserButton";
 import { LiveView } from "./LiveView";
 import { useLastValue, usePresence } from "./usePresence";
 
@@ -23,12 +24,15 @@ export function Viewer({
   conversation,
   viewer: open,
   live,
+  onResize,
   actions,
 }: {
   conversation: State;
   viewer: Ui["viewer"];
   /** live view URL for a run, when a server with real browsers is attached */
   live: ((id: string) => string) | null;
+  /** desktop: the user drags the left edge; this gets where the edge is (client x) */
+  onResize: (edge: number) => void;
   actions: Actions;
 }) {
   const { mounted, closing, onAnimationEnd } = usePresence(open !== null);
@@ -40,28 +44,29 @@ export function Viewer({
   return (
     <div
       onAnimationEnd={onAnimationEnd}
-      className={`${closing ? "anim-pane-to-right pointer-events-none" : "anim-pane-from-right"} fixed inset-0 z-50 flex flex-col lg:left-[482px]`}
+      className={`${closing ? "anim-pane-to-right pointer-events-none" : "anim-pane-from-right"} fixed inset-0 z-50 flex flex-col lg:left-auto lg:w-[var(--viewer-width)]`}
       style={{ background: "var(--bg-primary)", borderLeft: "1px solid var(--fill-divider)" }}
     >
+      <ResizeEdge onResize={onResize} />
       {browser ? (
         <>
-          <ViewerHeader browser={browser} actions={actions} />
+          <ViewerHeader browser={browser} leaving={closing} actions={actions} />
           <RunTabs tabs={tabs} activeId={browser.id} actions={actions} />
           {live ? <LivePage key={browser.id} browser={browser} url={live(browser.id)} actions={actions} /> : <FakeChrome browser={browser} />}
         </>
       ) : (
-        <NoBrowser actions={actions} />
+        <NoBrowser leaving={closing} actions={actions} />
       )}
     </div>
   );
 }
 
 /** No run has a browser now: say so, and how one comes. */
-function NoBrowser({ actions }: { actions: Actions }) {
+function NoBrowser({ leaving, actions }: { leaving: boolean; actions: Actions }) {
   return (
     <>
-      <header className="flex items-center justify-end py-2 pr-2">
-        <CloseViewer actions={actions} />
+      <header className="flex justify-end pr-3 pt-2">
+        <CollapseBrowser leaving={leaving} actions={actions} />
       </header>
       <div className="flex flex-1 flex-col items-center justify-center gap-2 px-8 text-center">
         <Globe size={28} style={{ color: "var(--icon-secondary)" }} />
@@ -76,32 +81,40 @@ function NoBrowser({ actions }: { actions: Actions }) {
   );
 }
 
-function CloseViewer({ actions }: { actions: Actions }) {
+/**
+ * Desktop: the viewer's left edge, dragged to make it wider or narrower. The
+ * pointer is captured, so the drag holds over the live desktop too.
+ */
+function ResizeEdge({ onResize }: { onResize: (edge: number) => void }) {
   return (
-    <button
-      aria-label="Close viewer"
-      className="hover-fade flex size-9 shrink-0 items-center justify-center rounded-full"
-      style={{ color: "var(--icon-secondary)" }}
-      onClick={() => actions.closeViewer()}
-    >
-      <X size={20} />
-    </button>
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize the browser"
+      className="absolute inset-y-0 -left-1 z-10 hidden w-2 cursor-col-resize lg:block"
+      style={{ touchAction: "none" }}
+      onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
+      onPointerMove={(e) => {
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) onResize(e.clientX);
+      }}
+    />
   );
 }
 
-function ViewerHeader({ browser, actions }: { browser: Browser; actions: Actions }) {
+function ViewerHeader({ browser, leaving, actions }: { browser: Browser; leaving: boolean; actions: Actions }) {
   const user = browser.status === "paused";
   const title = user ? "You're in control" : browser.status === "needs_you" ? "Action required" : browser.title;
   const sub = user ? host(browser.url) : `${browserStatus[browser.status].label} · ${host(browser.url)}`;
   const canTake = browser.live && (stoppable(browser) || browser.status === "completed");
 
   return (
-    <header className="flex items-center gap-2 py-2 pl-3 pr-2 sm:gap-3">
+    <header className="flex items-center gap-2 py-2 pl-3 pr-3 sm:gap-3">
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[15px] font-semibold" style={{ color: "var(--text-primary)" }}>
+        {/* two 20px lines: as tall as the corner button, which then sits where it sits over the chat */}
+        <p className="truncate text-[15px] font-semibold leading-5" style={{ color: "var(--text-primary)" }}>
           {title}
         </p>
-        <p className="flex min-w-0 items-center gap-1.5 text-[13px]" style={{ color: "var(--text-secondary)" }}>
+        <p className="flex min-w-0 items-center gap-1.5 text-[13px] leading-5" style={{ color: "var(--text-secondary)" }}>
           <span className="truncate">{sub}</span>
           <Copy size={12} className="shrink-0" />
         </p>
@@ -135,7 +148,7 @@ function ViewerHeader({ browser, actions }: { browser: Browser; actions: Actions
           <span className="hidden sm:inline">Take control of the browser</span>
         </button>
       )}
-      <CloseViewer actions={actions} />
+      <CollapseBrowser leaving={leaving} actions={actions} />
     </header>
   );
 }

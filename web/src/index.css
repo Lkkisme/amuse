@@ -221,6 +221,12 @@
   cursor: default !important;
 }
 
+/* Buttons show they can be pressed (Tailwind's base resets them to the arrow) */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+
 /* the app fills what is visible: the on-screen keyboard shrinks it rather than pushing it up (main.tsx) */
 html, body, #root { height: var(--visible-height, 100%); overflow: hidden; }
 body {

@@ -131,15 +131,23 @@ export function LiveView({ url, interactive, onFit }: { url: string; interactive
     const target = box.current;
     if (!target || !interactive || state !== "live") return;
     let fittedWidth = 0;
+    let settle: ReturnType<typeof setTimeout> | undefined;
     const measure = () => {
       const { width, height } = target.getBoundingClientRect();
       if (Math.abs(width - fittedWidth) < REFIT) return;
       fittedWidth = width;
       fit.current({ width: Math.round(width), height: Math.round(height) });
     };
-    const watch = new ResizeObserver(measure);
+    // while the view is being resized (its edge dragged), reshape the desktop once it settles
+    const watch = new ResizeObserver(() => {
+      clearTimeout(settle);
+      settle = setTimeout(measure, fittedWidth === 0 ? 0 : 300);
+    });
     watch.observe(target);
-    return () => watch.disconnect();
+    return () => {
+      clearTimeout(settle);
+      watch.disconnect();
+    };
   }, [interactive, state]);
 
   const controls = interactive && touch && state === "live";

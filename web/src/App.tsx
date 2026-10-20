@@ -14,7 +14,12 @@ import { useConversation } from "./session.ts";
 import { Unlock } from "./components/Unlock";
 import { type Actions, type Ui, initialUi } from "./ui.ts";
 import { viewerTabs } from "./view.ts";
-import { ActivityPanel } from "./components/ActivityPanel";
+import { transition } from "./transition.ts";
+
+const VIEWER_WIDTH = "remuse.viewerWidth";
+/** The viewer is at least 420px; the chat keeps at least 360px beside the 56px rail. */
+const clampViewer = (width: number) => Math.round(Math.max(420, Math.min(width, innerWidth - 56 - 360)));
+import { MusePanel } from "./components/MusePanel";
 import { ChatFeed } from "./components/ChatFeed";
 import { ChatsPanel } from "./components/ChatsPanel";
 import { Composer } from "./components/Composer";
@@ -54,11 +59,12 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
     document.documentElement.classList.toggle("light", ui.theme === "light");
   }, [ui.theme]);
 
-  // Muse opens the activity panel when the agent starts working.
-  const working = conversation.activity !== null;
+  // desktop: how wide the browser viewer is (its left edge is dragged), kept on this device
+  const [viewerWidth, setViewerWidth] = useState(() => clampViewer(Number(localStorage.getItem(VIEWER_WIDTH)) || innerWidth - 482));
   useEffect(() => {
-    if (working) setUi((u) => ({ ...u, activityOpen: true }));
-  }, [working]);
+    localStorage.setItem(VIEWER_WIDTH, String(viewerWidth));
+    document.documentElement.style.setProperty("--viewer-width", `${viewerWidth}px`); // read by the viewer and the chat beside it
+  }, [viewerWidth]);
 
   const actions = useMemo<Actions>(() => {
     const patch = (fn: (u: Ui) => Ui) => setUi(fn);
@@ -82,9 +88,12 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           },
         );
       },
+      // the browser takes the right: a docked Muse panel gives it up, and its avatar goes back to the top
       openViewer: (browserId) =>
-        patch((u) => ({ ...u, viewer: { browserId, closedTabs: (u.viewer?.closedTabs ?? []).filter((t) => t !== browserId) } })),
-      closeViewer: () => patch((u) => ({ ...u, viewer: null })),
+        transition(() =>
+          patch((u) => ({ ...u, museOpen: false, viewer: { browserId, closedTabs: (u.viewer?.closedTabs ?? []).filter((t) => t !== browserId) } })),
+        ),
+      closeViewer: () => transition(() => patch((u) => ({ ...u, viewer: null }))),
       selectTab: (browserId) => patch((u) => (u.viewer ? { ...u, viewer: { ...u.viewer, browserId } } : u)),
       closeTab: (browserId) =>
         patch((u) => {
@@ -100,7 +109,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
       stopTask: (id) => call("task.stop", { id }),
       openTaskDetail: (taskDetail) => patch((u) => ({ ...u, taskDetail })),
       setChats: (chatsOpen) => patch((u) => ({ ...u, chatsOpen })),
-      setActivity: (activityOpen) => patch((u) => ({ ...u, activityOpen })),
+      // the avatar travels between the top and the panel
+      setMuse: (museOpen) => transition(() => patch((u) => ({ ...u, museOpen }))),
       openSettings: (section) => patch((u) => ({ ...u, chatsOpen: false, settings: { open: true, section, connector: null } })),
       closeSettings: () => patch((u) => ({ ...u, settings: { ...u.settings, open: false, connector: null } })),
       openConnector: (connector) => patch((u) => ({ ...u, settings: { ...u.settings, connector } })),
@@ -137,12 +147,12 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
   return (
     <div className="flex h-full" style={{ background: "var(--chat-background)" }}>
       <IconRail />
-      {/* with the viewer open on desktop, the chat keeps the left 482px (Muse layout) */}
-      <div className={`relative flex min-w-0 flex-1 flex-col ${ui.viewer ? "lg:max-w-[410px]" : ""}`}>
+      {/* with the viewer open on desktop, the chat keeps what the viewer leaves */}
+      <div className={`relative flex min-w-0 flex-1 flex-col ${ui.viewer ? "lg:mr-[var(--viewer-width)]" : ""}`}>
         <ChatFeed conversation={conversation} older={older} release={release} thumb={where.kind === "server" ? where.thumb : null} actions={actions} />
-        <TopBar conversation={conversation} />
+        <TopBar conversation={conversation} museOpen={ui.museOpen} actions={actions} />
         <MenuButton open={ui.chatsOpen} actions={actions} />
-        <BrowserButton conversation={conversation} actions={actions} />
+        {!ui.viewer && <BrowserButton conversation={conversation} actions={actions} />}
         {ui.notice && (
           <p
             role="status"
@@ -155,12 +165,18 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         <Composer conversation={conversation} actions={actions} />
       </div>
 
-      <ActivityPanel conversation={conversation} open={ui.activityOpen} actions={actions} />
+      {ui.museOpen && <MusePanel conversation={conversation} mode={ui.viewer ? "floating" : "docked"} actions={actions} />}
       <ChatsPanel open={ui.chatsOpen} actions={actions} />
       <SettingsModal ui={ui.settings} theme={ui.theme} data={settings} actions={actions} />
       <ExplainerModal conversation={conversation} open={ui.explainer} actions={actions} />
       <TaskDetailSheet conversation={conversation} open={ui.taskDetail} actions={actions} />
-      <Viewer conversation={conversation} viewer={ui.viewer} live={where.kind === "server" ? where.live : null} actions={actions} />
+      <Viewer
+        conversation={conversation}
+        viewer={ui.viewer}
+        live={where.kind === "server" ? where.live : null}
+        onResize={(edge) => setViewerWidth(clampViewer(innerWidth - edge))}
+        actions={actions}
+      />
     </div>
   );
 }

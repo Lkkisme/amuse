@@ -52,3 +52,9 @@ element is a scripted fake.
 - A run whose browser is gone (stopped, or released 30 minutes after it ended) is only a
   record: its card shows no page and no button, and it leaves the viewer's tabs. The top-right
   browser button is always there and opens the viewer; with no browser, the viewer says so.
+- The right side holds one panel at a time. Tapping Muse's avatar docks the Muse panel there (the
+  avatar travels into it: a view transition); the browser button gives the side to the browser
+  (the avatar goes back), and becomes the browser's collapse button in its top-right corner (it
+  travels there too). With the browser open, Muse's panel floats over the chat instead. On a
+  desktop the browser's left edge drags to resize it (the chat keeps at least 360px).
+- Buttons show the pointer cursor.

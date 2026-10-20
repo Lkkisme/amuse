@@ -11,7 +11,8 @@ export type Theme = "light" | "dark";
 export interface Ui {
   theme: Theme;
   chatsOpen: boolean;
-  activityOpen: boolean;
+  /** the Muse panel (profile and activity): docked on the right, or floating over the chat while the browser has the right */
+  museOpen: boolean;
   settings: { open: boolean; section: SettingsSection; connector: string | null };
   /** browser viewer: active tab, and tabs the user closed (every other run is a tab) */
   viewer: { browserId: string | null; closedTabs: string[] } | null;
@@ -26,7 +27,7 @@ export interface Ui {
 export const initialUi: Ui = {
   theme: "light",
   chatsOpen: false,
-  activityOpen: false,
+  museOpen: false,
   settings: { open: false, section: "connectors", connector: null },
   viewer: null,
   explainer: null,
@@ -52,7 +53,7 @@ export interface Actions {
   stopTask(taskId: string): void;
   openTaskDetail(taskId: string | null): void;
   setChats(open: boolean): void;
-  setActivity(open: boolean): void;
+  setMuse(open: boolean): void;
   openSettings(section: SettingsSection): void;
   closeSettings(): void;
   openConnector(id: string | null): void;
