@@ -1,10 +1,11 @@
 /**
- * The network edge: an HTTP server (the built web app, and /thumb?id=<run>
- * for card thumbnails) with two WebSocket routes: /rpc (one
- * shared Session, one Peer per socket) and /live?id=<run> (a run's live
- * browser view). The access token rides in
- * the query string (browsers cannot set WebSocket headers) and is compared
- * in constant time; anything else is refused before the upgrade.
+ * The network edge: an HTTP server — the built web app, /unlock, /thumb and
+ * /connected — with two WebSocket routes: /rpc (one shared Session, one Peer
+ * per socket) and /live?id=<run> (a run's live browser view). Requests
+ * authenticate with the HttpOnly cookie from /unlock, a Bearer header, or
+ * (cross-origin dev only) a token query parameter, compared in constant
+ * time. Browsers may open the sockets only from this origin or an allowed
+ * one; anything else is refused before the upgrade.
  */
 import { createHash, timingSafeEqual } from "node:crypto";
 import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
@@ -23,6 +24,8 @@ export interface Options {
   web?: string;
   /** The user's browser is back from a connector's hosted page with a one-time key (GET /connected?key=…). */
   returned?: (key: string) => Promise<boolean>;
+  /** Other origins whose pages may open the sockets (the dev web server); the server's own always may. */
+  origins?: string[];
   token: string;
   port: number;
   host: string;
@@ -33,18 +36,28 @@ const sameToken = (a: string, b: string) => timingSafeEqual(digest(a), digest(b)
 
 const cookieName = "remuse";
 
+/** decodeURIComponent that never throws: a malformed value is simply no token. */
+function decoded(value: string): string | null {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
 /**
- * The token a request carries: the HttpOnly cookie set by /unlock (browsers,
- * keeps it out of URLs and access logs), a Bearer header (scripts), or —
- * for the cross-origin dev setup only — the `token` query parameter.
+ * Every token a request carries: the HttpOnly cookie set by /unlock
+ * (browsers; keeps it out of URLs and access logs), a Bearer header
+ * (scripts), and — for the cross-origin dev setup only — the `token` query
+ * parameter. Hostile input can only fail to match; it never throws.
  */
-function presented(req: IncomingMessage, url: URL): string {
+function presented(req: IncomingMessage, url: URL): string[] {
   const cookie = req.headers.cookie
     ?.split(";")
     .map((part) => part.trim().split("="))
     .find(([name]) => name === cookieName)?.[1];
   const bearer = req.headers.authorization?.match(/^Bearer (.+)$/)?.[1];
-  return cookie ? decodeURIComponent(cookie) : (bearer ?? url.searchParams.get("token") ?? "");
+  return [cookie === undefined ? null : decoded(cookie), bearer ?? null, url.searchParams.get("token")].filter((t) => t !== null);
 }
 
 const Unlock = z.object({ token: z.string().min(1).max(512) });
@@ -65,14 +78,14 @@ export interface Listening {
   close(): Promise<void>;
 }
 
-export function listen({ session, live, web, returned, token, port, host }: Options): Promise<Listening> {
+export function listen({ session, live, web, returned, origins = [], token, port, host }: Options): Promise<Listening> {
   const route = (url: URL): Target | null => {
     if (url.pathname === "/rpc") return { kind: "rpc" };
     const id = url.searchParams.get("id");
     return url.pathname === "/live" && live && id ? { kind: "live", id, live } : null;
   };
   const files = web ? staticFiles(web) : null;
-  const allowed = (req: IncomingMessage, url: URL) => sameToken(presented(req, url), token);
+  const allowed = (req: IncomingMessage, url: URL) => presented(req, url).some((offered) => sameToken(offered, token));
 
   /** POST /unlock {token} → sets the HttpOnly session cookie; GET /unlock → 204 when this browser is unlocked. */
   const unlock = async (req: IncomingMessage, url: URL, res: ServerResponse) => {
@@ -122,7 +135,10 @@ export function listen({ session, live, web, returned, token, port, host }: Opti
   http.on("upgrade", (req, socket, head) => {
     const url = new URL(req.url ?? "/", "http://local");
     const target = route(url);
-    if (!target || !allowed(req, url)) {
+    // a page elsewhere (even a sibling subdomain carrying the cookie) may not open our sockets
+    const origin = req.headers.origin;
+    const foreign = origin !== undefined && !origins.includes(origin) && origin !== `http://${req.headers.host}` && origin !== `https://${req.headers.host}`;
+    if (!target || foreign || !allowed(req, url)) {
       socket.end("HTTP/1.1 401 Unauthorized\r\n\r\n");
       return;
     }

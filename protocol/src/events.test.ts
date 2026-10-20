@@ -72,3 +72,12 @@ test("statuses outside Muse's vocabulary are rejected", () => {
   const browser = { kind: "browser", id: "b1", at, title: "t", url: "https://x.example/", status: "sleeping" };
   assert.equal(EnvelopeSchema.safeParse({ seq: 1, event: { kind: "upserted", entity: browser } }).success, false);
 });
+
+test("an id keeps its kind: an upsert of another kind under it is ignored", () => {
+  const state = fold([
+    { kind: "upserted", entity: { kind: "prompt", id: "x", at, text: "hi" } },
+    { kind: "upserted", entity: reply("hijack", false) },
+  ]);
+  const hijack = apply(state, { seq: 3, event: { kind: "upserted", entity: { ...reply("hijack", false), id: "x" } } });
+  assert.equal(hijack.entities.find((e) => e.id === "x")?.kind, "prompt");
+});

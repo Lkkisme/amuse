@@ -120,3 +120,46 @@ test("unlock turns the token into an HttpOnly cookie that alone opens the socket
   ws.close();
   assert.equal(outcome, "open");
 });
+
+test("a malformed cookie is no token — it can never take the server down; any matching token is enough", async () => {
+  const { WebSocket: Ws } = await import("ws");
+  const tryOpen = (headers: Record<string, string>, query = "") =>
+    new Promise((resolve) => {
+      const ws = new Ws(`${base}${query}`, { headers });
+      ws.on("open", () => (ws.close(), resolve("open")));
+      ws.on("error", () => resolve("refused"));
+    });
+  assert.equal(await tryOpen({ cookie: "remuse=%E0%A4%A" }), "refused");
+  assert.equal(await tryOpen({ cookie: "remuse=%" }), "refused");
+  assert.equal(await tryOpen({ cookie: "remuse=wrong", authorization: `Bearer ${token}` }), "open");
+  assert.equal(await tryOpen({}, `?token=${token}`), "open"); // still alive
+});
+
+test("a client that reconnects receives the events it missed", async () => {
+  const host = createHost(demoPorts(instant), { seed: seed() });
+  const first = await listen({ session: host, token, port: 0, host: "127.0.0.1" });
+  const reader = connect(`ws://127.0.0.1:${first.port}/rpc?token=${token}`);
+  const synced = await reader.call("session.sync", { since: null });
+  assert.ok(synced.kind === "snapshot");
+  let state: State = synced.state;
+  reader.subscribe((u) => (state = u.kind === "event" ? apply(state, u.envelope) : u.state));
+  await first.close(); // the network goes away; the conversation does not
+  const { id } = await host.call("chat.send", { text: "while you were away" });
+  const second = await listen({ session: host, token, port: first.port, host: "127.0.0.1" });
+  for (let i = 0; i < 60 && !state.entities.some((e) => e.id === id); i++) await new Promise((r) => setTimeout(r, 50));
+  assert.ok(state.entities.some((e) => e.id === id), "the missed prompt arrived after the reconnect");
+  reader.close();
+  await second.close();
+});
+
+test("pages from another origin cannot open the sockets, even with a valid token", async () => {
+  const { WebSocket: Ws } = await import("ws");
+  const tryOpen = (origin: string) =>
+    new Promise((resolve) => {
+      const ws = new Ws(`${base}?token=${token}`, { headers: { origin } });
+      ws.on("open", () => (ws.close(), resolve("open")));
+      ws.on("error", () => resolve("refused"));
+    });
+  assert.equal(await tryOpen("https://evil.example"), "refused");
+  assert.equal(await tryOpen(base.replace("ws://", "http://").replace("/rpc", "")), "open"); // same origin
+});

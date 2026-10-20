@@ -12,12 +12,27 @@ import { type BrowserContext, type Browser as Chromium, type Page, chromium } fr
 
 type StorageState = Awaited<ReturnType<BrowserContext["storageState"]>>;
 
-/** Later state wins per cookie (name, domain, path) and per origin; nothing else is dropped. */
-export function mergeState(older: StorageState, newer: StorageState): StorageState {
+/**
+ * Apply what one context changed — `before` is its state when it opened (or
+ * last saved), `after` is now — to the stored state: changed and new cookies
+ * and origins replace theirs, removed ones are removed. What the context did
+ * not touch stays as stored, so another run's fresh login survives a stale
+ * context's save, and a logout sticks.
+ */
+export function applyChanges(stored: StorageState, before: StorageState, after: StorageState): StorageState {
   const cookieKey = (c: StorageState["cookies"][number]) => `${c.name}\0${c.domain}\0${c.path}`;
+  const originKey = (o: StorageState["origins"][number]) => o.origin;
+  function merge<T>(stored: T[], before: T[], after: T[], key: (t: T) => string): T[] {
+    const was = new Map(before.map((t) => [key(t), JSON.stringify(t)]));
+    const now = new Map(after.map((t) => [key(t), t]));
+    const result = new Map(stored.map((t) => [key(t), t]));
+    for (const k of was.keys()) if (!now.has(k)) result.delete(k);
+    for (const [k, t] of now) if (was.get(k) !== JSON.stringify(t)) result.set(k, t);
+    return [...result.values()];
+  }
   return {
-    cookies: [...new Map([...older.cookies, ...newer.cookies].map((c) => [cookieKey(c), c])).values()],
-    origins: [...new Map([...older.origins, ...newer.origins].map((o) => [o.origin, o])).values()],
+    cookies: merge(stored.cookies, before.cookies, after.cookies, cookieKey),
+    origins: merge(stored.origins, before.origins, after.origins, originKey),
   };
 }
 
@@ -37,6 +52,8 @@ export function pool(options: { stateFile?: string } = {}): Pool {
   const { stateFile } = options;
   let browser: Promise<Chromium> | undefined;
   const pages = new Map<string, Page>();
+  /** Each page's state as of opening or its last save: what its next save compares against. */
+  const baseline = new Map<string, StorageState>();
   /** Opens in flight, so two opens of one run share one context. */
   const opening = new Map<string, Promise<Page>>();
   const launch = () => {
@@ -63,8 +80,11 @@ export function pool(options: { stateFile?: string } = {}): Pool {
   const save = (id: string) => {
     const run = async () => {
       const page = pages.get(id);
-      if (!stateFile || !page) return;
-      const merged = mergeState(await stored(stateFile), await page.context().storageState());
+      const before = baseline.get(id);
+      if (!stateFile || !page || !before) return;
+      const after = await page.context().storageState();
+      const merged = applyChanges(await stored(stateFile), before, after);
+      baseline.set(id, after);
       await mkdir(dirname(stateFile), { recursive: true, mode: 0o700 });
       const temp = `${stateFile}.${crypto.randomUUID()}.tmp`;
       await writeFile(temp, JSON.stringify(merged), { mode: 0o600 });
@@ -80,11 +100,18 @@ export function pool(options: { stateFile?: string } = {}): Pool {
     const context = await (await launch()).newContext({ viewport, ...saved });
     try {
       const page = await context.newPage();
-      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+      baseline.set(id, await context.storageState());
+      // registered before it loads, so it can be watched (live view, thumbnail) while it does
       pages.set(id, page);
-      page.on("close", () => pages.delete(id));
+      page.on("close", () => {
+        pages.delete(id);
+        baseline.delete(id);
+      });
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
       return page;
     } catch (error) {
+      pages.delete(id);
+      baseline.delete(id);
       await context.close().catch(() => {}); // a page that never opened leaves nothing behind
       throw error;
     }
@@ -101,6 +128,7 @@ export function pool(options: { stateFile?: string } = {}): Pool {
     page: (id) => pages.get(id),
     save,
     async close(id) {
+      await opening.get(id)?.catch(() => {}); // an open in flight finishes first, so its context is closed too
       await save(id).catch(() => {});
       const page = pages.get(id);
       pages.delete(id);

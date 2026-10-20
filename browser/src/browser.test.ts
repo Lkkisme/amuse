@@ -79,3 +79,34 @@ test("a page that fails to open leaves no context; concurrent opens share one", 
   assert.equal(x, y);
   await p.shutdown();
 });
+
+test("a stale context's save keeps another run's fresh login, and a logout sticks", async () => {
+  const { mkdtempSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const stateFile = join(mkdtempSync(join(tmpdir(), "remuse-state-")), "state.json");
+  const keeping = pool({ stateFile });
+  const seedRun = await keeping.open("seed", url);
+  await seedRun.context().addCookies([{ name: "session", value: "old", url }]);
+  await keeping.close("seed");
+  const [a, b] = await Promise.all([keeping.open("a", url), keeping.open("b", url)]); // both start with "old"
+  await a.context().addCookies([{ name: "session", value: "fresh", url }]);
+  await keeping.save("a");
+  await keeping.save("b"); // b never touched it
+  const c = await keeping.open("c", url);
+  assert.deepEqual((await c.context().cookies()).map((x) => x.value), ["fresh"]);
+  await c.context().clearCookies(); // log out
+  await keeping.close("c");
+  const d = await keeping.open("d", url);
+  assert.deepEqual(await d.context().cookies(), []);
+  await keeping.shutdown();
+});
+
+test("closing a run while its page is still opening leaves nothing behind", async () => {
+  const p = pool();
+  const opening = p.open("slow", url);
+  await p.close("slow");
+  await opening.catch(() => {});
+  assert.equal(p.page("slow"), undefined);
+  await p.shutdown();
+});

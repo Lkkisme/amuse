@@ -40,11 +40,11 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt"> {
     return session;
   };
   let queue: Promise<void> = Promise.resolve();
-  /** Bumped by interrupt: runs from an older epoch neither start nor say anything more. */
+  /** Bumped by interrupt: the run in progress says nothing more. Queued prompts and reports still run. */
   let epoch = 0;
 
-  const run = async (text: string, agent: AgentIO, mine: number) => {
-    if (mine !== epoch) return;
+  const run = async (text: string, agent: AgentIO) => {
+    const mine = epoch;
     const live = () => mine === epoch;
     const emit: AgentIO["emit"] = (say) => {
       if (live()) agent.emit(say);
@@ -100,8 +100,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt"> {
 
   return {
     prompt: (text, agent) => {
-      const mine = epoch;
-      queue = queue.then(() => run(text, agent, mine));
+      queue = queue.then(() => run(text, agent));
     },
     interrupt: () => {
       epoch++;

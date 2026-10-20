@@ -41,10 +41,9 @@ function reduce(state: State, event: Event): State {
   switch (event.kind) {
     case "upserted": {
       const { entity } = event;
-      const exists = state.entities.some((e) => e.id === entity.id);
-      const entities = exists
-        ? state.entities.map((e) => (e.id === entity.id ? entity : e))
-        : [...state.entities, entity];
+      const existing = state.entities.find((e) => e.id === entity.id);
+      if (existing && existing.kind !== entity.kind) return state; // an id names one entity, of one kind, for good
+      const entities = existing ? state.entities.map((e) => (e.id === entity.id ? entity : e)) : [...state.entities, entity];
       return { ...state, entities };
     }
     case "appended":

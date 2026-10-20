@@ -13,6 +13,7 @@
  *   REMUSE_BROWSER_STATE  file keeping browser logins between runs (cookies; mode 600)
  *   REMUSE_PUBLIC_URL  this server's address as the user's browser reaches it (http://host:port);
  *                 lets connectors send the user straight back for an instant "connected"
+ *   REMUSE_ALLOWED_ORIGINS  comma-separated origins of other pages allowed to open the sockets (dev web server)
  *   REMUSE_WEB    directory of the built web app to serve (same origin as /rpc and /live)
  */
 import { readFileSync } from "node:fs";
@@ -67,7 +68,10 @@ const real = (model: string, authPath: string): Ports => ({
   ...(browsers
     ? piBrowserAgent({ model, authPath }, browsers)
     : {
-        browse: (browser, io) => void io.act({ kind: "browserStatus", id: browser.id, status: "failed" }),
+        browse: (browser, io) => {
+          if (io.act({ kind: "browserStatus", id: browser.id, status: "failed" }).ok)
+            io.report(`[browser task "${browser.title}" failed] No browser is configured on this server.`);
+        },
         browser: () => {},
       }),
   approval: () => {}, // waiting agents get the verdict through AgentIO.decision
@@ -95,7 +99,8 @@ const live = browsers && {
 };
 
 const web = process.env["REMUSE_WEB"];
-await listen({ session, ...(live ? { live } : {}), ...(web ? { web } : {}), ...(connector ? { returned: connector.returned } : {}), token, port, host });
+const origins = (process.env["REMUSE_ALLOWED_ORIGINS"] ?? "").split(",").map((o) => o.trim()).filter(Boolean);
+await listen({ session, ...(live ? { live } : {}), ...(web ? { web } : {}), ...(connector ? { returned: connector.returned } : {}), origins, token, port, host });
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.once(signal, () => void (browsers?.shutdown() ?? Promise.resolve()).finally(() => process.exit(0)));
 console.log(

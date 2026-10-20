@@ -76,11 +76,11 @@ export function connect(url: string): Session & { close(): void } {
     return new Promise<Results[M]>((resolve, reject) => {
       pending.set(id, {
         settle: (raw) => {
-          // a sync the caller made also tells us where we are, so a later reconnect catches up from there
+          // a snapshot the caller fetched is where we now stand, so a later reconnect catches up from there;
+          // returned events move us forward only as they are delivered
           if (method === "session.sync") {
             const synced = parseResult["session.sync"](raw);
-            // a snapshot is the server's truth (its seq may even be lower after a reset); events move us forward
-            lastSeq = synced.kind === "snapshot" ? synced.state.seq : Math.max(lastSeq, synced.events.at(-1)?.seq ?? lastSeq);
+            if (synced.kind === "snapshot") lastSeq = synced.state.seq;
           }
           resolve(parseResult[method](raw));
         },

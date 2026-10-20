@@ -91,8 +91,8 @@ export function appTools(io: () => AgentIO, apps: Apps): ToolDefinition[] {
         // never hold the chat for an approval: ask, return, and finish in the background
         const agent = io();
         const label = action.replaceAll("_", " ").toLowerCase();
-        // the user approves exactly what will run: every argument, in full
-        const asked = agent.act({ kind: "ask", action: label, target: app, detail: JSON.stringify(args, null, 2) });
+        // the user approves exactly what will run: every argument (a huge one, e.g. an attachment, is cut and says so)
+        const asked = agent.act({ kind: "ask", action: label, target: app, detail: clip(JSON.stringify(args, null, 2), 20_000) });
         if (!asked.ok) return text(`Could not ask for approval: ${describe(asked.rejection)}.`);
         void agent.decision(asked.id).then(async (verdict) => {
           if (verdict === "denied") return agent.report(`[app action "${label}" declined by the user]`);

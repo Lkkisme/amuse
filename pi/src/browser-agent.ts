@@ -49,10 +49,15 @@ function hold(): NonNullable<Run["held"]> {
   return { promise, settle };
 }
 
-/** `promise`, or "stopped" as soon as the run is stopped. */
+/** `promise`, or "stopped" as soon as the run is stopped (the abort listener is removed either way). */
 function untilStopped<T>(run: Run, promise: Promise<T>): Promise<T | "stopped"> {
-  if (run.stop.signal.aborted) return Promise.resolve("stopped");
-  return Promise.race([promise, new Promise<"stopped">((resolve) => run.stop.signal.addEventListener("abort", () => resolve("stopped"), { once: true }))]);
+  const { signal } = run.stop;
+  if (signal.aborted) return Promise.resolve("stopped");
+  return new Promise((resolve, reject) => {
+    const onAbort = () => resolve("stopped");
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
 }
 
 async function observe(page: Page): Promise<string> {
@@ -168,6 +173,8 @@ function runTools(run: Run): ToolDefinition[] {
       description: "End the task with its result (or why it could not be done).",
       parameters: Type.Object({ result: Type.String(), done: Type.Boolean({ description: "false if the task could not be done" }) }),
       async execute(_, { result, done }) {
+        // finishing is a step too: not while the user holds the browser
+        if (run.held && (await untilStopped(run, run.held.promise)) === "stopped") return stoppedText();
         if (run.stop.signal.aborted) return stoppedText();
         run.finished = true;
         set(done ? "completed" : "failed");
