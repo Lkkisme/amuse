@@ -18,10 +18,10 @@ export function ExplainerModal({ state, actions }: { state: DemoState; actions: 
 
 function ExplainerBody({ req, actions }: { req: ConnectionRequest; actions: MuseActions }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
       <div className="absolute inset-0 bg-black/30" onClick={() => actions.dismissConnect(req.id)} />
       <div
-        className="anim-modal-in relative w-full max-w-sm rounded-2xl p-6 text-center"
+        className="anim-modal-in relative w-full max-w-sm rounded-t-2xl p-6 text-center sm:rounded-2xl"
         style={{ background: "var(--fill-primary)", boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}
       >
         <button

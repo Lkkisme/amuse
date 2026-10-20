@@ -98,13 +98,22 @@
   animation: hatch-pane-enter-from-right 0.2s ease-out both;
 }
 
-/* Modals: scale-in .985 -> 1 with fadeIn .3s */
+/* Modals: bottom drawer on mobile (slide-up), centered scale-in sheet on sm+ */
 @keyframes modal-scale-in {
   from { transform: scale(0.985); opacity: 0; }
   to { transform: scale(1); opacity: 1; }
 }
+@keyframes drawer-slide-up {
+  from { transform: translateY(100%); opacity: 0.6; }
+  to { transform: translateY(0); opacity: 1; }
+}
 .anim-modal-in {
-  animation: modal-scale-in 0.3s ease-out both;
+  animation: drawer-slide-up 0.3s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+@media (min-width: 640px) {
+  .anim-modal-in {
+    animation: modal-scale-in 0.3s ease-out both;
+  }
 }
 
 /* Activity status line while the agent works */

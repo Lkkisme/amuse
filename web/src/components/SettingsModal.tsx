@@ -410,10 +410,10 @@ function GeneralSection({ state, actions }: { state: DemoState; actions: MuseAct
 export function SettingsModal({ state, actions }: { state: DemoState; actions: MuseActions }) {
   if (!state.settingsOpen) return null;
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-40 flex items-end justify-center sm:items-center sm:p-4">
       <div className="absolute inset-0 bg-black/30" onClick={() => actions.closeSettings()} />
       <div
-        className="anim-modal-in relative flex h-[72vh] max-h-[620px] w-full max-w-3xl flex-col overflow-hidden rounded-2xl sm:flex-row"
+        className="anim-modal-in relative flex h-[72vh] max-h-[620px] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl sm:flex-row sm:rounded-2xl"
         style={{ background: "var(--fill-primary)", boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}
       >
         {/* left nav — horizontal icon row on mobile, column on sm+ */}
