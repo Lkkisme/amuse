@@ -2,7 +2,7 @@
  * UI-only state: which panels are open and what they show. Server state is
  * the conversation (session.ts); this never duplicates it, only ids into it.
  */
-import type { Level, SettingsData } from "./demo/settings.ts";
+import type { SettingsData } from "./demo/settings.ts";
 
 export type SettingsSection = "general" | "connectors" | "permissions" | "secure-store";
 
@@ -56,7 +56,6 @@ export interface Actions {
   setMuse(open: boolean): void;
   openSettings(section: SettingsSection): void;
   closeSettings(): void;
-  setWebsiteRule(id: string, level: Level): void;
   addCredential(domain: string, username: string): void;
   setTheme(theme: Theme): void;
   reset(): void;

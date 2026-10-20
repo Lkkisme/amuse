@@ -7,9 +7,10 @@
  * server's, asked again when the user comes back from authorizing.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronLeft, MoreHorizontal, Search } from "lucide-react";
+import { ChevronLeft, MoreHorizontal, Search } from "lucide-react";
 import type { Account, App, KindRule, Permission, Session, ToolKind } from "@remuse/protocol";
 import { AppLogo } from "./AppLogo";
+import { PermissionSelect } from "./PermissionSelect";
 
 type Tab = "available" | "connected";
 const TABS: Tab[] = ["available", "connected"];
@@ -439,34 +440,6 @@ const kindLine: Record<ToolKind, (app: string) => string> = {
   write: (app) => `Change ${app} content`,
   destructive: (app) => `Delete or cancel in ${app}`,
 };
-const PERMISSIONS: Permission[] = ["allow", "ask", "deny"];
-const permissionName: Record<Permission, string> = { allow: "Allow", ask: "Ask", deny: "Deny" };
-
-/** Allow / Ask / Deny, as a plain select styled as Muse's dropdown. */
-function PermissionSelect({ value, onChange }: { value: Permission; onChange: (p: Permission) => void }) {
-  return (
-    <span className="relative flex items-center">
-      <select
-        aria-label="Permission"
-        className="cursor-pointer appearance-none bg-transparent py-1 pl-2 pr-6 text-right text-[15px] outline-none"
-        style={{ color: value === "deny" ? "var(--fill-red)" : "var(--text-primary)" }}
-        value={value}
-        onChange={(e) => {
-          const next = PERMISSIONS.find((p) => p === e.target.value);
-          if (next) onChange(next);
-        }}
-      >
-        {PERMISSIONS.map((p) => (
-          <option key={p} value={p}>
-            {permissionName[p]}
-          </option>
-        ))}
-      </select>
-      <ChevronDown size={15} className="pointer-events-none absolute right-0" style={{ color: "var(--icon-secondary)" }} />
-    </span>
-  );
-}
-
 /** Rows in one rounded box, divided by hairlines (Muse's lists). */
 const Group = ({
   className = "",

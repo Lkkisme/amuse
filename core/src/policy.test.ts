@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { defaultPermission, kindOf, memoryRules, permissionOf } from "./policy.ts";
+import type { Permission } from "@remuse/protocol";
+import { defaultPermission, kindOf, memoryRules, permissionOf, siteOf, sitePermission } from "./policy.ts";
 
 test("a tool's own hints decide its kind; without any, its name does", () => {
   assert.equal(kindOf("GMAIL_FETCH_EMAILS", ["readOnlyHint", "openWorldHint"]), "read");
@@ -27,4 +28,23 @@ test("rules are kept per app and go back to the default when cleared", async () 
   assert.deepEqual(await rules.of("notion"), {});
   await rules.set("gmail", "write", null);
   assert.deepEqual(await rules.of("gmail"), {});
+});
+
+test("a site is a URL's host without www; its rule covers its subdomains; the nearest rule wins", () => {
+  assert.equal(siteOf("https://www.Bank.com/login"), "bank.com");
+  assert.equal(siteOf("file:///etc/passwd"), null);
+  const rules: Record<string, Permission> = { "bank.com": "deny", "help.bank.com": "allow" };
+  assert.equal(sitePermission(rules, "https://login.bank.com/"), "deny");
+  assert.equal(sitePermission(rules, "https://help.bank.com/faq"), "allow");
+  assert.equal(sitePermission(rules, "https://notbank.com/"), "ask");
+  assert.equal(sitePermission(rules, "about:blank"), "deny");
+});
+
+test("site rules are kept apart from app rules", async () => {
+  const rules = memoryRules();
+  await rules.setSite("bank.com", "deny");
+  assert.deepEqual(await rules.sites(), { "bank.com": "deny" });
+  assert.deepEqual(await rules.of("bank.com"), {});
+  await rules.setSite("bank.com", null);
+  assert.deepEqual(await rules.sites(), {});
 });

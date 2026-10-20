@@ -41,6 +41,7 @@ import {
   lasting,
   verdict,
 } from "./decide.ts";
+import type { Rules } from "./policy.ts";
 import { agentContext, recall } from "./context.ts";
 
 /**
@@ -89,6 +90,8 @@ export interface Ports {
   connect(connection: Connection, io: AgentIO): Promise<string>;
   /** The apps there are to connect, and the accounts connected (outside the conversation). */
   apps: AppDirectory;
+  /** What the agents may do, per app and per site: the user's (policy.ts). */
+  rules: Rules;
 }
 
 /** What wakes the agent: the user's message, or a note from its background work (not shown as a message). */
@@ -255,6 +258,15 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
       return null;
     },
     "apps.permissions": async ({ app }) => ({ rules: await ports.apps.permissions(app) }),
+    "sites.rules": async () => ({
+      rules: Object.entries(await ports.rules.sites())
+        .map(([site, permission]) => ({ site, permission }))
+        .sort((a, b) => a.site.localeCompare(b.site)),
+    }),
+    "sites.permit": async ({ site, permission }) => {
+      await ports.rules.setSite(site, permission);
+      return null;
+    },
     "apps.permit": async ({ app, kind, permission }) => {
       await ports.apps.permit(app, kind, permission);
       return null;

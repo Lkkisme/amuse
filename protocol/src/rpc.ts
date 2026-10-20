@@ -5,7 +5,7 @@
  * Live browser pixels are not JSON-RPC; they stream on their own channel.
  */
 import { z } from "zod";
-import { Account, App, KindRule, Permission, ToolKind } from "./apps.ts";
+import { Account, App, KindRule, Permission, Site, SiteRule, ToolKind } from "./apps.ts";
 import { Id, Resolution } from "./entities.ts";
 import { Envelope, Index, Page, Seq, State } from "./events.ts";
 
@@ -40,6 +40,10 @@ export const Call = z.discriminatedUnion("method", [
   call("apps.permissions", z.object({ app: Id })),
   /** Set what the agent may do with an app's tools of one kind; null: back to the default. */
   call("apps.permit", z.object({ app: Id, kind: ToolKind, permission: Permission.nullable() })),
+  /** The sites the user has set a rule for (every other site: ask). */
+  call("sites.rules", z.object({})),
+  /** Set what the browser agent may do on a site; null: back to the default (ask). */
+  call("sites.permit", z.object({ site: Site, permission: Permission.nullable() })),
 ]);
 
 export type Call = z.infer<typeof Call>;
@@ -68,6 +72,8 @@ export const results = {
   "apps.disconnect": done,
   "apps.permissions": z.object({ rules: z.array(KindRule) }),
   "apps.permit": done,
+  "sites.rules": z.object({ rules: z.array(SiteRule) }),
+  "sites.permit": done,
 } satisfies Record<Method, z.ZodType>;
 
 export type Params = { [C in Call as C["method"]]: C["params"] };
@@ -94,6 +100,8 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "apps.disconnect": (raw) => results["apps.disconnect"].parse(raw),
   "apps.permissions": (raw) => results["apps.permissions"].parse(raw),
   "apps.permit": (raw) => results["apps.permit"].parse(raw),
+  "sites.rules": (raw) => results["sites.rules"].parse(raw),
+  "sites.permit": (raw) => results["sites.permit"].parse(raw),
 };
 
 /** What a server implements: one function per method. */

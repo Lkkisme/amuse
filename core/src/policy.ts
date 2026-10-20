@@ -45,11 +45,49 @@ export type AppRules = Partial<Record<ToolKind, Permission>>;
 /** What the agent may do with a tool of `kind`: what the user chose, else the default. */
 export const permissionOf = (kind: ToolKind, rules: AppRules): Permission => rules[kind] ?? defaultPermission(kind);
 
-/** The user's choices, per app (the store is the server's: a file beside the journal). */
+/* ---------- sites ---------- */
+
+/** A URL's site: its host, lower-case, without "www."; null for what is not a web address. */
+export function siteOf(url: string): string | null {
+  if (!URL.canParse(url)) return null;
+  const { protocol, hostname } = new URL(url);
+  return /^https?:$/.test(protocol) && hostname ? hostname.toLowerCase().replace(/^www\./, "") : null;
+}
+
+/** By default the browser agent may go anywhere and asks before steps that commit the user. */
+export const defaultSitePermission: Permission = "ask";
+
+/** What the browser agent may do at `url`: the rule for its site or the nearest parent ("bank.com" covers "login.bank.com"). */
+export function sitePermission(rules: Readonly<Record<string, Permission>>, url: string): Permission {
+  const site = siteOf(url);
+  if (!site) return "deny"; // not a web page: nothing to do there
+  const labels = site.split(".");
+  for (let i = 0; i < labels.length; i++) {
+    const rule = rules[labels.slice(i).join(".")];
+    if (rule) return rule;
+  }
+  return defaultSitePermission;
+}
+
+/** The user's choices, per app and per site (the store is the server's: a file beside the journal). */
 export interface Rules {
   of(app: string): Promise<AppRules>;
   /** null: back to the default. */
   set(app: string, kind: ToolKind, permission: Permission | null): Promise<void>;
+  sites(): Promise<Readonly<Record<string, Permission>>>;
+  /** null: back to the default (ask). */
+  setSite(site: string, permission: Permission | null): Promise<void>;
+}
+
+/** Everything the rules hold, as one plain value (what the file store writes). */
+export type AllRules = { apps: Record<string, AppRules>; sites: Record<string, Permission> };
+export const noRules: AllRules = { apps: {}, sites: {} };
+
+export function setSiteRule(all: Readonly<Record<string, Permission>>, site: string, permission: Permission | null): Record<string, Permission> {
+  const next = { ...all };
+  if (permission === null) delete next[site];
+  else next[site] = permission;
+  return next;
 }
 
 /** The choices as a plain map, set by `set` (shared by the stores). */
@@ -62,11 +100,15 @@ export function setRule(all: Readonly<Record<string, AppRules>>, app: string, ki
 
 /** Rules kept in memory (the demo, tests). */
 export function memoryRules(): Rules {
-  let all: Record<string, AppRules> = {};
+  let all: AllRules = noRules;
   return {
-    of: async (app) => ({ ...all[app] }),
+    of: async (app) => ({ ...all.apps[app] }),
     async set(app, kind, permission) {
-      all = setRule(all, app, kind, permission);
+      all = { ...all, apps: setRule(all.apps, app, kind, permission) };
+    },
+    sites: async () => ({ ...all.sites }),
+    async setSite(site, permission) {
+      all = { ...all, sites: setSiteRule(all.sites, site, permission) };
     },
   };
 }

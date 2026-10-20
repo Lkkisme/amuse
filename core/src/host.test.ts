@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Session, type State, apply, prepend } from "@remuse/protocol";
-import { type AgentIO, type Ports, createHost } from "./index.ts";
+import { type AgentIO, type Ports, createHost, memoryRules } from "./index.ts";
 
 /** Ports that do nothing but hand over the AgentIO, so tests can act like an agent. */
 function capture() {
@@ -23,6 +23,7 @@ function capture() {
       permissions: async () => [],
       permit: async () => {},
     },
+    rules: memoryRules(),
   };
   return { ports, io: () => io };
 }

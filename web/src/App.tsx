@@ -119,8 +119,6 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
       setMuse: (museOpen) => transition(() => patch((u) => ({ ...u, museOpen }))),
       openSettings: (section) => patch((u) => ({ ...u, chatsOpen: false, settings: { open: true, section } })),
       closeSettings: () => patch((u) => ({ ...u, settings: { ...u.settings, open: false } })),
-      setWebsiteRule: (id, level) =>
-        setSettings((s) => ({ ...s, websiteRules: s.websiteRules.map((r) => (r.id === id ? { ...r, level } : r)) })),
       addCredential: (domain, username) =>
         setSettings((s) => ({ ...s, credentials: [...s.credentials, { id: `cred${s.credentials.length + 1}`, domain, username }] })),
       setTheme: (theme) => patch((u) => ({ ...u, theme })),

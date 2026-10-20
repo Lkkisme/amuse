@@ -7,7 +7,7 @@
  */
 import { type AgentSession, type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
 import type { Browsers, PageView, Step } from "@remuse/browser";
-import type { AgentIO, BrowserProgress, Ports } from "@remuse/core";
+import { type AgentIO, type BrowserProgress, type Ports, type Rules, siteOf, sitePermission } from "@remuse/core";
 import type { Browser } from "@remuse/protocol";
 import { Type } from "typebox";
 import { status } from "./status.ts";
@@ -42,6 +42,10 @@ interface Run {
   held: { promise: Promise<void>; settle: () => void } | null;
   steps: number;
   finished: boolean;
+  /** the user's rules: a site denied is never shown (policy.ts) */
+  rules: Rules;
+  /** the last page on a site the rules let it be on: where it goes back to from one they do not */
+  allowed: string;
 }
 
 const text = (value: string) => ({ content: [{ type: "text" as const, text: value }], details: null });
@@ -85,26 +89,45 @@ function runTools(run: Run): ToolDefinition[] {
   const set = (status: BrowserProgress) => {
     if (!run.stop.signal.aborted) run.io.act({ kind: "browserStatus", id: run.browser.id, status });
   };
-  /** Wait out a takeover, count the step, then take it (if any) and return the new page state. */
+  /**
+   * Wait out a takeover, count the step, then take it (if any) and return the new page state.
+   * A step that lands on a site the user does not allow (a link, a redirect) is undone: the
+   * browser goes back to the last allowed page, and the agent is told, never shown the page.
+   */
   const act = async (step: Step | null) => {
     if (run.held && (await untilStopped(run, run.held.promise)) === "stopped") return stoppedText();
     if (run.stop.signal.aborted) return stoppedText();
     if (++run.steps > maxSteps) return text(`Step limit reached; call finish now.`);
+    let failed = "";
     try {
       if (step) await run.browsers.step(run.browser.id, step);
     } catch (error) {
-      return text(`That did not work: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}\n\n${await observe(run)}`);
+      failed = `That did not work: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}\n\n`;
     }
-    return text(await observe(run));
+    const view = await run.browsers.look(run.browser.id).catch(() => null);
+    if (view && sitePermission(await run.rules.sites(), view.url) === "deny") {
+      await run.browsers.step(run.browser.id, { kind: "navigate", url: run.allowed }).catch(() => {});
+      return text(`That led to ${siteOf(view.url) ?? view.url}, a site the user does not allow; went back. Do not try to reach it another way.\n\n${await observe(run)}`);
+    }
+    if (!view) return text(`${failed}(the page could not be read)`);
+    run.allowed = view.url;
+    run.url = view.url;
+    return text(failed + render(view));
   };
-  /** Ask the user before a consequential step; true when approved (false if stopped meanwhile). */
+  /**
+   * Before a step that commits the user: what their rule for the site says. Allowed sites go
+   * ahead; elsewhere the user is asked, and an answer for always becomes the site's rule.
+   * True when it may go ahead (false if refused, or stopped meanwhile).
+   */
   const approve = async (action: string, detail: string) => {
-    // a step on a web page is asked about every time: there is no rule that could name it
-    const asked = run.io.act({ kind: "ask", action, target: URL.canParse(run.url) ? new URL(run.url).host : run.url, detail, remember: false });
+    const site = siteOf(run.url);
+    if (site && sitePermission(await run.rules.sites(), run.url) === "allow") return true;
+    const asked = run.io.act({ kind: "ask", action, target: site ?? run.url, detail, remember: site !== null });
     if (!asked.ok) return false;
     set("waiting");
     const decided = await untilStopped(run, run.io.decision(asked.id));
     if (decided === "stopped") return false;
+    if (decided.remember && site) await run.rules.setSite(site, decided.verdict === "approved" ? "allow" : "deny").catch(() => {});
     set("working");
     return decided.verdict === "approved";
   };
@@ -152,8 +175,11 @@ function runTools(run: Run): ToolDefinition[] {
       label: "Go to a URL",
       description: "Open an absolute http(s) URL in this browser.",
       parameters: Type.Object({ status, url: Type.String() }),
-      execute: async (_, { url }) =>
-        URL.canParse(url) && /^https?:$/.test(new URL(url).protocol) ? act({ kind: "navigate", url }) : text(`"${url}" is not an http(s) URL.`),
+      execute: async (_, { url }) => {
+        if (!URL.canParse(url) || !/^https?:$/.test(new URL(url).protocol)) return text(`"${url}" is not an http(s) URL.`);
+        if (sitePermission(await run.rules.sites(), url) === "deny") return text(`The user does not allow ${siteOf(url)}. Do not try to reach it another way.`);
+        return act({ kind: "navigate", url });
+      },
     }),
     defineTool({
       name: "scroll",
@@ -208,7 +234,7 @@ const browserLabels: Record<string, string> = {
 const keepFinishedMs = 30 * 60_000;
 
 /** browse + browser control on real pages, with a Pi agent per run. */
-export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers): Pick<Ports, "browse" | "browser" | "fit"> {
+export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers, rules: Rules): Pick<Ports, "browse" | "browser" | "fit"> {
   /** Every run from browse until it ends; its controller is there before its page is. */
   const stops = new Map<string, AbortController>();
   const runs = new Map<string, Run>();
@@ -257,12 +283,23 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers): Pick<Por
         if (opened) setTimeout(() => release(browser.id, io), keepFinishedMs).unref?.();
         else release(browser.id, io);
       };
-      browsers
-        .open(browser.id, browser.url, stop.signal)
+      // a site the user does not allow is not opened at all
+      const refuse = async () => {
+        const where = (await browsers.look(browser.id).catch(() => null))?.url ?? browser.url;
+        return sitePermission(await rules.sites(), where) === "deny" ? (siteOf(where) ?? where) : null;
+      };
+      rules
+        .sites()
+        .then((sites) => {
+          if (sitePermission(sites, browser.url) === "deny") throw new Error(`The user does not allow ${siteOf(browser.url) ?? browser.url}.`);
+          return browsers.open(browser.id, browser.url, stop.signal);
+        })
         .then(async () => {
           opened = true;
           if (stop.signal.aborted) return release(browser.id, io); // stopped while it was opening
-          const run: Run = { browser, browsers, url: browser.url, io, session: null, stop, held: null, steps: 0, finished: false };
+          const denied = await refuse(); // where it opened (after any redirect)
+          if (denied) return fail(browser, io, `The user does not allow ${denied}.`);
+          const run: Run = { browser, browsers, url: browser.url, io, session: null, stop, held: null, steps: 0, finished: false, rules, allowed: browser.url };
           runs.set(browser.id, run);
           await drive(run);
         })

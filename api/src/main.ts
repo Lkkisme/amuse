@@ -102,9 +102,9 @@ await browsers?.reset();
  * Without a model the whole thing is the scripted demo (with its seed).
  */
 const real = (model: string, browserModel: string): Ports => ({
-  ...piAgent({ model, auth, system, ...(composioClient ? { apps: composioApps(composioClient, composioUser, rules) } : {}) }),
+  ...piAgent({ model, auth, system, rules, ...(composioClient ? { apps: composioApps(composioClient, composioUser, rules) } : {}) }),
   ...(browsers
-    ? piBrowserAgent({ model: browserModel, auth }, browsers)
+    ? piBrowserAgent({ model: browserModel, auth }, browsers, rules)
     : {
         browse: (browser, io) => {
           if (io.act({ kind: "browserEnded", id: browser.id, status: "failed", result: "No browser is configured on this server." }).ok)
@@ -113,6 +113,7 @@ const real = (model: string, browserModel: string): Ports => ({
         browser: () => {},
         fit: () => {},
       }),
+  rules,
   approval: () => {}, // waiting agents get the verdict through AgentIO.decision
   stopTask: () => {}, // no task runner yet: the rules already recorded the stop
   connect: connector

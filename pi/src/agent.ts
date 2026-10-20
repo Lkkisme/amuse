@@ -6,7 +6,7 @@
  * reply entity. Pi's coding tools, extensions, skills and context files are
  * all off: the model sees only remuse's tools (tools.ts).
  */
-import { type AgentIO, type Ports, type Turn, newId } from "@remuse/core";
+import { type AgentIO, type Ports, type Rules, type Turn, newId } from "@remuse/core";
 import { redact } from "./redact.ts";
 import { type PiModelConfig, type PiSession, openSession, secretsOf } from "./session.ts";
 import { statusOf } from "./status.ts";
@@ -16,6 +16,8 @@ export interface PiConfig extends PiModelConfig {
   system: string;
   /** Connected apps the agent may use; without them it can only ask to connect. */
   apps?: Apps;
+  /** the user's rules (sites the agent may not browse) */
+  rules: Rules;
 }
 
 const toolLabels: Record<string, string> = {
@@ -52,7 +54,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt"> {
       reply = undefined;
     };
     try {
-      session = await openSession(cfg, cfg.system, [...tools(io), ...(cfg.apps ? appTools(io, cfg.apps) : [])]);
+      session = await openSession(cfg, cfg.system, [...tools(io, cfg.rules), ...(cfg.apps ? appTools(io, cfg.apps) : [])]);
       const pi = session.session;
       if (!live()) return;
       let failure: string | undefined;

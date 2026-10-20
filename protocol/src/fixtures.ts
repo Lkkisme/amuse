@@ -77,4 +77,6 @@ export const calls: Call[] = [
   { method: "apps.disconnect", params: { account: "ca_1" } },
   { method: "apps.permissions", params: { app: "gmail" } },
   { method: "apps.permit", params: { app: "gmail", kind: "write", permission: "ask" } },
+  { method: "sites.rules", params: {} },
+  { method: "sites.permit", params: { site: "bank.com", permission: "deny" } },
 ];

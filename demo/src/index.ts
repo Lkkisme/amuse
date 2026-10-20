@@ -3,7 +3,7 @@
  * server run until the real agent, browser pool and connectors are plugged
  * in. Behavior lives here only as port reactions; the rules stay in decide.
  */
-import { type AppDirectory, type Emit, type Ports, type Timers, kinds, memoryRules, newId, permissionOf, verdict } from "@remuse/core";
+import { type AppDirectory, type Emit, type Ports, type Rules, type Timers, kinds, memoryRules, newId, permissionOf, verdict } from "@remuse/core";
 import type { Account, App, Entity } from "@remuse/protocol";
 
 const demoApp = (id: string, name: string, description: string): App => ({ id, name, description, logo: `https://logos.composio.dev/api/${id}` });
@@ -19,8 +19,7 @@ const catalog: App[] = [
 ];
 
 /** The demo's apps: a short list, connected at once (there is no provider to authorize with). */
-function demoApps(): AppDirectory {
-  const rules = memoryRules();
+function demoApps(rules: Rules): AppDirectory {
   const accounts = new Map<string, Account>([["ca_demo_gmail", { id: "ca_demo_gmail", app: demoApp("gmail", "Gmail", "Read, search and send email"), label: "you@example.com", status: "active" }]]);
   return {
     async search(query) {
@@ -68,8 +67,10 @@ export function demoPorts<H>(timers: Timers<H>): Ports {
     });
   };
 
+  const rules = memoryRules();
   return {
-    apps: demoApps(),
+    rules,
+    apps: demoApps(rules),
     fit: () => {}, // the demo's browsers are sketches
     prompt: ({ text }, { emit, act }) => {
       // the scripted agent shows its tools on cue: a URL starts a browser task, "connect <app>" asks to connect

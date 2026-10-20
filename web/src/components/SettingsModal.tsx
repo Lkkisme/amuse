@@ -16,36 +16,13 @@ import {
   Shield,
   X,
 } from "lucide-react";
-import type { Level, SettingsData } from "../demo/settings.ts";
-import { LEVELS, levelMeta, parseLevel } from "../demo/settings.ts";
+import type { SettingsData } from "../demo/settings.ts";
 import type { Session } from "@remuse/protocol";
 import type { Actions, SettingsSection, Theme, Ui } from "../ui.ts";
 import { usePresence } from "./usePresence";
 import { Connectors } from "./Connectors";
+import { SitePermissions } from "./SitePermissions";
 
-function LevelSelect({ value, onChange }: { value: Level; onChange: (l: Level) => void }) {
-  return (
-    <select
-      className="cursor-pointer appearance-none rounded-full border-0 bg-transparent py-1 pl-3 pr-6 text-[13px] font-medium outline-none"
-      style={{
-        background: "var(--fill-primary)",
-        color: value === "deny" ? "var(--fill-red)" : value === "ask" ? "var(--fill-orange)" : "var(--text-primary)",
-      }}
-      value={value}
-      onChange={(e) => {
-        const level = parseLevel(e.target.value);
-        if (level) onChange(level);
-      }}
-      onClick={(e) => e.stopPropagation()}
-    >
-      {LEVELS.map((l) => (
-        <option key={l} value={l}>
-          {levelMeta[l]}
-        </option>
-      ))}
-    </select>
-  );
-}
 
 const NAV: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
   { id: "general", label: "General", icon: <SettingsIcon size={18} /> },
@@ -53,79 +30,6 @@ const NAV: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
   { id: "permissions", label: "Permissions", icon: <Shield size={18} /> },
   { id: "secure-store", label: "Secure store", icon: <Lock size={18} /> },
 ];
-
-/* ---------------- Permissions ---------------- */
-
-function DefaultsCard({ title, options }: { title: string; options: { label: string; sub: string }[] }) {
-  const [selected, setSelected] = useState(0);
-  return (
-    <div className="mt-5">
-      <p className="mb-2 text-[15px] font-semibold" style={{ color: "var(--text-primary)" }}>
-        {title}
-      </p>
-      <div className="overflow-hidden rounded-xl" style={{ background: "var(--fill-secondary)" }}>
-        {options.map((o, i) => (
-          <button
-            key={o.label}
-            className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left"
-            style={{ borderTop: i === 0 ? undefined : "1px solid var(--fill-divider)" }}
-            onClick={() => setSelected(i)}
-          >
-            <span>
-              <span className="block text-[14px] font-medium" style={{ color: "var(--text-primary)" }}>
-                {o.label}
-              </span>
-              <span className="block text-[12px]" style={{ color: "var(--text-secondary)" }}>
-                {o.sub}
-              </span>
-            </span>
-            {selected === i && <Check size={18} style={{ color: "var(--text-primary)" }} className="mt-1 shrink-0" />}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function PermissionsSection({ data, actions }: { data: SettingsData; actions: Actions }) {
-  return (
-    <div className="flex-1 overflow-y-auto p-5">
-      <DefaultsCard
-        title="Connector defaults"
-        options={[
-          { label: "Ask for some actions", sub: "Before actions that may share your information or make important changes" },
-          { label: "Always ask", sub: "Before any action" },
-        ]}
-      />
-      <DefaultsCard
-        title="Web access defaults"
-        options={[
-          { label: "Ask for some actions", sub: "When your information may be shared or the website is unfamiliar" },
-          { label: "Always ask", sub: "Ask before accessing any website" },
-        ]}
-      />
-
-      <p className="mb-2 mt-6 text-[15px] font-semibold" style={{ color: "var(--text-primary)" }}>
-        Websites
-      </p>
-      <div className="overflow-hidden rounded-xl" style={{ background: "var(--fill-secondary)" }}>
-        {data.websiteRules.map((r, i) => (
-          <div
-            key={r.id}
-            className="flex items-center justify-between px-4 py-3"
-            style={{ borderTop: i === 0 ? undefined : "1px solid var(--fill-divider)" }}
-          >
-            <span className="flex items-center gap-2.5 text-[14px]" style={{ color: "var(--text-primary)" }}>
-              <Globe size={16} style={{ color: "var(--icon-secondary)" }} />
-              {r.site}
-            </span>
-            <LevelSelect value={r.level} onChange={(l) => actions.setWebsiteRule(r.id, l)} />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 /* ---------------- Secure store ---------------- */
 
@@ -329,7 +233,7 @@ export function SettingsModal({
             <X size={17} />
           </button>
           {ui.section === "connectors" && <Connectors session={session} />}
-          {ui.section === "permissions" && <PermissionsSection data={data} actions={actions} />}
+          {ui.section === "permissions" && <SitePermissions session={session} />}
           {ui.section === "secure-store" && <SecureStoreSection data={data} actions={actions} />}
           {ui.section === "general" && <GeneralSection theme={theme} actions={actions} />}
         </div>

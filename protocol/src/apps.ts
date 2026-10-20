@@ -32,7 +32,14 @@ export const Permission = z.enum(["allow", "ask", "deny"]);
 /** What the agent may do with an app's tools of one kind. `chosen`: the user set it (else it is the kind's default). */
 export const KindRule = z.object({ kind: ToolKind, permission: Permission, chosen: z.boolean() });
 
+/** A website, by its host without "www." ("bank.com"); a rule for it covers its subdomains too. */
+export const Site = z.string().regex(/^(localhost|[a-z0-9-]+(\.[a-z0-9-]+)+)$/, "a site is a host name, like bank.com");
+
+/** What the browser agent may do on a site: act freely, ask before steps that commit the user, or not go there at all. */
+export const SiteRule = z.object({ site: Site, permission: Permission });
+
 export type App = z.infer<typeof App>;
+export type SiteRule = z.infer<typeof SiteRule>;
 export type ToolKind = z.infer<typeof ToolKind>;
 export type Permission = z.infer<typeof Permission>;
 export type KindRule = z.infer<typeof KindRule>;

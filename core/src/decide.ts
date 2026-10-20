@@ -19,7 +19,7 @@ import type {
 } from "@remuse/protocol";
 
 /** Calls that do not touch the conversation: reading it, and the app directory (Ports.apps). */
-export type Query = Extract<Call, { method: "session.sync" | "session.history" | `apps.${string}` }>;
+export type Query = Extract<Call, { method: "session.sync" | "session.history" | `apps.${string}` | `sites.${string}` }>;
 /** Client calls that change the conversation. */
 export type Command = Exclude<Call, Query>;
 type CommandMethod = Command["method"];
