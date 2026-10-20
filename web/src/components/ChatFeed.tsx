@@ -5,7 +5,7 @@
  * timestamps ('8:27 AM') centered between message groups, and the three-dot
  * hatch-dot-pulse thinking indicator in a small gray bubble.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowDown, ChevronDown, Copy, MoreHorizontal, Share, Smile } from "lucide-react";
 import type { Entity, Prompt, Reply, State } from "@remuse/protocol";
 import type { Actions } from "../ui.ts";
@@ -97,9 +97,23 @@ function TimeDivider({ time }: { time: string }) {
 
 /** px from the bottom past which the jump-to-bottom button shows */
 const JUMP_BUTTON_DISTANCE = 240;
+/** px from the top within which older messages are fetched */
+const OLDER_DISTANCE = 600;
 
-export function ChatFeed({ conversation, thumb, actions }: { conversation: State; thumb: Thumb; actions: Actions }) {
+interface Props {
+  conversation: State;
+  /** fetch the page before the oldest message held */
+  older: () => Promise<void>;
+  /** let go of pages fetched back */
+  release: () => void;
+  thumb: Thumb;
+  actions: Actions;
+}
+
+export function ChatFeed({ conversation, older, release, thumb, actions }: Props) {
   const feed = conversation.entities;
+  /** messages in the whole feed: what "new" is counted against, so pages fetched back are not new */
+  const total = conversation.earlier + feed.length;
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -113,13 +127,41 @@ export function ChatFeed({ conversation, thumb, actions }: { conversation: State
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     atBottomRef.current = true;
     setAtBottom(true);
-    seenRef.current = feed.length;
+    seenRef.current = total;
     setPendingCount(0);
   };
+
+  /** Where the first message held sat before older ones went in above it, to put it back there. */
+  const anchor = useRef<{ id: string; top: number } | null>(null);
+  const fetching = useRef(false);
+  const offset = (id: string) => {
+    const el = scrollRef.current;
+    const item = el?.querySelector(`[data-entity="${CSS.escape(id)}"]`);
+    return el && item ? item.getBoundingClientRect().top - el.getBoundingClientRect().top : null;
+  };
+  const fetchOlder = () => {
+    const el = scrollRef.current;
+    const first = feed[0];
+    if (!el || !first || conversation.earlier === 0 || fetching.current || el.scrollTop > OLDER_DISTANCE) return;
+    const top = offset(first.id);
+    if (top === null) return;
+    fetching.current = true;
+    anchor.current = { id: first.id, top };
+    older().finally(() => (fetching.current = false));
+  };
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    const held = anchor.current;
+    if (!el || !held) return;
+    anchor.current = null;
+    const top = offset(held.id);
+    if (top !== null) el.scrollTop += top - held.top;
+  }, [conversation.earlier]);
 
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
+    fetchOlder();
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
     const near = distance < 80;
     setFar(distance > JUMP_BUTTON_DISTANCE);
@@ -128,8 +170,9 @@ export function ChatFeed({ conversation, thumb, actions }: { conversation: State
       setAtBottom(near);
     }
     if (near) {
-      seenRef.current = feed.length;
+      seenRef.current = total;
       setPendingCount(0);
+      release();
     }
   };
 
@@ -139,17 +182,19 @@ export function ChatFeed({ conversation, thumb, actions }: { conversation: State
     if (!arrived.current && feed.length > 0) {
       arrived.current = true;
       bottomRef.current?.scrollIntoView({ block: "end" });
-      seenRef.current = feed.length;
+      seenRef.current = total;
       return;
     }
-    // New content: follow it only when the user is already at the bottom.
-    // Otherwise leave the scroll position alone and surface a jump-to-latest pill.
+    // New content: follow it only when the user is already at the bottom (and let go of
+    // pages fetched back). Otherwise leave the scroll position alone and surface a jump-to-latest pill.
     if (atBottomRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-      seenRef.current = feed.length;
+      seenRef.current = total;
+      release();
     } else {
-      setPendingCount(Math.max(0, feed.length - seenRef.current));
+      setPendingCount(Math.max(0, total - seenRef.current));
     }
+    fetchOlder(); // the feed may not fill the screen yet
   }, [feed, conversation.activity]);
 
   return (
@@ -162,7 +207,9 @@ export function ChatFeed({ conversation, thumb, actions }: { conversation: State
       >
         <div className="mx-auto flex max-w-3xl flex-col gap-3">
         {feed.map((entity, i) => (
-          <EntityView key={entity.id} entity={entity} previous={feed[i - 1]} thumb={thumb} actions={actions} />
+          <div key={entity.id} data-entity={entity.id} className="flex flex-col">
+            <EntityView entity={entity} previous={feed[i - 1]} thumb={thumb} actions={actions} />
+          </div>
         ))}
         {thinking(conversation) && (
           <div className="anim-fade-in flex justify-start">

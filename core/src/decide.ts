@@ -1,6 +1,6 @@
 /**
  * The domain rules, as one pure function: a client command and the current
- * state go in; the events that record it and the effects the outside world
+ * state go in; the changes that record it and the effects the outside world
  * must carry out come out — or a typed rejection. No IO, no clock, no ids of
  * its own: the host passes them in.
  */
@@ -18,11 +18,21 @@ import type {
   TaskStatus,
 } from "@remuse/protocol";
 
-/** Client calls that change the conversation (sync only reads). */
-export type Command = Exclude<Call, { method: "session.sync" }>;
+/** Client calls that change the conversation (sync and history only read). */
+export type Command = Exclude<Call, { method: "session.sync" | "session.history" }>;
 type CommandMethod = Command["method"];
 
-/** Work for the ports once the events are recorded. */
+/** An event before it is recorded: an upsert gets its place in the feed then (see `place`). */
+export type Change = { kind: "upserted"; entity: Entity } | Extract<Event, { kind: "appended" | "activity" }>;
+
+/** The change as the event that records it in `state`: an entity keeps its index, a new one goes on the end. */
+export function place(state: State, change: Change): Event {
+  if (change.kind !== "upserted") return change;
+  const at = state.entities.findIndex((e) => e.id === change.entity.id);
+  return { ...change, index: state.earlier + (at < 0 ? state.entities.length : at) };
+}
+
+/** Work for the ports once the changes are recorded. */
 export type Effect =
   | { kind: "prompt"; text: string }
   | { kind: "interrupt" }
@@ -66,12 +76,12 @@ export type Rejection =
       from: BrowserStatus | TaskStatus | Approval["status"] | Connection["status"];
     };
 
-/** What a command yields besides events: the prompt chat.send created, the connection to begin. */
+/** What a command yields besides changes: the prompt chat.send created, the connection to begin. */
 export type Outputs = {
   [M in CommandMethod]: M extends "chat.send" ? { id: string } : M extends "connection.begin" ? Connection : null;
 };
 
-export type Decision<T> = { ok: true; events: Event[]; effects: Effect[]; output: T } | { ok: false; rejection: Rejection };
+export type Decision<T> = { ok: true; changes: Change[]; effects: Effect[]; output: T } | { ok: false; rejection: Rejection };
 
 export interface Context {
   now: string;
@@ -102,9 +112,9 @@ const verdicts: Record<Resolution, Verdict> = {
 };
 export const verdict = (resolution: Resolution): Verdict => verdicts[resolution];
 
-const ok = <T>(events: Event[], effects: Effect[], output: T): Decision<T> => ({ ok: true, events, effects, output });
+const ok = <T>(changes: Change[], effects: Effect[], output: T): Decision<T> => ({ ok: true, changes, effects, output });
 const reject = (rejection: Rejection): Decision<never> => ({ ok: false, rejection });
-const upsert = (entity: Entity): Event => ({ kind: "upserted", entity });
+const upsert = (entity: Entity): Change => ({ kind: "upserted", entity });
 
 function find<K extends Entity["kind"]>(state: State, kind: K, id: string): Extract<Entity, { kind: K }> | undefined {
   return state.entities.find((e): e is Extract<Entity, { kind: K }> => e.kind === kind && e.id === id);
@@ -218,7 +228,7 @@ export function decideAgent<K extends keyof Actions>(state: State, kind: K, acti
  * them now), pending approvals time out (nobody waits on them), and the
  * activity line clears.
  */
-export function recover(state: State): Event[] {
+export function recover(state: State): Change[] {
   const settle = (e: Entity): Entity | null => {
     switch (e.kind) {
       case "reply":

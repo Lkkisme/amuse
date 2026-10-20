@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFileSync, mkdtempSync, statSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -49,4 +49,14 @@ test("a torn last line is dropped and cut off, so the next append starts clean",
   assert.equal(journal.load().length, seq);
   journal.append({ seq: seq + 1, event: { kind: "activity", activity: null } });
   assert.equal(fileJournal(path).load().length, seq + 1);
+});
+
+test("a whole line it cannot read stops the load, and the file is left as it was", async () => {
+  const path = join(mkdtempSync(join(tmpdir(), "remuse-journal-")), "events.jsonl");
+  const host = createHost(demoPorts(idle), { seed: seed(), journal: fileJournal(path) });
+  await snapshot(host);
+  appendFileSync(path, '{"seq":999,"event":{"kind":"renamed"}}\n');
+  const before = readFileSync(path);
+  assert.throws(() => fileJournal(path).load(), /line \d+ is not the next event/);
+  assert.deepEqual(readFileSync(path), before);
 });

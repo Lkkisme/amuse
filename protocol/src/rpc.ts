@@ -6,7 +6,7 @@
  */
 import { z } from "zod";
 import { Id, Resolution } from "./entities.ts";
-import { Envelope, Seq, State } from "./events.ts";
+import { Envelope, Index, Page, Seq, State } from "./events.ts";
 
 const call = <M extends string, P extends z.ZodObject>(method: M, params: P) =>
   z.object({ method: z.literal(method), params });
@@ -14,6 +14,8 @@ const call = <M extends string, P extends z.ZodObject>(method: M, params: P) =>
 export const Call = z.discriminatedUnion("method", [
   /** Catch up from `since` (null: from nothing). */
   call("session.sync", z.object({ since: Seq.nullable() })),
+  /** Up to `limit` entities just before feed index `before`, for a state holding only the recent end. */
+  call("session.history", z.object({ before: Index, limit: z.int().min(1).max(200) })),
   call("chat.send", z.object({ text: z.string().min(1) })),
   /** Stop the agent's current reply. */
   call("chat.stop", z.object({})),
@@ -32,11 +34,12 @@ export type Method = Call["method"];
 const done = z.null();
 
 export const results = {
-  /** Events since `since` when the server still has them, else a snapshot. */
+  /** Events since `since` when the server still has them, else a snapshot of the recent end of the feed. */
   "session.sync": z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("events"), events: z.array(Envelope) }),
     z.object({ kind: z.literal("snapshot"), state: State }),
   ]),
+  "session.history": Page,
   "chat.send": z.object({ id: Id }),
   "chat.stop": done,
   "approval.resolve": done,
@@ -55,6 +58,7 @@ export type Results = { [M in Method]: z.infer<(typeof results)[M]> };
  */
 export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "session.sync": (raw) => results["session.sync"].parse(raw),
+  "session.history": (raw) => results["session.history"].parse(raw),
   "chat.send": (raw) => results["chat.send"].parse(raw),
   "chat.stop": (raw) => results["chat.stop"].parse(raw),
   "approval.resolve": (raw) => results["approval.resolve"].parse(raw),

@@ -1,9 +1,10 @@
 /**
  * The event log as a JSONL file (one Envelope per line, mode 600). Lines are
- * parsed with the protocol schema on load; loading stops at the first line
- * that is not the next valid event, and the file is cut back to the valid
- * prefix, so a torn final write is dropped rather than replayed — and the
- * next append starts on a clean line instead of gluing onto the torn one.
+ * parsed with the protocol schema on load. A torn final write (a last line
+ * without its newline) is cut off, so the next append starts on a clean
+ * line instead of gluing onto it. Any whole line that is not the next valid
+ * event — another version's format, a gap — stops the load with an error:
+ * the history is never cut to fit.
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, truncateSync } from "node:fs";
 import { dirname } from "node:path";
@@ -29,7 +30,8 @@ export function fileJournal(path: string): Journal {
         const end = content.indexOf(0x0a, start);
         if (end === -1) break; // no newline: a torn last write
         const parsed = Envelope.safeParse(parseLine(content.subarray(start, end).toString("utf8")));
-        if (!parsed.success || parsed.data.seq !== log.length + 1) break;
+        if (!parsed.success || parsed.data.seq !== log.length + 1)
+          throw new Error(`${path}: line ${log.length + 1} is not the next event this version can read; move the file aside to start over`);
         log.push(parsed.data);
         start = valid = end + 1;
       }

@@ -10,7 +10,6 @@ import {
   type Connection,
   type Entity,
   type Envelope,
-  type Event,
   type Handlers,
   type Params,
   type Reply,
@@ -20,9 +19,11 @@ import {
   apply,
   dispatch,
   empty,
+  recent,
 } from "@remuse/protocol";
 import {
   type AgentAction,
+  type Change,
   type Command,
   type Context,
   type Effect,
@@ -30,6 +31,7 @@ import {
   type Verdict,
   decide,
   decideAgent,
+  place,
   recover,
   verdict,
 } from "./decide.ts";
@@ -38,7 +40,7 @@ import {
  * What ports may record directly: what the agent says (its replies, streamed)
  * and what it is doing (the activity line). Everything else is an action.
  */
-export type Say = { kind: "upserted"; entity: Reply } | Extract<Event, { kind: "appended" | "activity" }>;
+export type Say = { kind: "upserted"; entity: Reply } | Extract<Change, { kind: "appended" | "activity" }>;
 export type Emit = (say: Say) => void;
 
 /** Ids that stay unique across restarts and processes (a journal outlives any counter). */
@@ -98,11 +100,19 @@ export class Rejected extends Error {
   }
 }
 
-export function createHost(
-  ports: Ports,
-  options: { seed?: Entity[]; clock?: Clock; journal?: Journal; ids?: (prefix: string) => string } = {},
-): Session {
+export interface HostOptions {
+  seed?: Entity[];
+  clock?: Clock;
+  journal?: Journal;
+  ids?: (prefix: string) => string;
+  /** Entities a snapshot holds (more while older ones are still in play); older ones come by session.history. */
+  snapshot?: number;
+}
+
+export function createHost(ports: Ports, options: HostOptions = {}): Session {
   const clock = options.clock ?? { now: () => new Date().toISOString() };
+  const snapshot = options.snapshot ?? 50;
+  /** the whole feed: the host never drops what clients may ask for */
   let state: State = empty;
   const log: Envelope[] = [];
   const listeners = new Set<(update: Update) => void>();
@@ -111,9 +121,9 @@ export function createHost(
     state = apply(state, envelope);
     log.push(envelope);
   };
-  /** Every event goes through here; ports only reach the Say subset of it (AgentIO.emit). */
-  const commit = (event: Event) => {
-    const envelope = { seq: state.seq + 1, event };
+  /** Every change is recorded here; ports only reach the Say subset of them (AgentIO.emit). */
+  const commit = (change: Change) => {
+    const envelope = { seq: state.seq + 1, event: place(state, change) };
     record(envelope);
     options.journal?.append(envelope);
     for (const listener of listeners) listener({ kind: "event", envelope });
@@ -139,7 +149,7 @@ export function createHost(
     act(action) {
       const decision = decideAgent(state, action.kind, action, context());
       if (!decision.ok) return decision;
-      decision.events.forEach(commit);
+      decision.changes.forEach(commit);
       decision.effects.forEach(run);
       return { ok: true, id: decision.output.id };
     },
@@ -167,7 +177,7 @@ export function createHost(
   const command = <M extends Command["method"]>(method: M, params: Params[M]) => {
     const decision = decide(state, { method, params }, context());
     if (!decision.ok) throw new Rejected(decision.rejection);
-    decision.events.forEach(commit);
+    decision.changes.forEach(commit);
     decision.effects.forEach(run);
     return decision.output;
   };
@@ -182,7 +192,12 @@ export function createHost(
     "session.sync": async ({ since }) =>
       since !== null && since <= state.seq && (log[0]?.seq ?? 1) <= since + 1
         ? { kind: "events", events: log.filter((e) => e.seq > since) }
-        : { kind: "snapshot", state },
+        : { kind: "snapshot", state: recent(state, snapshot) },
+    "session.history": async ({ before, limit }) => {
+      const end = Math.min(before, state.entities.length);
+      const start = Math.max(0, end - limit);
+      return { seq: state.seq, earlier: start, entities: state.entities.slice(start, end) };
+    },
     "chat.send": async (params) => command("chat.send", params),
     "chat.stop": async (params) => command("chat.stop", params),
     "approval.resolve": async (params) => command("approval.resolve", params),

@@ -45,7 +45,7 @@ export default function App() {
 function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
   const [link, setLink] = useState(() => openSession(where));
   const { session } = link;
-  const conversation = useConversation(session);
+  const { state: conversation, older, release } = useConversation(session);
   const [ui, setUi] = useState<Ui>(initialUi);
   const [settings, setSettings] = useState(seedSettings);
 
@@ -140,7 +140,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
       <IconRail />
       {/* with the viewer open on desktop, the chat keeps the left 482px (Muse layout) */}
       <div className={`relative flex min-w-0 flex-1 flex-col ${ui.viewer ? "lg:max-w-[410px]" : ""}`}>
-        <ChatFeed conversation={conversation} thumb={where.kind === "server" ? where.thumb : null} actions={actions} />
+        <ChatFeed conversation={conversation} older={older} release={release} thumb={where.kind === "server" ? where.thumb : null} actions={actions} />
         <TopBar conversation={conversation} />
         <MenuButton open={ui.chatsOpen} actions={actions} />
         <TaskPill conversation={conversation} actions={actions} />

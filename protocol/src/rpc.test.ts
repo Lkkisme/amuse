@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Call, type Handlers, Request, dispatch, results } from "./index.ts";
+import { Call, type Handlers, Request, dispatch, empty, results } from "./index.ts";
 
 const handlers: Handlers = {
-  "session.sync": async () => ({ kind: "snapshot", state: { seq: 0, entities: [], activity: null } }),
+  "session.sync": async () => ({ kind: "snapshot", state: empty }),
+  "session.history": async () => ({ seq: 0, earlier: 0, entities: [] }),
   "chat.send": async ({ text }) => ({ id: `p:${text}` }),
   "chat.stop": async () => null,
   "approval.resolve": async () => null,
