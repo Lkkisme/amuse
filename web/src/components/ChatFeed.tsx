@@ -73,10 +73,15 @@ function TimeDivider({ time }: { time: string }) {
   );
 }
 
+/** px from the bottom past which the jump-to-bottom button shows */
+const JUMP_BUTTON_DISTANCE = 240;
+
 export function ChatFeed({ state, actions }: { state: DemoState; actions: MuseActions }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
+  /** far enough from the bottom to offer the jump button, new messages or not */
+  const [far, setFar] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
   const seenRef = useRef(state.feed.length);
   const atBottomRef = useRef(true);
@@ -92,7 +97,9 @@ export function ChatFeed({ state, actions }: { state: DemoState; actions: MuseAc
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
-    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const near = distance < 80;
+    setFar(distance > JUMP_BUTTON_DISTANCE);
     if (near !== atBottomRef.current) {
       atBottomRef.current = near;
       setAtBottom(near);
@@ -160,15 +167,16 @@ export function ChatFeed({ state, actions }: { state: DemoState; actions: MuseAc
         )}
         <div ref={bottomRef} />
       </div>
-      {/* Jump-to-latest pill (Muse): appears when new messages arrive while scrolled up. */}
-      {pendingCount > 0 && (
+      {/* Jump-to-bottom pill (Muse refs 09-waiting, 14-mobile-chat): shows whenever the
+          view is far from the bottom; "N messages" if new ones arrived, else "See more". */}
+      {(far || pendingCount > 0) && !atBottom && (
         <button
-          className="absolute bottom-24 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full px-4 py-2 text-[14px] font-semibold"
-          style={{ background: "var(--fill-blue)", color: "#fff", boxShadow: "0 2px 8px rgba(0,0,0,0.15)" }}
+          className="anim-fade-in absolute bottom-[86px] left-1/2 z-30 flex -translate-x-1/2 items-center gap-1 rounded-full py-1.5 pl-3 pr-2 text-[12px] font-semibold"
+          style={{ background: "var(--chat-user-bubble)", color: "var(--chat-user-text)", boxShadow: "0 1px 6px rgba(0,0,0,0.10)" }}
           onClick={scrollToBottom}
         >
-          {pendingCount} {pendingCount === 1 ? "message" : "messages"}
-          <ChevronDown size={16} />
+          {pendingCount > 0 ? `${pendingCount} ${pendingCount === 1 ? "message" : "messages"}` : "See more"}
+          <ChevronDown size={14} />
         </button>
       )}
       {/* Muse-style scroll fade: a mask dissolves the content itself under the

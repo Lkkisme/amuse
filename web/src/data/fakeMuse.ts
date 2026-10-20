@@ -99,9 +99,23 @@ export interface ViewerState {
 
 export type ActivityStatus = "idle" | "working" | "connected";
 
+/**
+ * Line under the Muse name on the avatar badge, e.g. "Reading entry" (globe),
+ * "is responding" (list), "Opening page" / "Filling form" / "Re-observing
+ * page" (tools). Refs 02-run-*, 03-form-*, 11-done.
+ */
+export interface AgentStatus {
+  icon: "web" | "list" | "tool";
+  text: string;
+}
+
 export interface DemoState {
   feed: FeedItem[];
   assistantThinking: boolean;
+  /** scripted activity; null falls back to "is responding" while thinking/streaming */
+  agentStatus: AgentStatus | null;
+  /** task whose detail sheet is open */
+  taskDetail: string | null;
   /** right activity panel: idle (closed) / working / connected */
   activityStatus: ActivityStatus;
   activityOpen: boolean;
@@ -120,6 +134,8 @@ export interface DemoState {
 export function seedDemo(): DemoState {
   return {
     assistantThinking: false,
+    agentStatus: null,
+    taskDetail: null,
     activityStatus: "idle",
     activityOpen: false,
     chatsOpen: false,
@@ -334,6 +350,17 @@ export function updateCard<K extends keyof CardPayloads>(
     const payload = (item as unknown as Record<K, CardPayloads[K]>)[kind];
     return payload.id === id ? ({ ...item, [kind]: fn(payload) } as FeedItem) : item;
   });
+}
+
+export function findTask(feed: FeedItem[], id: string): Task | undefined {
+  for (const item of feed) if (item.role === "card" && item.kind === "task" && item.task.id === id) return item.task;
+  return undefined;
+}
+
+/** The browser run the floating task pill follows: newest waiting one, else newest working one. */
+export function pillBrowser(feed: FeedItem[]): BrowserRun | undefined {
+  const runs = feed.flatMap((i) => (i.role === "card" && i.kind === "browser" ? [i.browser] : [])).reverse();
+  return runs.find((b) => b.status === "waiting") ?? runs.find((b) => b.status === "working");
 }
 
 export function findBrowser(feed: FeedItem[], id: string): BrowserRun | undefined {

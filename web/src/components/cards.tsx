@@ -53,7 +53,12 @@ export function TaskCard({ task, actions }: { task: Task; actions: MuseActions }
             <p className="truncate text-[15px] font-semibold" style={{ color: "var(--text-primary)" }}>
               {task.title}
             </p>
-            <button aria-label="Open task details" className="shrink-0 rounded p-0.5" style={{ color: "var(--icon-secondary)" }}>
+            <button
+              aria-label="Open task details"
+              className="hover-fade shrink-0 rounded p-0.5"
+              style={{ color: "var(--icon-secondary)" }}
+              onClick={() => actions.openTaskDetail(task.id)}
+            >
               <ChevronRight size={16} />
             </button>
           </div>

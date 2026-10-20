@@ -16,6 +16,8 @@ import { TopBar } from "./components/TopBar";
 import { SettingsModal } from "./components/SettingsModal";
 import { ExplainerModal } from "./components/ExplainerModal";
 import { Viewer } from "./components/Viewer";
+import { TaskPill } from "./components/TaskPill";
+import { TaskDetailSheet } from "./components/TaskDetailSheet";
 
 let idSeq = 100;
 const nextId = (prefix: string) => `${prefix}${idSeq++}`;
@@ -90,8 +92,12 @@ export default function App() {
       stopAssistant() {
         timers.current.forEach(clearTimeout);
         timers.current = [];
-        setState((s) => ({ ...s, assistantThinking: false, activityStatus: "connected" }));
+        setState((s) => ({ ...s, assistantThinking: false, agentStatus: null, activityStatus: "connected" }));
         patchFeed((feed) => feed.map((m) => (m.role === "agent" && m.streaming ? { ...m, streaming: false } : m)));
+      },
+
+      openTaskDetail(taskId) {
+        setState((s) => ({ ...s, taskDetail: taskId }));
       },
 
       resolveApproval(id, approved) {
@@ -174,8 +180,12 @@ export default function App() {
       handBack(browserId) {
         // Muse: Done returns the browser; the agent re-observes the page, then finishes.
         patchBrowser(browserId, { control: "agent", status: "working" });
-        streamAgentReply("Thanks, I have the browser back. Re-checking the page and finishing up.");
-        later(() => patchBrowser(browserId, { status: "completed" }), 2500);
+        setState((s) => ({ ...s, agentStatus: { icon: "tool", text: "Re-observing page" } }));
+        later(() => {
+          patchBrowser(browserId, { status: "completed" });
+          setState((s) => ({ ...s, agentStatus: null }));
+          streamAgentReply("Thanks, I have the browser back. The page checks out and the run is **complete**.");
+        }, 2500);
       },
       viewerStop(browserId) {
         patchBrowser(browserId, { control: "agent", status: "stopped" });
@@ -241,6 +251,7 @@ export default function App() {
       <div className={`relative flex min-w-0 flex-1 flex-col ${state.viewer ? "lg:max-w-[410px]" : ""}`}>
         <ChatFeed state={state} actions={actions} />
         <TopBar state={state} actions={actions} />
+        <TaskPill state={state} actions={actions} />
         <Composer assistantThinking={state.assistantThinking} actions={actions} />
       </div>
 
@@ -248,6 +259,7 @@ export default function App() {
       <ChatsPanel state={state} actions={actions} />
       <SettingsModal state={state} actions={actions} />
       <ExplainerModal state={state} actions={actions} />
+      <TaskDetailSheet state={state} actions={actions} />
       <Viewer state={state} actions={actions} />
     </div>
   );

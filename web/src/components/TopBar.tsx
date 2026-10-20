@@ -1,9 +1,18 @@
 /**
- * Top chrome: '☰ Chats' pill top-left (opens the Chats panel), centered Muse
- * avatar bubble, 'Invite' pill top-right.
+ * Top chrome: '☰ Chats' pill top-left (opens the Chats panel) and the centered
+ * Muse avatar with its name badge. While Muse works, the badge grows a status
+ * line ("is responding", "Re-observing page", ...).
  */
-import { Menu } from "lucide-react";
-import type { DemoState } from "../data/fakeMuse";
+import { Globe, List, Menu, Wrench } from "lucide-react";
+import type { AgentStatus, DemoState } from "../data/fakeMuse";
+
+const STATUS_ICONS = { web: Globe, list: List, tool: Wrench } as const;
+
+function currentStatus(state: DemoState): AgentStatus | null {
+  if (state.agentStatus) return state.agentStatus;
+  const streaming = state.feed.some((i) => i.role === "agent" && i.streaming);
+  return state.assistantThinking || streaming ? { icon: "list", text: "is responding" } : null;
+}
 import type { MuseActions } from "./actions";
 
 export function TopBar({ state, actions }: { state: DemoState; actions: MuseActions }) {
@@ -29,14 +38,33 @@ export function TopBar({ state, actions }: { state: DemoState; actions: MuseActi
         >
           M
         </span>
-        <span
-          className="-mt-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold"
-          style={{ background: "var(--fill-primary)", color: "var(--text-secondary)", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}
-        >
-          Muse
-        </span>
+        <AvatarBadge status={currentStatus(state)} />
       </div>
 
     </header>
+  );
+}
+
+function AvatarBadge({ status }: { status: AgentStatus | null }) {
+  const Icon = status ? STATUS_ICONS[status.icon] : null;
+  return (
+    <span
+      className="-mt-1.5 flex flex-col items-center rounded-full px-2.5 py-0.5 transition-all duration-200"
+      style={{ background: "var(--fill-primary)", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}
+    >
+      <span className="text-[11px] font-semibold" style={{ color: "var(--text-primary)" }}>
+        Muse
+      </span>
+      {status && Icon && (
+        <span
+          key={status.text}
+          className="anim-fade-in flex items-center gap-1 whitespace-nowrap text-[10px]"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          <Icon size={10} />
+          {status.text}
+        </span>
+      )}
+    </span>
   );
 }

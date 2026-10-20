@@ -10,6 +10,7 @@ export interface MuseActions {
   stopAssistant(): void;
   submitTaskForm(taskId: string, values: Record<string, string>): void;
   resolveApproval(id: string, approved: boolean): void;
+  openTaskDetail(taskId: string | null): void;
 
   // Connection request card + explainer modal
   requestConnect(connreqId: string): void;
