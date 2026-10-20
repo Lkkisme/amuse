@@ -87,6 +87,12 @@ const emailIn = (idToken: string): string | null => {
 /** What tells an account apart: its email where there is one, else its display name. */
 const labelOf = (data: z.infer<typeof ConnectedAccounts>["items"][number]["data"]): string | null =>
   data?.email || (data?.id_token ? emailIn(data.id_token) : null) || data?.displayName || null;
+/** Composio search's answer (Google's, through SerpAPI): only the plain results are kept. */
+const SearchResults = z.object({
+  results: z.object({
+    organic_results: z.array(z.object({ title: z.string(), link: z.url(), snippet: z.string().default("") })).default([]),
+  }),
+});
 const Executed = z.object({ successful: z.boolean(), data: z.unknown(), error: z.string().nullable().default(null) });
 
 export interface AppTool {
@@ -120,6 +126,8 @@ export interface Composio {
   tools(toolkit: string, search: string): Promise<AppTool[]>;
   /** One tool, by its slug. */
   tool(slug: string): Promise<AppTool>;
+  /** A Google search through Composio's own search toolkit (no account needed): the plain results. */
+  search(userId: string, query: string): Promise<{ title: string; url: string; snippet: string }[]>;
   /** Every toolkit there is to connect, most used first (no-auth and deprecated ones left out). */
   toolkits(): Promise<Toolkit[]>;
   /** `userId`'s accounts (of one toolkit, if given), as Composio has them (status upper-case: ACTIVE, EXPIRED, …). */
@@ -194,6 +202,12 @@ export function composio(apiKey: string, http: typeof fetch = fetch): Composio {
       return unique.map((t) => ({ slug: t.slug, name: t.name, description: t.description, tags: t.tags, parameters: t.input_parameters.properties, required: t.input_parameters.required }));
     },
     tool: async (slug) => appTool(await call(Tool, `/tools/${encodeURIComponent(slug)}`)),
+    async search(userId, query) {
+      const result = await call(Executed, "/tools/execute/COMPOSIO_SEARCH_SEARCH", { method: "POST", body: { user_id: userId, arguments: { query } } });
+      if (!result.successful) throw new ComposioError(`search failed: ${result.error ?? "unknown"}`);
+      const found = SearchResults.safeParse(result.data);
+      return found.success ? found.data.results.organic_results.map((r) => ({ title: r.title, url: r.link, snippet: r.snippet })) : [];
+    },
     async toolkits() {
       const all: Toolkit[] = [];
       let cursor: string | null = null;

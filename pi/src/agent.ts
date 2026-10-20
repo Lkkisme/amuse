@@ -11,6 +11,7 @@ import { redact } from "./redact.ts";
 import { type PiModelConfig, type PiSession, openSession, secretsOf } from "./session.ts";
 import { statusOf } from "./status.ts";
 import { type Apps, appTools, tools } from "./tools.ts";
+import { type Search, webTools } from "./web.ts";
 
 export interface PiConfig extends PiModelConfig {
   system: string;
@@ -18,6 +19,8 @@ export interface PiConfig extends PiModelConfig {
   apps?: Apps;
   /** the user's rules (sites the agent may not browse) */
   rules: Rules;
+  /** A web search, where one is configured (web_read works without). */
+  search?: Search;
 }
 
 const toolLabels: Record<string, string> = {
@@ -54,7 +57,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt"> {
       reply = undefined;
     };
     try {
-      session = await openSession(cfg, cfg.system, [...tools(io, cfg.rules), ...(cfg.apps ? appTools(io, cfg.apps) : [])]);
+      session = await openSession(cfg, cfg.system, [...tools(io, cfg.rules), ...webTools(cfg.rules, cfg.search), ...(cfg.apps ? appTools(io, cfg.apps) : [])]);
       const pi = session.session;
       if (!live()) return;
       let failure: string | undefined;

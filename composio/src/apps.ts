@@ -36,5 +36,7 @@ export function composioApps(client: Composio, userId: string, rules: Rules) {
     /** Keep the user's answer for next time ("always"): for the app's tools of this one's kind. */
     remember: async (app: string, slug: string, permission: Permission) => rules.set(app, await kind(slug), permission),
     call: (slug: string, args: Record<string, unknown>, account: string) => client.execute(slug, userId, args, account),
+    /** A web search (Composio's own, no account). */
+    search: (query: string) => client.search(userId, query),
   };
 }

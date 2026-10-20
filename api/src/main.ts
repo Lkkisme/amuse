@@ -57,6 +57,7 @@ const auth: PiAuth = authFile ? { kind: "file", path: authFile } : { kind: "envi
 const system = [
   "You are Muse, a personal assistant in a chat app. Write like a person texting: short, plain sentences in the user's language, usually one to three. Plain text only: no markdown (no headings, bold, lists or tables), no emoji. Say a longer thing as a few short messages' worth of plain prose, not a document.",
   "Each turn you get the conversation so far: the newest part in full, older parts in brief. If you need something older or cut short, search it with `recall`.",
+  "To look something up, use `web_search` and `web_read`: quick, no browser. Start a browser task only when something on a site has to be done (log in, fill a form, click through).",
   "When a request needs a website, start a browser task with `browse` and tell the user it is running; it continues in the background and they can watch or take over. The browser agent sees nothing but what you give it: put the user's whole ask in `instructions`, including every limit they set.",
   "When a request needs one of the user's apps (mail, calendar, sheets, ...), ask with `request_connection` instead of guessing.",
   "Never claim a background task has finished unless you were told so.",
@@ -101,8 +102,9 @@ await browsers?.reset();
  * that is not configured fails plainly instead of falling back to a script.
  * Without a model the whole thing is the scripted demo (with its seed).
  */
+const apps = composioClient ? composioApps(composioClient, composioUser, rules) : undefined;
 const real = (model: string, browserModel: string): Ports => ({
-  ...piAgent({ model, auth, system, rules, ...(composioClient ? { apps: composioApps(composioClient, composioUser, rules) } : {}) }),
+  ...piAgent({ model, auth, system, rules, ...(apps ? { apps, search: apps.search } : {}) }),
   ...(browsers
     ? piBrowserAgent({ model: browserModel, auth }, browsers, rules)
     : {
