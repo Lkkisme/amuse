@@ -294,7 +294,7 @@ function SecureStoreSection({ state, actions }: { state: DemoState; actions: Mus
 
   return (
     <div className="flex-1 overflow-y-auto p-5">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-4 pr-10">
         <p className="text-[14px]" style={{ color: "var(--text-secondary)" }}>
           Securely store passwords for your agent to use.
         </p>
@@ -413,18 +413,21 @@ export function SettingsModal({ state, actions }: { state: DemoState; actions: M
     <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/30" onClick={() => actions.closeSettings()} />
       <div
-        className="anim-modal-in relative flex h-[72vh] max-h-[620px] w-full max-w-3xl overflow-hidden rounded-2xl"
+        className="anim-modal-in relative flex h-[72vh] max-h-[620px] w-full max-w-3xl flex-col overflow-hidden rounded-2xl sm:flex-row"
         style={{ background: "var(--fill-primary)", boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}
       >
-        {/* left nav */}
-        <nav className="flex w-[220px] shrink-0 flex-col gap-1 p-4" style={{ borderRight: "1px solid var(--fill-divider)" }}>
-          <p className="px-2 pb-2 text-[19px] font-semibold" style={{ color: "var(--text-primary)" }}>
+        {/* left nav — horizontal icon row on mobile, column on sm+ */}
+        <nav
+          className="flex shrink-0 items-center gap-1 overflow-x-auto border-b p-2 sm:w-[220px] sm:flex-col sm:items-stretch sm:border-b-0 sm:border-r sm:p-4"
+          style={{ borderColor: "var(--fill-divider)" }}
+        >
+          <p className="hidden px-2 pb-2 text-[19px] font-semibold sm:block" style={{ color: "var(--text-primary)" }}>
             Settings
           </p>
           {NAV.map((n) => (
             <button
               key={n.id}
-              className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15px] font-medium"
+              className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl px-3 py-2 text-left text-[14px] font-medium sm:gap-3 sm:py-2.5 sm:text-[15px]"
               style={{
                 background: state.settingsSection === n.id ? "var(--fill-secondary)" : "transparent",
                 color: "var(--text-primary)",
@@ -439,7 +442,7 @@ export function SettingsModal({ state, actions }: { state: DemoState; actions: M
             </button>
           ))}
           <button
-            className="mt-auto flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15px] font-medium"
+            className="mt-auto hidden items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15px] font-medium sm:flex"
             style={{ color: "var(--text-secondary)" }}
             onClick={() => actions.resetDemo()}
           >

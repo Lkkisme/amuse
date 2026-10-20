@@ -15,15 +15,19 @@ interface Receipt {
   done: boolean;
 }
 
+function plain(text: string): string {
+  return text.replace(/[*`]/g, "");
+}
+
 function receiptsFromFeed(feed: FeedItem[]): Receipt[] {
   const out: Receipt[] = [];
   for (const item of feed) {
     if (item.role === "user") {
-      out.push({ title: "You asked Muse", sub: item.text, time: item.time, done: true });
+      out.push({ title: "You asked Muse", sub: plain(item.text), time: item.time, done: true });
     } else if (item.role === "agent") {
       out.push({
         title: item.streaming ? "Muse is replying" : "Muse replied",
-        sub: item.text.slice(0, 80) || "Composing a response…",
+        sub: plain(item.text.slice(0, 80)) || "Composing a response…",
         time: item.time,
         done: !item.streaming,
       });
