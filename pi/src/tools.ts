@@ -63,9 +63,29 @@ export function tools(io: () => AgentIO): ToolDefinition[] {
 
 /** A connected-apps provider (Composio implements it). */
 export interface Apps {
-  connected(app: string): Promise<boolean>;
+  /** The app's working accounts (an app may have several: two Gmail addresses). */
+  accounts(app: string): Promise<{ id: string; label: string | null }[]>;
   tools(app: string, query: string): Promise<{ slug: string; name: string; description: string; parameters: Record<string, unknown>; required: string[] }[]>;
-  call(slug: string, args: Record<string, unknown>): Promise<{ ok: true; data: unknown } | { ok: false; error: string }>;
+  call(slug: string, args: Record<string, unknown>, account: string): Promise<{ ok: true; data: unknown } | { ok: false; error: string }>;
+}
+
+type AppAccount = Awaited<ReturnType<Apps["accounts"]>>[number];
+const named = (a: AppAccount) => a.label ?? a.id;
+
+/**
+ * The account to act as: the one there is, or the one asked for (by label or id).
+ * Text for the agent when that does not settle it.
+ */
+export function pick(app: string, accounts: AppAccount[], asked: string | undefined): { ok: true; account: AppAccount } | { ok: false; text: string } {
+  if (accounts.length === 0) return { ok: false, text: `${app} is not connected. Call request_connection for it first.` };
+  const wanted = asked?.trim().toLowerCase();
+  if (wanted) {
+    const found = accounts.find((a) => a.id.toLowerCase() === wanted || a.label?.toLowerCase() === wanted);
+    return found ? { ok: true, account: found } : { ok: false, text: `No ${app} account "${asked}". Its accounts: ${accounts.map(named).join(", ")}.` };
+  }
+  const only = accounts[0];
+  if (accounts.length === 1 && only) return { ok: true, account: only };
+  return { ok: false, text: `${app} has several accounts: ${accounts.map(named).join(", ")}. Pass \`account\`; ask the user which if it is not clear.` };
 }
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
@@ -74,7 +94,6 @@ const appOf = (slug: string) => slug.split("_")[0]?.toLowerCase() ?? "";
 
 /** Find and use actions of the user's connected apps; consequential ones need approval. */
 export function appTools(io: () => AgentIO, apps: Apps): ToolDefinition[] {
-  const notConnected = (app: string) => text(`${app} is not connected. Call request_connection for it first.`);
   return [
     defineTool({
       name: "app_tools",
@@ -82,13 +101,15 @@ export function appTools(io: () => AgentIO, apps: Apps): ToolDefinition[] {
       description: "Find actions of a connected app (e.g. app 'gmail', query 'latest emails'). Returns action slugs with their arguments.",
       parameters: Type.Object({ status, app: Type.String({ description: "Lowercase app id, e.g. gmail, googlecalendar, googlesheets, github" }), query: Type.String() }),
       async execute(_, { app, query }) {
-        if (!(await apps.connected(app))) return notConnected(app);
+        const accounts = await apps.accounts(app);
+        if (accounts.length === 0) return text(`${app} is not connected. Call request_connection for it first.`);
         const found = await apps.tools(app, query);
         if (found.length === 0) return text(`No ${app} actions match "${query}".`);
+        const which = accounts.length > 1 ? `\n\n${app} accounts: ${accounts.map(named).join(", ")} (pass \`account\` to app_call).` : "";
         return text(
           found
             .map((t) => `- ${t.slug}: ${clip(t.description, 300)}\n  args: ${clip(JSON.stringify(t.parameters), 700)}\n  required: ${t.required.join(", ") || "none"}`)
-            .join("\n"),
+            .join("\n") + which,
         );
       },
     }),
@@ -97,21 +118,29 @@ export function appTools(io: () => AgentIO, apps: Apps): ToolDefinition[] {
       label: "Use an app",
       description:
         "Run an app action found with app_tools. Reading runs at once. Actions that send, change, delete or pay are posted for the user's approval and run in the background once approved; you will get a report.",
-      parameters: Type.Object({ status, action: Type.String({ description: "Action slug, e.g. GMAIL_FETCH_EMAILS" }), arguments: Type.Record(Type.String(), Type.Unknown()) }),
-      async execute(_, { action, arguments: args }) {
+      parameters: Type.Object({
+        status,
+        action: Type.String({ description: "Action slug, e.g. GMAIL_FETCH_EMAILS" }),
+        arguments: Type.Record(Type.String(), Type.Unknown()),
+        account: Type.Optional(Type.String({ description: "Which account (its email or id), when the app has several" })),
+      }),
+      async execute(_, { action, arguments: args, account: asked }) {
         const app = appOf(action);
-        if (!(await apps.connected(app))) return notConnected(app);
+        const chosen = pick(app, await apps.accounts(app), asked);
+        if (!chosen.ok) return text(chosen.text);
+        const { account } = chosen;
         const outcome = (r: Awaited<ReturnType<Apps["call"]>>) => untrusted(r.ok ? clip(JSON.stringify(r.data), 12_000) : `failed: ${r.error}`);
-        if (!consequential(action)) return text(outcome(await apps.call(action, args)));
+        if (!consequential(action)) return text(outcome(await apps.call(action, args, account.id)));
         // never hold the chat for an approval: ask, return, and finish in the background
         const agent = io();
         const label = action.replaceAll("_", " ").toLowerCase();
         // the user approves exactly what will run: every argument (a huge one, e.g. an attachment, is cut and says so)
-        const asked = agent.act({ kind: "ask", action: label, target: app, detail: clip(JSON.stringify(args, null, 2), 20_000) });
-        if (!asked.ok) return text(`Could not ask for approval: ${describe(asked.rejection)}.`);
-        void agent.decision(asked.id).then(async (verdict) => {
+        // ...and as which account
+        const approval = agent.act({ kind: "ask", action: label, target: account.label ? `${app} (${account.label})` : app, detail: clip(JSON.stringify(args, null, 2), 20_000) });
+        if (!approval.ok) return text(`Could not ask for approval: ${describe(approval.rejection)}.`);
+        void agent.decision(approval.id).then(async (verdict) => {
           if (verdict === "denied") return agent.report(`[app action "${label}" declined by the user]`);
-          const result = await apps.call(action, args).catch((e: unknown) => ({ ok: false as const, error: String(e) }));
+          const result = await apps.call(action, args, account.id).catch((e: unknown) => ({ ok: false as const, error: String(e) }));
           agent.report(`[app action "${label}" done]\n${outcome(result)}`);
         });
         return text("Posted for the user's approval. It runs once they approve; you will get a report. Tell the user briefly.");

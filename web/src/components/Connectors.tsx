@@ -88,7 +88,7 @@ export function Connectors({ session }: { session: Session }) {
   };
 
   const connectedApps = new Set((accounts ?? []).filter((a) => a.status === "active").map((a) => a.app.id));
-  const shownAccounts = (accounts ?? []).filter((a) => !query || `${a.app.id} ${a.app.name}`.toLowerCase().includes(query.toLowerCase()));
+  const shownAccounts = (accounts ?? []).filter((a) => !query || `${a.app.id} ${a.app.name} ${a.label ?? ""}`.toLowerCase().includes(query.toLowerCase()));
 
   return (
     <div className="flex min-h-0 flex-1 flex-col px-5 pt-4 sm:px-6">
@@ -158,22 +158,41 @@ export function Connectors({ session }: { session: Session }) {
         ) : shownAccounts.length === 0 ? (
           <Note>{query ? `No connected app matches “${query}”.` : "Nothing connected yet. Connect apps under Available, or ask Muse to."}</Note>
         ) : (
-          <ul className="divide-y" style={{ borderColor: "var(--fill-divider)" }}>
-            {shownAccounts.map((account) => (
-              <Row key={account.id} app={account.app} sub={account.status === "active" ? "Connected" : account.status === "expired" ? "Expired: connect it again" : "Failed: connect it again"} warn={account.status !== "active"}>
-                <div className="flex items-center gap-1.5">
-                  {account.status !== "active" && (
-                    <Pill disabled={busy === account.app.id} onClick={() => connect(account.app.id)}>
-                      Reconnect
-                    </Pill>
-                  )}
-                  <Pill tone="danger" disabled={busy === account.id} onClick={() => disconnect(account.id)}>
-                    Disconnect
+          <div className="flex flex-col gap-3">
+            {byApp(shownAccounts).map(({ app, accounts: mine }) => (
+              <section key={app.id} className="rounded-[18px] px-3 py-1" style={{ background: "var(--fill-secondary)" }}>
+                <Row app={app} sub={mine.length === 1 ? "1 account" : `${mine.length} accounts`}>
+                  <Pill disabled={busy === app.id} onClick={() => connect(app.id)}>
+                    Add account
                   </Pill>
-                </div>
-              </Row>
+                </Row>
+                <ul className="border-t pb-1" style={{ borderColor: "var(--fill-divider)" }}>
+                  {mine.map((account, i) => (
+                    <li key={account.id} className="flex items-center gap-3 py-2 pl-12">
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[14px]" style={{ color: "var(--text-primary)" }}>
+                          {account.label ?? `Account ${i + 1}`}
+                        </span>
+                        {account.status !== "active" && (
+                          <span className="block text-[12px]" style={{ color: "var(--fill-orange)" }}>
+                            {account.status === "expired" ? "Expired: connect it again" : "Failed: connect it again"}
+                          </span>
+                        )}
+                      </span>
+                      {account.status !== "active" && (
+                        <Pill disabled={busy === app.id} onClick={() => connect(app.id)}>
+                          Reconnect
+                        </Pill>
+                      )}
+                      <Pill tone="danger" disabled={busy === account.id} onClick={() => disconnect(account.id)}>
+                        Disconnect
+                      </Pill>
+                    </li>
+                  ))}
+                </ul>
+              </section>
             ))}
-          </ul>
+          </div>
         )}
       </div>
     </div>
@@ -208,6 +227,17 @@ function Pill({ tone = "plain", disabled = false, onClick, children }: { tone?: 
       {children}
     </button>
   );
+}
+
+/** Accounts under their app, apps in the order their first account came. */
+function byApp(accounts: Account[]): { app: App; accounts: Account[] }[] {
+  const groups = new Map<string, { app: App; accounts: Account[] }>();
+  for (const account of accounts) {
+    const group = groups.get(account.app.id);
+    if (group) group.accounts.push(account);
+    else groups.set(account.app.id, { app: account.app, accounts: [account] });
+  }
+  return [...groups.values()];
 }
 
 const Note = ({ children }: { children: React.ReactNode }) => (

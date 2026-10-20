@@ -17,7 +17,8 @@ export const App = z.object({
 /** expired: it worked, and needs authorizing again */
 export const AccountStatus = z.enum(["active", "expired", "failed"]);
 
-export const Account = z.object({ id: Id, app: App, status: AccountStatus });
+/** One account of an app; an app may have several (two Gmail addresses). `label` tells them apart (an email, a name). */
+export const Account = z.object({ id: Id, app: App, label: z.string().nullable(), status: AccountStatus });
 
 export type App = z.infer<typeof App>;
 export type Account = z.infer<typeof Account>;

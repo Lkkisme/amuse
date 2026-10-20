@@ -13,7 +13,7 @@ const all = [
   tk("zoho_mail", "Zoho Mail", "Email hosting"),
   tk("notion", "Notion", "Notes and docs"),
 ];
-const directory = (accounts: { id: string; toolkit: string; status: string }[] = []) =>
+const directory = (accounts: { id: string; toolkit: string; status: string; label: string | null }[] = []) =>
   composioDirectory(
     {
       toolkits: async () => all,
@@ -43,9 +43,9 @@ test("every word must match", async () => {
 
 test("accounts carry their app, and only settled ones show", async () => {
   const accounts = await directory([
-    { id: "ca_1", toolkit: "gmail", status: "ACTIVE" },
-    { id: "ca_2", toolkit: "notion", status: "EXPIRED" },
-    { id: "ca_3", toolkit: "github", status: "INITIATED" },
+    { id: "ca_1", toolkit: "gmail", status: "ACTIVE", label: "me@example.com" },
+    { id: "ca_2", toolkit: "notion", status: "EXPIRED", label: null },
+    { id: "ca_3", toolkit: "github", status: "INITIATED", label: null },
   ]).accounts();
-  assert.deepEqual(accounts.map((a) => [a.id, a.app.name, a.status]), [["ca_1", "Gmail", "active"], ["ca_2", "Notion", "expired"]]);
+  assert.deepEqual(accounts.map((a) => [a.id, a.app.name, a.label, a.status]), [["ca_1", "Gmail", "me@example.com", "active"], ["ca_2", "Notion", null, "expired"]]);
 });

@@ -48,9 +48,35 @@ const Toolkits = z.object({
   ),
   next_cursor: z.string().nullable().default(null),
 });
+/** Only what tells an account apart is read from its data; the tokens in it are never touched. */
 const ConnectedAccounts = z.object({
-  items: z.array(z.object({ id: z.string(), status: z.string(), toolkit: z.object({ slug: z.string() }) })),
+  items: z.array(
+    z.object({
+      id: z.string(),
+      status: z.string(),
+      toolkit: z.object({ slug: z.string() }),
+      data: z.looseObject({ displayName: z.string().optional(), email: z.string().optional(), id_token: z.string().optional() }).nullable().default(null),
+    }),
+  ),
 });
+
+/** The email in an OpenID id_token's claims (its middle part, base64url JSON); the token is not kept. */
+const emailIn = (idToken: string): string | null => {
+  const claims = z.looseObject({ email: z.string() }).safeParse(
+    (() => {
+      try {
+        return JSON.parse(Buffer.from(idToken.split(".")[1] ?? "", "base64url").toString("utf8"));
+      } catch {
+        return null;
+      }
+    })(),
+  );
+  return claims.success ? claims.data.email : null;
+};
+
+/** What tells an account apart: its email where there is one, else its display name. */
+const labelOf = (data: z.infer<typeof ConnectedAccounts>["items"][number]["data"]): string | null =>
+  data?.email || (data?.id_token ? emailIn(data.id_token) : null) || data?.displayName || null;
 const Executed = z.object({ successful: z.boolean(), data: z.unknown(), error: z.string().nullable().default(null) });
 
 export interface AppTool {
@@ -83,12 +109,12 @@ export interface Composio {
   tools(toolkit: string, search: string): Promise<AppTool[]>;
   /** Every toolkit there is to connect, most used first (no-auth and deprecated ones left out). */
   toolkits(): Promise<Toolkit[]>;
-  /** `userId`'s accounts, as Composio has them (status upper-case: ACTIVE, EXPIRED, …). */
-  accounts(userId: string): Promise<{ id: string; toolkit: string; status: string }[]>;
+  /** `userId`'s accounts (of one toolkit, if given), as Composio has them (status upper-case: ACTIVE, EXPIRED, …). */
+  accounts(userId: string, toolkit?: string): Promise<{ id: string; toolkit: string; status: string; label: string | null }[]>;
   /** Delete a connected account. */
   remove(account: string): Promise<void>;
-  /** Run a tool for `userId`; the tool's result, or its error. */
-  execute(slug: string, userId: string, args: Record<string, unknown>): Promise<{ ok: true; data: unknown } | { ok: false; error: string }>;
+  /** Run a tool for `userId`, as `account` when they have several; the tool's result, or its error. */
+  execute(slug: string, userId: string, args: Record<string, unknown>, account?: string): Promise<{ ok: true; data: unknown } | { ok: false; error: string }>;
 }
 
 export function composio(apiKey: string, http: typeof fetch = fetch): Composio {
@@ -160,15 +186,17 @@ export function composio(apiKey: string, http: typeof fetch = fetch): Composio {
       }
       return all;
     },
-    async accounts(userId) {
-      const { items } = await call(ConnectedAccounts, "/connected_accounts", { query: { user_ids: userId, limit: "100" } });
-      return items.map((a) => ({ id: a.id, toolkit: a.toolkit.slug, status: a.status.toUpperCase() }));
+    async accounts(userId, toolkit) {
+      const query = { user_ids: userId, limit: "100", ...(toolkit ? { toolkit_slugs: toolkit } : {}) };
+      const { items } = await call(ConnectedAccounts, "/connected_accounts", { query });
+      return items.map((a) => ({ id: a.id, toolkit: a.toolkit.slug, status: a.status.toUpperCase(), label: labelOf(a.data) }));
     },
     async remove(account) {
       await call(z.unknown(), `/connected_accounts/${encodeURIComponent(account)}`, { method: "DELETE" });
     },
-    async execute(slug, userId, args) {
-      const result = await call(Executed, `/tools/execute/${encodeURIComponent(slug)}`, { method: "POST", body: { user_id: userId, arguments: args } });
+    async execute(slug, userId, args, account) {
+      const body = { user_id: userId, arguments: args, ...(account ? { connected_account_id: account } : {}) };
+      const result = await call(Executed, `/tools/execute/${encodeURIComponent(slug)}`, { method: "POST", body });
       return result.successful ? { ok: true, data: result.data } : { ok: false, error: result.error ?? "the tool failed" };
     },
     async status(account) {

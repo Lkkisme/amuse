@@ -20,7 +20,7 @@ const catalog: App[] = [
 
 /** The demo's apps: a short list, connected at once (there is no provider to authorize with). */
 function demoApps(): AppDirectory {
-  const accounts = new Map<string, Account>([["ca_demo_gmail", { id: "ca_demo_gmail", app: demoApp("gmail", "Gmail", "Read, search and send email"), status: "active" }]]);
+  const accounts = new Map<string, Account>([["ca_demo_gmail", { id: "ca_demo_gmail", app: demoApp("gmail", "Gmail", "Read, search and send email"), label: "you@example.com", status: "active" }]]);
   return {
     async search(query) {
       const q = query.trim().toLowerCase();
@@ -30,7 +30,9 @@ function demoApps(): AppDirectory {
     async connect(id) {
       const app = catalog.find((a) => a.id === id);
       if (!app) throw new Error(`No app "${id}"`);
-      accounts.set(`ca_demo_${id}`, { id: `ca_demo_${id}`, app, status: "active" });
+      // another account of an app the demo has: a second address
+      const n = [...accounts.values()].filter((a) => a.app.id === id).length;
+      accounts.set(`ca_demo_${id}_${n}`, { id: `ca_demo_${id}_${n}`, app, label: n === 0 ? "you@example.com" : `you+${n}@example.com`, status: "active" });
       return "https://example.com/";
     },
     async disconnect(account) {

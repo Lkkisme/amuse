@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseModel, redact } from "./index.ts";
+import { parseModel, pick, redact } from "./index.ts";
 
 test("model specs split at the first slash; ids may contain more", () => {
   assert.deepEqual(parseModel("openrouter/z-ai/glm-5.3-flash"), { provider: "openrouter", id: "z-ai/glm-5.3-flash" });
@@ -31,4 +31,15 @@ test("the read-only credential store parses Pi auth files and refuses writes", a
   const bad = join(dir, "bad.json");
   writeFileSync(bad, JSON.stringify({ x: { type: "password", value: "secret-value" } }));
   await assert.rejects(readOnlyCredentials(bad).read("x"), (e: Error) => !e.message.includes("secret-value"));
+});
+
+test("an app with several accounts asks which; one is used as is; an account is found by its email", () => {
+  const one = [{ id: "ca_1", label: "me@a.com" }];
+  const two = [...one, { id: "ca_2", label: "work@b.com" }];
+  assert.deepEqual(pick("gmail", one, undefined), { ok: true, account: one[0] });
+  const unsure = pick("gmail", two, undefined);
+  assert.ok(!unsure.ok && /several accounts: me@a.com, work@b.com/.test(unsure.text));
+  assert.deepEqual(pick("gmail", two, "WORK@b.com"), { ok: true, account: two[1] });
+  assert.ok(!pick("gmail", two, "x@c.com").ok);
+  assert.ok(!pick("gmail", [], undefined).ok);
 });
