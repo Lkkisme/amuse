@@ -55,3 +55,27 @@ test("logins carry over: a saved cookie is there in the next run, and the state 
   assert.deepEqual((await second.context().cookies()).map((c) => [c.name, c.value]), [["session", "abc"]]);
   await keeping.shutdown();
 });
+
+test("saves merge: two runs that log in to different sites both stay logged in", async () => {
+  const { mkdtempSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const stateFile = join(mkdtempSync(join(tmpdir(), "remuse-state-")), "state.json");
+  const keeping = pool({ stateFile });
+  const [a, b] = await Promise.all([keeping.open("a", url), keeping.open("b", url)]);
+  await a.context().addCookies([{ name: "site-a", value: "1", url }]);
+  await b.context().addCookies([{ name: "site-b", value: "2", url }]);
+  await Promise.all([keeping.save("a"), keeping.save("b")]);
+  const c = await keeping.open("c", url);
+  assert.deepEqual((await c.context().cookies()).map((x) => x.name).sort(), ["site-a", "site-b"]);
+  await keeping.shutdown();
+});
+
+test("a page that fails to open leaves no context; concurrent opens share one", async () => {
+  const p = pool();
+  await assert.rejects(p.open("bad", "http://127.0.0.1:1/"));
+  assert.equal(p.page("bad"), undefined);
+  const [x, y] = await Promise.all([p.open("same", url), p.open("same", url)]);
+  assert.equal(x, y);
+  await p.shutdown();
+});

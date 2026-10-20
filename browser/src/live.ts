@@ -8,16 +8,23 @@ import type { Page } from "playwright-core";
 
 export type Frame = { kind: "frame"; jpeg: Buffer } | Screen;
 
-/** Stream frames (and screen changes) until the returned stop is called. */
-export async function watch(page: Page, send: (frame: Frame) => void): Promise<() => Promise<void>> {
+/**
+ * Stream frames (and screen changes) until the returned stop is called.
+ * `ready` is backpressure: while it says no, frames are dropped and their
+ * acknowledgement is delayed, so Chromium slows down instead of the server
+ * buffering JPEGs for a slow client.
+ */
+export async function watch(page: Page, send: (frame: Frame) => void, ready: () => boolean = () => true): Promise<() => Promise<void>> {
   const cdp = await page.context().newCDPSession(page);
   const screen = async () => {
     const size = page.viewportSize();
     if (size) send({ kind: "screen", ...size, url: page.url(), title: await page.title().catch(() => "") });
   };
+  const ack = (sessionId: number) => void cdp.send("Page.screencastFrameAck", { sessionId }).catch(() => {});
   cdp.on("Page.screencastFrame", ({ data, sessionId }) => {
+    if (!ready()) return void setTimeout(() => ack(sessionId), 100);
     send({ kind: "frame", jpeg: Buffer.from(data, "base64") });
-    void cdp.send("Page.screencastFrameAck", { sessionId }).catch(() => {});
+    ack(sessionId);
   });
   const navigated = () => void screen();
   page.on("framenavigated", navigated);

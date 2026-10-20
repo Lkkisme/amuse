@@ -13,6 +13,9 @@ export interface Live {
   controlled(id: string): boolean;
 }
 
+/** Above this many unsent bytes on the socket, frames are dropped (see watch). */
+const maxBuffered = 1 << 20;
+
 export async function attach(ws: WebSocket, id: string, live: Live): Promise<void> {
   const page = live.pool.page(id);
   if (!page) return ws.close(4404, "no live page for this run");
@@ -21,7 +24,9 @@ export async function attach(ws: WebSocket, id: string, live: Live): Promise<voi
     if (frame.kind === "frame") ws.send(frame.jpeg, { binary: true });
     else ws.send(JSON.stringify(frame));
   };
-  const stop = await watch(page, send);
+
+  // input is replayed strictly in order: a pointer down is a move then a press, nothing may land between
+  let inputs: Promise<void> = Promise.resolve();
   ws.on("message", (data, binary) => {
     if (binary || !live.controlled(id)) return;
     let raw: unknown;
@@ -31,10 +36,23 @@ export async function attach(ws: WebSocket, id: string, live: Live): Promise<voi
       return;
     }
     const input = Input.safeParse(raw);
-    if (input.success) void replay(page, input.data).catch(() => {});
+    if (input.success) inputs = inputs.then(() => replay(page, input.data)).catch(() => {});
   });
-  ws.on("close", () => void stop());
-  page.once("close", () => ws.close(4410, "the run's page closed"));
+
+  const pageClosed = () => ws.close(4410, "the run's page closed");
+  page.once("close", pageClosed);
+  let stop: (() => Promise<void>) | null = null;
+  ws.on("close", () => {
+    page.off("close", pageClosed);
+    void stop?.();
+  });
+
+  try {
+    stop = await watch(page, send, () => ws.bufferedAmount < maxBuffered);
+  } catch {
+    return ws.close(4500, "the live view could not start");
+  }
+  if (ws.readyState !== ws.OPEN) await stop(); // the viewer left while it was starting
 }
 
 /** A small, recent JPEG of the run's page for its card; null when it has no live page. */

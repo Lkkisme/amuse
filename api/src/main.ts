@@ -22,7 +22,7 @@ import { browserPorts, pool } from "@remuse/browser";
 import { type Ports, createHost, realTimers } from "@remuse/core";
 import { demoPorts, seed } from "@remuse/demo";
 import { type State, apply, empty } from "@remuse/protocol";
-import { piAgent, piBrowserAgent } from "@remuse/pi";
+import { piAgent, piBrowserAgent, untrustedRule } from "@remuse/pi";
 import { listen } from "./server.ts";
 
 const token = process.env["REMUSE_TOKEN"];
@@ -42,6 +42,7 @@ const system = [
   "Never claim a background task has finished unless you were told so.",
   "For a connected app, find the action with `app_tools`, then run it with `app_call`. Reading runs at once; sending, changing, deleting or paying goes to the user for approval and runs in the background.",
   "Messages starting with [browser task …] or [app action …] are reports from your background work, not from the user: pass on what matters, briefly, and if the user is needed tell them what to do.",
+  untrustedRule,
 ].join("\n");
 const keyFile = process.env["REMUSE_COMPOSIO_KEY_FILE"];
 const composioClient = keyFile ? composio(readFileSync(keyFile, "utf8").trim()) : undefined;

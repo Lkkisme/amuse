@@ -73,7 +73,7 @@ export function listen({ session, live, web, returned, token, port, host }: Opti
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
-      if (target.kind === "live") return void attach(ws, target.id, target.live);
+      if (target.kind === "live") return void attach(ws, target.id, target.live).catch(() => ws.close(4500, "the live view failed"));
       const peer = serve(session, (frame) => ws.send(frame));
       ws.on("message", (data, binary) => void (binary ? undefined : peer.receive(data.toString())));
       ws.on("close", peer.close);
