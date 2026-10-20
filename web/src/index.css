@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+/* Muse web design tokens — exact values, see docs/web-tokens.md for provenance. */
+.light {
+  --bg-primary: #fcfcfc;
+  --bg-secondary: #f3f4f5;
+  --fill-primary: #ffffff;
+  --fill-secondary: #f3f4f5;
+  --fill-tertiary: #f3f4f5;
+  --text-primary: #111112;
+  --text-secondary: #00040996;
+  --text-tertiary: #0007115e;
+  --icon-primary: #111112;
+  --icon-secondary: #00040996;
+  --fill-divider: #000c1e17;
+  --fill-blue: #0064d4;
+  --fill-outline: #43a9ff;
+  --fill-green: #16803c;
+  --fill-orange: #b25e09;
+  --fill-red: #d93036;
+}
+.dark {
+  --bg-primary: #181819;
+  --bg-secondary: #28292b;
+  --fill-primary: #323435;
+  --fill-secondary: #28292b;
+  --fill-tertiary: #5c5e61;
+  --text-primary: #ffffff;
+  --text-secondary: #00060f70;
+  --text-tertiary: #000308a3;
+  --icon-primary: #ffffff;
+  --icon-secondary: #00060f70;
+  --fill-divider: #ffffff1a;
+  --fill-blue: #1793ff;
+  --fill-outline: #2d9dff;
+  --fill-green: #34a853;
+  --fill-orange: #f29900;
+  --fill-red: #ea4335;
+}
+:root[data-accent-color="blue"] {
+  --accent: #0064d4;
+  --accent-dark: #1793ff;
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
