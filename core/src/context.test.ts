@@ -18,6 +18,7 @@ const run: Browser = {
   status: "completed",
   instructions: "Open the pizza form and stop there; do not fill or submit anything.",
   result: "The form is open; nothing filled.",
+  step: null,
   live: false,
 };
 

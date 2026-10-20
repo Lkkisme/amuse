@@ -8,7 +8,7 @@ const ctx: Context = { now: at, id: (prefix) => `${prefix}1` };
 const record = (state: State, changes: Change[]): State =>
   changes.reduce((s, change) => apply(s, { seq: s.seq + 1, event: place(s, change) }), state);
 const stateOf = (...entities: Entity[]): State => record(empty, entities.map((entity) => ({ kind: "upserted", entity })));
-const browser = (status: BrowserStatus, live = true): Browser => ({ kind: "browser", id: "b1", at, title: "Log in", url: "https://x.example/", status, instructions: "Log in", result: null, live });
+const browser = (status: BrowserStatus, live = true): Browser => ({ kind: "browser", id: "b1", at, title: "Log in", url: "https://x.example/", status, instructions: "Log in", result: null, step: null, live });
 
 test("chat.send records the prompt and asks the agent", () => {
   const d = decide(empty, { method: "chat.send", params: { text: "hi" } }, ctx);
@@ -95,7 +95,7 @@ test("agent actions: connect reuses a pending request for the same provider; bro
 
   const browse = decideAgent(empty, "browse", { kind: "browse", title: "Tides", url: "https://tides.example/", instructions: "Read today's tides" }, ctx);
   assert.ok(browse.ok);
-  const run: Browser = { kind: "browser", id: "b1", at, title: "Tides", url: "https://tides.example/", status: "working", instructions: "Read today's tides", result: null, live: true };
+  const run: Browser = { kind: "browser", id: "b1", at, title: "Tides", url: "https://tides.example/", status: "working", instructions: "Read today's tides", result: null, step: null, live: true };
   assert.deepEqual(browse.changes, [{ kind: "upserted", entity: run }]);
   assert.deepEqual(browse.effects, [{ kind: "browse", browser: run }]);
 });
@@ -152,4 +152,17 @@ test("a run ends with what came of it, from in flight or from the user's hold; n
   assert.deepEqual(ended.changes, [{ kind: "upserted", entity: { ...browser("completed"), result: "Found it" } }]);
   assert.ok(end("paused").ok);
   assert.deepEqual(end("stopped"), { ok: false, rejection: { kind: "invalid", action: "browserEnded", from: "stopped" } });
+});
+
+test("a run's step is its agent's while it works; ending, stopping or the user taking it clears it", () => {
+  const step = (from: BrowserStatus) => decideAgent(stateOf(browser(from)), "browserStep", { kind: "browserStep", id: "b1", step: "Opening page" }, ctx);
+  const set = step("working");
+  assert.ok(set.ok);
+  assert.deepEqual(set.changes, [{ kind: "upserted", entity: { ...browser("working"), step: "Opening page" } }]);
+  assert.deepEqual(step("paused"), { ok: false, rejection: { kind: "invalid", action: "browserStep", from: "paused" } });
+  const busy = { ...browser("working"), step: "Clicking" };
+  const take = decide(stateOf(busy), { method: "browser.control", params: { id: "b1", action: "take" } }, ctx);
+  assert.ok(take.ok && take.changes[0]?.kind === "upserted" && take.changes[0].entity.kind === "browser" && take.changes[0].entity.step === null);
+  const ended = decideAgent(stateOf(busy), "browserEnded", { kind: "browserEnded", id: "b1", status: "completed", result: "ok" }, ctx);
+  assert.ok(ended.ok && ended.changes[0]?.kind === "upserted" && ended.changes[0].entity.kind === "browser" && ended.changes[0].entity.step === null);
 });

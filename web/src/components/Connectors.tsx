@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Search } from "lucide-react";
 import type { Account, App, Session } from "@remuse/protocol";
+import { AppLogo } from "./AppLogo";
 
 type Tab = "available" | "connected";
 const TABS: Tab[] = ["available", "connected"];
@@ -182,7 +183,7 @@ export function Connectors({ session }: { session: Session }) {
 function Row({ app, sub, warn = false, children }: { app: App; sub: string; warn?: boolean; children: React.ReactNode }) {
   return (
     <li className="flex items-center gap-3 py-2.5" style={{ borderColor: "var(--fill-divider)" }}>
-      <Logo app={app} />
+      <AppLogo name={app.name} logo={app.logo} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[15px] font-medium" style={{ color: "var(--text-primary)" }}>
           {app.name}
@@ -193,23 +194,6 @@ function Row({ app, sub, warn = false, children }: { app: App; sub: string; warn
       </span>
       {children}
     </li>
-  );
-}
-
-/** The app's logo; its initial on a tile where there is none (or it does not load). */
-function Logo({ app }: { app: App }) {
-  const [broken, setBroken] = useState(false);
-  const tile = "flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-[10px]";
-  if (!app.logo || broken)
-    return (
-      <span className={`${tile} text-[15px] font-semibold`} style={{ background: "var(--fill-secondary)", color: "var(--text-secondary)" }}>
-        {app.name.charAt(0).toUpperCase()}
-      </span>
-    );
-  return (
-    <span className={tile} style={{ background: "#fff", border: "1px solid var(--fill-divider)" }}>
-      <img src={app.logo} alt="" className="size-6 object-contain" loading="lazy" onError={() => setBroken(true)} />
-    </span>
   );
 }
 

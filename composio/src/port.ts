@@ -1,7 +1,7 @@
 /**
  * The connector port on Composio. `connect` returns the hosted link at once;
- * the connection is marked connected the moment Composio reports the new
- * account active — right away when the user's browser comes back through
+ * the connection is marked connected, and the agent woken with a note, the
+ * moment Composio reports the new account active — right away when the user's browser comes back through
  * our callback (Composio redirects there after authorizing), otherwise by
  * polling. Either path only asks Composio; the callback merely says "look
  * now", so a forged one cannot connect anything. Gives up quietly after
@@ -47,7 +47,11 @@ export function composioConnector<H>(client: Pick<Composio, "link" | "status">, 
     const status = await client.status(watch.account);
     if (status === "pending") return "pending";
     if (!watching.delete(key)) return "done"; // a concurrent check settled it first
-    if (status === "active") watch.io.act({ kind: "connected", id: watch.connection.id });
+    const { title, id } = watch.connection;
+    // wake the agent: whatever needed the app can go on now (or it knows it will not)
+    if (status === "active") {
+      if (watch.io.act({ kind: "connected", id }).ok) watch.io.report(`[app connection] ${title} is connected now. If something was waiting on it, carry on with it.`);
+    } else watch.io.report(`[app connection] Connecting ${title} did not go through (the authorization failed or was cancelled).`);
     return status === "active" ? "active" : "done";
   };
 

@@ -48,14 +48,21 @@ export function RichText({ text }: { text: string }) {
     bullets = [];
   };
 
+  /** a blank line came before: the next block starts a new paragraph, 8px down (Muse) */
+  let paragraph = false;
   lines.forEach((line, i) => {
     if (line.startsWith("- ")) {
       bullets.push(<li key={`b${i}`}>{renderInline(line.slice(2), `l${i}`)}</li>);
     } else {
       flushBullets(`u${i}`);
       if (line.trim()) {
-        blocks.push(<p key={`p${i}`}>{renderInline(line, `l${i}`)}</p>);
-      }
+        blocks.push(
+          <p key={`p${i}`} className={paragraph && blocks.length > 0 ? "mt-2" : undefined}>
+            {renderInline(line, `l${i}`)}
+          </p>,
+        );
+        paragraph = false;
+      } else paragraph = true;
     }
   });
   flushBullets("u-end");

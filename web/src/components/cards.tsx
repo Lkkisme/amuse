@@ -2,12 +2,13 @@
  * Cards in the chat feed: one component per non-message entity kind.
  * Props are protocol entities; behavior goes through Actions.
  */
-import { Check, ChevronRight, CircleAlert, CircleCheck, Globe, ListTodo, ShieldCheck, Table } from "lucide-react";
+import { Check, ChevronRight, CircleAlert, CircleCheck, Globe, ListTodo, ShieldCheck } from "lucide-react";
 import type { Approval, Browser, Connection, Task } from "@remuse/protocol";
 import type { Actions } from "../ui.ts";
 import { type Place, alone, corners } from "./shape.ts";
+import { AppLogo } from "./AppLogo";
 import { useEffect, useState } from "react";
-import { bannerActive, browserStatus, hue, taskStatus } from "../view.ts";
+import { bannerActive, browserStatus, hue, providerLogo, taskStatus } from "../view.ts";
 
 const CARD_BG = "var(--fill-secondary)";
 
@@ -161,12 +162,7 @@ export function ConnectionCard({ connection, place = alone, actions }: { connect
   return (
     <div {...shell(place, "w-full max-w-[260px] p-2.5", 18)}>
       <div className="flex items-center gap-2.5 px-0.5 pt-0.5">
-        <span
-          className="flex size-10 shrink-0 items-center justify-center rounded-[10px]"
-          style={{ background: "#ffffff", color: "#16a34a", boxShadow: "0 0 0 1px var(--fill-divider)" }}
-        >
-          <Table size={20} />
-        </span>
+        <AppLogo name={connection.title} logo={providerLogo(connection.provider)} size={40} />
         <div className="min-w-0">
           <p className="truncate text-[14px] font-semibold" style={{ color: "var(--text-primary)" }}>
             {connection.title}

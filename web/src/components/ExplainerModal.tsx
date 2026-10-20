@@ -8,8 +8,9 @@
 import { BarChart3, Eye, ToggleLeft } from "lucide-react";
 import type { Connection, State } from "@remuse/protocol";
 import type { Actions } from "../ui.ts";
-import { byId } from "../view.ts";
+import { byId, providerLogo } from "../view.ts";
 import { Sheet } from "./Sheet";
+import { AppLogo } from "./AppLogo";
 import { useLastValue } from "./usePresence";
 
 export function ExplainerModal({ conversation, open, actions }: { conversation: State; open: string | null; actions: Actions }) {
@@ -43,11 +44,8 @@ function ExplainerBody({ req, open, actions }: { req: Connection; open: boolean;
     <Sheet open={open} onClose={close}>
         <div className="overflow-y-auto px-6 pb-2 pt-5 text-center">
           {/* app icon */}
-          <span
-            className="mx-auto flex size-16 items-center justify-center rounded-2xl"
-            style={{ background: "var(--fill-primary)", boxShadow: "var(--shadow-float)" }}
-          >
-            <BarChart3 size={30} style={{ color: "var(--fill-green)" }} />
+          <span className="mx-auto flex w-fit">
+            <AppLogo name={req.title} logo={providerLogo(req.provider)} size={64} />
           </span>
           <p className="mt-3 text-[24px] font-bold" style={{ color: "var(--text-primary)" }}>
             {req.title}

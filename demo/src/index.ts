@@ -142,10 +142,10 @@ export function seed(): Entity[] {
       detail: "Reserve a table for 4, Friday 7pm. Draft ready for your review.",
       status: "pending",
     },
-    { kind: "browser", id: "b-seed1", at: minutesAgo(28), title: "Monterey Bay Aquarium exhibits", url: "https://mbayaq.org/exhibits", status: "completed", instructions: "List the current exhibits", result: "Found 12 exhibits; the kelp forest feeding is at 11:30.", live: false },
+    { kind: "browser", id: "b-seed1", at: minutesAgo(28), title: "Monterey Bay Aquarium exhibits", url: "https://mbayaq.org/exhibits", status: "completed", instructions: "List the current exhibits", result: "Found 12 exhibits; the kelp forest feeding is at 11:30.", step: null, live: false },
     { kind: "prompt", id: "p-seed3", at: minutesAgo(5), text: "Also check the tide schedule, and log in to the trip portal for me" },
-    { kind: "browser", id: "b-seed2", at: minutesAgo(5), title: "Check the tide schedule", url: "https://tidesandcurrents.noaa.gov/stationhome", status: "working", instructions: "Check Saturday's low tide at Monterey", result: null, live: true },
-    { kind: "browser", id: "b-seed3", at: minutesAgo(4), title: "Log in to the trip portal", url: "https://portal.example.edu/login", status: "needs_you", instructions: "Log in to the trip portal and open the itinerary", result: null, live: true },
+    { kind: "browser", id: "b-seed2", at: minutesAgo(5), title: "Check the tide schedule", url: "https://tidesandcurrents.noaa.gov/stationhome", status: "working", instructions: "Check Saturday's low tide at Monterey", result: null, step: null, live: true },
+    { kind: "browser", id: "b-seed3", at: minutesAgo(4), title: "Log in to the trip portal", url: "https://portal.example.edu/login", status: "needs_you", instructions: "Log in to the trip portal and open the itinerary", result: null, step: null, live: true },
     {
       kind: "reply",
       id: "r-seed2",

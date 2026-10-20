@@ -46,12 +46,14 @@ export type AgentLine = { icon: "list" | "tool" | "approval"; text: string };
 export function agentLine(state: State): AgentLine | null {
   const { activity } = state;
   if (activity) return { icon: activity.kind === "responding" ? "list" : "tool", text: activity.label ?? activityLabel[activity.kind] };
+  // the chat agent is idle: what a browser run's agent is doing, newest first
+  const stepping = browsers(state).findLast((b) => b.live && b.step !== null);
+  if (stepping?.step) return { icon: "tool", text: stepping.step };
   return state.entities.some((e) => e.kind === "approval" && e.status === "pending") ? { icon: "approval", text: "Needs approval" } : null;
 }
 
-/** Thinking dots: the agent is responding but no reply text has started yet. */
-export const thinking = (state: State) =>
-  state.activity?.kind === "responding" && !state.entities.some((e) => e.kind === "reply" && e.streaming);
+/** Thinking dots: the chat agent is at work on a reply (thinking, or using a tool) and no reply text is coming in yet. */
+export const thinking = (state: State) => state.activity !== null && !state.entities.some((e) => e.kind === "reply" && e.streaming);
 
 export const busy = (state: State) => state.activity !== null;
 
@@ -83,3 +85,6 @@ export function pillBrowser(state: State): Browser | undefined {
   const live = browsers(state).filter((b) => b.live && bannerActive(b)).reverse();
   return live.find((b) => b.status === "needs_you" || b.status === "waiting") ?? live[0];
 }
+
+/** A connector app's logo, by its provider id (Composio serves one for each). */
+export const providerLogo = (provider: string) => `https://logos.composio.dev/api/${encodeURIComponent(provider)}`;

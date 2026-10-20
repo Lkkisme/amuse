@@ -67,6 +67,8 @@ export type AgentAction =
   | { kind: "ask"; action: string; target: string; detail: string }
   /** A browser run's progress, from the agent driving it. */
   | { kind: "browserStatus"; id: string; status: BrowserProgress }
+  /** What the agent driving a run is doing right now (null: nothing in particular). */
+  | { kind: "browserStep"; id: string; step: string | null }
   /** A browser run's end, from the agent driving it, with what came of it. */
   | { kind: "browserEnded"; id: string; status: BrowserEnd; result: string }
   | { kind: "taskStatus"; id: string; status: TaskProgress }
@@ -173,7 +175,8 @@ const rules: Rules = {
     if (!move.from.includes(browser.status)) return reject({ kind: "invalid", action, from: browser.status });
     if (action === "take" && !browser.live) return reject({ kind: "gone", id });
     // a stopped run's browser closes at once
-    const moved: Browser = { ...browser, status: move.to, live: action === "stop" ? false : browser.live };
+    // the user takes it, or it stops: its agent is doing nothing now
+    const moved: Browser = { ...browser, status: move.to, step: action === "handBack" ? browser.step : null, live: action === "stop" ? false : browser.live };
     return ok([upsert(moved)], [{ kind: "browser", browser: moved, action }], null);
   },
 
@@ -216,7 +219,7 @@ const agentRules: AgentRules = {
     return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, status: "pending" })], [], { id });
   },
   browse: (_, { title, url, instructions }, ctx) => {
-    const browser: Browser = { kind: "browser", id: ctx.id("b"), at: ctx.now, title, url, status: "working", instructions, result: null, live: true };
+    const browser: Browser = { kind: "browser", id: ctx.id("b"), at: ctx.now, title, url, status: "working", instructions, result: null, step: null, live: true };
     return ok([upsert(browser)], [{ kind: "browse", browser }], { id: browser.id });
   },
   released: (state, { id }) => {
@@ -230,12 +233,18 @@ const agentRules: AgentRules = {
     if (!agentHeld.includes(browser.status)) return reject({ kind: "invalid", action: "browserStatus", from: browser.status });
     return ok(browser.status === status ? [] : [upsert({ ...browser, status })], [], { id });
   },
+  browserStep: (state, { id, step }) => {
+    const browser = find(state, "browser", id);
+    if (!browser) return reject({ kind: "notFound", entity: "browser", id });
+    if (!agentHeld.includes(browser.status)) return reject({ kind: "invalid", action: "browserStep", from: browser.status });
+    return ok(browser.step === step ? [] : [upsert({ ...browser, step })], [], { id });
+  },
   browserEnded: (state, { id, status, result }) => {
     const browser = find(state, "browser", id);
     if (!browser) return reject({ kind: "notFound", entity: "browser", id });
     // a run the user holds ends too when they hand back what was left of it (paused → completed)
     if (!agentHeld.includes(browser.status) && browser.status !== "paused") return reject({ kind: "invalid", action: "browserEnded", from: browser.status });
-    return ok([upsert({ ...browser, status, result })], [], { id });
+    return ok([upsert({ ...browser, status, result, step: null })], [], { id });
   },
   taskStatus: (state, { id, status }) => {
     const task = find(state, "task", id);
@@ -270,7 +279,7 @@ export function recover(state: State): Change[] {
       case "browser": {
         // the pool lets go of every browser on start: none is live after a restart
         const status = terminalBrowser.includes(e.status) ? e.status : "stopped";
-        return status === e.status && !e.live ? null : { ...e, status, live: false };
+        return status === e.status && !e.live && e.step === null ? null : { ...e, status, step: null, live: false };
       }
       case "task":
         return runningTask.includes(e.status) ? { ...e, status: "stopped" } : null;

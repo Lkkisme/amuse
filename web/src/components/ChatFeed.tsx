@@ -172,7 +172,8 @@ function Bubble({ item, place, onMenu }: { item: Message; place: Place; onMenu: 
       <div
         {...press}
         ref={bubble}
-        className="msg relative w-fit max-w-[78%] px-4 py-2.5 text-[15px] leading-snug"
+        // Muse (measured): 16px text on 22px lines, 10px above and below, 16px at the sides
+        className="msg relative w-fit max-w-[78%] px-4 py-2.5 text-[16px] leading-[22px]"
         style={{
           ...corners(isUser ? "user" : "muse", place),
           background: isUser ? "var(--chat-user-bubble)" : "var(--fill-secondary)",

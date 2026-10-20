@@ -219,9 +219,9 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers): Pick<Por
   const drive = async (run: Run) => {
     const pi = await openSession(cfg, system, runTools(run));
     run.session = pi.session;
-    // what the browser agent is doing shows under Muse's name too ("Filling form", "Opening page")
-    const say = (label: string | null) =>
-      run.io.emit({ kind: "activity", activity: label === null ? null : { kind: "working", label } });
+    // what the browser agent is doing is its run's (the chat agent's activity line is the chat agent's own);
+    // a run the user holds, or one that ended, takes no step (the rules refuse it, which is fine)
+    const say = (step: string | null) => void run.io.act({ kind: "browserStep", id: run.browser.id, step });
     const unsubscribe = pi.session.subscribe((event) => {
       if (event.type !== "tool_execution_start" || run.stop.signal.aborted) return;
       say(event.toolName === "finish" ? null : (statusOf(event.args) ?? browserLabels[event.toolName] ?? "Working in the browser"));

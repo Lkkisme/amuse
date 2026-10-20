@@ -84,6 +84,8 @@ export const Browser = z.object({
   instructions: z.string(),
   /** how it ended, in a few words, once it has (completed or failed); null before */
   result: z.string().nullable(),
+  /** what its agent is doing right now ("Opening page"), while it works; null otherwise */
+  step: z.string().nullable(),
   /** the run still has its browser, to watch and take over; once it is gone the card is only a record */
   live: z.boolean(),
 });

@@ -8,12 +8,12 @@ import { composioConnector } from "./port.ts";
 const connection: Connection = { kind: "connection", id: "c1", at: "2026-10-20T08:00:00Z", provider: "gmail", title: "Gmail", status: "pending" };
 
 /** An AgentIO that records the actions the port takes. */
-function recording(onAct: (action: AgentAction) => void = () => {}): AgentIO {
+function recording(onAct: (action: AgentAction) => void = () => {}, onReport: (note: string) => void = () => {}): AgentIO {
   return {
     emit: () => {},
     act: (action) => (onAct(action), { ok: true, id: "x" }),
     decision: async () => "denied",
-    report: () => {},
+    report: onReport,
     context: () => "",
     recall: () => "",
   };
@@ -113,4 +113,21 @@ test("the user's return connects at once, exactly once; a forged key does nothin
   await tick(); // the poll fires too, finds it settled
   assert.equal(await port.returned(key), false);
   assert.deepEqual(actions, [{ kind: "connected", id: "c1" }]);
+});
+
+test("the agent is woken when a connection settles: connected, or not", async () => {
+  const cases: [AccountStatus, RegExp][] = [
+    ["active", /Gmail is connected now/],
+    ["failed", /did not go through/],
+  ];
+  for (const [status, expect] of cases) {
+    const { timers, tick } = ticks();
+    const notes: string[] = [];
+    const port = composioConnector(fake(["pending", status]), { userId: "owner", timers, pollMs: 10 });
+    await port.connect(connection, recording(() => {}, (note) => notes.push(note)));
+    await tick();
+    await tick();
+    assert.equal(notes.length, 1);
+    assert.match(notes[0] ?? "", expect);
+  }
 });
