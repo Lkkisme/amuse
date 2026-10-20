@@ -1,6 +1,7 @@
 /**
  * Shared sheet shell: bottom drawer on mobile (slides up, slides back down),
- * centered card on sm+ (scale in/out). Backdrop and close X are
+ * centered card on sm+ (scale in/out). Corners are concentric with the close
+ * button: 12px inset + 16px button radius = 28px corner radius. Backdrop and close X are
  * part of the shell; it stays mounted while the exit animation plays.
  */
 import type { ReactNode } from "react";
@@ -15,7 +16,7 @@ export function Sheet({ open, onClose, children }: { open: boolean; onClose: () 
       <div className={`${closing ? "anim-fade-out" : "anim-fade-in"} absolute inset-0 bg-black/50`} onClick={onClose} />
       <div
         onAnimationEnd={onAnimationEnd}
-        className={`${closing ? "anim-modal-out" : "anim-modal-in"} relative flex max-h-[92vh] w-full max-w-sm flex-col overflow-hidden rounded-t-2xl sm:rounded-2xl`}
+        className={`${closing ? "anim-modal-out" : "anim-modal-in"} relative flex max-h-[92vh] w-full max-w-sm flex-col overflow-hidden rounded-t-[28px] sm:rounded-[28px]`}
         style={{ background: "var(--chat-background)", boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}
       >
         <button

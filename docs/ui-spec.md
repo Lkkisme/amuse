@@ -38,3 +38,9 @@ Settings. Everything else happens inside the chat feed as cards.
 
 No networking, no auth, no real connectors, no VM/browser backends, no push. Every "live"
 element is a scripted fake.
+
+## Design rules
+
+- Concentric corners: a control near a rounded corner shares its center. Container radius =
+  the control's inset + the control's radius. Sheets and modals: close button 12px in, 32px
+  round (radius 16) → 28px corners, on mobile drawers and desktop modals alike.

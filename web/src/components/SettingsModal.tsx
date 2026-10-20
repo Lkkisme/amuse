@@ -421,7 +421,7 @@ export function SettingsModal({ ui, theme, data, actions }: { ui: Ui["settings"]
       />
       <div
         onAnimationEnd={onAnimationEnd}
-        className={`${closing ? "anim-modal-out" : "anim-modal-in"} relative flex h-[72vh] max-h-[620px] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl sm:flex-row sm:rounded-2xl`}
+        className={`${closing ? "anim-modal-out" : "anim-modal-in"} relative flex h-[72vh] max-h-[620px] w-full max-w-3xl flex-col overflow-hidden rounded-t-[28px] sm:flex-row sm:rounded-[28px]`}
         style={{ background: "var(--chat-background)", boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}
       >
         {/* left nav — horizontal icon row on mobile, column on sm+ */}
@@ -461,7 +461,7 @@ export function SettingsModal({ ui, theme, data, actions }: { ui: Ui["settings"]
         <div className="relative flex min-w-0 flex-1 flex-col">
           <button
             aria-label="Close settings"
-            className="absolute right-4 top-4 z-10 flex size-8 items-center justify-center rounded-full"
+            className="absolute right-3 top-3 z-10 flex size-8 items-center justify-center rounded-full"
             style={{ background: "var(--fill-secondary)", color: "var(--icon-primary)" }}
             onClick={() => actions.closeSettings()}
           >
