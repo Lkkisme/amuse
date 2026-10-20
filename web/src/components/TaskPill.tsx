@@ -1,50 +1,105 @@
 /**
- * Floating task pill, centered under the avatar (Muse ref 08-now: top ~107px): follows the newest
- * browser run that is waiting for you (else the newest working one), opens
- * the viewer on tap, and offers Stop task.
+ * Browser task indicator, top-right where Muse has its Invite button (remuse
+ * has no invites; owner's call). Collapsed: a round laptop button with a badge,
+ * orange "!" while the run waits for you, a pulsing blue dot while it works.
+ * Tap expands a small card below it: status, task, Open and Stop task.
+ * Follows the newest waiting browser run, else the newest working one.
  */
-import { Globe } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Laptop } from "lucide-react";
 import type { DemoState } from "../data/fakeMuse";
 import { browserStatusMeta, pillBrowser } from "../data/fakeMuse";
 import type { MuseActions } from "./actions";
 
 export function TaskPill({ state, actions }: { state: DemoState; actions: MuseActions }) {
   const run = pillBrowser(state.feed);
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // collapse on any tap outside
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [open]);
+
   if (!run) return null;
   const meta = browserStatusMeta[run.status];
+  const waiting = run.status === "waiting";
+
   return (
-    <div
-      key={run.id}
-      className="anim-fade-in absolute left-1/2 top-[106px] z-20 flex max-w-[calc(100%-24px)] -translate-x-1/2 items-center gap-3 rounded-full py-1.5 pl-1.5 pr-1.5"
-      style={{
-        background: "color-mix(in srgb, var(--fill-primary) 88%, transparent)",
-        backdropFilter: "blur(12px)",
-        boxShadow: "0 2px 12px rgba(0,0,0,0.10)",
-      }}
-    >
-      <button className="flex min-w-0 items-center gap-3 text-left" onClick={() => actions.openViewer(run.id)}>
-        <span
-          className="flex size-9 shrink-0 items-center justify-center rounded-full"
-          style={{ background: `color-mix(in srgb, ${meta.color} 12%, var(--fill-primary))`, color: meta.color }}
-        >
-          <Globe size={16} />
-        </span>
-        <span className="min-w-0">
-          <span className="block text-[13px] font-medium leading-tight" style={{ color: "var(--text-primary)" }}>
-            Browser
-          </span>
-          <span className="block max-w-[110px] truncate text-[13px] leading-tight" style={{ color: "var(--text-primary)" }}>
-            {meta.label}…
-          </span>
-        </span>
-      </button>
+    <div ref={rootRef} className="absolute right-3 top-2 z-30">
       <button
-        className="hover-fade h-9 shrink-0 rounded-full px-3.5 text-[14px] font-medium"
-        style={{ background: "var(--fill-secondary)", color: "var(--fill-red)" }}
-        onClick={() => actions.viewerStop(run.id)}
+        aria-label={`Browser: ${meta.label}`}
+        aria-expanded={open}
+        className="anim-fade-in relative flex size-10 items-center justify-center rounded-full"
+        style={{ background: "var(--fill-primary)", color: meta.color, boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}
+        onClick={() => setOpen((o) => !o)}
       >
-        Stop task
+        <Laptop size={18} />
+        {waiting ? (
+          <span
+            className="absolute -right-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full text-[10px] font-bold leading-none text-white"
+            style={{ background: "var(--fill-orange)", boxShadow: "0 0 0 2px var(--fill-primary)" }}
+          >
+            !
+          </span>
+        ) : (
+          <span
+            className="absolute right-0 top-0 size-2.5 animate-pulse rounded-full"
+            style={{ background: meta.color, boxShadow: "0 0 0 2px var(--fill-primary)" }}
+          />
+        )}
       </button>
+
+      {open && (
+        <div
+          className="anim-modal-in absolute right-0 top-12 w-64 rounded-2xl p-3"
+          style={{ background: "var(--fill-primary)", boxShadow: "0 4px 20px rgba(0,0,0,0.14)" }}
+        >
+          <div className="flex items-center gap-2.5">
+            <span
+              className="flex size-9 shrink-0 items-center justify-center rounded-[10px]"
+              style={{ background: `color-mix(in srgb, ${meta.color} 12%, var(--fill-primary))`, color: meta.color }}
+            >
+              <Laptop size={17} />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[14px] font-medium" style={{ color: "var(--text-primary)" }}>
+                Browser
+              </p>
+              <p className="truncate text-[13px]" style={{ color: "var(--text-secondary)" }}>
+                {meta.label} · {run.title}
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 flex gap-2">
+            <button
+              className="h-9 flex-1 rounded-full text-[14px] font-medium text-white"
+              style={{ background: "var(--fill-blue)" }}
+              onClick={() => {
+                setOpen(false);
+                actions.openViewer(run.id);
+              }}
+            >
+              Open
+            </button>
+            <button
+              className="hover-fade h-9 flex-1 rounded-full text-[14px] font-medium"
+              style={{ background: "var(--fill-secondary)", color: "var(--fill-red)" }}
+              onClick={() => {
+                setOpen(false);
+                actions.viewerStop(run.id);
+              }}
+            >
+              Stop task
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
