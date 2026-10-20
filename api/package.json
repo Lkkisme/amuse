@@ -14,7 +14,8 @@
   "dependencies": {
     "@remuse/core": "*",
     "@remuse/protocol": "*",
-    "ws": "^8.18.3"
+    "ws": "^8.18.3",
+    "@remuse/pi": "*"
   },
   "devDependencies": {
     "@types/ws": "^8.18.1"

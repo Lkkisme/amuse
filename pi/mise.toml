@@ -1,0 +1,4 @@
+[tasks.check]
+description = "Type-check and test the Pi agent port"
+depends = ["//:install"]
+run = "npm run typecheck && npm test"
