@@ -208,7 +208,8 @@ function Sketch({ id }: { id: string }) {
  */
 function Thumbnail({ src, live, id }: { src: string; live: boolean; id: string }) {
   const [tick, setTick] = useState(0);
-  const [shown, setShown] = useState(false);
+  /** loading: the first screenshot is on its way; missing: none to be had, so a sketch stands in */
+  const [shot, setShot] = useState<"loading" | "shown" | "missing">("loading");
   useEffect(() => {
     if (!live) return;
     const timer = setInterval(() => setTick((t) => t + 1), 3000);
@@ -216,14 +217,15 @@ function Thumbnail({ src, live, id }: { src: string; live: boolean; id: string }
   }, [live]);
   return (
     <div className="relative h-full w-full">
-      {!shown && <Sketch id={id} />}
+      {shot === "loading" && <div className="skeleton absolute inset-0" />}
+      {shot === "missing" && <Sketch id={id} />}
       <img
         alt=""
         src={`${src}&t=${tick}`}
         className="absolute inset-0 h-full w-full object-cover object-top"
-        style={{ visibility: shown ? "visible" : "hidden" }}
-        onError={() => setShown(false)}
-        onLoad={() => setShown(true)}
+        style={{ visibility: shot === "shown" ? "visible" : "hidden" }}
+        onError={() => setShot("missing")} // the next refresh tries again
+        onLoad={() => setShot("shown")}
       />
     </div>
   );

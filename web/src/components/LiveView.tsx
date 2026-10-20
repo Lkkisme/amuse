@@ -139,9 +139,10 @@ export function LiveView({ url, interactive, onFit }: { url: string; interactive
     >
       <div className="relative flex min-h-0 flex-1 items-center justify-center" style={{ touchAction: "none" }}>
         <div ref={box} className="absolute inset-0" style={{ cursor: interactive ? "default" : "not-allowed" }} />
-        {state !== "live" && (
+        {state === "connecting" && <div aria-label="Connecting to the browser" className="skeleton absolute inset-0" />}
+        {state === "gone" && (
           <p className="absolute text-[14px]" style={{ color: "var(--text-secondary)" }}>
-            {state === "connecting" ? "Connecting to the browser…" : "This browser is no longer live."}
+            This browser is no longer live.
           </p>
         )}
         {controls && <TouchSurface screen={box} mode={trackpad ? "trackpad" : zoom ? "pan" : "touch"} />}

@@ -87,6 +87,25 @@
   animation: hatch-dot-pulse 1.2s ease-in-out infinite;
 }
 
+/* Loading: a faint band sweeps across the background (a page that is on its way) */
+@keyframes skeleton-sweep {
+  from { background-position: 150% 0; }
+  to { background-position: -50% 0; }
+}
+.skeleton {
+  background-image: linear-gradient(
+    100deg,
+    transparent 30%,
+    color-mix(in srgb, var(--text-primary) 7%, transparent) 50%,
+    transparent 70%
+  );
+  background-size: 250% 100%;
+  animation: skeleton-sweep 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; background-image: none; background-color: color-mix(in srgb, var(--text-primary) 4%, transparent); }
+}
+
 /* Streaming text shimmer: background-position -200% -> 200%, gradient clip */
 @keyframes shimmer {
   0% { background-position: -200% 0; }
