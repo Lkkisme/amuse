@@ -10,6 +10,7 @@
  *   REMUSE_JOURNAL  JSONL file the event log lives in (survives restarts); in memory if unset
  *   REMUSE_BROWSER=chromium  browser runs open real pages (headless Chromium) with live views
  *                 at /live; scripted otherwise
+ *   REMUSE_BROWSER_STATE  file keeping browser logins between runs (cookies; mode 600)
  *   REMUSE_WEB    directory of the built web app to serve (same origin as /rpc and /live)
  */
 import { readFileSync } from "node:fs";
@@ -42,7 +43,8 @@ const system = [
 const keyFile = process.env["REMUSE_COMPOSIO_KEY_FILE"];
 const composioClient = keyFile ? composio(readFileSync(keyFile, "utf8").trim()) : undefined;
 const composioUser = "owner";
-const browsers = process.env["REMUSE_BROWSER"] === "chromium" ? pool() : undefined;
+const browserState = process.env["REMUSE_BROWSER_STATE"];
+const browsers = process.env["REMUSE_BROWSER"] === "chromium" ? pool(browserState ? { stateFile: browserState } : {}) : undefined;
 const ports = {
   ...demoPorts(realTimers),
   ...(browsers ? (model && authPath ? piBrowserAgent({ model, authPath }, browsers) : browserPorts(browsers)) : {}),

@@ -187,6 +187,7 @@ export function piBrowserAgent(cfg: PiModelConfig, pool: Pool): Pick<Ports, "bro
           const run: Run = { browser, page, io, session: null, held: null, steps: 0, outcome: null };
           runs.set(browser.id, run);
           drive(run)
+            .then(() => pool.save(browser.id))
             .catch((error: unknown) => {
               if (run.outcome) return;
               run.outcome = "finished";
@@ -209,6 +210,7 @@ export function piBrowserAgent(cfg: PiModelConfig, pool: Pool): Pick<Ports, "bro
           if (run) run.held ??= hold();
           return;
         case "handBack":
+          void pool.save(browser.id).catch(() => {}); // the user may have just logged in
           if (!run) return emit({ kind: "upserted", entity: { ...browser, status: "completed" } }); // nothing left to resume
           run.held?.settle(true);
           run.held = null;

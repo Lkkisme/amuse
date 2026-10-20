@@ -19,7 +19,8 @@ export function browserPorts(pool: Pool): Pick<Ports, "browse" | "browser"> {
         case "take":
           return; // the live channel accepts input while the run is paused
         case "handBack":
-          // no agent to resume yet: the run is done once the user hands it back
+          // the user may have logged in: keep it; no agent to resume, so the run is done
+          void pool.save(browser.id).catch(() => {});
           return emit({ kind: "upserted", entity: { ...browser, status: "completed" } });
         case "stop":
           void pool.close(browser.id);

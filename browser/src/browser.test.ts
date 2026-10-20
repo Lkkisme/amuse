@@ -40,3 +40,18 @@ test("user input lands in the page: click by fraction, then type", async () => {
   await browsers.close("b2");
   assert.equal(browsers.page("b2"), undefined);
 });
+
+test("logins carry over: a saved cookie is there in the next run, and the state file is private", async () => {
+  const { mkdtempSync, statSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const stateFile = join(mkdtempSync(join(tmpdir(), "remuse-state-")), "state.json");
+  const keeping = pool({ stateFile });
+  const first = await keeping.open("r1", url);
+  await first.context().addCookies([{ name: "session", value: "abc", url }]);
+  await keeping.close("r1");
+  assert.equal((statSync(stateFile).mode & 0o777).toString(8), "600");
+  const second = await keeping.open("r2", url);
+  assert.deepEqual((await second.context().cookies()).map((c) => [c.name, c.value]), [["session", "abc"]]);
+  await keeping.shutdown();
+});

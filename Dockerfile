@@ -40,6 +40,7 @@ ENV REMUSE_HOST=0.0.0.0 \
     REMUSE_PORT=8080 \
     REMUSE_WEB=/app/web/dist \
     REMUSE_JOURNAL=/data/events.jsonl \
+    REMUSE_BROWSER_STATE=/data/browser-state.json \
     REMUSE_BROWSER=chromium
 EXPOSE 8080
 VOLUME /data
