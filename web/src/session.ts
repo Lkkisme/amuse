@@ -1,16 +1,10 @@
 /**
- * The web app's only link to a server: call methods, receive events. The
+ * The web app's only link to a server is a protocol Session. The
  * conversation shown on screen is the fold of those events with the
  * protocol's `apply`, so the UI never holds its own copy of server state.
  */
 import { useEffect, useState } from "react";
-import { type Envelope, type Method, type Params, type Results, type State, apply, empty } from "@remuse/protocol";
-
-export interface Session {
-  call<M extends Method>(method: M, params: Params[M]): Promise<Results[M]>;
-  /** Events in seq order; returns unsubscribe. */
-  subscribe(listener: (envelope: Envelope) => void): () => void;
-}
+import { type Session, type State, apply, empty } from "@remuse/protocol";
 
 /** Live conversation state: synced on mount, then advanced by events; resyncs on a gap. */
 export function useConversation(session: Session): State {

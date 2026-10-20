@@ -4,7 +4,7 @@
  * changes. Components get exactly the slices they render.
  */
 import { useEffect, useMemo, useState } from "react";
-import { createDemoSession } from "./demo/server.ts";
+import { createHost, demoPorts, realTimers, seed } from "@remuse/core";
 import { seedSettings } from "./demo/settings.ts";
 import { useConversation } from "./session.ts";
 import { type Actions, type Ui, initialUi } from "./ui.ts";
@@ -21,8 +21,11 @@ import { TaskPill } from "./components/TaskPill";
 import { MenuButton, TopBar } from "./components/TopBar";
 import { Viewer } from "./components/Viewer";
 
+/** The in-browser host: the real core with scripted ports. A WebSocket session replaces it as is. */
+const demoSession = () => createHost(demoPorts(realTimers), { seed: seed() });
+
 export default function App() {
-  const [session, setSession] = useState(createDemoSession);
+  const [session, setSession] = useState(demoSession);
   const conversation = useConversation(session);
   const [ui, setUi] = useState<Ui>(initialUi);
   const [settings, setSettings] = useState(seedSettings);
@@ -87,7 +90,7 @@ export default function App() {
         setSettings((s) => ({ ...s, credentials: [...s.credentials, { id: `cred${s.credentials.length + 1}`, domain, username }] })),
       setTheme: (theme) => patch((u) => ({ ...u, theme })),
       reset: () => {
-        setSession(createDemoSession());
+        setSession(demoSession());
         setUi((u) => ({ ...initialUi, theme: u.theme }));
         setSettings(seedSettings());
       },
