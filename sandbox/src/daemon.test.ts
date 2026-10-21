@@ -190,3 +190,23 @@ test("a request made during a reset waits for it", async () => {
   const ran = await listing;
   assert.ok(!ran.output.includes("stale"), ran.output);
 });
+
+test("what a service printed fits the answer however it escapes, and a list of long commands does too", async () => {
+  // 150 000 NUL bytes: six bytes each as JSON, far past a megabyte if sent whole
+  const { service } = await sandbox.start({ name: "noisy", command: "head -c 150000 /dev/zero; sleep 30" });
+  await new Promise((r) => setTimeout(r, 400));
+  const raw = await fetch(`http://127.0.0.1:${daemon.port}/services/noisy/log?lines=1000`);
+  const body = await raw.text();
+  assert.ok(body.length < 1024 ** 2 / 2, String(body.length));
+  const log = await sandbox.log("noisy", 1000);
+  assert.ok(log.output.length > 10_000 && log.output.length < 150_000, String(log.output.length));
+  assert.equal(log.service.id, service.id);
+  await sandbox.stop("noisy");
+  // many services, each with the longest command there may be
+  const long = `sleep 30 # ${"x".repeat(99_000)}`;
+  for (let i = 0; i < 8; i++) await sandbox.start({ name: `long${i}`, command: long });
+  const listed = await (await fetch(`http://127.0.0.1:${daemon.port}/services`)).text();
+  assert.ok(listed.length < 100_000, String(listed.length));
+  assert.equal((await sandbox.services()).filter((s) => s.name.startsWith("long")).length, 8);
+  for (let i = 0; i < 8; i++) await sandbox.stop(`long${i}`);
+});

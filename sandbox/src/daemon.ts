@@ -21,7 +21,7 @@ import { lchown, lstat, readdir, rm } from "node:fs/promises";
 import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
 import { join, resolve } from "node:path";
 import { z } from "zod";
-import { Clip, lastLines } from "./output.ts";
+import { Clip, endOf, lastLines } from "./output.ts";
 import { DEFAULT_TIMEOUT, Run, type Service, Start } from "./protocol.ts";
 
 export interface Options {
@@ -219,7 +219,8 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
   const describe = (s: Kept): Service => ({
     id: s.id,
     name: s.name,
-    command: s.command,
+    // only the start of it: a long command is no reason for a long answer
+    command: s.command.slice(0, 200),
     cwd: s.cwd,
     startedAt: s.startedAt,
     running: s.end === null,
@@ -265,7 +266,7 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
     for (const old of ended.slice(0, Math.max(0, ended.length - REMEMBERED))) services.delete(old.id);
     // a command that fails at once shows it now
     await Promise.race([service.job.ended.catch(() => {}), new Promise((done) => setTimeout(done, settle))]);
-    return { service: describe(service), output: lastLines(clip.result().output, 40) };
+    return { service: describe(service), output: endOf(lastLines(clip.result().output, 40)) };
   };
 
   const stop = async (ref: string) => {
@@ -280,7 +281,7 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
   const log = (ref: string, lines: number) => {
     const service = find(ref);
     const { output, cut } = service.clip.result();
-    return { service: describe(service), output: lastLines(output, lines), cut };
+    return { service: describe(service), output: endOf(lastLines(output, lines)), cut };
   };
 
   /* ---------- reset ---------- */
