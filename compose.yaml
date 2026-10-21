@@ -65,9 +65,10 @@ services:
     memswap_limit: ${AMUSE_SANDBOX_MEMORY:-4g}
     pids_limit: ${AMUSE_SANDBOX_PIDS:-1024}
     # the daemon switches to the user (SETUID, SETGID), stops and cleans up after what it started (KILL, CHOWN,
-    # DAC_OVERRIDE, FOWNER); sudo and apt/dpkg need those, FSETID and SETFCAP, and sudo AUDIT_WRITE
+    # DAC_OVERRIDE, FOWNER); sudo and apt/dpkg need those, FSETID and SETFCAP, and sudo AUDIT_WRITE; a server on a
+    # port below 1024 started with sudo needs NET_BIND_SERVICE, and some package scripts chroot (SYS_CHROOT)
     cap_drop: [ALL]
-    cap_add: [SETUID, SETGID, CHOWN, DAC_OVERRIDE, FOWNER, FSETID, SETFCAP, KILL, AUDIT_WRITE]
+    cap_add: [SETUID, SETGID, CHOWN, DAC_OVERRIDE, FOWNER, FSETID, SETFCAP, KILL, AUDIT_WRITE, NET_BIND_SERVICE, SYS_CHROOT]
     depends_on:
       sandbox-init: { condition: service_completed_successfully }
     volumes:
@@ -106,8 +107,9 @@ services:
     network_mode: none
     restart: "no"
     read_only: true
+    # root must be able to enter and fill a workspace the server made (0700, uid 1000), and give things to uid 1000
     cap_drop: [ALL]
-    cap_add: [CHOWN]
+    cap_add: [CHOWN, DAC_OVERRIDE]
     entrypoint:
       - sh
       - -c
