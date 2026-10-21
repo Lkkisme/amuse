@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AgentAction, AgentIO, Answer } from "@amuse/core";
 import type { Permission } from "@amuse/protocol";
-import { type Apps, appCall } from "./tools.ts";
+import { type Apps, appCall, readable } from "./tools.ts";
 import type { Hold } from "./runs.ts";
 
 /** An app whose every action has `permission`, recording what runs and what is remembered. */
@@ -34,11 +34,11 @@ function setup(permission: Permission, answer: Answer = { verdict: "approved", r
     listen: () => () => {},
   };
   const run = async () => {
-    const told = await appCall(io, apps, "GMAIL_SEND_EMAIL", { to: "x@y.z" }, undefined);
+    const told = await appCall(io, apps, "GMAIL_SEND_EMAIL", { to: "x@y.z" }, "Email x@y.z", undefined);
     await new Promise((r) => setImmediate(r)); // let a background approval settle
     return told;
   };
-  const runHeld = (hold: Hold) => appCall(io, apps, "GMAIL_SEND_EMAIL", { to: "x@y.z" }, undefined, hold);
+  const runHeld = (hold: Hold) => appCall(io, apps, "GMAIL_SEND_EMAIL", { to: "x@y.z" }, "Email x@y.z", undefined, hold);
   return { run, runHeld, ran, remembered, asked, reports };
 }
 
@@ -46,7 +46,7 @@ test("denied by the user's rule: the card says so, and nothing runs unless they 
   const declined = setup("deny", { verdict: "denied", remember: false });
   assert.match(await declined.run(), /NOT done yet/);
   const card = declined.asked[0];
-  assert.ok(card?.kind === "ask" && card.detail.startsWith("Your rule for gmail says no to this kind of action."));
+  assert.ok(card?.kind === "ask" && card.detail.startsWith("Your rule for this app says no to this kind of action."));
   assert.deepEqual(declined.ran, []);
 
   const once = setup("deny", { verdict: "approved", remember: false });
@@ -92,4 +92,18 @@ test("a helper's app action holds until the user answers, then runs and gives th
   assert.match(told, /done/);
   assert.deepEqual(s.reports, [], "nothing goes to Amuse");
   assert.equal(held.length, 2);
+});
+
+test("the card says what will happen in the agent's words, as which account, with the arguments as a person reads them", async () => {
+  const s = setup("ask");
+  await s.run();
+  const card = s.asked[0];
+  assert.ok(card?.kind === "ask");
+  assert.equal(card.action, "Email x@y.z");
+  assert.equal(card.target, "me@a.com");
+  assert.equal(card.detail, "To: x@y.z");
+  assert.equal(
+    readable({ start_datetime: "2026-10-21T09:00", summary: "测试日程", threadId: "t1", attendees: [], notes: "", count: 2 }),
+    "Start datetime: 2026-10-21T09:00\nSummary: 测试日程\nThread id: t1\nCount: 2",
+  );
 });

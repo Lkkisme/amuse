@@ -220,9 +220,13 @@ export function appTools(io: () => AgentIO, apps: Apps, hold?: Hold): ToolDefini
         status,
         action: Type.String({ description: "Action slug, e.g. GMAIL_FETCH_EMAILS" }),
         arguments: Type.Record(Type.String(), Type.Unknown()),
+        summary: Type.String({
+          description:
+            "What this does, as the user would say it, in their language: one plain line with the specifics (e.g. 'Create the event “Team sync” tomorrow at 9:00'). It titles the approval card when one is needed.",
+        }),
         account: Type.Optional(Type.String({ description: "Which account (its email or id), when the app has several" })),
       }),
-      execute: async (_, { action, arguments: args, account }) => text(await appCall(io(), apps, action, args, account, hold)),
+      execute: async (_, { action, arguments: args, summary, account }) => text(await appCall(io(), apps, action, args, summary, account, hold)),
     }),
   ];
 }
@@ -232,7 +236,29 @@ export function appTools(io: () => AgentIO, apps: Apps, hold?: Hold): ToolDefini
  * at once, or once they approve (in the background; the agent gets a report),
  * keeping an answer meant for always. Returns what the agent is told now.
  */
-export async function appCall(io: AgentIO, apps: Apps, action: string, args: Record<string, unknown>, asked: string | undefined, hold?: Hold): Promise<string> {
+/** "start_datetime" → "Start datetime", "threadId" → "Thread id": a field's name as a person reads it. */
+const fieldName = (key: string) => {
+  const words = key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
+
+/** An action's arguments as the user reads them on its card: one "Field: value" a line, empty ones left out. */
+export function readable(args: Record<string, unknown>): string {
+  return Object.entries(args)
+    .filter(([, value]) => value !== undefined && value !== null && value !== "" && !(Array.isArray(value) && value.length === 0))
+    .map(([key, value]) => `${fieldName(key)}: ${typeof value === "string" ? value : JSON.stringify(value)}`)
+    .join("\n");
+}
+
+export async function appCall(
+  io: AgentIO,
+  apps: Apps,
+  action: string,
+  args: Record<string, unknown>,
+  summary: string,
+  asked: string | undefined,
+  hold?: Hold,
+): Promise<string> {
   const app = appOf(action);
   const chosen = pick(app, await apps.accounts(app), asked);
   if (!chosen.ok) return chosen.text;
@@ -245,14 +271,14 @@ export async function appCall(io: AgentIO, apps: Apps, action: string, args: Rec
   // never hold the chat for an approval: ask, return, and finish in the background
   const label = action.replaceAll("_", " ").toLowerCase();
   // a kind the user said no to is still theirs to allow, on the card: once, or from now on
-  const ruled = permission === "deny" ? `Your rule for ${app} says no to this kind of action. Allow it this time, or always?\n\n` : "";
+  const ruled = permission === "deny" ? "Your rule for this app says no to this kind of action. Allow it this time, or always?\n\n" : "";
   const approval = io.act({
     kind: "ask",
-    action: label,
-    // ...as which account
-    target: account.label ? `${app} (${account.label})` : app,
-    // the user approves exactly what will run: every argument (a huge one, e.g. an attachment, is cut and says so)
-    detail: ruled + clip(JSON.stringify(args, null, 2), 20_000),
+    // the card says what will happen in the user's words, as which account, and every argument, readably
+    action: summary.trim() || label,
+    target: account.label ?? app,
+    // the user approves exactly what will run (a huge argument, e.g. an attachment, is cut and says so)
+    detail: ruled + clip(readable(args), 20_000),
     remember: true, // an answer for always holds for the app's actions of this kind
   });
   if (!approval.ok) return `Could not ask for approval: ${describe(approval.rejection)}.`;

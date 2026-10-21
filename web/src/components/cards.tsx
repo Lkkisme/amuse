@@ -198,8 +198,9 @@ export function ApprovalCard({
           </p>
         </div>
       </div>
+      {/* one "Field: value" a line; a long one scrolls inside the card */}
       <p
-        className="mt-2.5 text-[13px] leading-snug"
+        className="mt-2.5 max-h-48 overflow-y-auto whitespace-pre-line text-[13px] leading-snug [overflow-wrap:anywhere]"
         style={{ color: "var(--text-secondary)" }}
       >
         {approval.detail}
