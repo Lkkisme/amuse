@@ -74,7 +74,7 @@ export function composioDirectory(
         const s = status(a.status);
         if (!s) return [];
         const t = bySlug.get(a.toolkit);
-        return [{ id: a.id, status: s, label: a.label, app: t ? app(t) : { id: a.toolkit, name: a.toolkit, description: "", logo: null } }];
+        return [{ id: a.id, status: s, label: a.label, since: a.since, app: t ? app(t) : { id: a.toolkit, name: a.toolkit, description: "", logo: null } }];
       });
     },
     async connect(appId) {

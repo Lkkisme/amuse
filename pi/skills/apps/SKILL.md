@@ -13,6 +13,8 @@ description: The user's apps (mail, calendar, sheets, Slack, GitHub, …): conne
 
 **Not connected yet.** When a request needs an app that is not connected, show its Connect card with `request_connection` instead of guessing.
 
+**More than one account.** An app can have several accounts connected at once (two Gmail addresses, a work and a personal calendar). To add another, show the app's Connect card again with `request_connection`: the user signs in with the other account there, and the ones already connected stay. Once an app has several, say which you act as (`account` in `app_call`), and ask when it is not clear which they mean.
+
 **Apps not set up at all.** Apps connect through Composio, with the user's own Composio API key, added in Settings › Connectors. Why: each app only lets in software it has approved, and Composio is approved by them, so the user need not set each app up; it is their own Composio account, so their app logins stay in it and they can revoke them there. Walk them through it a step at a time, in plain words:
 1. Sign in or sign up at dashboard.composio.dev.
 2. Open Settings, then Project Settings.

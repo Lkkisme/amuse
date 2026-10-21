@@ -15,7 +15,7 @@ const all = [
   tk("notion", "Notion", "Notes and docs"),
 ];
 const rules = memoryRules();
-const directory = (accounts: { id: string; toolkit: string; status: string; label: string | null }[] = []) =>
+const directory = (accounts: { id: string; toolkit: string; status: string; label: string | null; since: string | null }[] = []) =>
   composioDirectory(
     {
       toolkits: async () => all,
@@ -45,9 +45,9 @@ test("every word must match", async () => {
 
 test("accounts carry their app, and only settled ones show", async () => {
   const accounts = await directory([
-    { id: "ca_1", toolkit: "gmail", status: "ACTIVE", label: "me@example.com" },
-    { id: "ca_2", toolkit: "notion", status: "EXPIRED", label: null },
-    { id: "ca_3", toolkit: "github", status: "INITIATED", label: null },
+    { id: "ca_1", toolkit: "gmail", status: "ACTIVE", label: "me@example.com", since: null },
+    { id: "ca_2", toolkit: "notion", status: "EXPIRED", label: null, since: null },
+    { id: "ca_3", toolkit: "github", status: "INITIATED", label: null, since: null },
   ]).accounts();
   assert.deepEqual(accounts.map((a) => [a.id, a.app.name, a.label, a.status]), [["ca_1", "Gmail", "me@example.com", "active"], ["ca_2", "Notion", null, "expired"]]);
 });

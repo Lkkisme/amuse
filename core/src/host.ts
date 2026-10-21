@@ -368,6 +368,8 @@ export interface HostOptions {
 
 /** setTimeout's longest wait (about 24.8 days); a later deadline is woken for and looked at again. */
 const LONGEST_WAIT = 2 ** 31 - 1;
+/** how far the app service's clock may be behind ours, settling a Connect card by when an account was connected */
+const SETTLE_SLACK_MS = 60_000;
 
 /** How much of another chat the agent reads at once. */
 const otherChat: Budget = { full: 12_000, brief: 4_000 };
@@ -601,9 +603,11 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
    * agent hears, to carry on with what waited on it.
    */
   function settleConnections(accounts: Account[]): void {
-    const active = new Set(accounts.filter((a) => a.status === "active").map((a) => a.app.id));
+    const active = accounts.filter((a) => a.status === "active");
+    // an account connected since the card was shown: one there already (the first Gmail, when the card is for a second) is not it
+    const answers = (c: Connection) => active.some((a) => a.app.id === c.provider && (a.since === null || Date.parse(a.since) >= Date.parse(c.at) - SETTLE_SLACK_MS));
     for (const room of [...rooms.values()]) {
-      const waiting = room.state.entities.filter((e): e is Connection => e.kind === "connection" && e.status === "pending" && active.has(e.provider));
+      const waiting = room.state.entities.filter((e): e is Connection => e.kind === "connection" && e.status === "pending" && answers(e));
       for (const connection of waiting) {
         if (room.agent.act({ kind: "connected", id: connection.id }).ok)
           room.agent.report(`[app connection] ${connection.title} is connected now. Tell the user so in a short line; if something was waiting on it, carry on with it.`);

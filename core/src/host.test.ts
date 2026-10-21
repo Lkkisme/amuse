@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type Schedule, type Session, type State, apply, prepend } from "@amuse/protocol";
+import { type Account, type Schedule, type Session, type State, apply, prepend } from "@amuse/protocol";
 import { type AgentIO, type Ports, type Timers, type Turn, createHost, memoryChats, memoryRules, noKeys, noLogins, noWorkspace } from "./index.ts";
 
 /** Ports that do nothing but hand over the AgentIO, so tests can act like an agent. */
@@ -386,15 +386,17 @@ test("work handed off is looked in on: the chat agent hears how a task goes ever
   assert.equal(notes.length, 2, "an ended task is not looked in on");
 });
 
-test("a Connect card still waiting is connected once its app has an active account, however it got one; the agent hears", async () => {
+test("a Connect card still waiting is connected once its app has an account connected since, however it got one; the agent hears", async () => {
   const notes: string[] = [];
   const { ports, io } = capture();
   const gmail = { id: "gmail", name: "Gmail", description: "", logo: null };
+  // the user's first Gmail, from before: the card is for another one
+  const accounts: Account[] = [{ id: "ca_0", app: gmail, label: "old@a.com", status: "active", since: "2020-01-01T00:00:00Z" }];
   const host = createHost(
     {
       ...ports,
       prompt: (turn, agent) => (turn.kind === "note" ? void notes.push(turn.text) : ports.prompt(turn, agent)),
-      apps: { ...ports.apps, accounts: async () => [{ id: "ca_1", app: gmail, label: "me@a.com", status: "active" }] },
+      apps: { ...ports.apps, accounts: async () => accounts },
     },
     { timers: manualTime("2026-10-20T08:00:00Z").timers },
   );
@@ -404,14 +406,17 @@ test("a Connect card still waiting is connected once its app has an active accou
   const card = agent.act({ kind: "connect", provider: "gmail", title: "Gmail" });
   const other = agent.act({ kind: "connect", provider: "slack", title: "Slack" });
   assert.ok(card.ok && other.ok);
-  await host.call("apps.accounts", {});
-  const { entities } = await host.call("session.history", { chat: "main", before: 100, limit: 100 });
-  const status = (id: string) => {
+  const status = async (id: string) => {
+    const { entities } = await host.call("session.history", { chat: "main", before: 100, limit: 100 });
     const found = entities.find((e) => e.id === id);
     return found?.kind === "connection" ? found.status : null;
   };
-  assert.equal(status(card.id), "connected");
-  assert.equal(status(other.id), "pending", "an app without an account still waits");
+  await host.call("apps.accounts", {});
+  assert.equal(await status(card.id), "pending", "an account there before the card is not the one it asked for");
+  accounts.push({ id: "ca_1", app: gmail, label: "me@a.com", status: "active", since: new Date().toISOString() });
+  await host.call("apps.accounts", {});
+  assert.equal(await status(card.id), "connected");
+  assert.equal(await status(other.id), "pending", "an app without an account still waits");
   assert.deepEqual(notes, ["[app connection] Gmail is connected now. Tell the user so in a short line; if something was waiting on it, carry on with it."]);
   await host.call("apps.accounts", {});
   assert.equal(notes.length, 1, "once");

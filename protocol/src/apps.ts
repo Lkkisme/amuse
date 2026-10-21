@@ -18,7 +18,14 @@ export const App = z.object({
 export const AccountStatus = z.enum(["active", "expired", "failed"]);
 
 /** One account of an app; an app may have several (two Gmail addresses). `label` tells them apart (an email, a name). */
-export const Account = z.object({ id: Id, app: App, label: z.string().nullable(), status: AccountStatus });
+export const Account = z.object({
+  id: Id,
+  app: App,
+  label: z.string().nullable(),
+  status: AccountStatus,
+  /** when it was connected (null: not known) */
+  since: z.string().nullable(),
+});
 
 /**
  * What an app's tool does, as far as the user's safety goes: reads, changes

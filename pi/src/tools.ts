@@ -126,7 +126,7 @@ export function tools(
       name: "request_connection",
       label: "Connect an app",
       description:
-        "Ask the user to connect an app (Gmail, Google Calendar, Google Sheets, GitHub, Slack, ...) when a request needs data or actions from it. Shows a Connect card in the chat and returns immediately.",
+        "Ask the user to connect an app (Gmail, Google Calendar, Google Sheets, GitHub, Slack, ...) when a request needs data or actions from it, or to add another account of an app already connected (an app can have several). Shows a Connect card in the chat and returns immediately.",
       parameters: Type.Object({ status,
         provider: Type.String({ description: "Lowercase provider id, e.g. 'gmail', 'googlesheets'" }),
         title: Type.String({ description: "App name as the user knows it, e.g. 'Google Sheets'" }),

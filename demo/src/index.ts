@@ -47,6 +47,7 @@ function demoApps(rules: Rules): AppDirectory {
         app: demoApp("gmail", "Gmail", "Read, search and send email"),
         label: "you@example.com",
         status: "active",
+        since: null,
       },
     ],
   ]);
@@ -71,6 +72,7 @@ function demoApps(rules: Rules): AppDirectory {
         app,
         label: n === 0 ? "you@example.com" : `you+${n}@example.com`,
         status: "active",
+        since: new Date().toISOString(),
       });
       return "https://example.com/";
     },

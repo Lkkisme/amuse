@@ -65,6 +65,7 @@ const ConnectedAccounts = z.object({
       id: z.string(),
       status: z.string(),
       toolkit: z.object({ slug: z.string() }),
+      created_at: z.string().nullable().default(null),
       data: z.looseObject({ displayName: z.string().optional(), email: z.string().optional(), id_token: z.string().optional() }).nullable().default(null),
     }),
   ),
@@ -131,7 +132,7 @@ export interface Composio {
   /** Every toolkit there is to connect, most used first (no-auth and deprecated ones left out). */
   toolkits(): Promise<Toolkit[]>;
   /** `userId`'s accounts (of one toolkit, if given), as Composio has them (status upper-case: ACTIVE, EXPIRED, …). */
-  accounts(userId: string, toolkit?: string): Promise<{ id: string; toolkit: string; status: string; label: string | null }[]>;
+  accounts(userId: string, toolkit?: string): Promise<{ id: string; toolkit: string; status: string; label: string | null; since: string | null }[]>;
   /** Delete a connected account. */
   remove(account: string): Promise<void>;
   /** Run a tool for `userId`, as `account` when they have several; the tool's result, or its error. */
@@ -226,7 +227,7 @@ export function composio(apiKey: string, http: typeof fetch = fetch): Composio {
     async accounts(userId, toolkit) {
       const query = { user_ids: userId, limit: "100", ...(toolkit ? { toolkit_slugs: toolkit } : {}) };
       const { items } = await call(ConnectedAccounts, "/connected_accounts", { query });
-      return items.map((a) => ({ id: a.id, toolkit: a.toolkit.slug, status: a.status.toUpperCase(), label: labelOf(a.data) }));
+      return items.map((a) => ({ id: a.id, toolkit: a.toolkit.slug, status: a.status.toUpperCase(), label: labelOf(a.data), since: a.created_at }));
     },
     async remove(account) {
       await call(z.unknown(), `/connected_accounts/${encodeURIComponent(account)}`, { method: "DELETE" });
