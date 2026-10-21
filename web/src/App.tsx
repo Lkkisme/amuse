@@ -33,7 +33,7 @@ import { ChatFeed } from "./components/ChatFeed";
 import {
   DockedSidebar,
   DrawerSidebar,
-  SIDEBAR_WIDTH,
+  sidebarRoom,
 } from "./components/ChatsPanel";
 import { Composer } from "./components/Composer";
 import { ExplainerModal } from "./components/ExplainerModal";
@@ -162,10 +162,10 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
     ui.viewer && width >= 1024
       ? viewerWidth
       : ui.museOpen && !ui.viewer
-        ? 360
+        ? 368
         : 0;
   /** room to dock the sidebar and leave the chat enough (md up) */
-  const fits = width >= 768 && width - right - SIDEBAR_WIDTH >= CHAT_ROOM;
+  const fits = width >= 768 && width - right - sidebarRoom(ui.left) >= CHAT_ROOM;
   const docked = ui.sidebar && fits;
   // once there is room to dock it, the sidebar is no longer a drawer over the chat
   useEffect(() => {
@@ -182,9 +182,9 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
     // read by what floats over the chat (the Muse panel), to keep beside the sidebar
     document.documentElement.style.setProperty(
       "--sidebar-width",
-      `${docked ? SIDEBAR_WIDTH : 0}px`,
+      `${docked ? sidebarRoom(ui.left) : 0}px`,
     );
-  }, [docked]);
+  }, [docked, ui.left]);
   useEffect(() => {
     document.documentElement.style.setProperty(
       "--viewer-width",

@@ -24,7 +24,7 @@ export function TopBar({ conversation, museOpen, actions }: { conversation: Stat
           Amuse avatar bubble, drawn over the top of its name badge (Amuse: 52px avatar, badge tucked 4px under).
           Its shadow is a layer of its own under the badge, so it falls on the chat, not on the badge. */}
       {!museOpen && (
-        <div className="pointer-events-none absolute left-1/2 top-2 z-10 flex -translate-x-1/2 flex-col items-center">
+        <div className="pointer-events-none absolute left-1/2 top-3 z-10 flex -translate-x-1/2 flex-col items-center">
           <span
             aria-hidden
             className="absolute top-0 size-[52px] rounded-full"
@@ -83,7 +83,7 @@ export function MenuButton({ open, onToggle }: { open: boolean; onToggle: () => 
       aria-label={open ? "Close menu" : "Open menu"}
       aria-expanded={open}
       // fixed to the window, not the chat: docked sidebar or not, it is in the same place to tap again
-      className="hover-fade fixed left-3 top-2 z-[45] flex size-11 items-center justify-center rounded-full"
+      className="hover-fade fixed left-3 top-3 z-[45] flex size-11 items-center justify-center rounded-full"
       style={{ background: "var(--fill-primary)", color: "var(--text-primary)", boxShadow: "var(--shadow-float)" }}
       onClick={onToggle}
     >

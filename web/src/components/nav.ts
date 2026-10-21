@@ -1,9 +1,9 @@
 /**
- * The sidebar's pages, always at its top: the user's things. Chats (the
- * first, where the sidebar starts) and Goals show in the sidebar under them;
- * Settings opens its dialog. Feeds joins when it is built.
+ * The sidebar's pages, always at its top: the user's things, shown in the
+ * sidebar under them. Chats is where it starts. Feeds joins when it is built.
+ * (Settings is not one: it sits at the sidebar's bottom and opens its window.)
  */
-import { type LucideIcon, MessageCircle, Settings, Target } from "lucide-react";
+import { type LucideIcon, MessageCircle, Target } from "lucide-react";
 import type { Actions, LeftSection } from "../ui.ts";
 
 export interface NavPage {
@@ -17,13 +17,4 @@ export interface NavPage {
 export const NAV_PAGES: NavPage[] = [
   { icon: MessageCircle, label: "Chats", shown: (left) => left === null, open: (actions) => actions.openLeft(null) },
   { icon: Target, label: "Goals", shown: (left) => left === "goals", open: (actions) => actions.openLeft("goals") },
-  {
-    icon: Settings,
-    label: "Settings",
-    shown: () => false,
-    open: (actions) => {
-      actions.setChats(false);
-      actions.openSettings(null);
-    },
-  },
 ];

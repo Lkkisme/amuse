@@ -100,11 +100,12 @@ function done(entity: Entity): Done | null {
 
 const frame: Record<MuseMode, string> = {
   // a page of its own on a phone; on the right from md up
-  docked: "fixed inset-0 z-50 md:relative md:z-auto md:w-[360px] md:shrink-0 md:border-l",
+  // from md, a rounded panel 8px in from the window's edges, like the sidebar
+  docked: "fixed inset-0 z-50 md:relative md:z-auto md:my-2 md:mr-2 md:w-[360px] md:shrink-0 md:rounded-[24px] md:border",
   // over the chat while the browser is on the right (lg up): within what the chat has, beside a docked
-  // sidebar (16px clear of it and of the viewer)
+  // sidebar (8px clear of it, of the window's edges and of the viewer)
   floating:
-    "fixed bottom-4 left-[calc(var(--sidebar-width)+16px)] top-4 z-[55] w-[min(440px,calc(100vw-var(--viewer-width)-var(--sidebar-width)-32px))] rounded-[28px]",
+    "fixed bottom-2 left-[calc(var(--sidebar-width)+8px)] top-2 z-[55] w-[min(440px,calc(100vw-var(--viewer-width)-var(--sidebar-width)-16px))] rounded-[24px]",
 };
 
 type Tab = "activity" | "approvals" | "upcoming";
@@ -137,10 +138,10 @@ export function MusePanel({ conversation, session, mode, actions }: { conversati
           ...(mode === "floating" ? { boxShadow: "var(--shadow-sheet)" } : {}),
         }}
       >
-        {/* 32px, 12px in: concentric with the floating window's 28px corners */}
+        {/* 32px, 8px in: concentric with the panel's 24px corners */}
         <button
           aria-label="Close"
-          className="hover-fade absolute right-3 top-3 z-10 flex size-8 items-center justify-center rounded-full"
+          className="hover-fade absolute right-2 top-2 z-10 flex size-8 items-center justify-center rounded-full"
           style={{ color: "var(--icon-secondary)" }}
           onClick={() => actions.setMuse(false)}
         >

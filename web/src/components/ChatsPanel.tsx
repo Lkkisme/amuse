@@ -1,6 +1,7 @@
 /**
- * The sidebar: the user's things, on the left. The pages at the top (Chats,
- * Goals, Settings; nav.ts), and under them the page shown: the chats (search,
+ * The sidebar: the user's things, on the left, a rounded panel. The pages at
+ * the top (Chats, Goals; nav.ts), Settings at the bottom (it opens its own
+ * window), and between them the page shown: the chats (search,
  * the main chat, side chats (+ opens one), most recently used first; a side
  * chat's row renames or deletes it), or the goals (the list, then a goal's
  * page over it).
@@ -10,7 +11,7 @@
  *           like the Muse panel's
  */
 import { useEffect, useRef, useState } from "react";
-import { MessageCircle, MoreHorizontal, Plus, Search } from "lucide-react";
+import { MessageCircle, MoreHorizontal, Plus, Search, Settings } from "lucide-react";
 import { type Chat, MAIN, type Session } from "@amuse/protocol";
 import type { Actions, LeftSection } from "../ui.ts";
 import { NAV_PAGES } from "./nav";
@@ -30,8 +31,16 @@ function ago(iso: string, now = Date.now()): string {
 
 const named = (chat: Chat) => (chat.id === MAIN ? "Main chat" : chat.title || "New chat");
 
-/** The docked sidebar's width (the drawer's too, up to 85% of a phone). */
-export const SIDEBAR_WIDTH = 300;
+/** The sidebar's width: the chats', or wider for a page that reads better so (a goal's research). */
+export const sidebarWidth = (left: LeftSection | null) => (left === "goals" ? 380 : 300);
+/** The sidebar is a panel this far in from the window's edges. */
+export const SIDEBAR_INSET = 8;
+/** what the sidebar takes of the window when docked */
+export const sidebarRoom = (left: LeftSection | null) => sidebarWidth(left) + SIDEBAR_INSET;
+
+/** The panel, docked or floating: the same shape in the same place (the floating one has a shadow over the dimmed chat). */
+const panel = { background: "var(--bg-primary)", border: "1px solid var(--fill-divider)" };
+const ease = "0.24s cubic-bezier(0.2, 0, 0, 1)";
 
 interface SidebarProps {
   chats: Chat[];
@@ -42,23 +51,25 @@ interface SidebarProps {
   actions: Actions;
 }
 
-/** Beside the chat, while there is room: it opens and closes by its width, the chat giving way as it goes. */
+/** Beside the chat, while there is room: a rounded panel that opens and closes by its width, the chat giving way as it goes. */
 export function DockedSidebar({ open, ...props }: SidebarProps & { open: boolean }) {
+  const width = sidebarWidth(props.left);
   return (
     <aside
       className="relative hidden h-full shrink-0 overflow-hidden md:block"
       style={{
-        width: open ? SIDEBAR_WIDTH : 0,
+        width: open ? width + SIDEBAR_INSET : 0,
         // hidden (out of the tab order) once it has closed, shown at once as it opens
         visibility: open ? "visible" : "hidden",
-        transition: `width 0.24s cubic-bezier(0.2, 0, 0, 1), visibility 0s linear ${open ? "0s" : "0.24s"}`,
-        background: "var(--chat-background)",
-        borderRight: open ? "1px solid var(--fill-divider)" : "none",
+        transition: `width ${ease}, visibility 0s linear ${open ? "0s" : "0.24s"}`,
       }}
       aria-label="Sidebar"
     >
-      {/* the content keeps its width while the sidebar's grows or shrinks */}
-      <div className="relative flex h-full flex-col p-3" style={{ width: SIDEBAR_WIDTH }}>
+      {/* the panel keeps its width while the room for it grows or shrinks */}
+      <div
+        className="absolute flex flex-col overflow-hidden rounded-[24px] p-3"
+        style={{ ...panel, top: SIDEBAR_INSET, bottom: SIDEBAR_INSET, left: SIDEBAR_INSET, width, transition: `width ${ease}` }}
+      >
         {/* room for the ☰ button, which stays at the window's top left */}
         <div className="h-11 shrink-0" />
         <SidebarContent {...props} />
@@ -67,15 +78,14 @@ export function DockedSidebar({ open, ...props }: SidebarProps & { open: boolean
   );
 }
 
-/** Over the chat from the left: a phone's drawer, or a desktop's sidebar without room to dock. */
+/** Over the chat from the left: a phone's drawer, or, on a desktop without room to dock it, the same panel floating. */
 export function DrawerSidebar({ open, ...props }: SidebarProps & { open: boolean }) {
   const { mounted, closing, onAnimationEnd } = usePresence(open);
   if (!mounted) return null;
   return (
     // clips the slide, so the panel comes out from the edge; a tap beside it closes it. What it dims is the
     // chat, not the browser beside it
-
-    <div className={`fixed inset-0 z-40 flex overflow-hidden md:pb-4 md:pl-4 md:pt-[60px] ${closing ? "pointer-events-none" : ""}`}>
+    <div className={`fixed inset-0 z-40 flex overflow-hidden md:p-2 ${closing ? "pointer-events-none" : ""}`}>
       <div
         className={`${closing ? "anim-fade-out" : "anim-fade-in"} absolute inset-y-0 left-0 bg-black/30`}
         style={{ right: "var(--viewer-room)" }}
@@ -83,12 +93,12 @@ export function DrawerSidebar({ open, ...props }: SidebarProps & { open: boolean
       />
       <aside
         onAnimationEnd={onAnimationEnd}
-        className={`${closing ? "anim-pane-to-left pointer-events-none" : "anim-pane-from-left"} relative flex h-full max-w-[85vw] flex-col p-3 md:rounded-[28px]`}
-        style={{ width: SIDEBAR_WIDTH, background: "var(--chat-background)", boxShadow: "var(--shadow-drawer)" }}
+        className={`${closing ? "anim-pane-to-left pointer-events-none" : "anim-pane-from-left"} relative flex h-full max-w-[85vw] flex-col bg-[var(--chat-background)] p-3 md:rounded-[24px] md:border md:border-[var(--fill-divider)] md:bg-[var(--bg-primary)]`}
+        style={{ width: sidebarWidth(props.left), boxShadow: "var(--shadow-drawer)", transition: `width ${ease}` }}
         aria-label="Sidebar"
       >
-        {/* room for the ☰ button (TopBar's MenuButton), which stays put above the drawer (on a desktop, the window opens under it) */}
-        <div className="h-11 shrink-0 md:hidden" />
+        {/* room for the ☰ button (TopBar's MenuButton), which stays put above the panel */}
+        <div className="h-11 shrink-0" />
         <SidebarContent {...props} />
       </aside>
     </div>
@@ -98,7 +108,7 @@ export function DrawerSidebar({ open, ...props }: SidebarProps & { open: boolean
 function SidebarContent({ chats, current, left, goal, session, actions }: SidebarProps) {
   return (
     <>
-      <nav className="mt-3 grid shrink-0 grid-cols-3 gap-1" aria-label="Pages">
+      <nav className="mt-3 grid shrink-0 grid-cols-2 gap-1" aria-label="Pages">
         {NAV_PAGES.map(({ icon: Icon, label, shown, open }) => (
           <button
             key={label}
@@ -125,6 +135,18 @@ function SidebarContent({ chats, current, left, goal, session, actions }: Sideba
       ) : (
         <ChatList chats={chats} current={current} actions={actions} />
       )}
+      {/* at the bottom, apart from the pages: it is not one, it opens its own window */}
+      <button
+        className="hover-fade mt-2 flex shrink-0 items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15px] font-medium"
+        style={{ color: "var(--text-primary)" }}
+        onClick={() => {
+          actions.setChats(false);
+          actions.openSettings(null);
+        }}
+      >
+        <Settings size={18} style={{ color: "var(--icon-secondary)" }} />
+        Settings
+      </button>
     </>
   );
 }

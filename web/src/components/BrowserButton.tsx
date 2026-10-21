@@ -22,7 +22,7 @@ export function BrowserButton({ conversation, open, actions }: { conversation: S
       aria-label={open ? "Close browser" : meta ? `Browser: ${meta.label}` : "Browser"}
       aria-expanded={open}
       // open, it is held to the window's corner (the viewer's), where it already is unless a docked Muse panel was beside it
-      className={`${open ? "fixed z-[60]" : "absolute z-30"} right-3 top-2 flex size-11 items-center justify-center rounded-full`}
+      className={`${open ? "fixed z-[60]" : "absolute z-30"} right-3 top-3 flex size-11 items-center justify-center rounded-full`}
       style={{ background: "var(--fill-primary)", color: meta?.color ?? "var(--icon-primary)", boxShadow: "var(--shadow-float)" }}
       onClick={() => (open ? actions.closeViewer() : actions.openViewer(run?.id ?? null))}
     >
