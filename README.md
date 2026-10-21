@@ -26,13 +26,13 @@ away: the first visit sets it.
 
 ## Other devices
 
-amuse listens on `127.0.0.1:8080` only. To reach it from your phone over
-[Tailscale](https://tailscale.com), either:
+amuse listens on `127.0.0.1:8080` only. Keep it there, and reach it from your phone over
+[Tailscale](https://tailscale.com) by serving it over https: `tailscale serve --bg 8080`, and
+`AMUSE_PUBLIC_URL=https://my-pc.my-tailnet.ts.net`. Pasting from the phone's clipboard into the browser
+you take over, and the mic, need https.
 
-- listen on your Tailscale IP: in `.env`, `AMUSE_PUBLISH_HOST=100.x.y.z` and
-  `AMUSE_PUBLIC_URL=http://100.x.y.z:8080` (plain http; Tailscale encrypts the link), or
-- serve it over https: `tailscale serve --bg 8080`, and `AMUSE_PUBLIC_URL=https://my-pc.my-tailnet.ts.net`.
-  Pasting from the phone's clipboard into the browser you take over, and the mic, need https.
+Listening on another address instead (`AMUSE_PUBLISH_HOST=100.x.y.z`, a LAN IP, `0.0.0.0`) also works,
+but then the sandbox can reach Amuse through the host (see Sandbox below).
 
 Then `docker compose up -d`.
 
@@ -77,11 +77,12 @@ leaves it, and deleting or overwriting the files you sent, still needs your word
 - Turn it off: `AMUSE_SANDBOX_URL=` (empty) in `.env`, then `docker compose up -d`. Amuse then has no
   sandbox tools, and the server still turns away the sandbox's network. The container stays, idle; to
   drop it, remove the `sandbox` and `sandbox-init` services from `compose.yaml`.
-- A firewall caveat, on Linux: the sandbox can reach the host's own addresses through its gateway, so
-  anything listening on all addresses or on a LAN or Tailscale IP (a published Amuse, with
-  `AMUSE_PUBLISH_HOST=0.0.0.0` or a Tailscale IP, or SSH) is reachable from it; the server cannot tell
-  that traffic from yours, and only the password guards it. Two rules on the host close it (adjust the
-  range if you changed it; untested here, and lost at reboot unless your firewall saves them):
+- The host's own addresses: the sandbox can reach them through its gateway, so anything listening on
+  all addresses or on a LAN or Tailscale IP is reachable from it (Docker's published ports pass even
+  ufw). Keep Amuse published on `127.0.0.1` (the default) and served by `tailscale serve`: the sandbox
+  cannot reach the host's loopback (checked on a live install). For other services on the host, two
+  firewall rules close it (adjust the range if you changed it; untested here, and lost at reboot unless
+  your firewall saves them):
 
   ```sh
   sudo iptables -I INPUT -s 10.231.250.0/24 -j DROP                                           # the host's own services
