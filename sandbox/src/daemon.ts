@@ -1,22 +1,25 @@
 /**
  * The sandbox's control daemon: Amuse's way to work inside its own machine.
- * It runs as the sandbox's normal user and listens on the sandbox network
- * only; the one other thing on that network is the Amuse server, and whatever
- * runs here is the same principal anyway, so it asks for no token.
+ * It listens on the sandbox network only; the one other thing on that network
+ * is the Amuse server, and whatever runs here can already do all it can ask
+ * (the user has sudo), so it asks for no token. It runs as root, so that it
+ * can always stop what it started and clean up after it, but every command it
+ * starts runs as the normal user (`user`), never as root unless it says sudo.
  *
  * A command is a process group of its own: run to completion (output kept
  * within bounds, a timeout, stopped if the asker goes away) or kept as a
- * service (its recent output to read, stopped as a whole). Whatever a command
- * leaves running when it ends is stopped with it: what should go on running
- * is a service. Reset stops everything and empties the home folder back to
- * its skeleton, never touching the workspace.
+ * service (its recent output to read, stopped as a whole). A command is over
+ * when its own process is; whatever it left running in its group is stopped
+ * with it (what should go on running is a service), and a process that got
+ * away (setsid, a daemon) no longer holds the answer back. Reset stops
+ * everything and empties the home folder back to its skeleton, never touching
+ * the workspace.
  */
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { cpSync, existsSync, statSync } from "node:fs";
-import { lstat, readdir, rm } from "node:fs/promises";
+import { lchown, lstat, readdir, rm } from "node:fs/promises";
 import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
 import { join, resolve } from "node:path";
-import { promisify } from "node:util";
 import { z } from "zod";
 import { Clip, lastLines } from "./output.ts";
 import { DEFAULT_TIMEOUT, Run, type Service, Start } from "./protocol.ts";
@@ -30,6 +33,10 @@ export interface Options {
   skeleton: string;
   port: number;
   host: string;
+  /** who commands run as (the daemon itself runs as root, and cannot be asked to run one as root); without one, as the daemon */
+  user?: { uid: number; gid: number; name: string };
+  /** whether this is the sandbox's own container, where a reset may end every process there is (never on a machine that is not) */
+  isolated?: boolean;
   /** how long a service just started is watched for an early end before it is reported (ms) */
   settle?: number;
 }
@@ -54,8 +61,8 @@ const REMEMBERED = 20;
 const MAX_BODY = 1024 ** 2;
 /** A long command is kept from looking idle to whoever waits for it. */
 const BEAT_MS = 20_000;
-
-const sudo = promisify(execFile);
+/** After a command's process ends, how long its output is still waited for, from pipes something else may hold open. */
+const GRACE_MS = 300;
 
 /** A request that cannot be done, with why in words. */
 class Refused extends Error {
@@ -86,13 +93,23 @@ const said = (error: unknown) => (error instanceof Error ? error.message : Strin
 /** What was wrong with a request, as a sentence. */
 const wrong = (error: z.ZodError) => error.issues.map((i) => `${i.path.join(".") || "request"}: ${i.message}`).join("; ");
 
-export function serve({ home, workspace, skeleton, port, host, settle = 1_000 }: Options): Promise<Listening> {
+export function serve({ home, workspace, skeleton, port, host, user, isolated = false, settle = 1_000 }: Options): Promise<Listening> {
   /** Everything started and not yet ended, so a reset or a shutdown can stop it. */
   const jobs = new Set<Job>();
+  // the user's own groups only, not root's, for what it starts
+  if (user) process.setgroups?.([user.gid]);
+  /** What a command sees, as a login of the user would set it. */
+  const environment = { ...process.env, HOME: home, ...(user ? { USER: user.name, LOGNAME: user.name, SHELL: "/bin/bash" } : {}) };
 
   /** `command` in a bash of its own, in `cwd`, its output going to `clip`. */
   const launch = (command: string, cwd: string, clip: Clip): Job => {
-    const child = spawn("bash", ["-c", command], { cwd, detached: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, HOME: home } });
+    const child = spawn("bash", ["-c", command], {
+      cwd,
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: environment,
+      ...(user ? { uid: user.uid, gid: user.gid } : {}),
+    });
     const group = child.pid;
     const signal = (name: NodeJS.Signals) => {
       if (group === undefined) return;
@@ -106,11 +123,20 @@ export function serve({ home, workspace, skeleton, port, host, settle = 1_000 }:
       stream.setEncoding("utf8");
       stream.on("data", (text: string) => clip.append(text));
     }
-    // what the command leaves running goes with it (and its pipes close)
-    child.once("exit", () => signal("SIGKILL"));
     const ended = new Promise<End>((done, failed) => {
       child.once("error", failed);
-      child.once("close", (exitCode, by) => done({ exitCode, signal: by }));
+      child.once("exit", (exitCode, by) => {
+        // what the command leaves running in its group goes with it
+        signal("SIGKILL");
+        // its output is all in once the pipes close; one something else holds open (a process that got away) is not waited for
+        const finish = () => {
+          clearTimeout(grace);
+          for (const stream of [child.stdout, child.stderr]) stream.destroy();
+          done({ exitCode, signal: by });
+        };
+        const grace = setTimeout(finish, GRACE_MS);
+        child.once("close", finish);
+      });
     });
     const job: Job = {
       ended,
@@ -259,16 +285,19 @@ export function serve({ home, workspace, skeleton, port, host, settle = 1_000 }:
 
   /* ---------- reset ---------- */
 
-  /** Delete `path` for good; what the user's own account may not (made by root with sudo) goes by sudo. */
   const remove = async (path: string) => {
     try {
       await rm(path, { recursive: true, force: true });
-    } catch (error) {
-      if (!(error instanceof Error && "code" in error && (error.code === "EACCES" || error.code === "EPERM"))) throw error;
-      await sudo("sudo", ["-n", "rm", "-rf", "--one-file-system", "--", path]).catch(() => {
-        throw new Refused(`${path} could not be removed.`, 500);
-      });
+    } catch {
+      throw new Refused(`${path} could not be removed.`, 500);
     }
+  };
+
+  /** `path` and what is in it, given to the user (a copy made as root is root's). */
+  const give = async (path: string): Promise<void> => {
+    if (!user) return;
+    await lchown(path, user.uid, user.gid);
+    if ((await lstat(path)).isDirectory()) for (const name of await readdir(path)) await give(join(path, name));
   };
 
   /** Empty `dir`, leaving `keep` (the workspace) and anything mounted (a different device) alone. */
@@ -282,14 +311,33 @@ export function serve({ home, workspace, skeleton, port, host, settle = 1_000 }:
     }
   };
 
-  const reset = async () => {
+  /** Stop everything: in the sandbox's own container every process but the init and this daemon (a second round for what the first one's dying spawned), else what this daemon started. */
+  const stopAll = async () => {
     const stopping = [...jobs];
-    for (const job of stopping) job.signal("SIGKILL");
+    for (let round = 0; round < 2; round++) {
+      if (isolated) {
+        try {
+          process.kill(-1, "SIGKILL");
+        } catch {
+          // nothing left to signal
+        }
+      } else for (const job of stopping) job.signal("SIGKILL");
+      await new Promise((done) => setTimeout(done, 200));
+    }
     await Promise.allSettled(stopping.map((job) => job.ended));
+  };
+
+  const reset = async () => {
+    await stopAll();
     services.clear();
     await empty(home, workspace, (await lstat(home)).dev);
-    if (existsSync(skeleton)) cpSync(skeleton, home, { recursive: true, force: true });
+    if (existsSync(skeleton)) {
+      cpSync(skeleton, home, { recursive: true, force: true });
+      for (const name of await readdir(skeleton)) await give(join(home, name));
+    }
   };
+  /** The reset in progress: whatever is asked meanwhile waits for it. */
+  let resetting: Promise<void> | null = null;
 
   /* ---------- http ---------- */
 
@@ -298,8 +346,9 @@ export function serve({ home, workspace, skeleton, port, host, settle = 1_000 }:
 
   const body = async (req: IncomingMessage): Promise<unknown> => {
     let text = "";
+    req.setEncoding("utf8");
     for await (const chunk of req) {
-      text += String(chunk);
+      text += chunk;
       if (text.length > MAX_BODY) throw new Refused("The request is too large.", 413);
     }
     try {
@@ -319,6 +368,7 @@ export function serve({ home, workspace, skeleton, port, host, settle = 1_000 }:
     const url = new URL(req.url ?? "/", "http://local");
     const path = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
     const route = `${req.method} /${path.map((part, i) => (i === 1 ? ":service" : part)).join("/")}`;
+    if (resetting && route !== "POST /reset") await resetting.catch(() => {});
     switch (route) {
       case "GET /health":
         return json(res, 200, {});
@@ -335,7 +385,8 @@ export function serve({ home, workspace, skeleton, port, host, settle = 1_000 }:
       case "POST /services/:service/stop":
         return json(res, 200, await stop(path[1] ?? ""));
       case "POST /reset":
-        await reset();
+        resetting ??= reset().finally(() => void (resetting = null));
+        await resetting;
         return json(res, 200, {});
       default:
         return json(res, 404, { error: "There is no such request." });

@@ -29,14 +29,13 @@ COPY sandbox/package.json sandbox/
 RUN npm ci --omit=dev --workspace sandbox --no-audit --no-fund
 COPY sandbox sandbox
 
-# user-level installs land in the home folder (a volume of its own), where they stay; pip's system-wide
-# refusal (PEP 668) is for machines that matter, and this one is Amuse's
-USER amuse
-WORKDIR /home/amuse
-ENV HOME=/home/amuse \
-    PATH=/home/amuse/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+# the daemon runs as root, to be able to stop and clean up after what it starts; every command it runs is the
+# user's (amuse, uid 1000), with this environment. User-level installs land in the home folder (a volume of its
+# own), where they stay; pip's system-wide refusal (PEP 668) is for machines that matter, and this one is Amuse's.
+ENV PATH=/home/amuse/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     NPM_CONFIG_PREFIX=/home/amuse/.local \
     PIP_BREAK_SYSTEM_PACKAGES=1 \
-    DEBIAN_FRONTEND=noninteractive
+    DEBIAN_FRONTEND=noninteractive \
+    AMUSE_SANDBOX_CONTAINER=1
 EXPOSE 7070
 CMD ["node", "/opt/amuse/sandbox/src/main.ts"]

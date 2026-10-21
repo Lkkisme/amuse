@@ -34,10 +34,11 @@ const until = async (done: () => boolean, ms = 5_000) => {
   for (const start = Date.now(); !done() && Date.now() - start < ms;) await new Promise((r) => setTimeout(r, 25));
   return done();
 };
+/** Why the daemon refused, in its own words. */
 const failure = (call: Promise<unknown>) =>
   call.then(
     () => assert.fail("it should have been refused"),
-    (e: unknown) => (e instanceof SandboxError ? e.message : assert.fail(String(e))),
+    (e: unknown) => (e instanceof SandboxError ? (e.detail ?? e.message) : assert.fail(String(e))),
   );
 
 test("a command runs to completion in the workspace, both streams in one, with how it ended", async () => {
@@ -147,4 +148,45 @@ test("a reset stops everything and empties the home folder to its skeleton, neve
 test("when the daemon cannot be reached, the client says so in words", async () => {
   const gone = sandboxClient("http://127.0.0.1:1");
   assert.match(await failure(gone.reset()), /cannot be reached/);
+});
+
+test("a process that gets away from a command does not hold its answer back", async () => {
+  const started = Date.now();
+  const ran = await sandbox.run({ command: "setsid sleep 20 & echo hi $!; sleep 0.3", timeout: 5 });
+  const [word, pid] = ran.output.trim().split(" ");
+  try {
+    assert.equal(word, "hi");
+    assert.equal(ran.timedOut, false);
+    assert.equal(ran.exitCode, 0);
+    assert.ok(Date.now() - started < 3_000, "the answer waited for the process that got away");
+    assert.ok(alive(Number(pid)), "it got away");
+  } finally {
+    process.kill(Number(pid), "SIGKILL");
+  }
+});
+
+test("a service that spawns something that gets away still ends when its own process does", async () => {
+  const file = join(root, "escaped-pid");
+  await sandbox.start({ name: "forker", command: `setsid sleep 20 & echo $! > ${file}; echo started; sleep 0.1; exit 4` });
+  try {
+    let service = (await sandbox.services()).find((s) => s.name === "forker");
+    for (let waited = 0; service?.running && waited < 40; waited++) {
+      await new Promise((r) => setTimeout(r, 50));
+      service = (await sandbox.services()).find((s) => s.name === "forker");
+    }
+    assert.equal(service?.running, false);
+    assert.equal(service?.exitCode, 4);
+    assert.match((await sandbox.log("forker")).output, /started/);
+  } finally {
+    process.kill(Number(readFileSync(file, "utf8")), "SIGKILL");
+  }
+});
+
+test("a request made during a reset waits for it", async () => {
+  mkdirSync(join(home, "stale"), { recursive: true });
+  const resetting = sandbox.reset();
+  const listing = sandbox.run({ command: "ls -A ~" });
+  await resetting;
+  const ran = await listing;
+  assert.ok(!ran.output.includes("stale"), ran.output);
 });
