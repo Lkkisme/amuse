@@ -26,8 +26,10 @@ services:
       AMUSE_PUBLIC_URL: ${AMUSE_PUBLIC_URL:-http://localhost:8080}
       AMUSE_BROWSERS: pool1|http://ab-controller-1:8000|http://ab-node-1:6080|/handoff/pool1,pool2|http://ab-controller-2:8000|http://ab-node-2:6080|/handoff/pool2,pool3|http://ab-controller-3:8000|http://ab-node-3:6080|/handoff/pool3
       AUTO_BROWSER_TOKEN_FILE: /secrets/auto-browser-token
-      # the sandbox's control daemon; set empty (in .env) for no sandbox
+      # the sandbox's control daemon; set empty (in .env) for no sandbox tools
       AMUSE_SANDBOX_URL: ${AMUSE_SANDBOX_URL-http://sandbox:7070}
+      # the sandbox network, whose every request the server turns away (the network below)
+      AMUSE_SANDBOX_SUBNET: ${AMUSE_SANDBOX_SUBNET:-10.231.250.0/24}
     networks: [default, sandbox, pair-1, pair-2, pair-3]
     # services the user runs on this machine (a speech server, say) are at host.docker.internal
     extra_hosts: ["host.docker.internal:host-gateway"]
@@ -35,8 +37,6 @@ services:
       ab-controller-1: { condition: service_healthy }
       ab-controller-2: { condition: service_healthy }
       ab-controller-3: { condition: service_healthy }
-      # up first: the server learns the sandbox's network at start, to turn it away
-      sandbox: { condition: service_healthy }
     volumes:
       - amuse-data:/data
       - secrets:/secrets:ro
@@ -46,13 +46,15 @@ services:
     ports:
       - "${AMUSE_PUBLISH_HOST:-127.0.0.1}:${AMUSE_PUBLISH_PORT:-8080}:8080"
 
-  # Amuse's own machine. Commands run as `amuse` (uid 1000, with passwordless sudo) and only the control daemon
-  # (port 7070) is listening; the only way in is the `sandbox` network, shared with amuse and nothing else.
+  # Amuse's own machine. Its daemon (port 7070, as root) runs every command as the normal user `amuse` (uid 1000,
+  # with passwordless sudo); the only way in is the `sandbox` network, shared with amuse and nothing else.
   # It reaches the internet (this network is not internal) and holds none of amuse's secrets: no env_file, no
-  # /secrets, no Docker socket, not privileged. Only the workspace of amuse-data is mounted, not the rest of it.
-  # sudo needs its setuid, so no-new-privileges is not set; the default capabilities are kept for it.
-  # Limits can be changed in .env. A full reset to a fresh image: `docker compose up -d --force-recreate sandbox`
-  # (its home keeps; `docker volume rm amuse_sandbox-home` after stopping it wipes that too).
+  # /secrets, no Docker socket, not privileged, and only the capabilities sudo, apt and the daemon need. Only the
+  # workspace of amuse-data is mounted, not the rest of it, and what the agent reads as its own context (memory/,
+  # skills/) and what the user sent (user/) are read-only there: Amuse edits those with its own tools.
+  # sudo needs its setuid, so no-new-privileges is not set. Its disk use counts against the data volume.
+  # Limits can be changed in .env. A reset in Settings wipes its home folder; system-wide installs and /etc stay
+  # until the container is recreated: `docker compose up -d --force-recreate sandbox`.
   sandbox:
     <<: *sandbox-image
     restart: unless-stopped
@@ -62,6 +64,10 @@ services:
     mem_limit: ${AMUSE_SANDBOX_MEMORY:-4g}
     memswap_limit: ${AMUSE_SANDBOX_MEMORY:-4g}
     pids_limit: ${AMUSE_SANDBOX_PIDS:-1024}
+    # the daemon switches to the user (SETUID, SETGID), stops and cleans up after what it started (KILL, CHOWN,
+    # DAC_OVERRIDE, FOWNER); sudo and apt/dpkg need those, FSETID and SETFCAP, and sudo AUDIT_WRITE
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID, CHOWN, DAC_OVERRIDE, FOWNER, FSETID, SETFCAP, KILL, AUDIT_WRITE]
     depends_on:
       sandbox-init: { condition: service_completed_successfully }
     volumes:
@@ -70,6 +76,21 @@ services:
         source: amuse-data
         target: /home/amuse/workspace
         volume: { subpath: workspace }
+      - type: volume
+        source: amuse-data
+        target: /home/amuse/workspace/memory
+        read_only: true
+        volume: { subpath: workspace/memory }
+      - type: volume
+        source: amuse-data
+        target: /home/amuse/workspace/skills
+        read_only: true
+        volume: { subpath: workspace/skills }
+      - type: volume
+        source: amuse-data
+        target: /home/amuse/workspace/user
+        read_only: true
+        volume: { subpath: workspace/user }
     healthcheck:
       test: [CMD, node, -e, "fetch('http://127.0.0.1:7070/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
       interval: 10s
@@ -77,7 +98,7 @@ services:
       retries: 6
       start_period: 5s
 
-  # first start only, before the sandbox: the workspace folder amuse-data shares with it must exist to be mounted,
+  # first start only, before the sandbox: the folders amuse-data shares with it must exist to be mounted,
   # and amuse (uid 1000) must own the volume, whichever of them is created first
   sandbox-init:
     <<: *sandbox-image
@@ -85,11 +106,20 @@ services:
     network_mode: none
     restart: "no"
     read_only: true
-    entrypoint: [sh, -c, "mkdir -p /data/workspace && chown 1000:1000 /data /data/workspace"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    entrypoint:
+      - sh
+      - -c
+      - mkdir -p /data/workspace/memory /data/workspace/skills /data/workspace/user && chown 1000:1000 /data /data/workspace /data/workspace/memory /data/workspace/skills /data/workspace/user
     volumes: [amuse-data:/data]
 
+# a fixed subnet, so the server can turn away the sandbox from its first request; it must not overlap any network on the host
 networks:
-  sandbox: {}
+  sandbox:
+    ipam:
+      config:
+        - subnet: ${AMUSE_SANDBOX_SUBNET:-10.231.250.0/24}
 
 volumes:
   amuse-data:
