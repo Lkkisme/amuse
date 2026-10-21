@@ -95,6 +95,23 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
       () => {},
     );
   }, [session, where.kind, ui.settings.open]);
+  // back from connecting an app (another tab, or Settings): a Connect card still waiting asks how it went
+  useEffect(() => {
+    if (where.kind !== "server") return;
+    const waiting = () =>
+      conversationRef.current.entities.some(
+        (e) => e.kind === "connection" && e.status === "pending",
+      );
+    const look = () => {
+      if (document.visibilityState === "visible" && waiting())
+        session.call("apps.accounts", {}).catch(() => {});
+    };
+    if (!ui.settings.open) look();
+    document.addEventListener("visibilitychange", look);
+    return () => document.removeEventListener("visibilitychange", look);
+  }, [session, where.kind, ui.settings.open]);
+  const conversationRef = useRef(conversation);
+  conversationRef.current = conversation;
   const needsAppsKeyRef = useRef(needsAppsKey);
   needsAppsKeyRef.current = needsAppsKey;
   /** the chat on screen, for actions made once (sending goes where the user is now) */

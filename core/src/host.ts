@@ -571,6 +571,22 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     };
     return io;
   }
+  /**
+   * A Connect card still waiting for an app that has an active account now (connected in
+   * Settings, or its own callback missed) is connected: the card says so, and the chat's
+   * agent hears, to carry on with what waited on it.
+   */
+  function settleConnections(accounts: Account[]): void {
+    const active = new Set(accounts.filter((a) => a.status === "active").map((a) => a.app.id));
+    for (const room of [...rooms.values()]) {
+      const waiting = room.state.entities.filter((e): e is Connection => e.kind === "connection" && e.status === "pending" && active.has(e.provider));
+      for (const connection of waiting) {
+        if (room.agent.act({ kind: "connected", id: connection.id }).ok)
+          room.agent.report(`[app connection] ${connection.title} is connected now. If something was waiting on it, carry on with it.`);
+      }
+    }
+  }
+
   /** The user's time zone: their device's when they last wrote, in this chat or, failing that, the main one. */
   const userZoneOf = (room: Room) => (room.state.entities.some((e) => e.kind === "prompt") ? userZone(room.state) : userZone(main().state));
 
@@ -730,7 +746,11 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     }),
     "schedule.control": async (params) => about(params.id, "schedule.control", params),
     "apps.search": ({ query, cursor }) => ports.apps.search(query, cursor),
-    "apps.accounts": async () => ({ accounts: await ports.apps.accounts() }),
+    "apps.accounts": async () => {
+      const accounts = await ports.apps.accounts();
+      settleConnections(accounts);
+      return { accounts };
+    },
     "apps.connect": async ({ app }) => ({ url: await ports.apps.connect(app) }),
     "apps.disconnect": async ({ account }) => {
       await ports.apps.disconnect(account);
