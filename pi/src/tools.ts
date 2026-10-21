@@ -5,12 +5,12 @@
  * background while the chat goes on.
  */
 import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
-import { type AgentIO, type Rules, type Workspace, describe, nowIn, siteAccess, siteOf } from "@amuse/core";
-import type { Permission } from "@amuse/protocol";
+import { type AgentIO, type Rules, type Workspace, browserRulesOf, decideBrowser, describe, nowIn, siteOf } from "@amuse/core";
+import type { Permission, ToolKind } from "@amuse/protocol";
 import { untrusted } from "./untrusted.ts";
 import { Type } from "typebox";
 import { status } from "./status.ts";
-import { askToVisit, notVisited, visitAnswer } from "./visits.ts";
+import { askToVisit, notVisited, refuseByRule, visitAnswer } from "./visits.ts";
 import type { Hold } from "./runs.ts";
 
 const text = (value: string) => ({ content: [{ type: "text" as const, text: value }], details: null });
@@ -89,12 +89,12 @@ export function tools(
           return text(given.ok ? `Given to browser ${browser}; it goes on there in the background.` : `Not given: ${describe(given.rejection)}.`);
         }
         if (!url || !URL.canParse(url) || !/^https?:$/.test(new URL(url).protocol)) return text(`Not started: "${url ?? ""}" is not an http(s) URL.`);
-        const access = siteAccess(await rules.sites(), url);
-        if (access === "deny") return text(`Not started: the user does not allow ${siteOf(url)}. Tell them; do not try another way to reach it.`);
         const agent = io();
+        const { permission, source } = decideBrowser(await browserRulesOf(rules), url, "visit");
+        if (permission === "deny") return text(`Not started: ${refuseByRule(agent, "visit", siteOf(url) ?? url, source, "Visit", `For a browser task: ${title}`)}`);
         const start = () => agent.act({ kind: "browse", title, url, instructions, files: granted });
-        if (access === "unlisted") {
-          // a site with no rule is not visited until the user allows it: ask, and start once they do
+        if (permission === "ask") {
+          // a site the rules leave to ask about is not visited until the user allows it: ask, and start once they do
           const asked = askToVisit(agent, url, `For a browser task: ${title}`);
           if (!asked.ok) return text(`Not started: ${describe(asked.rejection)}.`);
           if (hold) {
@@ -116,7 +116,7 @@ export function tools(
                 : `[browser task "${title}" not started] ${describe(started.rejection)}`,
             );
           });
-          return text(`${siteOf(url)} has no rule yet, so the user is asked first; the task starts once they allow it. Tell the user briefly that you need their OK.`);
+          return text(`The user is asked first about visiting ${siteOf(url)}; the task starts once they allow it. Tell the user briefly that you need their OK.`);
         }
         const result = start();
         return text(result.ok ? `Started browser task ${result.id}. The user sees it as a card; it continues in the background.` : `Not started: ${describe(result.rejection)}.`);
@@ -179,6 +179,8 @@ export interface Apps {
   ): Promise<{ slug: string; name: string; description: string; parameters: Record<string, unknown>; required: string[]; permission: Permission }[]>;
   /** What the agent may do with a tool, under the user's rules. */
   permission(app: string, slug: string): Promise<Permission>;
+  /** What the tool does, as far as the user's safety goes (their rules are by kind). */
+  kind(slug: string): Promise<ToolKind>;
   /** Keep an answer the user meant for next time. */
   remember(app: string, slug: string, permission: Permission): Promise<void>;
   call(slug: string, args: Record<string, unknown>, account: string): Promise<{ ok: true; data: unknown } | { ok: false; error: string }>;
@@ -225,7 +227,7 @@ export function appTools(io: () => AgentIO, apps: Apps, hold?: Hold): ToolDefini
           found
             .map(
               (t) =>
-                `- ${t.slug}${t.permission === "ask" ? " (asks the user first)" : t.permission === "deny" ? " (the user's rule says no to this kind: calling it asks them with a card, only do so when their request needs it)" : ""}: ${clip(t.description, 300)}\n  args: ${clip(JSON.stringify(t.parameters), 700)}\n  required: ${t.required.join(", ") || "none"}`,
+                `- ${t.slug}${t.permission === "ask" ? " (asks the user first)" : t.permission === "deny" ? " (DENIED by the user's rule: calling it is refused without asking; do not call it, and do not look for another way)" : ""}: ${clip(t.description, 300)}\n  args: ${clip(JSON.stringify(t.parameters), 700)}\n  required: ${t.required.join(", ") || "none"}`,
             )
             .join("\n") + which,
         );
@@ -235,7 +237,7 @@ export function appTools(io: () => AgentIO, apps: Apps, hold?: Hold): ToolDefini
       name: "app_call",
       label: "Use a connection",
       description:
-        "Run an action of a connection found with app_tools. What the user allows runs at once; what they want asked about is posted for their approval and runs in the background once approved (you will get a report); what they do not allow does not run.",
+        "Run an action of a connection found with app_tools. What the user allows runs at once; what they want asked about is posted for their approval and runs in the background once approved (you will get a report); what they deny is refused at once, without a card: do not work around it.",
       parameters: Type.Object({
         status,
         action: Type.String({ description: "Action slug, e.g. GMAIL_FETCH_EMAILS" }),
@@ -273,6 +275,9 @@ export function readable(args: Record<string, unknown>): string {
     .join("\n");
 }
 
+/** How an app's page in Settings › Connectors names each kind of tool. */
+const kindTitle: Record<ToolKind, string> = { read: "Read permissions", write: "Write permissions", destructive: "Delete permissions" };
+
 export async function appCall(
   io: AgentIO,
   apps: Apps,
@@ -294,15 +299,20 @@ export async function appCall(
   if (permission === "allow") return outcome(await apps.call(action, args, account.id));
   // never hold the chat for an approval: ask, return, and finish in the background
   const label = action.replaceAll("_", " ").toLowerCase();
-  // a kind the user said no to is still theirs to allow, on the card: once, or from now on
-  const ruled = permission === "deny" ? "Your rule for this connection says no to this kind of action. Allow it this time, or always?\n\n" : "";
+  // a kind the user said no to is a hard no: no card, the refusal recorded for them, the agent told which rule and where to change it
+  if (permission === "deny") {
+    const name = app.charAt(0).toUpperCase() + app.slice(1);
+    const rule = `${kindTitle[await apps.kind(action)]}`;
+    io.act({ kind: "refuse", action: said.summary.trim() || label, target: account.label ?? app, detail: `Your rule for ${name} (${rule}: Deny)`, app });
+    return `Refused by your rule for ${name} (${rule}: Deny): ${label} was not done, and no card was shown. Do not work around it (another tool, another account, the browser) and do not ask again unless the user brings it up. Tell the user in one line which rule it is and that they can change it in Settings › Connections › ${name} › ${rule}.`;
+  }
   const approval = io.act({
     kind: "ask",
     // the card says what will happen in the user's words, as which account, and every argument, readably
     action: said.summary.trim() || label,
     target: account.label ?? app,
     // the user approves exactly what will run (a huge argument, e.g. an attachment, is cut and says so)
-    detail: ruled + [said.reason.trim(), clip(readable(args), 20_000)].filter(Boolean).join("\n\n"),
+    detail: [said.reason.trim(), clip(readable(args), 20_000)].filter(Boolean).join("\n\n"),
     remember: true, // an answer for always holds for the app's actions of this kind
     app,
   });

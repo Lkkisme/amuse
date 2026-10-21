@@ -2,7 +2,7 @@
  * The agent's connected apps on Composio, for one Composio user, under the
  * user's rules (core/policy.ts): each tool comes with what the agent may do
  * with it. A tool the user denied is still listed as such: the agent knows it
- * is there (not that there is nothing), and calling it asks the user.
+ * is there (not that there is nothing), and calling it is refused.
  */
 import { type Rules, kindOf, kindByName, permissionOf } from "@amuse/core";
 import type { Permission, ToolKind } from "@amuse/protocol";
@@ -32,6 +32,7 @@ export function composioApps(client: Composio, userId: string, rules: Rules) {
         return [{ ...t, permission: permissionOf(k, chosen) }];
       });
     },
+    kind,
     permission: async (app: string, slug: string): Promise<Permission> => permissionOf(await kind(slug), await rules.of(app)),
     /** Keep the user's answer for next time ("always"): for the app's tools of this one's kind. */
     remember: async (app: string, slug: string, permission: Permission) => rules.set(app, await kind(slug), permission),

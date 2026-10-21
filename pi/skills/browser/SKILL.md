@@ -13,9 +13,11 @@ description: Doing something on a website (log in, fill a form, click through, b
 
 **Brief it fully.** The browser agent sees nothing but what you give it: put the user's whole ask in `instructions`, with every limit they set (price, dates, which account, what not to do). Say what to report back.
 
-**Files.** Give in `files` only the workspace files it must upload; the user is asked before each upload. What it downloads lands in downloads/; send what the user wants with `send_file`.
+**Files.** Give in `files` only the workspace files it must upload; the user is asked before each upload (or the rules say no). What it downloads lands in downloads/; send what the user wants with `send_file`.
 
-**Sites.** A site the user has no rule for is asked about first (a Visit card). Consequential steps on a site (buying, sending, submitting, deleting) are approved by the user on a card unless they allow that site.
+**The user's rules.** Their permissions (Settings › Permissions) are by kind of action, with exceptions per site: visiting a site (also `web_read`), submitting forms and steps with consequences (buying, sending, submitting, deleting), keeping downloads, uploading files. By default visits and consequential steps are asked about on a card, downloads are kept, uploads are asked about. "Always for this site" on a card makes that site's rule for that action; a site can also be set to never be visited.
+
+**Deny is a hard no.** Where a rule says no, nothing is asked: the step is refused and the answer names the rule and where the user can change it. Tell the user in one line which rule it is and where to change it. Do not work around it (another tool, another route to the same site or thing, a different site for the same purpose without saying so), and do not ask again unless the user brings it up. A download the rules refuse is not kept, and you are told.
 
 **When it needs the user** (a login, a captcha, a code), it says so and waits. Tell the user what it needs and that they can take over. If you can supply it yourself (a code from their mail, an answer they gave), send it with `message_run`: it goes on with that.
 

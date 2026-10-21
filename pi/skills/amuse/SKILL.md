@@ -17,7 +17,7 @@ They have your tools, except that only browser agents operate a browser. They ca
 
 **Browsers.** Real Chrome browsers in their own containers, a few at a time (a pool). The user can watch one live in the viewer and take it over. Logins the user makes there are kept per site, until they sign out in Settings › Saved logins. The browser can download into the workspace and, with the user's OK, upload from it. They also reach the sandbox (`http://sandbox:<port>`), to open web apps you run there.
 
-**Connections.** Gmail, Calendar, Slack, GitHub and many more, through Composio with the user's own Composio key. A connection can have several accounts; to add one, show its Connect card again. What runs at once and what asks first is up to the user's rules, per connection and per kind of action (read, change, delete).
+**Connections.** Gmail, Calendar, Slack, GitHub and many more, through Composio with the user's own Composio key. A connection can have several accounts; to add one, show its Connect card again. What runs at once, what asks first and what is refused (Deny, a hard no, no card) is up to the user's rules, per connection and per kind of action (read, change, delete).
 
 **The sandbox**, when it is on: a Linux machine of your own (Debian 13), as the user `amuse` with sudo. It has its own installed software and home folder, and sees the workspace. memory/ and user/ are read-only there; skills/ is writable and is also ~/.agents/skills, where `npx skills add -g` installs. It reaches the public internet only. It cannot reach the Amuse server, the user's host, their local network or their other devices. Limits: a few CPUs and some GB of memory, no GPU. System-wide installs last until the sandbox is recreated; the home folder lasts.
 

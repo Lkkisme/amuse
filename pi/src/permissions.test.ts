@@ -15,6 +15,7 @@ function setup(permission: Permission, answer: Answer = { verdict: "approved", r
     accounts: async () => [{ id: "ca_1", label: "me@a.com" }],
     tools: async () => [],
     permission: async () => permission,
+    kind: async () => "write",
     remember: async (_, slug, p) => void remembered.push([slug, p]),
     call: async (slug) => (ran.push(slug), { ok: true, data: "done" }),
   };
@@ -42,21 +43,25 @@ function setup(permission: Permission, answer: Answer = { verdict: "approved", r
   return { run, runHeld, ran, remembered, asked, reports };
 }
 
-test("denied by the user's rule: the card says so, and nothing runs unless they allow it there; 'always' changes the rule", async () => {
-  const declined = setup("deny", { verdict: "denied", remember: false });
-  assert.match(await declined.run(), /NOT done yet/);
-  const card = declined.asked[0];
-  assert.ok(card?.kind === "ask" && card.detail.startsWith("Your rule for this connection says no to this kind of action."));
-  assert.deepEqual(declined.ran, []);
-
-  const once = setup("deny", { verdict: "approved", remember: false });
-  await once.run();
-  assert.deepEqual(once.ran, ["GMAIL_SEND_EMAIL"]);
-  assert.deepEqual(once.remembered, [], "once leaves the rule as it is");
-
-  const always = setup("deny", { verdict: "approved", remember: true });
-  await always.run();
-  assert.deepEqual(always.remembered, [["GMAIL_SEND_EMAIL", "allow"]]);
+test("denied by the user's rule: a hard no, without a card; the refusal is recorded and the agent is told which rule and where to change it", async () => {
+  const s = setup("deny", { verdict: "approved", remember: true });
+  const told = await s.run();
+  assert.match(told, /^Refused by your rule for Gmail \(Write permissions: Deny\)/);
+  assert.match(told, /no card was shown/);
+  assert.match(told, /Settings › Connections › Gmail › Write permissions/);
+  assert.match(told, /Do not work around it \(another tool, another account, the browser\)/);
+  assert.match(told, /do not ask again unless the user brings it up/);
+  assert.deepEqual(s.ran, []);
+  assert.deepEqual(s.remembered, [], "nothing asked, so nothing to remember");
+  assert.deepEqual(s.reports, []);
+  // one record, a refusal by the rule: no card
+  assert.deepEqual(s.asked, [{ kind: "refuse", action: "Email x@y.z", target: "me@a.com", detail: "Your rule for Gmail (Write permissions: Deny)", app: "gmail" }]);
+  // a helper holds on nothing
+  const helper = setup("deny");
+  const held: string[] = [];
+  assert.match(await helper.runHeld({ waiting: (what) => void held.push(what), working: () => void held.push("working") }), /^Refused by your rule/);
+  assert.deepEqual(held, []);
+  assert.deepEqual(helper.ran, []);
 });
 
 test("allowed: it runs at once", async () => {
