@@ -14,41 +14,25 @@ run with Docker Compose.
 
 ```sh
 git clone git@github.com:Microwave-WYB/remuse.git && cd remuse
-cp .env.example .env          # then put your model and its API key in .env (below)
 docker compose up -d --build  # the first build takes a while: the browser images include Chromium
-docker compose logs remuse    # shows the link to open
 ```
 
-The logs end with a line like:
+Open `http://localhost:8080` and set a password: the first visit sets it, and from then on it
+opens remuse on each device. Run remuse where only you can reach it (your machine, your
+tailnet) and set the password right away. An instance holds nothing of yours until you set it
+up, so someone who got there first could only use it with their own keys; you would notice, as
+the password would already be set (see "Forgot the password" below to start over).
 
-```
-remuse is ready. Open this link once on each device: http://localhost:8080/#token=3f9c…
-```
+Then, in Settings:
 
-Open that link. The device remembers it (the token leaves the address bar), so after that plain
-`http://localhost:8080` is enough. On another device, open the same link once. The token is
-made on first start and kept in the `remuse-data` volume; anyone with the link can use your
-instance, so keep it to yourself.
+- **Models**: add an API key for a provider and choose the model Muse chats with and the one that
+  works in the browser (it must see pictures). Any provider [Pi](https://github.com/earendil-works/pi)
+  takes an API key for works: OpenRouter, Anthropic, OpenAI, Google Gemini, DeepSeek, Fireworks,
+  xAI, Mistral, Groq, Moonshot (Kimi), Z.ai, and more. The model must support tool calls.
+- **Connectors** (optional): a [Composio](https://composio.dev) API key lets Muse connect apps
+  such as Gmail or Google Sheets.
 
-## Model
-
-In `.env`, pick a model as `provider/model-id` and give that provider's API key under its standard
-name. Any provider [Pi](https://github.com/earendil-works/pi) supports works: OpenRouter, Anthropic,
-OpenAI, Google Gemini, DeepSeek, xAI, Mistral, Groq, Moonshot (Kimi), Z.ai, and more.
-
-```sh
-REMUSE_PI_MODEL=openrouter/deepseek/deepseek-v4.1-flash
-OPENROUTER_API_KEY=sk-or-…
-```
-
-The browser agent uses the same model unless you set `REMUSE_PI_BROWSER_MODEL` (it may come from
-another provider; add that provider's key too). The model must support tool calls. With no model
-set, remuse runs a scripted demo.
-
-Optional: `REMUSE_COMPOSIO_KEY` (a [Composio](https://composio.dev) API key) lets the agent connect
-apps such as Gmail or Google Sheets.
-
-After changing `.env`: `docker compose up -d`.
+Keys are kept in the `remuse-data` volume and never shown again, only their last characters.
 
 ## Other devices
 
@@ -60,15 +44,16 @@ remuse listens on `127.0.0.1:8080` only. To reach it from your phone over
 - serve it over https: `tailscale serve --bg 8080`, and `REMUSE_PUBLIC_URL=https://my-pc.my-tailnet.ts.net`.
   Pasting from the phone's clipboard into the browser you take over needs https.
 
-Then `docker compose up -d`; the link in the logs uses that address.
+Then `docker compose up -d`.
 
 ## Good to know
 
-- Your conversation, the access token, and saved browser logins live in Docker volumes; they
-  survive restarts and updates. `docker compose down -v` deletes them.
+- Your conversation, the password, your keys and saved browser logins live in Docker volumes;
+  they survive restarts and updates. `docker compose down -v` deletes them.
 - Update: `git pull && docker compose up -d --build`.
-- New token (signs every device out): `docker compose exec remuse rm /data/token`, then
-  `docker compose restart remuse` and open the new link from the logs.
+- Change the password, or lock a device: Settings › General. Changing it signs every other device out.
+- Forgot the password: `docker compose exec remuse rm /data/access.json && docker compose restart remuse`,
+  then set a new one on the next visit. Your chats and keys stay.
 - Use another port: `REMUSE_PUBLISH_PORT=9000` in `.env` (and `REMUSE_PUBLIC_URL=http://localhost:9000`).
 
 Development: [docs/development.md](docs/development.md).

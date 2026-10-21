@@ -251,3 +251,33 @@ export function composio(apiKey: string, http: typeof fetch = fetch): Composio {
     },
   };
 }
+
+/** No Composio key is set up: said to the user as it is. */
+export class NoComposioKey extends Error {
+  constructor() {
+    super("Connecting apps needs a Composio key: add it in Settings.");
+  }
+}
+
+/** A client for whichever key is set up now (`key()` is read on every call); with none, every call fails saying so. */
+export function keyedComposio(key: () => string | null, http: typeof fetch = fetch): Composio {
+  let current: { key: string; client: Composio } | null = null;
+  const client = async () => {
+    const now = key();
+    if (now === null) throw new NoComposioKey();
+    if (current?.key !== now) current = { key: now, client: composio(now, http) };
+    return current.client;
+  };
+  return {
+    link: async (toolkit, userId, callbackUrl) => (await client()).link(toolkit, userId, callbackUrl),
+    status: async (account) => (await client()).status(account),
+    connected: async (toolkit, userId) => (await client()).connected(toolkit, userId),
+    tools: async (toolkit, search) => (await client()).tools(toolkit, search),
+    tool: async (slug) => (await client()).tool(slug),
+    search: async (userId, query) => (await client()).search(userId, query),
+    toolkits: async () => (await client()).toolkits(),
+    accounts: async (userId, toolkit) => (await client()).accounts(userId, toolkit),
+    remove: async (account) => (await client()).remove(account),
+    execute: async (slug, userId, args, account) => (await client()).execute(slug, userId, args, account),
+  };
+}

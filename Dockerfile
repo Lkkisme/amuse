@@ -38,8 +38,7 @@ USER node
 ENV REMUSE_HOST=0.0.0.0 \
     REMUSE_PORT=8080 \
     REMUSE_WEB=/app/web/dist \
-    REMUSE_JOURNAL=/data/events.jsonl \
-    REMUSE_TOKEN_FILE=/data/token
+    REMUSE_JOURNAL=/data/events.jsonl
 EXPOSE 8080
 VOLUME /data
 CMD ["node", "api/src/main.ts"]

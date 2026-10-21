@@ -17,12 +17,18 @@ export interface Live {
 export function attach(viewer: WebSocket, id: string, live: Live): void {
   const target = live.browsers.vnc(id);
   if (!target) return viewer.close(4404, "no live browser for this run");
-  const desktop = new WebSocket(target, ["binary"], { headers: { origin: nodeOrigin } });
+  const desktop = new WebSocket(target, ["binary"], {
+    headers: { origin: nodeOrigin },
+  });
   const gate = vncGate();
   const queued: Uint8Array[] = [];
   const end = (code: number, reason: string) => {
     if (viewer.readyState === WebSocket.OPEN) viewer.close(code, reason);
-    if (desktop.readyState === WebSocket.OPEN || desktop.readyState === WebSocket.CONNECTING) desktop.terminate();
+    if (
+      desktop.readyState === WebSocket.OPEN ||
+      desktop.readyState === WebSocket.CONNECTING
+    )
+      desktop.terminate();
   };
 
   viewer.on("message", (data, binary) => {
@@ -33,7 +39,9 @@ export function attach(viewer: WebSocket, id: string, live: Live): void {
     if (desktop.readyState === WebSocket.OPEN) desktop.send(passed);
     else queued.push(passed);
   });
-  desktop.on("open", () => queued.splice(0).forEach((part) => desktop.send(part)));
+  desktop.on("open", () =>
+    queued.splice(0).forEach((part) => desktop.send(part)),
+  );
   desktop.on("message", (data, binary) => {
     if (viewer.readyState === WebSocket.OPEN) viewer.send(data, { binary });
   });

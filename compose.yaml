@@ -1,7 +1,6 @@
-# remuse with its browser pool: `cp .env.example .env`, fill it in, `docker compose up -d --build`,
-# then open the link in `docker compose logs remuse`. Model keys come from .env (gitignored); the
-# access token and the browser pool's secrets are made on first start and kept in volumes.
-# Without a model key, remuse runs a scripted demo.
+# remuse with its browser pool: `docker compose up -d --build`, then open http://localhost:8080 and
+# set the password; models, keys and apps are set up in the app. The browser pool's secrets are
+# made on first start and kept in volumes. .env (optional) says where it listens.
 # Published on 127.0.0.1 unless REMUSE_PUBLISH_HOST says otherwise (e.g. your Tailscale IP).
 include:
   - compose.browsers.yaml
@@ -11,8 +10,10 @@ services:
     build: .
     image: remuse:local
     restart: unless-stopped
-    # everything in .env: the models, and any provider's key under its standard name
-    env_file: .env
+    # .env, if there is one; keys an older instance kept there are taken over into the app once
+    env_file:
+      - path: .env
+        required: false
     environment:
       REMUSE_PUBLIC_URL: ${REMUSE_PUBLIC_URL:-http://localhost:8080}
       REMUSE_BROWSERS: pool1|http://ab-controller-1:8000|http://ab-node-1:6080|/handoff/pool1,pool2|http://ab-controller-2:8000|http://ab-node-2:6080|/handoff/pool2,pool3|http://ab-controller-3:8000|http://ab-node-3:6080|/handoff/pool3

@@ -1,6 +1,7 @@
 /**
  * Settings (surfaces 7, 9, 10): a page on a phone, a modal with a nav column on
- * a desktop — General, Connectors (the server's app directory: Connectors.tsx),
+ * a desktop — General (appearance; the password), Models (the user's keys and
+ * the models chosen: Models.tsx), Connectors (the server's app directory: Connectors.tsx),
  * Permissions (per-site Allow/Ask/Deny) and Schedules. Modeled on the reference
  * settings sheet. (Muse's secure store is left out: the browser keeps logins
  * from the user's own sign-ins instead.)
@@ -15,6 +16,7 @@ import {
   Plus,
   Settings as SettingsIcon,
   Shield,
+  Sparkles,
   X,
   CalendarClock,
 } from "lucide-react";
@@ -23,12 +25,15 @@ import type { Actions, SettingsSection, Theme, Ui } from "../ui.ts";
 import { THEMES } from "../theme.ts";
 import { usePresence } from "./usePresence";
 import { barButton, barButtonLook, barIcon } from "./bar";
-import { Connectors } from "./Connectors";
+import { AppsKey } from "./AppsKey";
 import { SitePermissions } from "./SitePermissions";
 import { Schedules } from "./Schedules";
+import { Models } from "./Models";
+import { changePassword, lock } from "../connection.ts";
 
 const NAV: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
   { id: "general", label: "General", icon: <SettingsIcon size={18} /> },
+  { id: "models", label: "Models", icon: <Sparkles size={18} /> },
   { id: "connectors", label: "Connectors", icon: <LayoutGrid size={18} /> },
   { id: "permissions", label: "Permissions", icon: <Shield size={18} /> },
   { id: "schedules", label: "Schedules", icon: <CalendarClock size={18} /> },
@@ -44,9 +49,12 @@ const themeName: Record<Theme, string> = {
 
 function GeneralSection({
   theme,
+  server,
   actions,
 }: {
   theme: Theme;
+  /** there is a server, with a password (not the in-browser demo) */
+  server: boolean;
   actions: Actions;
 }) {
   return (
@@ -82,7 +90,135 @@ function GeneralSection({
           </button>
         ))}
       </div>
+      {server && <PasswordGroup />}
     </div>
+  );
+}
+
+/** The master password: change it (every other device then needs the new one), or lock this device. */
+function PasswordGroup() {
+  const [changing, setChanging] = useState(false);
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [said, setSaid] = useState<{ ok: boolean; text: string } | null>(null);
+  const field = "w-full bg-transparent px-4 py-3 text-[14px] outline-none";
+  const row =
+    "flex w-full items-center justify-between px-4 py-3 text-left text-[14px]";
+  return (
+    <>
+      <p
+        className="mb-2 mt-6 text-[15px] font-semibold"
+        style={{ color: "var(--text-primary)" }}
+      >
+        Password
+      </p>
+      <div
+        className="overflow-hidden rounded-xl"
+        style={{ background: "var(--fill-secondary)" }}
+      >
+        {changing ? (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!current || !next) return;
+              void changePassword(current, next).then((why) => {
+                setSaid(
+                  why
+                    ? { ok: false, text: why }
+                    : {
+                        ok: true,
+                        text: "Changed. Other devices need the new password.",
+                      },
+                );
+                if (!why) {
+                  setChanging(false);
+                  setCurrent("");
+                  setNext("");
+                }
+              });
+            }}
+          >
+            <input
+              autoFocus
+              type="password"
+              autoComplete="current-password"
+              aria-label="Current password"
+              placeholder="Current password"
+              className={field}
+              style={{ color: "var(--text-primary)" }}
+              value={current}
+              onChange={(e) => setCurrent(e.target.value)}
+            />
+            <input
+              type="password"
+              autoComplete="new-password"
+              aria-label="New password"
+              placeholder="New password"
+              className={field}
+              style={{
+                color: "var(--text-primary)",
+                borderTop: "1px solid var(--fill-divider)",
+              }}
+              value={next}
+              onChange={(e) => setNext(e.target.value)}
+            />
+            <div
+              className="flex justify-end gap-2 px-3 py-2"
+              style={{ borderTop: "1px solid var(--fill-divider)" }}
+            >
+              <button
+                type="button"
+                className="hover-fade h-9 rounded-full px-3 text-[14px] font-medium"
+                style={{ color: "var(--text-primary)" }}
+                onClick={() => setChanging(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={!current || !next}
+                className="h-9 rounded-full px-4 text-[14px] font-semibold text-white disabled:opacity-40"
+                style={{ background: "var(--fill-blue)" }}
+              >
+                Change
+              </button>
+            </div>
+          </form>
+        ) : (
+          <button
+            className={row}
+            style={{ color: "var(--text-primary)" }}
+            onClick={() => {
+              setSaid(null);
+              setChanging(true);
+            }}
+          >
+            Change password
+          </button>
+        )}
+        <button
+          className={row}
+          style={{
+            color: "var(--fill-red)",
+            borderTop: "1px solid var(--fill-divider)",
+          }}
+          onClick={() => void lock()}
+        >
+          Lock this device
+        </button>
+      </div>
+      {said && (
+        <p
+          role={said.ok ? "status" : "alert"}
+          className="mt-2 px-1 text-[13px]"
+          style={{
+            color: said.ok ? "var(--text-secondary)" : "var(--fill-red)",
+          }}
+        >
+          {said.text}
+        </p>
+      )}
+    </>
   );
 }
 
@@ -261,8 +397,9 @@ export function SettingsModal({
             </button>
           </header>
           {shown === "connectors" && (
-            <Connectors
+            <AppsKey
               session={session}
+              demo={demo}
               viewing={ui.app}
               onView={actions.openApp}
             />
@@ -275,8 +412,9 @@ export function SettingsModal({
             />
           )}
           {shown === "schedules" && <Schedules session={session} />}
+          {shown === "models" && <Models session={session} />}
           {shown === "general" && (
-            <GeneralSection theme={theme} actions={actions} />
+            <GeneralSection theme={theme} server={!demo} actions={actions} />
           )}
         </div>
       </div>

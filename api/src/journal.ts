@@ -6,7 +6,16 @@
  * event — another version's format, a gap — stops the load with an error:
  * the history is never cut to fit.
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, truncateSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  truncateSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import type { ChatStore, Journal } from "@remuse/core";
 import { Chat, Envelope, MAIN } from "@remuse/protocol";
@@ -27,12 +36,16 @@ export function fileJournal(path: string): Journal {
       const content = readFileSync(path);
       const log: Envelope[] = [];
       let valid = 0; // bytes of the valid prefix, newline included
-      for (let start = 0; start < content.length; ) {
+      for (let start = 0; start < content.length;) {
         const end = content.indexOf(0x0a, start);
         if (end === -1) break; // no newline: a torn last write
-        const parsed = Envelope.safeParse(parseLine(content.subarray(start, end).toString("utf8")));
+        const parsed = Envelope.safeParse(
+          parseLine(content.subarray(start, end).toString("utf8")),
+        );
         if (!parsed.success || parsed.data.seq !== log.length + 1)
-          throw new Error(`${path}: line ${log.length + 1} is not the next event this version can read; move the file aside to start over`);
+          throw new Error(
+            `${path}: line ${log.length + 1} is not the next event this version can read; move the file aside to start over`,
+          );
         log.push(parsed.data);
         start = valid = end + 1;
       }
@@ -62,7 +75,10 @@ export function fileChats(dir: string, main: string): ChatStore {
     return join(dir, "chats", `${chat}.jsonl`);
   };
   return {
-    load: () => (existsSync(list) ? z.array(Chat).parse(JSON.parse(readFileSync(list, "utf8"))) : []),
+    load: () =>
+      existsSync(list)
+        ? z.array(Chat).parse(JSON.parse(readFileSync(list, "utf8")))
+        : [],
     save(chats) {
       mkdirSync(dir, { recursive: true, mode: 0o700 });
       const temporary = `${list}.next`;

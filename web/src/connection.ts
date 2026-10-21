@@ -1,17 +1,22 @@
 /**
  * Where the conversation lives:
  *   demo    no server configured: the real core runs in the browser with scripted ports
- *   server  VITE_REMUSE_URL (dev: full ws URL with token), or the same origin the app was
- *           served from (VITE_REMUSE_MODE=same-origin, the Docker build) with a stored token
- *   locked  same-origin, but this browser is not unlocked yet
- * The token arrives once as #token=… (wiped from the address bar at once) or is typed in; the
- * server turns it into an HttpOnly cookie, so scripts, URLs and logs never see it again.
+ *   server  VITE_REMUSE_URL (a full ws URL), or the same origin the app was served from
+ *           (VITE_REMUSE_MODE=same-origin: the Docker build, and dev through Vite's proxy)
+ *   locked  same-origin, but this browser has no session yet; `ready`: the master password is set
+ * The master password opens a session the server keeps as an HttpOnly cookie, so scripts, URLs
+ * and logs never see it.
  */
 
 export type Connection =
   | { kind: "demo" }
-  | { kind: "locked" }
-  | { kind: "server"; rpc: string; live: (id: string) => string; thumb: (id: string) => string };
+  | { kind: "locked"; ready: boolean }
+  | {
+      kind: "server";
+      rpc: string;
+      live: (id: string) => string;
+      thumb: (id: string) => string;
+    };
 
 /** A route next to /rpc on the same server, for a run id (ws for /live, http for /thumb). */
 function route(rpc: string, path: string, id: string, http: boolean) {
@@ -23,33 +28,82 @@ function route(rpc: string, path: string, id: string, http: boolean) {
 }
 
 function server(rpc: string): Connection {
-  return { kind: "server", rpc, live: (id) => route(rpc, "/live", id, false), thumb: (id) => route(rpc, "/thumb", id, true) };
+  return {
+    kind: "server",
+    rpc,
+    live: (id) => route(rpc, "/live", id, false),
+    thumb: (id) => route(rpc, "/thumb", id, true),
+  };
 }
 
-const post = (token: string) =>
-  fetch("/unlock", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) }).then((r) => r.ok);
+const post = (path: string, body: unknown) =>
+  fetch(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+/** Why the server said no, in its words (or a plain one). */
+async function reason(response: Response): Promise<string> {
+  const said: unknown = await response.json().catch(() => null);
+  if (
+    typeof said === "object" &&
+    said !== null &&
+    "reason" in said &&
+    typeof said.reason === "string"
+  )
+    return said.reason;
+  return response.status === 401
+    ? "That is not the password."
+    : "Something went wrong. Try again.";
+}
 
 export async function connection(): Promise<Connection> {
   const explicit = import.meta.env["VITE_REMUSE_URL"];
   if (typeof explicit === "string" && explicit) return server(explicit);
-  if (import.meta.env["VITE_REMUSE_MODE"] !== "same-origin") return { kind: "demo" };
+  if (import.meta.env["VITE_REMUSE_MODE"] !== "same-origin")
+    return { kind: "demo" };
 
-  // same origin: the token becomes an HttpOnly cookie and never sits in a URL or in page storage
-  const fromLink = new URLSearchParams(location.hash.slice(1)).get("token");
-  if (fromLink) {
-    history.replaceState(null, "", location.pathname + location.search);
-    await post(fromLink).catch(() => false);
+  const unlocked = await fetch("/unlock").catch(() => null);
+  if (unlocked?.status !== 204) {
+    const said: unknown = await unlocked?.json().catch(() => null);
+    const ready =
+      typeof said === "object" && said !== null && "ready" in said
+        ? said.ready !== false
+        : true;
+    return { kind: "locked", ready };
   }
-  const unlocked = await fetch("/unlock").then((r) => r.status === 204, () => false);
-  if (!unlocked) return { kind: "locked" };
   const rpc = new URL("/rpc", location.href);
   rpc.protocol = location.protocol === "https:" ? "wss:" : "ws:";
   return server(rpc.toString());
 }
 
-/** Unlock this browser; reloads on success, false when the token is wrong. */
-export async function unlock(token: string): Promise<boolean> {
-  const ok = await post(token.trim()).catch(() => false);
-  if (ok) location.replace(location.pathname + location.search);
-  return ok;
+/** Open this browser with the password (`setup`: set it, the first time); reloads when in, else why not. */
+export async function enter(
+  password: string,
+  setup: boolean,
+): Promise<string | null> {
+  const response = await post(setup ? "/setup" : "/unlock", { password }).catch(
+    () => null,
+  );
+  if (!response) return "The server cannot be reached.";
+  if (!response.ok) return reason(response);
+  location.replace(location.pathname + location.search);
+  return null;
+}
+
+/** Change the password; every other device has to enter the new one. Null when done, else why not. */
+export async function changePassword(
+  current: string,
+  next: string,
+): Promise<string | null> {
+  const response = await post("/password", { current, next }).catch(() => null);
+  if (!response) return "The server cannot be reached.";
+  return response.ok ? null : reason(response);
+}
+
+/** Lock this browser: it needs the password again. */
+export async function lock(): Promise<void> {
+  await post("/lock", {}).catch(() => null);
+  location.replace(location.pathname + location.search);
 }

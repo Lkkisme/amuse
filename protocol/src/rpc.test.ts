@@ -29,6 +29,12 @@ const handlers: Handlers = {
   "apps.permit": async () => null,
   "sites.rules": async () => ({ rules: [] }),
   "sites.permit": async () => null,
+  "keys.list": async () => ({ providers: [], models: [], chat: null, browser: null }),
+  "keys.login": async () => ({ kind: "done" }),
+  "keys.answer": async () => ({ kind: "done" }),
+  "keys.cancel": async () => null,
+  "keys.logout": async () => null,
+  "models.choose": async () => null,
 };
 
 test("a framed request parses into a typed call and dispatches to its handler", async () => {

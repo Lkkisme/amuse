@@ -9,9 +9,6 @@ depends = ["//:install"]
 run = "npm run dev"
 
 [tasks.build-dev]
-description = "Build dist against the dev API in ~/.config/remuse/dev.env (token stays out of the repo)"
+description = "Build dist for the API to serve on its own origin (REMUSE_WEB)"
 depends = ["//:install"]
-run = '''
-set -a; . "$HOME/.config/remuse/dev.env"; set +a
-VITE_REMUSE_URL="ws://$REMUSE_HOST:$REMUSE_PORT/rpc?token=$REMUSE_TOKEN" npx vite build --logLevel warn
-'''
+run = "VITE_REMUSE_MODE=same-origin npx vite build --logLevel warn"

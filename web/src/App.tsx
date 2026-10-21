@@ -52,7 +52,7 @@ export default function App() {
   const [where, setWhere] = useState<Connection | null>(null);
   useEffect(() => void connection().then(setWhere), []);
   if (!where) return null;
-  return where.kind === "locked" ? <Unlock /> : <Chat where={where} />;
+  return where.kind === "locked" ? <Unlock ready={where.ready} /> : <Chat where={where} />;
 }
 
 function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
@@ -74,6 +74,15 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
     () => (where.kind === "server" ? serverFiles(where.rpc) : null),
     [where],
   );
+  // on a server with no chat model chosen yet, the chat says where to choose one (asked again as settings close)
+  const [needsModel, setNeedsModel] = useState(false);
+  useEffect(() => {
+    if (where.kind !== "server" || ui.settings.open) return;
+    session.call("keys.list", {}).then(
+      (keys) => setNeedsModel(keys.chat === null),
+      () => {},
+    );
+  }, [session, where.kind, ui.settings.open]);
   /** the chat on screen, for actions made once (sending goes where the user is now) */
   const chatRef = useRef(ui.chat);
   chatRef.current = ui.chat;
@@ -298,6 +307,19 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
             >
               {ui.notice}
             </p>
+          )}
+          {needsModel && !ui.notice && (
+            <button
+              className="anim-fade-in absolute inset-x-0 bottom-[86px] z-30 mx-auto w-fit max-w-[90%] rounded-full px-4 py-2 text-[13px] font-medium"
+              style={{
+                background: "var(--fill-primary)",
+                color: "var(--fill-blue)",
+                boxShadow: "var(--shadow-float)",
+              }}
+              onClick={() => actions.openSettings("models")}
+            >
+              Choose a model to start chatting
+            </button>
           )}
           <Composer
             conversation={conversation}

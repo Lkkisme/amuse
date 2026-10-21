@@ -134,4 +134,10 @@ export const calls: Call[] = [
   { method: "apps.permit", params: { app: "gmail", kind: "write", permission: "ask" } },
   { method: "sites.rules", params: {} },
   { method: "sites.permit", params: { site: "bank.com", permission: "deny" } },
+  { method: "keys.list", params: {} },
+  { method: "keys.login", params: { provider: "fireworks" } },
+  { method: "keys.answer", params: { login: "l-1", value: "fw_example" } },
+  { method: "keys.cancel", params: { login: "l-1" } },
+  { method: "keys.logout", params: { provider: "fireworks" } },
+  { method: "models.choose", params: { role: "chat", model: "fireworks/accounts/fireworks/models/glm-5p3-flash" } },
 ];

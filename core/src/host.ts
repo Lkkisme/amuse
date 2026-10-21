@@ -11,6 +11,8 @@ import {
   type Attachment,
   type Permission,
   type KindRule,
+  type LoginStep,
+  type ModelRole,
   type ToolKind,
   type Browser,
   type Chat,
@@ -143,6 +145,8 @@ export interface Ports {
   rules: Rules;
   /** Muse's workspace: the files it and the user share. */
   files: Workspace;
+  /** The user's keys and the models chosen (outside the conversation). */
+  keys: Keys;
 }
 
 /** A file or folder in the workspace. */
@@ -226,6 +230,28 @@ export interface AppDirectory {
   permissions(app: string): Promise<KindRule[]>;
   permit(app: string, kind: ToolKind, permission: Permission | null): Promise<void>;
 }
+
+/** Where the user's keys are set up and the models chosen: a sign-in goes prompt by prompt. */
+export interface Keys {
+  list(): Promise<Results["keys.list"]>;
+  login(provider: string): Promise<LoginStep>;
+  answer(login: string, value: string): Promise<LoginStep>;
+  cancel(login: string): Promise<void>;
+  logout(provider: string): Promise<void>;
+  choose(role: ModelRole, model: string): Promise<void>;
+}
+
+/** No keys: where none are kept (the demo, tests); the demo's agent needs none. */
+export const noKeys: Keys = {
+  list: async () => ({ providers: [], models: [], chat: null, browser: null }),
+  login: async () => ({ kind: "failed", reason: "No keys are kept here." }),
+  answer: async () => ({ kind: "failed", reason: "No keys are kept here." }),
+  cancel: async () => {},
+  logout: async () => {},
+  choose: async () => {
+    throw new Error("No models are chosen here.");
+  },
+};
 
 /** A rejection in words, for errors and for agents. */
 export function describe(rejection: Rejection): string {
@@ -684,6 +710,21 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     },
     "apps.permit": async ({ app, kind, permission }) => {
       await ports.apps.permit(app, kind, permission);
+      return null;
+    },
+    "keys.list": () => ports.keys.list(),
+    "keys.login": ({ provider }) => ports.keys.login(provider),
+    "keys.answer": ({ login, value }) => ports.keys.answer(login, value),
+    "keys.cancel": async ({ login }) => {
+      await ports.keys.cancel(login);
+      return null;
+    },
+    "keys.logout": async ({ provider }) => {
+      await ports.keys.logout(provider);
+      return null;
+    },
+    "models.choose": async ({ role, model }) => {
+      await ports.keys.choose(role, model);
       return null;
     },
   };

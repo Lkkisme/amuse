@@ -4,7 +4,7 @@ depends = ["//:install"]
 run = "npm run typecheck && npm test"
 
 [tasks.dev]
-description = "Run the API with the demo ports on 127.0.0.1:8797 (REMUSE_TOKEN required)"
+description = "Run the API on 127.0.0.1:8797 (the first visit sets its password)"
 depends = ["//:install"]
 run = "node --watch src/main.ts"
 

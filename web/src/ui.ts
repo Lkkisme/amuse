@@ -4,7 +4,7 @@
  */
 import { type App, type Attachment, MAIN } from "@remuse/protocol";
 
-export type SettingsSection = "general" | "connectors" | "permissions" | "schedules";
+export type SettingsSection = "general" | "models" | "connectors" | "permissions" | "schedules";
 
 import type { Theme } from "./theme.ts";
 

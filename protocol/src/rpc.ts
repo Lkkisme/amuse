@@ -9,6 +9,7 @@ import { Account, App, KindRule, Permission, Site, SiteRule, ToolKind } from "./
 import { Attachment, Id, Resolution, Schedule, TimeZone } from "./entities.ts";
 import { Envelope, Index, Page, Seq, State } from "./events.ts";
 import { Chat, Push } from "./chats.ts";
+import { KeysState, LoginStep, ModelRef, ModelRole } from "./keys.ts";
 
 const call = <M extends string, P extends z.ZodObject>(method: M, params: P) =>
   z.object({ method: z.literal(method), params });
@@ -69,6 +70,17 @@ export const Call = z.discriminatedUnion("method", [
   call("sites.rules", z.object({})),
   /** Set what the browser agent may do on a site; null: back to the default (ask). */
   call("sites.permit", z.object({ site: Site, permission: Permission.nullable() })),
+  /** The providers there are for keys, which are set up, the models they offer and the ones chosen. */
+  call("keys.list", z.object({})),
+  /** Start setting up a provider's key: its first prompt (or done/failed). */
+  call("keys.login", z.object({ provider: z.string().min(1).max(100) })),
+  /** Answer a sign-in's prompt: the next one (or done/failed). */
+  call("keys.answer", z.object({ login: z.string().min(1).max(100), value: z.string().max(8192) })),
+  call("keys.cancel", z.object({ login: z.string().min(1).max(100) })),
+  /** Forget a provider's key. */
+  call("keys.logout", z.object({ provider: z.string().min(1).max(100) })),
+  /** Choose the model Muse chats with, or the one that works in the browser (it must see pictures). */
+  call("models.choose", z.object({ role: ModelRole, model: ModelRef })),
 ]);
 
 export type Call = z.infer<typeof Call>;
@@ -107,6 +119,12 @@ export const results = {
   "apps.permit": done,
   "sites.rules": z.object({ rules: z.array(SiteRule) }),
   "sites.permit": done,
+  "keys.list": KeysState,
+  "keys.login": LoginStep,
+  "keys.answer": LoginStep,
+  "keys.cancel": done,
+  "keys.logout": done,
+  "models.choose": done,
 } satisfies Record<Method, z.ZodType>;
 
 export type Params = { [C in Call as C["method"]]: C["params"] };
@@ -143,6 +161,12 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "apps.permit": (raw) => results["apps.permit"].parse(raw),
   "sites.rules": (raw) => results["sites.rules"].parse(raw),
   "sites.permit": (raw) => results["sites.permit"].parse(raw),
+  "keys.list": (raw) => results["keys.list"].parse(raw),
+  "keys.login": (raw) => results["keys.login"].parse(raw),
+  "keys.answer": (raw) => results["keys.answer"].parse(raw),
+  "keys.cancel": (raw) => results["keys.cancel"].parse(raw),
+  "keys.logout": (raw) => results["keys.logout"].parse(raw),
+  "models.choose": (raw) => results["models.choose"].parse(raw),
 };
 
 /** What a server implements: one function per method. */

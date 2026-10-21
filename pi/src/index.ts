@@ -11,3 +11,5 @@ export * from "./runs.ts";
 export * from "./attachments.ts";
 export * from "./tasks.ts";
 export * from "./worker.ts";
+export * from "./keys.ts";
+export * from "./credentials.ts";

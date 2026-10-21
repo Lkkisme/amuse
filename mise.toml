@@ -31,7 +31,8 @@ description = "Dev preview: the browser pool (Docker), API (restarts on change) 
 depends = ["install"]
 run = '''
 set -a; . "$HOME/.config/remuse/dev.env"; set +a
-export VITE_REMUSE_URL="ws://$REMUSE_HOST:$REMUSE_PORT/rpc?token=$REMUSE_TOKEN"
+# the web server stands in front of the API: one origin, so the session cookie just works
+export VITE_REMUSE_MODE=same-origin REMUSE_API="http://$REMUSE_HOST:$REMUSE_PORT"
 # the auto-browser pool, published on localhost (REMUSE_BROWSERS in the dev env points at it)
 mkdir -p "$HOME/.local/share/remuse/dev-handoff/1" "$HOME/.local/share/remuse/dev-handoff/2" "$HOME/.local/share/remuse/dev-handoff/3"
 docker compose -p remuse-browsers -f compose.browsers.yaml -f compose.dev.yaml up -d --wait

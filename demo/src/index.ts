@@ -12,6 +12,7 @@ import {
   kinds,
   memoryRules,
   newId,
+  noKeys,
   noWorkspace,
   permissionOf,
   verdict,
@@ -139,6 +140,7 @@ export function demoPorts<H>(timers: Timers<H>): Ports {
     apps: demoApps(rules),
     fit: () => {}, // the demo's browsers are sketches
     files: noWorkspace, // the demo keeps no files
+    keys: noKeys, // nor keys: its agent is scripted
     // a side chat is named after its first few words
     title: async (text) => text.split(/\s+/).slice(0, 4).join(" "),
     prompt: (turn, { emit, act, time }) => {
