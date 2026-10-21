@@ -17,6 +17,7 @@ import {
   Settings as SettingsIcon,
   Shield,
   Sparkles,
+  KeyRound,
   X,
   CalendarClock,
 } from "lucide-react";
@@ -29,6 +30,7 @@ import { AppsKey } from "./AppsKey";
 import { SitePermissions } from "./SitePermissions";
 import { Schedules } from "./Schedules";
 import { Models } from "./Models";
+import { Logins } from "./Logins";
 import { changePassword, lock } from "../connection.ts";
 
 const NAV: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
@@ -36,6 +38,7 @@ const NAV: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
   { id: "models", label: "Models", icon: <Sparkles size={18} /> },
   { id: "connectors", label: "Connectors", icon: <LayoutGrid size={18} /> },
   { id: "permissions", label: "Permissions", icon: <Shield size={18} /> },
+  { id: "logins", label: "Saved logins", icon: <KeyRound size={18} /> },
   { id: "schedules", label: "Schedules", icon: <CalendarClock size={18} /> },
 ];
 
@@ -418,6 +421,7 @@ export function SettingsModal({
             />
           )}
           {shown === "schedules" && <Schedules session={session} />}
+          {shown === "logins" && <Logins session={session} />}
           {shown === "models" && (
             <Models
               session={session}

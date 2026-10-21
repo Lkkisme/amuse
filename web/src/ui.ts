@@ -4,7 +4,7 @@
  */
 import { type App, type Attachment, type KeyProvider, MAIN } from "@amuse/protocol";
 
-export type SettingsSection = "general" | "models" | "connectors" | "permissions" | "schedules";
+export type SettingsSection = "general" | "models" | "connectors" | "permissions" | "logins" | "schedules";
 
 import type { Theme } from "./theme.ts";
 

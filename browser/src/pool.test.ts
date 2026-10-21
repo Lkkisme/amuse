@@ -68,6 +68,9 @@ function fakeController(log: string[] = []): Controller {
     },
     screenshot: async () => new Uint8Array([1, 2, 3]),
     saveProfile: async () => void log.push("save"),
+    profileSites: async () => [{ site: "facebook.com", cookies: 3 }],
+    forgetProfileSite: async (_, site) => void log.push(`forget ${site}`),
+    clearSessionSite: async (session, site) => void log.push(`clear ${session} ${site}`),
     delete: async (s) => void log.push(`delete ${s}`),
     live: async () => [],
     downloads: async () => [
@@ -347,4 +350,14 @@ test("a run whose window the user closed is no longer open; an unanswered contro
   tabsFail = new ControllerError("GET /sessions/x/tabs failed (404)", 404);
   assert.equal(await pool.stillOpen("r1"), false);
   tabsFail = null;
+});
+
+test("the sites logins are kept for are listed; forgetting one takes it from what is kept and signs every open browser out of it", async () => {
+  const log: string[] = [];
+  const pool = browserPool([{ name: "n1", controller: fakeController(log), vnc: "ws://n1/websockify" }], { desktop: sizes() });
+  assert.deepEqual(await pool.logins(), [{ site: "facebook.com", cookies: 3 }]);
+  await pool.open("r1", "https://a.example/");
+  await pool.forgetLogin("facebook.com");
+  assert.ok(log.includes("forget facebook.com"));
+  assert.ok(log.some((line) => /^clear \S+ facebook\.com$/.test(line)), "the open browser is signed out too");
 });

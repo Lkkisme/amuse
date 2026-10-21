@@ -151,7 +151,18 @@ export interface Ports {
   files: Workspace;
   /** The user's keys and the models chosen (outside the conversation). */
   keys: Keys;
+  /** The logins the browsers keep, by site (none where there are no browsers). */
+  logins: Logins;
 }
+
+/** What the browsers keep of the user's sign-ins, by site: to see, and to sign out of. */
+export interface Logins {
+  list(): Promise<{ site: string; cookies: number }[]>;
+  forget(site: string): Promise<void>;
+}
+
+/** No browsers, no logins kept (the demo, tests). */
+export const noLogins: Logins = { list: async () => [], forget: async () => {} };
 
 /** A file or folder in the workspace. */
 export interface Entry {
@@ -747,6 +758,11 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     }),
     "schedule.control": async (params) => about(params.id, "schedule.control", params),
     "apps.search": ({ query, cursor }) => ports.apps.search(query, cursor),
+    "logins.list": async () => ({ sites: await ports.logins.list() }),
+    "logins.forget": async ({ site }) => {
+      await ports.logins.forget(site);
+      return null;
+    },
     "approvals.list": async () => ({
       approvals: [...rooms.values()]
         .flatMap((room) => room.state.entities.filter((e): e is Approval => e.kind === "approval").map((approval) => ({ chat: room.chat, approval })))

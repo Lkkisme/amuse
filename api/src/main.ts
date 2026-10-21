@@ -22,7 +22,7 @@ import { ComposioError, NoComposioKey, composio, composioApps, composioGuide, co
 import { fileChats } from "./journal.ts";
 import { workspace } from "./workspace.ts";
 import { browserPool, controller } from "@amuse/browser";
-import { type Ports, Rejected, createHost, memoryRules, realTimers } from "@amuse/core";
+import { type Ports, Rejected, createHost, memoryRules, noLogins, realTimers } from "@amuse/core";
 import type { Entity } from "@amuse/protocol";
 import { type PiAuth, adoptEnvironment, builtInSkills, fileCredentials, piAgent, piBrowserAgent, piKeys, piScheduleRunner, piTaskRunner, untrustedRule } from "@amuse/pi";
 import { fileAccess } from "./access.ts";
@@ -195,6 +195,8 @@ const ports: Ports = {
   }),
   files,
   keys,
+  // the logins the browsers keep (shared by every browser), to see and sign out of in Settings
+  logins: browsers ? { list: () => browsers.logins(), forget: (site) => browsers.forgetLogin(site) } : noLogins,
   ...(browsers
     ? piBrowserAgent({ model: browserModel, thinking: () => keys.thinking("browser"), auth }, browsers, rules, files)
     : {

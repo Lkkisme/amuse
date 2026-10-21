@@ -70,6 +70,10 @@ export const Call = z.discriminatedUnion("method", [
   call("sites.rules", z.object({})),
   /** Set what the browser agent may do on a site; null: back to the default (ask). */
   call("sites.permit", z.object({ site: Site, permission: Permission.nullable() })),
+  /** The sites the browsers keep logins for (from the user's own sign-ins), with how many cookies. */
+  call("logins.list", z.object({})),
+  /** Sign the browsers out of a site: its kept logins go, from every open browser too. */
+  call("logins.forget", z.object({ site: z.string().min(1).max(253) })),
   /** Every approval asked in any chat, newest first, with the chat it is in: what was allowed or denied, and when. */
   call("approvals.list", z.object({})),
   /** The providers there are for keys, which are set up, the models they offer and the ones chosen. */
@@ -126,6 +130,8 @@ export const results = {
   "apps.permit": done,
   "sites.rules": z.object({ rules: z.array(SiteRule) }),
   "sites.permit": done,
+  "logins.list": z.object({ sites: z.array(z.object({ site: z.string(), cookies: z.int() })) }),
+  "logins.forget": done,
   "approvals.list": z.object({ approvals: z.array(z.object({ chat: Chat, approval: Approval })) }),
   "keys.list": KeysState,
   "keys.login": LoginStep,
@@ -171,6 +177,8 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "apps.permit": (raw) => results["apps.permit"].parse(raw),
   "sites.rules": (raw) => results["sites.rules"].parse(raw),
   "sites.permit": (raw) => results["sites.permit"].parse(raw),
+  "logins.list": (raw) => results["logins.list"].parse(raw),
+  "logins.forget": (raw) => results["logins.forget"].parse(raw),
   "approvals.list": (raw) => results["approvals.list"].parse(raw),
   "keys.list": (raw) => results["keys.list"].parse(raw),
   "keys.login": (raw) => results["keys.login"].parse(raw),

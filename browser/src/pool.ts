@@ -74,6 +74,10 @@ export interface Browsers {
   screenshot(run: string): Promise<Uint8Array | null>;
   /** Keep this run's logins for later runs (the user just held the browser). */
   remember(run: string): Promise<void>;
+  /** The sites logins are kept for (shared by every browser), with how many cookies. */
+  logins(): Promise<{ site: string; cookies: number }[]>;
+  /** Forget a site's logins: from what is kept, and from every browser open now. */
+  forgetLogin(site: string): Promise<void>;
   /** Shape the run's desktop for a viewer of this size; null: back to the agent's standard size. */
   fit(run: string, viewer: Size | null): Promise<void>;
   close(run: string): Promise<void>;
@@ -111,6 +115,8 @@ interface Run {
   refs: Map<string, string>;
   /** downloads already handed over */
   taken: Set<string>;
+  /** sites signed out of while it was open: its storage of them (not only cookies) is not to be saved back */
+  forgotten: Set<string>;
 }
 
 const describe = (e: Element) => e.label?.trim() || e.href || e.tag || "";
@@ -224,6 +230,7 @@ export function browserPool(
           current: new Map(),
           refs: new Map(),
           taken: new Set(),
+          forgotten: new Set(),
         });
       } catch (error) {
         release(node);
@@ -295,6 +302,28 @@ export function browserPool(
     async remember(id) {
       const r = run(id);
       await r.node.controller.saveProfile(r.session, profile);
+      // what was signed out of while it was open stays signed out (its pages' storage came back with the save)
+      for (const site of r.forgotten) await r.node.controller.forgetProfileSite(profile, site).catch(() => {});
+    },
+    // the profile is shared (one logins volume for every controller): any node reads it
+    async logins() {
+      const node = nodes[0];
+      if (!node) return [];
+      const sites = await node.controller.profileSites(profile).catch((e: unknown) => (e instanceof ControllerError && e.status === 404 ? [] : Promise.reject(e)));
+      // a site's stored data without a cookie is no login
+      return sites.filter((s) => s.cookies > 0);
+    },
+    async forgetLogin(site) {
+      const node = nodes[0];
+      if (!node) return;
+      await node.controller.forgetProfileSite(profile, site).catch((e: unknown) => (e instanceof ControllerError && e.status === 404 ? undefined : Promise.reject(e)));
+      // an open browser would save it back when it is next remembered
+      await Promise.all(
+        [...runs.values()].map((r) => {
+          r.forgotten.add(site);
+          return r.node.controller.clearSessionSite(r.session, site).catch(() => {});
+        }),
+      );
     },
     async fit(id, viewer) {
       await desktop(run(id).node.vnc, viewer ? fitted(viewer) : standard);
