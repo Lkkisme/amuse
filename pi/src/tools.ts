@@ -5,7 +5,7 @@
  * background while the chat goes on.
  */
 import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
-import { type AgentIO, type Rules, type Workspace, describe, siteAccess, siteOf } from "@amuse/core";
+import { type AgentIO, type Rules, type Workspace, describe, nowIn, siteAccess, siteOf } from "@amuse/core";
 import type { Permission } from "@amuse/protocol";
 import { untrusted } from "./untrusted.ts";
 import { Type } from "typebox";
@@ -14,6 +14,12 @@ import { askToVisit, notVisited, visitAnswer } from "./visits.ts";
 import type { Hold } from "./runs.ts";
 
 const text = (value: string) => ({ content: [{ type: "text" as const, text: value }], details: null });
+
+/** The time now as the agent hears it: on the user's clock, with the weekday and their zone. */
+export function timeNow(io: Pick<AgentIO, "time">): string {
+  const { now, timezone } = io.time();
+  return `Now: ${nowIn(now, timezone)}.`;
+}
 
 /**
  * Tools bound to the agent IO of the run in progress. `files`: the workspace, where browser tasks
@@ -26,6 +32,15 @@ export function tools(
   { files, hold, appsSetup }: { files?: Workspace | undefined; hold?: Hold; appsSetup?: (() => string | null) | undefined } = {},
 ): ToolDefinition[] {
   return [
+    defineTool({
+      name: "current_time",
+      label: "Check the time",
+      description: "The time now, on the user's clock: the weekday, date, time and their time zone. For working out dates and times (\"tomorrow\", \"in two hours\", \"next Monday\") or how long ago something was.",
+      parameters: Type.Object({ status }),
+      async execute() {
+        return text(timeNow(io()));
+      },
+    }),
     defineTool({
       name: "recall",
       label: "Search the conversation",
