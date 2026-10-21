@@ -9,7 +9,7 @@ FROM node:24-trixie-slim AS node
 FROM debian:trixie
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        build-essential ca-certificates curl git iptables jq less procps python3 python3-pip python3-venv ripgrep sudo unzip \
+        build-essential ca-certificates conntrack curl git iptables jq less procps python3 python3-pip python3-venv ripgrep sudo unzip \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
