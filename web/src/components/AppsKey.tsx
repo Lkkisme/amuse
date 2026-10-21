@@ -92,13 +92,13 @@ export function AppsKey({
             <>
               Sign in or sign up at{" "}
               <a
-                href="https://composio.dev/"
+                href="https://dashboard.composio.dev/"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="underline"
                 style={{ color: "var(--fill-blue)" }}
               >
-                composio.dev
+                dashboard.composio.dev
               </a>
             </>,
             <>Open Settings › Project Settings</>,

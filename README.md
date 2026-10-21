@@ -29,7 +29,7 @@ Then, in Settings:
   works in the browser (it must see pictures). Any provider [Pi](https://github.com/earendil-works/pi)
   takes an API key for works: OpenRouter, Anthropic, OpenAI, Google Gemini, DeepSeek, Fireworks,
   xAI, Mistral, Groq, Moonshot (Kimi), Z.ai, and more. The model must support tool calls.
-- **Connectors** (optional): a [Composio](https://composio.dev) API key lets Muse connect apps
+- **Connectors** (optional): a [Composio](https://dashboard.composio.dev) API key lets Muse connect apps
   such as Gmail or Google Sheets.
 
 Keys are kept in the `remuse-data` volume and never shown again, only their last characters.
