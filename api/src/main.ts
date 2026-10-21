@@ -85,6 +85,7 @@ const system = [
   "You are Amuse, a personal assistant in a chat app. Write like a person texting: short, plain sentences, usually one to three. Plain text only: no markdown (no headings, bold, lists or tables), no emoji. Say a longer thing as a few short messages' worth of plain prose, not a document.",
   "Reply in the language and script of the user's latest message, unless they ask for another; a foreign word in their message does not change it. Pages, mails and tool results in other languages never change it: read them as they are, say it in the user's language. Something you write for them to use elsewhere (a post, an email) is in the language they ask for it in.",
   'Talk like a capable secretary, not like software. The user hears what you did and found, not how it works inside: unless they ask, never mention ids (b-…, s-…, q-…), tool or function names, agents, runs, sessions, reports, notes, prompts or internal statuses. Say "I\'m opening the site", "I\'ll check your mail every hour", "it\'s asking which date you want", in plain words. What you hear from your background work stays between you and it; pass on only what the user needs, in your own words. If the user does ask how something works or what you did, answer plainly and truthfully.',
+  "When the user asks what you can do or how you work, or before you say something cannot be done, read the amuse skill and check `amuse_status`: answer from what is true of this Amuse, not from a guess.",
   "Do quick things yourself: a fact to look up, a page to read, something from a connected app, a file to sort. Hand off only what is long, can run in parallel, needs a website operated, or should run later (the delegation, browser and schedules skills say how).",
   "Each turn you get the conversation so far: the newest part in full, older parts in brief; search further back with `memory_search`.",
   "You remember: what you know about the user comes with every turn. Keep what will matter later with `remember`, and look with `memory_search` before asking what they may have told you (the memory skill says how).",
@@ -192,8 +193,34 @@ const speech = async (audio: Uint8Array, type: string) => {
     throw error;
   }
 };
+/** How this instance is set up right now, for the agent (`amuse_status`): never a key, only whether there is one. */
+const about = async (): Promise<string> => {
+  const chat = keys.model("chat");
+  const accounts = keys.appKey("composio") ? await directory.accounts().catch(() => null) : null;
+  const connected = accounts?.filter((a) => a.status === "active").map((a) => `${a.app.name}${a.label ? ` (${a.label})` : ""}`) ?? [];
+  const voice = keys.voiceChoice();
+  return [
+    `Chat model: ${chat ?? "none chosen yet (Settings › Models)"}, thinking ${keys.thinking("chat")}.`,
+    `Browser model: ${keys.model("browser") ?? "none chosen yet"}, thinking ${keys.thinking("browser")}.`,
+    `Background model (scheduled work): ${keys.model("background") ?? "the chat model"}, thinking ${keys.thinking("background")}.`,
+    `Speech to text: ${voice === "local" ? "the user's own server" : (voice ?? "the first service with a key, if any")}.`,
+    `Apps: ${
+      !keys.appKey("composio")
+        ? "not set up (no Composio key yet: Settings › Connectors)"
+        : accounts === null
+          ? "set up; the connected accounts cannot be read just now"
+          : connected.length > 0
+            ? `set up; connected: ${connected.join(", ")}`
+            : "set up; nothing connected yet"
+    }.`,
+    `Browsers: ${nodes.length > 0 ? `${nodes.length} at a time` : "none on this instance"}.`,
+    `Sandbox: ${sandbox ? "on" : "off on this instance"}.`,
+    `Address: ${publicUrl ?? "not set"}.`,
+  ].join("\n");
+};
+
 const ports: Ports = {
-  ...piAgent({ model, thinking: () => keys.thinking("chat"), auth, system, rules, files, ...(sandbox ? { sandbox } : {}), apps, search: apps.search, appsSetup: () => (keys.appKey("composio") ? null : composioGuide), skills, defaults: fileDefaults(join(dataDir, "defaults.json")) }),
+  ...piAgent({ model, thinking: () => keys.thinking("chat"), auth, system, rules, files, ...(sandbox ? { sandbox } : {}), apps, search: apps.search, appsSetup: () => (keys.appKey("composio") ? null : composioGuide), skills, about, defaults: fileDefaults(join(dataDir, "defaults.json")) }),
   // scheduled work runs on the background model (the chat's when none is chosen)
   ...piScheduleRunner({
     model: () => keys.model("background"),
@@ -201,6 +228,7 @@ const ports: Ports = {
     auth,
     system,
     skills,
+    about,
     rules,
     files,
     ...(sandbox ? { sandbox } : {}),
@@ -213,6 +241,7 @@ const ports: Ports = {
     auth,
     system,
     skills,
+    about,
     rules,
     files,
     ...(sandbox ? { sandbox } : {}),

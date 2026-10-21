@@ -10,6 +10,7 @@
 import { type AgentIO, type Ports, type Rules, type Turn, type Workspace, nowIn, newId } from "@amuse/core";
 import { images, workspaceTools } from "./attachments.ts";
 import { memoryBrief, memoryReadTools, memoryWriteTools } from "./memory.ts";
+import { aboutTools } from "./about.ts";
 import { type Skill, allSkills, catalog, skillTools } from "./skills.ts";
 import type { Needs } from "@amuse/protocol";
 import type { SandboxClient } from "@amuse/sandbox";
@@ -38,6 +39,8 @@ export interface PiConfig extends PiModelConfig {
   /** While apps are not set up: how the user sets them up (null once they are). */
   appsSetup?: () => string | null;
   /** The skills that ship with Amuse (the user's own are read from skills/ in the workspace). */
+  /** How this instance is set up right now (models, apps, browsers, sandbox), for `amuse_status`. */
+  about?: () => Promise<string>;
   skills?: Skill[];
   /** Schedules every instance starts with (memory upkeep, reflection), each set up once, on the user's clock, when they write. */
   defaults?: Defaults;
@@ -142,6 +145,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
         ...tools(io, cfg.rules, { files: cfg.files, appsSetup: cfg.appsSetup }).filter((t) => !(cfg.files && t.name === "recall")),
         ...(cfg.files ? [...memoryReadTools(io, cfg.files), ...memoryWriteTools(io, cfg.files)] : []),
         ...skillTools(cfg.skills ?? [], cfg.files),
+        ...(cfg.about ? aboutTools(cfg.about) : []),
         ...chatTools(io),
         ...scheduleTools(io, cfg.files),
         ...taskTools(io),

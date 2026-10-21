@@ -20,6 +20,7 @@ import { memoryReadTools } from "./memory.ts";
 import { allSkills, catalog, skillTools } from "./skills.ts";
 import { untrustedRule } from "./untrusted.ts";
 import { webTools } from "./web.ts";
+import { aboutTools } from "./about.ts";
 
 /** How a helper's work went: done (with its closing words), failed (why), or stopped by Muse. */
 export type Worked = { kind: "done"; record: string } | { kind: "failed"; reason: string } | { kind: "stopped" };
@@ -46,6 +47,7 @@ export function helperTools(cfg: PiConfig, run: RunHandle, hold: Hold): ToolDefi
     ...chatTools(io),
     ...(cfg.files ? memoryReadTools(io, cfg.files) : []),
     ...skillTools(cfg.skills ?? [], cfg.files),
+    ...(cfg.about ? aboutTools(cfg.about) : []),
     ...webTools(io, cfg.rules, cfg.search, hold),
     ...(cfg.apps ? appTools(io, cfg.apps, hold) : []),
     ...(cfg.files ? workspaceTools(io, cfg.files, { send: false }) : []),
