@@ -57,14 +57,26 @@ with passwordless `sudo`, on files it shares with you: your workspace (what you 
 mounted in it. Commands are not approved one by one, because the container is the boundary; what
 leaves it, and deleting or overwriting the files you sent, still needs your word.
 
-- It reaches the public internet, and nothing of yours. New connections from it to the host, your LAN,
-  Tailscale and other VPN peers, link-local addresses and any other private address are refused at once, and
-  so is the sandbox's own network (the Amuse server is on it): whatever else runs on your host, and however
-  you publish Amuse, the sandbox cannot get to it. `sandbox-net`, a small container that owns the
-  sandbox's network, puts these rules in, and the sandbox shares that network without the capability to
-  change them (not even as root). Nothing starts if the rules cannot be put in. Amuse itself reaches any
-  port the sandbox listens on. One thing the rules cannot know: if the host has a public IP address of its
-  own, services listening on it count as the public internet. Bind them to loopback or firewall them.
+- It reaches the public internet, and nothing of yours. Connections from it to the host, your LAN,
+  Tailscale and other VPN peers, link-local addresses, the ranges proxy tools on the host (Clash, sing-box,
+  Surge) hand out as fake addresses (`198.18.0.0/15`) and any other private address are refused at once,
+  open ones as well as new; so is the sandbox's own network (the Amuse server is on it, and may open
+  connections to any port the sandbox listens on: replies to those are all that passes there). Whatever
+  else runs on your host, and however you publish Amuse, the sandbox cannot get to it. IPv6 is refused
+  altogether (`AMUSE_SANDBOX_IPV6=1` allows it, under the same rules, if the network has IPv6: untested).
+  One thing the rules cannot know: if the host has a public IP address of its own, services listening on it
+  count as the public internet. Bind them to loopback or firewall them.
+- How that is kept. `sandbox-net`, a small container that owns the sandbox's network, puts the rules in,
+  and the sandbox shares that network without the capability to change them (not even as root). The sandbox
+  never runs before them: its daemon, the only thing that runs there (nothing starts by itself), starts
+  and listens on nothing until `sandbox-net` has put the rules in, checked them and written a ready mark on
+  a volume the sandbox can only read; it ends if the mark goes. Until the rules are in, everything but
+  loopback is refused. `docker compose up` also waits for `sandbox-net`'s health check, but that gates the
+  command only; Docker's own restarts (a reboot, a restart of the Docker service, a crash) ignore it, and
+  the mark is what covers them. If the rules cannot be put in, `sandbox-net` stays up, unhealthy, and says
+  why in its log (`docker compose logs sandbox-net`), and the sandbox waits.
+- DNS goes through Docker's resolver, which asks the host's own DNS server (often your router): the sandbox
+  can look up the names of machines on your LAN, and nothing more; it cannot reach them.
 - It holds no keys or password, has no Docker socket, is not privileged, has only the capabilities sudo and
   apt need, and sees only the workspace of Amuse's data. The Amuse server also turns away every request from
   the sandbox's network, and the browsers cannot reach it.
@@ -94,8 +106,9 @@ leaves it, and deleting or overwriting the files you sent, still needs your word
 - `sandbox-net` and `sandbox` go together. `docker compose up -d` (also after an update) keeps them in step,
   and `docker compose restart sandbox-net` restarts both. To recreate them: `docker compose up -d
   --force-recreate sandbox-net sandbox`. If `sandbox-net` alone is restarted behind compose's back (a crash,
-  `docker restart`), the sandbox has no network until it is restarted; it ends itself within a few seconds,
-  Docker brings it back into the new network, and it never has an open one in between.
+  `docker restart`), the sandbox has no network until it is restarted; it ends itself within a few seconds
+  (the daemon watches for it), Docker brings it back into the new network, and it never has an open one in
+  between.
 
 ## Good to know
 
