@@ -13,22 +13,28 @@
  *                 (see compose.browsers.yaml); AUTO_BROWSER_TOKEN_FILE holds the controllers' bearer token
  *   AMUSE_PUBLIC_URL  this server's address as the user's browser reaches it (http://host:port);
  *                 lets connectors send the user straight back for an instant "connected"
+ *   AMUSE_SANDBOX_URL  the sandbox's control daemon (http://sandbox:7070, see compose.yaml): gives the agent a machine of
+ *                 its own to run commands on; without it there are no such tools
+ *   AMUSE_SANDBOX_SUBNET  the sandbox network's address range (10.231.250.0/24, as compose.yaml fixes it): the server turns
+ *                 away every request from it, whether or not the sandbox is in use; required with AMUSE_SANDBOX_URL
  *   AMUSE_WEB    directory of the built web app to serve (same origin as /rpc and /live)
  */
 import { dirname, join } from "node:path";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { SandboxError, sandboxClient } from "@amuse/sandbox";
 import { ComposioError, NoComposioKey, composio, composioApps, composioGuide, composioConnector, composioDirectory, keyedComposio } from "@amuse/composio";
 import { fileChats } from "./journal.ts";
 import { workspace } from "./workspace.ts";
 import { browserPool, controller } from "@amuse/browser";
-import { type Ports, Rejected, createHost, memoryRules, noLogins, realTimers } from "@amuse/core";
+import { type Ports, Rejected, createHost, memoryRules, noLogins, noSandbox, realTimers } from "@amuse/core";
 import type { Entity } from "@amuse/protocol";
 import { type PiAuth, VoiceUnavailable, adoptEnvironment, builtInSkills, transcriber, fileCredentials, piAgent, piBrowserAgent, piKeys, piScheduleRunner, piTaskRunner, untrustedRule } from "@amuse/pi";
 import { fileAccess } from "./access.ts";
 import { fileDefaults } from "./defaults.ts";
 import { listen } from "./server.ts";
 import { fileRules } from "./rules.ts";
+import { refusing } from "./sandbox.ts";
 
 const port = Number(process.env["AMUSE_PORT"] ?? 8797);
 const host = process.env["AMUSE_HOST"] ?? "127.0.0.1";
@@ -70,6 +76,9 @@ const keys = piKeys({
   ],
 });
 const auth: PiAuth = { kind: "keys", keys: credentials };
+/** Amuse's own machine, where there is one: commands run there by the agents, and wiped by the user in Settings */
+const sandboxUrl = process.env["AMUSE_SANDBOX_URL"];
+const sandbox = sandboxUrl ? sandboxClient(sandboxUrl) : undefined;
 const model = () => keys.model("chat");
 const browserModel = () => keys.model("browser");
 const system = [
@@ -84,6 +93,11 @@ const system = [
   "Before you act for the user toward others or do what is hard to undo (send a message or an email, post publicly, delete data), make sure they want it. The specific thing they asked for in their message is their confirmation: do not ask again. Their OK covers only that action and that content; if either changes, show them again. Buying is the exception: even when they say buy, go through the checkout for them to review before paying.",
   "Some steps show the user an approval card on their own (how they set their permissions decides which). The card is theirs, not yours: when a tool or your background work says it waits for their OK, tell them in a sentence what it wants and why, and never say it is done until you hear it was. If they decline or never answer, that step does not happen: do not try another way around it.",
   'Give every tool call a short `status`: a few words in the user\'s language saying what you are doing, as the user would put it ("Checking your latest mail", not a tool name); it shows under your name while the tool runs.',
+  ...(sandbox
+    ? [
+        "You have a computer of your own, a sandbox, for running programs, scripts and installs (the sandbox skill says how). What you do inside it needs no one's OK; deleting or overwriting the user's own files, or anything that leaves it, still does.",
+      ]
+    : []),
   untrustedRule,
 ].join("\n");
 /** apps go through Composio, with the key set up now (none: each use says it is needed) */
@@ -167,7 +181,7 @@ const none = async <T>(read: () => Promise<T[]>): Promise<T[]> => {
   }
 };
 /** the skills that ship with Amuse (pi/skills/); the user's own are read from the workspace each turn */
-const skills = builtInSkills();
+const skills = builtInSkills().filter((skill) => sandbox || skill.name !== "sandbox");
 /** the composer's mic: speech to text with the user's own key (pi/src/voice.ts) */
 const toText = transcriber(credentials, () => keys.voiceChoice(), fetch, () => keys.localVoiceService());
 const speech = async (audio: Uint8Array, type: string) => {
@@ -179,7 +193,7 @@ const speech = async (audio: Uint8Array, type: string) => {
   }
 };
 const ports: Ports = {
-  ...piAgent({ model, thinking: () => keys.thinking("chat"), auth, system, rules, files, apps, search: apps.search, appsSetup: () => (keys.appKey("composio") ? null : composioGuide), skills, defaults: fileDefaults(join(dataDir, "defaults.json")) }),
+  ...piAgent({ model, thinking: () => keys.thinking("chat"), auth, system, rules, files, ...(sandbox ? { sandbox } : {}), apps, search: apps.search, appsSetup: () => (keys.appKey("composio") ? null : composioGuide), skills, defaults: fileDefaults(join(dataDir, "defaults.json")) }),
   // scheduled work runs on the background model (the chat's when none is chosen)
   ...piScheduleRunner({
     model: () => keys.model("background"),
@@ -189,6 +203,7 @@ const ports: Ports = {
     skills,
     rules,
     files,
+    ...(sandbox ? { sandbox } : {}),
     apps,
     search: apps.search,
   }),
@@ -200,6 +215,7 @@ const ports: Ports = {
     skills,
     rules,
     files,
+    ...(sandbox ? { sandbox } : {}),
     apps,
     search: apps.search,
   }),
@@ -226,6 +242,18 @@ const ports: Ports = {
         browser: () => {},
         fit: () => {},
       }),
+  sandbox: sandbox
+    ? {
+        reset: async () => {
+          try {
+            await sandbox.reset();
+          } catch (error) {
+            // our own words only, never what the sandbox said about it (`detail`)
+            throw error instanceof SandboxError ? new Rejected({ kind: "unsound", reason: error.message }) : error;
+          }
+        },
+      }
+    : noSandbox,
   rules,
   approval: () => {}, // waiting agents get the verdict through AgentIO.decision
   // a card from before the key was removed: the user hears where to add one
@@ -261,6 +289,11 @@ for (const { id } of (await session.call("chats.list", {})).chats) {
 }
 const live = browsers && { browsers, controlled: (id: string) => held.has(id) };
 
+// the sandbox network is turned away from the first request; a sandbox without one to turn away does not start
+const sandboxSubnet = process.env["AMUSE_SANDBOX_SUBNET"];
+if (sandboxUrl && !sandboxSubnet) throw new Error("AMUSE_SANDBOX_URL is set without AMUSE_SANDBOX_SUBNET: the server must know the sandbox's network to turn it away.");
+const refuse = sandboxSubnet ? refusing(sandboxSubnet) : undefined;
+
 const web = process.env["AMUSE_WEB"];
 await listen({
   session,
@@ -269,6 +302,7 @@ await listen({
   ...(web ? { web } : {}),
   returned: connector.returned,
   access,
+  ...(refuse ? { refuse } : {}),
   transcribe: speech,
   port,
   host,
@@ -277,5 +311,5 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => 
 // the way in: the first visit sets the master password
 if (!access.ready()) console.log(`amuse is ready. Open ${publicUrl ?? `http://${host}:${port}`} and set the master password.`);
 console.log(
-  `amuse api on ws://${host}:${port}/rpc (model: ${model() ?? "none chosen"}, browser model: ${browserModel() ?? "none chosen"}, apps: ${keys.appKey("composio") ? "composio" : "no key"}, browsers: ${nodes.length ? nodes.map((n) => n.name).join(",") : "none"})`,
+  `amuse api on ws://${host}:${port}/rpc (model: ${model() ?? "none chosen"}, browser model: ${browserModel() ?? "none chosen"}, apps: ${keys.appKey("composio") ? "composio" : "no key"}, browsers: ${nodes.length ? nodes.map((n) => n.name).join(",") : "none"}, sandbox: ${sandboxUrl ?? "none"})`,
 );

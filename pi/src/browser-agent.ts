@@ -201,9 +201,7 @@ function runTools(run: Run): ToolDefinition[] {
     const saved: string[] = [];
     for (const file of got) {
       const name = basename(file.name.replaceAll("\\", "/")) || "download";
-      const ext = extname(name);
-      let path = `downloads/${name}`;
-      for (let n = 2; await workspace.exists(path); n++) path = `downloads/${name.slice(0, name.length - ext.length)} (${n})${ext}`;
+      const path = await freePath(workspace, "downloads", name);
       try {
         await workspace.write(path, file.data, false);
         run.downloaded.push(path);
@@ -561,4 +559,17 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers, rules: Ru
       void browsers.fit(id, viewer).catch(() => {}); // a desktop that keeps its size is still usable
     },
   };
+}
+
+/**
+ * Where a file named `name` can be kept in `folder`: that name, or "name (2).ext" and so on if it is taken. Something the
+ * workspace will not look at (a link planted in the place) is as taken as a file: the next name is tried, and the rest of what
+ * is being kept goes on. After a good many names it gives up and returns the last, whose write then fails on its own.
+ */
+export async function freePath(workspace: Workspace, folder: string, name: string): Promise<string> {
+  const ext = extname(name);
+  const stem = name.slice(0, name.length - ext.length);
+  let path = `${folder}/${name}`;
+  for (let n = 2; n < 1000 && (await workspace.exists(path).catch(() => true)); n++) path = `${folder}/${stem} (${n})${ext}`;
+  return path;
 }

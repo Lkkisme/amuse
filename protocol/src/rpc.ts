@@ -105,6 +105,8 @@ export const Call = z.discriminatedUnion("method", [
   call("models.voice", z.object({ provider: z.string().min(1).max(100).nullable() })),
   /** Set up (or, null, remove) a speech server the user runs themselves; `key` only if it wants one. */
   call("models.localVoice", z.object({ service: LocalVoice.extend({ key: z.string().max(8192).nullable() }).nullable() })),
+  /** Stop what runs in the sandbox and wipe its home folder; the workspace is kept, and system-wide installs stay until the container is recreated. */
+  call("sandbox.reset", z.object({})),
 ]);
 
 export type Call = z.infer<typeof Call>;
@@ -160,6 +162,7 @@ export const results = {
   "models.think": done,
   "models.voice": done,
   "models.localVoice": done,
+  "sandbox.reset": done,
 } satisfies Record<Method, z.ZodType>;
 
 export type Params = { [C in Call as C["method"]]: C["params"] };
@@ -213,6 +216,7 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "models.think": (raw) => results["models.think"].parse(raw),
   "models.voice": (raw) => results["models.voice"].parse(raw),
   "models.localVoice": (raw) => results["models.localVoice"].parse(raw),
+  "sandbox.reset": (raw) => results["sandbox.reset"].parse(raw),
 };
 
 /** What a server implements: one function per method. */

@@ -139,6 +139,7 @@ export const calls: Call[] = [
   { method: "sites.permit", params: { site: "bank.com", permission: "deny" } },
   { method: "logins.list", params: {} },
   { method: "logins.forget", params: { site: "facebook.com" } },
+  { method: "sandbox.reset", params: {} },
   { method: "approvals.list", params: {} },
   { method: "keys.list", params: {} },
   { method: "keys.login", params: { provider: "fireworks" } },

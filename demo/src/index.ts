@@ -14,6 +14,7 @@ import {
   newId,
   noKeys,
   noLogins,
+  noSandbox,
   noWorkspace,
   permissionOf,
   verdict,
@@ -145,6 +146,7 @@ export function demoPorts<H>(timers: Timers<H>): Ports {
     files: noWorkspace, // the demo keeps no files
     keys: noKeys, // nor keys: its agent is scripted
     logins: noLogins, // nor real browsers
+    sandbox: noSandbox, // nor a machine of its own
     // a side chat is named after its first few words
     title: async (text) => text.split(/\s+/).slice(0, 4).join(" "),
     prompt: (turn, { emit, act, time }) => {

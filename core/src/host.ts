@@ -155,7 +155,22 @@ export interface Ports {
   keys: Keys;
   /** The logins the browsers keep, by site (none where there are no browsers). */
   logins: Logins;
+  /** Amuse's own machine, as far as the user controls it (none where there is no sandbox). */
+  sandbox: Sandbox;
 }
+
+/** The sandbox Amuse works in, as the user sees it: it can be wiped. */
+export interface Sandbox {
+  /** Stop what runs in the sandbox and wipe its home folder; the workspace is kept, and system-wide installs stay until the container is recreated. Rejects, in words, when it cannot. */
+  reset(): Promise<void>;
+}
+
+/** No sandbox on this server (the demo, tests). */
+export const noSandbox: Sandbox = {
+  reset: async () => {
+    throw new Rejected({ kind: "unsound", reason: "This server has no sandbox." });
+  },
+};
 
 /** What the browsers keep of the user's sign-ins, by site: to see, and to sign out of. */
 export interface Logins {
@@ -786,6 +801,10 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     "logins.list": async () => ({ sites: await ports.logins.list() }),
     "logins.forget": async ({ site }) => {
       await ports.logins.forget(site);
+      return null;
+    },
+    "sandbox.reset": async () => {
+      await ports.sandbox.reset();
       return null;
     },
     "approvals.list": async () => ({

@@ -27,8 +27,8 @@ import type {
 } from "@amuse/protocol";
 import { APPROVAL_TTL_MS, GRACE_MS, MAX_SCHEDULES, check, later, nextRun, standing } from "./schedule.ts";
 
-/** Calls that do not touch the conversation: reading it, the app directory (Ports.apps), the keys (Ports.keys) and the goals (in the workspace). */
-export type Query = Extract<Call, { method: "session.sync" | "session.history" | "schedules.list" | `chats.${string}` | `apps.${string}` | `sites.${string}` | `keys.${string}` | `models.${string}` | `approvals.${string}` | `logins.${string}` | `goals.${string}` }>;
+/** Calls that do not touch the conversation: reading it, the app directory (Ports.apps), the keys (Ports.keys), the sandbox (Ports.sandbox) and the goals (in the workspace). */
+export type Query = Extract<Call, { method: "session.sync" | "session.history" | "schedules.list" | `chats.${string}` | `apps.${string}` | `sites.${string}` | `keys.${string}` | `models.${string}` | `approvals.${string}` | `logins.${string}` | `sandbox.${string}` | `goals.${string}` }>;
 /** Client calls that change the conversation. */
 export type Command = Exclude<Call, Query>;
 type CommandMethod = Command["method"];

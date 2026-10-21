@@ -9,6 +9,7 @@ export * from "./web.ts";
 export * from "./schedules.ts";
 export * from "./runs.ts";
 export * from "./attachments.ts";
+export * from "./sandbox.ts";
 export * from "./tasks.ts";
 export * from "./worker.ts";
 export * from "./keys.ts";

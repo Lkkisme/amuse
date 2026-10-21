@@ -5,10 +5,11 @@
  * Peer per socket) and /live?id=<run> (a run's live browser view). Requests
  * authenticate with the HttpOnly session cookie the master password opens
  * (access.ts). Browsers may open the sockets, and post to the way in, only
- * from this origin; anything else is refused.
+ * from this origin; anything else is refused. So is every request, whatever it
+ * asks, from an address given to `refuse` (the sandbox's network).
  */
-import { createReadStream, statSync } from "node:fs";
 import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
+import { pipeline } from "node:stream";
 import type { Session } from "@amuse/protocol";
 import { WebSocketServer } from "ws";
 import { z } from "zod";
@@ -29,6 +30,8 @@ export interface Options {
   /** The user's browser is back from a connector's hosted page with a one-time key (GET /connected?key=…). */
   returned?: (key: string) => Promise<boolean>;
   access: Access;
+  /** Whether the server turns away everything from this remote address (the sandbox's network: it has no business here, signed in or not). */
+  refuse?: (address: string | undefined) => boolean;
   /** Speech to text for the composer's mic (POST /transcribe); off when absent. The reason, in words, when it cannot. */
   transcribe?: (audio: Uint8Array, type: string) => Promise<{ text: string } | { reason: string }>;
   port: number;
@@ -82,7 +85,7 @@ export interface Listening {
   close(): Promise<void>;
 }
 
-export function listen({ session, live, files: uploads, web, returned, access, transcribe, port, host }: Options): Promise<Listening> {
+export function listen({ session, live, files: uploads, web, returned, access, refuse, transcribe, port, host }: Options): Promise<Listening> {
   const route = (url: URL): Target | null => {
     if (url.pathname === "/rpc") return { kind: "rpc" };
     const id = url.searchParams.get("id");
@@ -240,10 +243,10 @@ export function listen({ session, live, files: uploads, web, returned, access, t
       if (!saved) return void res.writeHead(413).end();
       return void res.writeHead(201, { "content-type": "application/json" }).end(JSON.stringify(saved));
     }
-    const found = req.method === "GET" ? uploads.find(url.pathname.slice("/files/".length)) : null;
+    // opened by the workspace, never through a link; the size is as it is now (Amuse may have rewritten it)
+    const found = req.method === "GET" ? await uploads.serve(url.pathname.slice("/files/".length)) : null;
     if (!found) return void res.writeHead(404).end();
-    const { attachment, file: path } = found;
-    const size = statSync(path).size; // as it is now (Amuse may have rewritten it)
+    const { attachment, size, handle } = found;
     const inline = shownInline(attachment.type);
     const headers = {
       "content-type": inline ? attachment.type : "application/octet-stream",
@@ -258,16 +261,19 @@ export function listen({ session, live, files: uploads, web, returned, access, t
     if (range && size > 0) {
       const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
       const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
-      if (start > end || start >= size) return void res.writeHead(416, { "content-range": `bytes */${size}` }).end();
+      if (start > end || start >= size) {
+        await handle.close();
+        return void res.writeHead(416, { "content-range": `bytes */${size}` }).end();
+      }
       res.writeHead(206, {
         ...headers,
         "content-range": `bytes ${start}-${end}/${size}`,
         "content-length": end - start + 1,
       });
-      return void createReadStream(path, { start, end }).pipe(res);
+      return void pipeline(handle.createReadStream({ start, end }), res, () => {});
     }
     res.writeHead(200, { ...headers, "content-length": size });
-    createReadStream(path).pipe(res);
+    pipeline(handle.createReadStream(), res, () => {});
   };
   /** GET /connected?key=… → check the connection now, then tell the user they can go back. */
   const back = async (url: URL, res: ServerResponse) => {
@@ -283,6 +289,7 @@ export function listen({ session, live, files: uploads, web, returned, access, t
     );
   };
   const http = createServer((req, res) => {
+    if (refuse?.(req.socket.remoteAddress)) return void res.writeHead(403).end();
     const url = new URL(req.url ?? "/", "http://local");
     const handled = ["/setup", "/unlock", "/lock", "/password"].includes(url.pathname)
       ? way(req, url, res)
@@ -306,6 +313,10 @@ export function listen({ session, live, files: uploads, web, returned, access, t
   });
 
   http.on("upgrade", (req, socket, head) => {
+    if (refuse?.(req.socket.remoteAddress)) {
+      socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
+      return;
+    }
     const url = new URL(req.url ?? "/", "http://local");
     const target = route(url);
     // a page elsewhere (even a sibling subdomain carrying the cookie) may not open our sockets

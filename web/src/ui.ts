@@ -4,7 +4,7 @@
  */
 import { type App, type Attachment, type KeyProvider, MAIN } from "@amuse/protocol";
 
-export type SettingsSection = "general" | "models" | "connectors" | "permissions" | "logins" | "schedules";
+export type SettingsSection = "general" | "models" | "connectors" | "permissions" | "logins" | "schedules" | "sandbox";
 
 /** A section of the sidebar besides the chats (nav.ts). */
 export type LeftSection = "goals";

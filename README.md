@@ -44,9 +44,53 @@ Settings › Models › Voice. Run it in Docker beside Amuse and give its servic
 on the host outside Docker it is `host.docker.internal`, which a host firewall (ufw) may block for
 containers. The mic needs https (see above).
 
+## Sandbox
+
+Amuse has a computer of its own: a Debian 13 container where it runs commands, installs software
+(`sudo apt install …`, pip, npm) and runs programs and servers. It works there as a normal user
+with passwordless `sudo`, on files it shares with you: your workspace (what you see in Files) is
+mounted in it. Commands are not approved one by one, because the container is the boundary; what
+leaves it, and deleting or overwriting the files you sent, still needs your word.
+
+- It reaches the internet, and nothing of yours: no keys or password, no Docker socket, not
+  privileged, only the capabilities sudo and apt need, and only the workspace of Amuse's data. The
+  Amuse server turns away every request from the sandbox's network, and the browsers cannot reach it.
+- Three folders of the workspace are read-only there: `memory/` and `skills/`, which Amuse reads as its
+  own context and instructions, and `user/`, what you sent. Amuse edits memory and skills with its own
+  tools, not from a shell; to work on a file you sent, it makes a copy elsewhere. The three folders always exist and cannot be removed or renamed, only emptied; a file
+  moved into one is copied (the sandbox may still hold the original open), not renamed.
+- Limits: 2 CPUs, 4 GB of memory and 1024 processes; change them in `.env` with
+  `AMUSE_SANDBOX_CPUS`, `AMUSE_SANDBOX_MEMORY` and `AMUSE_SANDBOX_PIDS`. There is no disk limit
+  (Docker has none on most setups): what the sandbox writes fills the disk Docker lives on, its home
+  folder and installed software in their own volume and the container, and what it writes into the
+  workspace in the data volume (`amuse-data`), beside your chats. Watch `docker system df`.
+- Its home folder (what it installs for itself, its settings and caches) is a volume of its own, and
+  stays across restarts. Packages installed with `apt` and changes to `/etc` live in the container
+  instead: they stay across restarts, and go when the container is recreated, which an update can do.
+- Reset: Settings › Sandbox › Reset stops everything running there and wipes its home folder. It does
+  not undo system-wide installs or changes in `/etc`; those stay until the container is recreated:
+  `docker compose up -d --force-recreate sandbox` (the server has no Docker socket to do it for you).
+  Your workspace is kept either way.
+- The sandbox network has a fixed address range, `10.231.250.0/24`, which the server turns away from its
+  first request. If it clashes with a network you have, set `AMUSE_SANDBOX_SUBNET` in `.env` to another
+  free range and run `docker compose up -d`; compose gives the server the same value.
+- Turn it off: `AMUSE_SANDBOX_URL=` (empty) in `.env`, then `docker compose up -d`. Amuse then has no
+  sandbox tools, and the server still turns away the sandbox's network. The container stays, idle; to
+  drop it, remove the `sandbox` and `sandbox-init` services from `compose.yaml`.
+- A firewall caveat, on Linux: the sandbox can reach the host's own addresses through its gateway, so
+  anything listening on all addresses or on a LAN or Tailscale IP (a published Amuse, with
+  `AMUSE_PUBLISH_HOST=0.0.0.0` or a Tailscale IP, or SSH) is reachable from it; the server cannot tell
+  that traffic from yours, and only the password guards it. Two rules on the host close it (adjust the
+  range if you changed it; untested here, and lost at reboot unless your firewall saves them):
+
+  ```sh
+  sudo iptables -I INPUT -s 10.231.250.0/24 -j DROP                                           # the host's own services
+  sudo iptables -I DOCKER-USER -s 10.231.250.0/24 -m conntrack --ctstate DNAT -j DROP         # ports Docker publishes
+  ```
+
 ## Good to know
 
-- Your conversation, the password, your keys and saved browser logins live in Docker volumes;
+- Your conversation, the password, your keys, saved browser logins and the sandbox's home folder live in Docker volumes;
   they survive restarts and updates. `docker compose down -v` deletes them.
 - Update: `git pull && docker compose up -d --build`.
 - Change the password, or lock a device: Settings › General. Changing it signs every other device out.

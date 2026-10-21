@@ -31,6 +31,7 @@ const handlers: Handlers = {
   "sites.permit": async () => null,
   "logins.list": async () => ({ sites: [] }),
   "logins.forget": async () => null,
+  "sandbox.reset": async () => null,
   "approvals.list": async () => ({ approvals: [] }),
   "goals.list": async () => ({ goals: [] }),
   "goals.get": async () => ({ goal: { id: "g", title: "G", status: "active", muted: false, added: "", about: "", latest: null }, log: [] }),
