@@ -9,14 +9,16 @@
  * browser agent does not.
  */
 import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
-import { DEFAULT_TIMEOUT, LONGEST_TIMEOUT, type Ran, type SandboxClient, type Service } from "@amuse/sandbox";
+import { DEFAULT_TIMEOUT, LONGEST_TIMEOUT, type Ran, type SandboxClient, SandboxError, type Service } from "@amuse/sandbox";
 import { Type } from "typebox";
 import { status } from "./status.ts";
 import { untrusted } from "./untrusted.ts";
 
 type Result = { content: { type: "text"; text: string }[]; details: null };
 const say = (text: string): Result => ({ content: [{ type: "text", text }], details: null });
-const failed = (e: unknown) => (e instanceof Error ? e.message : String(e));
+/** Why it failed, in words: ours, and what the sandbox said about it only as untrusted text (a stand-in for it could say anything). */
+const failed = (e: unknown) =>
+  e instanceof SandboxError ? (e.detail ? `${e.message}\n${untrusted(e.detail)}` : e.message) : e instanceof Error ? e.message : String(e);
 
 /** How a command ended, in a line. */
 function ending({ exitCode, signal, timedOut }: Ran, seconds: number): string {
@@ -25,9 +27,9 @@ function ending({ exitCode, signal, timedOut }: Ran, seconds: number): string {
   return exitCode === 0 ? "It finished (exit code 0)." : `It failed (exit code ${exitCode}).`;
 }
 
-/** A service in a line: its name, and whether it runs. */
-const line = (s: Service) =>
-  `${s.name} (${s.id}): ${s.running ? "running" : s.signal !== null ? `stopped (signal ${s.signal})` : `ended (exit code ${s.exitCode})`}`;
+/** A service in a line: its name (the one given when it was asked for, not the sandbox's), and whether it runs. */
+const line = (s: Service, name: string = s.name) =>
+  `${name} (${s.id}): ${s.running ? "running" : s.signal !== null ? `stopped (signal ${s.signal})` : `ended (exit code ${s.exitCode})`}`;
 
 const output = (text: string) => (text.trim() === "" ? "(no output)" : untrusted(text));
 
@@ -52,18 +54,19 @@ export function sandboxActions(sandbox: SandboxClient) {
         const now = service.running
           ? "It is running."
           : `It has already ended (${service.signal !== null ? `signal ${service.signal}` : `exit code ${service.exitCode}`}).`;
-        return `Started ${line(service)}. ${now}\n${output(first)}`;
+        return `Started ${line(service, name)}. ${now}\n${output(first)}`;
       }),
     logs: ({ name, lines }: { name?: string | undefined; lines?: number | undefined }) =>
       attempt(async () => {
         if (name === undefined) {
           const all = await sandbox.services();
-          return all.length === 0 ? "No service has been started." : all.map(line).join("\n");
+          // names come from the sandbox here
+          return all.length === 0 ? "No service has been started." : untrusted(all.map((s) => line(s)).join("\n"));
         }
         const { service, output: printed, cut } = await sandbox.log(name, lines);
-        return `${line(service)}\n${output(printed)}${cut > 0 ? "\n(older output was left out)" : ""}`;
+        return `${line(service, name)}\n${output(printed)}${cut > 0 ? "\n(older output was left out)" : ""}`;
       }),
-    stop: ({ name }: { name: string }) => attempt(async () => `Stopped: ${line(await sandbox.stop(name))}.`),
+    stop: ({ name }: { name: string }) => attempt(async () => `Stopped: ${line(await sandbox.stop(name), name)}.`),
   };
 }
 
