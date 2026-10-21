@@ -11,7 +11,8 @@ description: Remembering things about the user, and keeping the memory files (me
 - `journal/<YYYY-MM-DD>.md`: the record. For every change an entry: a heading `## HH:MM · <id> remembered|replaced|dropped (<section>)`, the line, `Source: who said it, in which chat, in their words (a short quote)`, and `Replaces: <the old line>` when it does. MEMORY.md keeps conclusions; the journal, the evidence.
 - `people/<Name>.md`, `groups/<Name>.md`: a page each for the people and groups in the user's life (who they are, how they relate to the user, what is going on, with dates), and `people/INDEX.md`, `groups/INDEX.md`: one line each, closest or most present first.
 - `dreams/<YYYY-MM-DD>.md`: a nightly reflection; `dreams/ALIGNMENT.md`: how to work with the user now.
-USER.md, MEMORY.md and ALIGNMENT.md come with every turn.
+- `goals/<id>/`: the user's goals (read the goals skill).
+USER.md, MEMORY.md, ALIGNMENT.md and the active goals' titles come with every turn.
 
 **What to keep:** what will matter later: facts about the user's life, how they like things done, what they or you committed to. Not passing chatter. Never secrets (passwords, keys, codes).
 

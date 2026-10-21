@@ -3,8 +3,9 @@
  * skills: each set up once, when the user writes (on their clock; one added in
  * a later version, the next time they write), and from then on the user's to
  * change or cancel like any other. They run on the background model and work
- * in silence on memory/ (pi/src/memory.ts) and skills/; only the wrap-up and
- * the skill review may tell the user something, and only when it concerns them.
+ * in silence on memory/ (pi/src/memory.ts) and skills/; only the wrap-up, the
+ * goals and the skill review may tell the user something, and only when it
+ * concerns them.
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { DefaultSchedule, Defaults } from "@amuse/pi";
@@ -59,6 +60,20 @@ export const defaultSchedules: DefaultSchedule[] = [
       `1) What is worth remembering from it that memory does not hold yet (memory_search): add it. ${memoryRules}`,
       "2) Anything left unfinished: an approval or a question still open, a task that failed, something you said you would do and have not.",
       "Report once, briefly, only if something there needs the user; otherwise stay silent.",
+    ].join("\n"),
+  },
+  {
+    key: "goals",
+    title: "Goals",
+    cron: "0 2 * * *",
+    needs: null,
+    instructions: [
+      "Work on the user's active goals (folders in memory/goals/ whose GOAL.md says status: active). If there are none, stop at once: there is nothing to do.",
+      "Read the goals skill first (use_skill goals) and keep its conventions. For each goal, read GOAL.md and log.md, then:",
+      "1) Progress: what moved since its last note, from the conversations (list_chats, read_chat).",
+      "2) Research: one or two things worth reading or trying next (web_search, web_read), with links, building on the log rather than repeating it.",
+      "Append both as today's note to its log.md and bring \"Where it stands\" in GOAL.md up to date. Change only memory/goals/.",
+      "This work is silent; report once, briefly, only if a goal needs the user soon (a deadline close, a decision to make).",
     ].join("\n"),
   },
   {

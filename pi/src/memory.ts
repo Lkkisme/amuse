@@ -9,13 +9,14 @@
  *   people/, groups/     a page each for the people and groups around the user, and an INDEX.md
  *                        of them, closest first
  *   dreams/              a reflection a night, and ALIGNMENT.md: how to work with the user now
- * USER.md, MEMORY.md and ALIGNMENT.md go with every turn; the rest is looked up (memory_search,
+ *   goals/               a folder a goal the user is working toward (core goals.ts)
+ * USER.md, MEMORY.md, ALIGNMENT.md and the active goals' titles go with every turn; the rest is looked up (memory_search,
  * memory_get, memory_explain). The chat agent remembers with `remember`, keeping the record; it
  * forgets only what the user confirms on a card. Background runs keep the files with the
  * workspace tools, by the same rules.
  */
 import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
-import { type AgentIO, type Workspace, localTime } from "@amuse/core";
+import { type AgentIO, GOALS, type Workspace, listGoals, localTime } from "@amuse/core";
 import { Type } from "typebox";
 import { status } from "./status.ts";
 
@@ -62,7 +63,15 @@ export async function memoryBrief(files: Workspace): Promise<string> {
       return content?.trim() ? `## ${title} (${path})\n${clip(content.trim(), BRIEF_LIMIT)}` : null;
     }),
   );
-  const shown = parts.filter((p) => p !== null);
+  const goals = (await listGoals(files).catch(() => [])).filter((g) => g.status === "active");
+  const working =
+    goals.length === 0
+      ? null
+      : [
+          `## What the user is working toward (${GOALS}/; the goals skill says how to help)`,
+          ...goals.map((g) => `- ${g.title} (${GOALS}/${g.id}/)${g.latest ? `, last moved ${g.latest.day}` : ""}`),
+        ].join("\n");
+  const shown = [...parts, working].filter((p) => p !== null);
   return shown.length === 0 ? "" : `Your memory of the user (the files are yours to keep current):\n\n${shown.join("\n\n")}`;
 }
 

@@ -13,6 +13,6 @@ description: Work for later or on a schedule (a morning briefing, checking mail 
 
 **Change or cancel.** To change one, cancel it (`cancel_schedule`) and set up the new one. The user can also pause, resume or delete schedules in Settings › Schedules.
 
-**Built in.** Amuse starts with a few schedules that keep its memory and skills: Memory and People and groups (hourly, after conversation), Reflection and Skill review (nightly) and Wrap-up (after a conversation goes quiet). They are the user's like any other.
+**Built in.** Amuse starts with a few schedules that keep its memory and skills: Memory and People and groups (hourly, after conversation), Reflection, Goals and Skill review (nightly) and Wrap-up (after a conversation goes quiet). They are the user's like any other.
 
 **Cost.** Every run asks the background model. Prefer the least frequent schedule that does the job, and a `needs` where it fits.

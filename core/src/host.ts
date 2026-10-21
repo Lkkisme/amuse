@@ -56,7 +56,8 @@ import {
   lasting,
   verdict,
 } from "./decide.ts";
-import { deadline, userZone } from "./schedule.ts";
+import { deadline, localTime, userZone } from "./schedule.ts";
+import { addGoal, closeGoal, goalLog, listGoals, readGoal } from "./goals.ts";
 import { BEAT_MS, beatNote, inFlight } from "./heartbeat.ts";
 import { type Timers, realTimers } from "./timers.ts";
 import type { Rules } from "./policy.ts";
@@ -611,6 +612,13 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
   }
 
   /** The user's time zone: their device's when they last wrote, in this chat or, failing that, the main one. */
+  /** The user's day now (YYYY-MM-DD), on their clock. */
+  const today = () => localTime(clock.now(), userZone(main().state)).split(" ")[0] ?? "";
+  /** A change to the workspace's files; what cannot be done comes back in words. */
+  const kept = <T>(change: () => Promise<T>) =>
+    change().catch((e: unknown) => {
+      throw e instanceof WorkspaceError ? new Rejected({ kind: "unsound", reason: e.message }) : e;
+    });
   const userZoneOf = (room: Room) => (room.state.entities.some((e) => e.kind === "prompt") ? userZone(room.state) : userZone(main().state));
 
   function run(room: Room, effect: Effect): void {
@@ -779,6 +787,17 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
         .flatMap((room) => room.state.entities.filter((e): e is Approval => e.kind === "approval").map((approval) => ({ chat: room.chat, approval })))
         .sort((a, b) => Date.parse(b.approval.at) - Date.parse(a.approval.at)),
     }),
+    "goals.list": async () => ({ goals: await listGoals(ports.files) }),
+    "goals.get": async ({ id }) => {
+      const goal = await readGoal(ports.files, id);
+      if (!goal) throw new Rejected({ kind: "unsound", reason: "That goal is not there any more." });
+      return { goal, log: await goalLog(ports.files, id) };
+    },
+    "goals.add": (goal) => kept(() => addGoal(ports.files, goal, today())),
+    "goals.close": async ({ id, status }) => {
+      await kept(() => closeGoal(ports.files, id, status, today()));
+      return null;
+    },
     "apps.accounts": async () => {
       const accounts = await ports.apps.accounts();
       settleConnections(accounts);

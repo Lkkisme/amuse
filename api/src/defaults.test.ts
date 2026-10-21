@@ -18,7 +18,7 @@ test("each default is set up once, and one added later still is", () => {
   const set = fileDefaults(older).setUp();
   assert.deepEqual(
     defaultSchedules.filter((d) => !set.includes(d.key)).map((d) => d.key),
-    ["skill-review"],
+    ["goals", "skill-review"],
   );
   assert.equal(new Set(defaultSchedules.map((d) => d.key)).size, defaultSchedules.length, "keys are unique");
 });

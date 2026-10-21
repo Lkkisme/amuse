@@ -1,12 +1,13 @@
 /**
  * Tiny rich-markdown renderer for agent bubbles: **bold**, `inline code`
- * chips, and "- " bullets. Hand-parsed (no dangerouslySetInnerHTML).
+ * chips, [links](https://…), "# " headings (as bold lines) and "- " bullets.
+ * Hand-parsed (no dangerouslySetInnerHTML); a link goes only to http(s).
  */
 import type { ReactNode } from "react";
 
 function renderInline(text: string, keyBase: string): ReactNode[] {
   const parts: ReactNode[] = [];
-  const regex = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  const regex = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^)\s]+\))/g;
   let last = 0;
   let m: RegExpExecArray | null;
   let i = 0;
@@ -16,6 +17,13 @@ function renderInline(text: string, keyBase: string): ReactNode[] {
     const key = `${keyBase}-i${i++}`;
     if (tok.startsWith("**")) {
       parts.push(<strong key={key}>{tok.slice(2, -2)}</strong>);
+    } else if (tok.startsWith("[")) {
+      const at = tok.indexOf("](");
+      parts.push(
+        <a key={key} href={tok.slice(at + 2, -1)} target="_blank" rel="noopener noreferrer" className="underline" style={{ color: "var(--fill-blue)" }}>
+          {tok.slice(1, at)}
+        </a>,
+      );
     } else {
       parts.push(
         <code
@@ -56,9 +64,10 @@ export function RichText({ text }: { text: string }) {
     } else {
       flushBullets(`u${i}`);
       if (line.trim()) {
+        const heading = line.match(/^#{1,6}\s+(.*)$/);
         blocks.push(
-          <p key={`p${i}`} className={paragraph && blocks.length > 0 ? "mt-3" : undefined}>
-            {renderInline(line, `l${i}`)}
+          <p key={`p${i}`} className={`${paragraph && blocks.length > 0 ? "mt-3" : ""} ${heading ? "font-semibold" : ""}`.trim() || undefined}>
+            {renderInline(heading?.[1] ?? line, `l${i}`)}
           </p>,
         );
         paragraph = false;
