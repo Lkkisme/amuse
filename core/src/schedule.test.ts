@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Approval, type Entity, type Schedule, type State, apply, empty } from "@amuse/protocol";
 import { type Change, type Context, decide, decideAgent, place, recover, tick } from "./decide.ts";
-import { APPROVAL_TTL_MS, GRACE_MS, MAX_SCHEDULES, check, deadline, later, localTime, nextRun, wallClock } from "./schedule.ts";
+import { APPROVAL_TTL_MS, GRACE_MS, MAX_SCHEDULES, check, deadline, later, localTime, nextRun, nowIn, wallClock } from "./schedule.ts";
 import { agentContext } from "./context.ts";
 
 const at = "2026-10-20T08:00:00Z"; // 16:00 in Shanghai
@@ -131,4 +131,9 @@ test("the agent sees times on the user's clock, and its schedules", () => {
       "  Instructions: Sum up today's calendar",
     ].join("\n"),
   );
+});
+
+test("now is told with the weekday, the user's local time and their zone", () => {
+  assert.equal(nowIn("2026-10-21T07:30:00Z", "America/Los_Angeles"), "Wednesday 2026-10-21 00:30 (America/Los_Angeles)");
+  assert.equal(nowIn("2026-10-21T07:30:00Z", "Nowhere/Else"), "Wednesday 2026-10-21 07:30 (UTC)");
 });

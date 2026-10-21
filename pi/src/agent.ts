@@ -7,7 +7,7 @@
  * (the status line says what it is doing). Pi's coding tools, extensions,
  * skills and context files are all off: the model sees only amuse's tools (tools.ts).
  */
-import { type AgentIO, type Ports, type Rules, type Turn, type Workspace, localTime, newId } from "@amuse/core";
+import { type AgentIO, type Ports, type Rules, type Turn, type Workspace, nowIn, newId } from "@amuse/core";
 import { images, workspaceTools } from "./attachments.ts";
 import { redact } from "./redact.ts";
 import { type PiModelConfig, type PiSession, openSession, secretsOf } from "./session.ts";
@@ -211,5 +211,5 @@ function brief(agent: AgentIO, turn: Turn): string {
     turn.kind === "message"
       ? "Reply to the user's newest message (the last lines above)."
       : `A note from your background work (not from the user; tell the user what matters):\n${turn.text}`;
-  return `${where}\n\nThe conversation so far, oldest first (times are the user's, ${timezone}):\n\n${agent.context()}\n\n---\nNow: ${localTime(now, timezone)}.\n${task}`;
+  return `${where}\n\nThe conversation so far, oldest first (times are the user's, ${timezone}):\n\n${agent.context()}\n\n---\nNow: ${nowIn(now, timezone)}.\n${task}`;
 }

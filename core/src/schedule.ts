@@ -82,6 +82,13 @@ export function userZone(state: State): string {
 }
 
 /** An instant as the user's wall clock: "2026-10-21 08:00". */
+/** Now as the agent is told it: the weekday, the user's local time, and their zone ("Wednesday 2026-10-21 00:30 (America/Los_Angeles)"). */
+export function nowIn(instant: string, timezone: string): string {
+  const zone = knownZone(timezone) ? timezone : "UTC";
+  const weekday = new Intl.DateTimeFormat("en-US", { timeZone: zone, weekday: "long" }).format(new Date(instant));
+  return `${weekday} ${localTime(instant, zone)} (${zone})`;
+}
+
 export function localTime(instant: string, timezone: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: knownZone(timezone) ? timezone : "UTC",

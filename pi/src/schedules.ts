@@ -7,7 +7,7 @@
  * A briefing down, a report up; no reply to the user of its own.
  */
 import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
-import { type AgentIO, type Ports, describe, localTime, wallClock } from "@amuse/core";
+import { type AgentIO, type Ports, describe, nowIn, wallClock } from "@amuse/core";
 import type { RunOutcome, When } from "@amuse/protocol";
 import { Type } from "typebox";
 import type { PiConfig } from "./agent.ts";
@@ -106,7 +106,7 @@ export function piScheduleRunner(cfg: PiConfig): Pick<Ports, "schedule"> {
           run,
           background,
           [...helperTools(cfg, run, holding(run)), report],
-          briefed(io, `${localTime(now, timezone)} (${timezone})`, `Scheduled task "${schedule.title}" (${schedule.id}). Instructions:\n${schedule.instructions}`),
+          briefed(io, nowIn(now, timezone), `Scheduled task "${schedule.title}" (${schedule.id}). Instructions:\n${schedule.instructions}`),
         );
         const end = (outcome: Exclude<RunOutcome, "missed">, summary: string) => io.act({ kind: "scheduleRan", id: schedule.id, outcome, summary: clip(summary) });
         switch (worked.kind) {

@@ -6,7 +6,7 @@
  * did: the task ends with that result, and Muse is told.
  */
 import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
-import { type AgentIO, type Ports, describe, localTime } from "@amuse/core";
+import { type AgentIO, type Ports, describe, nowIn } from "@amuse/core";
 import { Type } from "typebox";
 import type { PiConfig } from "./agent.ts";
 import { status } from "./status.ts";
@@ -66,7 +66,7 @@ export function piTaskRunner(cfg: PiConfig): Pick<Ports, "task" | "stopTask"> {
         });
         const { now, timezone } = io.time();
         const hold = holding(run, (waiting) => void io.act({ kind: "taskStatus", id: task.id, status: waiting ? "waiting" : "working" }));
-        const worked = await work(cfg, run, helper, [...helperTools(cfg, run, hold), plan], briefed(io, `${localTime(now, timezone)} (${timezone})`, `Task "${task.title}" (${task.id}). Instructions:\n${task.instructions}`));
+        const worked = await work(cfg, run, helper, [...helperTools(cfg, run, hold), plan], briefed(io, nowIn(now, timezone), `Task "${task.title}" (${task.id}). Instructions:\n${task.instructions}`));
         running.delete(task.id);
         if (worked.kind === "stopped") return; // the stop is already recorded
         const result = worked.kind === "done" ? worked.record || "Done." : worked.reason;
