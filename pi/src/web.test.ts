@@ -53,6 +53,9 @@ function agentIO(answer: Answer) {
   const asked: AgentAction[] = [];
   const reports: string[] = [];
   const io: AgentIO = {
+    chat: "main",
+    chats: () => [],
+    readChat: () => null,
     emit: () => {},
     act: (action) => (asked.push(action), { ok: true, id: "a1" }),
     decision: async () => answer,

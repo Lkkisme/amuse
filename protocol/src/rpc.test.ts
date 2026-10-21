@@ -7,6 +7,10 @@ const handlers: Handlers = {
   "session.history": async () => ({ seq: 0, earlier: 0, entities: [] }),
   "chat.send": async ({ text }) => ({ id: `p:${text}` }),
   "chat.stop": async () => null,
+  "chats.list": async () => ({ chats: [] }),
+  "chats.create": async () => ({ id: "c-1", title: "", at: "2026-10-20T08:00:00Z", updated: "2026-10-20T08:00:00Z" }),
+  "chats.rename": async () => null,
+  "chats.delete": async () => null,
   "approval.resolve": async () => null,
   "connection.begin": async ({ id }) => ({ url: `https://connect.example/${id}` }),
   "connection.dismiss": async () => null,
@@ -26,7 +30,7 @@ const handlers: Handlers = {
 };
 
 test("a framed request parses into a typed call and dispatches to its handler", async () => {
-  const frame = Request.parse({ jsonrpc: "2.0", id: 1, method: "chat.send", params: { text: "hi", timezone: "UTC" } });
+  const frame = Request.parse({ jsonrpc: "2.0", id: 1, method: "chat.send", params: { chat: "main", text: "hi", timezone: "UTC" } });
   const call = Call.parse({ method: frame.method, params: frame.params });
   const result = await dispatch(handlers, call);
   assert.deepEqual(result, { id: "p:hi" });
@@ -36,6 +40,6 @@ test("a framed request parses into a typed call and dispatches to its handler", 
 test("unknown methods and bad params are rejected by Call, not by framing", () => {
   const unknown = Request.parse({ jsonrpc: "2.0", id: 2, method: "chat.nope", params: {} });
   assert.equal(Call.safeParse({ method: unknown.method, params: unknown.params }).success, false);
-  assert.equal(Call.safeParse({ method: "chat.send", params: { text: "" } }).success, false);
+  assert.equal(Call.safeParse({ method: "chat.send", params: { chat: "main", text: "", timezone: "UTC" } }).success, false);
   assert.equal(Call.safeParse({ method: "browser.control", params: { id: "b1", action: "fly" } }).success, false);
 });

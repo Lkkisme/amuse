@@ -1,27 +1,27 @@
 import assert from "node:assert/strict";
 import { appendFileSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { createHost, type Timers } from "@remuse/core";
 import { demoPorts, seed } from "@remuse/demo";
-import { fileJournal } from "./journal.ts";
+import { fileChats, fileJournal } from "./journal.ts";
 
 const idle: Timers<number> = { set: () => 0, clear: () => {} };
 const snapshot = async (host: ReturnType<typeof createHost>) => {
-  const r = await host.call("session.sync", { since: null });
+  const r = await host.call("session.sync", { chat: "main", since: null });
   assert.ok(r.kind === "snapshot");
   return r.state;
 };
 
 test("a restarted host comes back with the same state and keeps counting", async () => {
   const path = join(mkdtempSync(join(tmpdir(), "remuse-journal-")), "log", "events.jsonl");
-  const first = createHost(demoPorts(idle), { seed: seed(), journal: fileJournal(path), timers: idle });
-  await first.call("chat.send", { text: "remember me", timezone: "UTC" });
+  const first = createHost(demoPorts(idle), { seed: seed(), store: fileChats(dirname(path), path), timers: idle });
+  await first.call("chat.send", { chat: "main", text: "remember me", timezone: "UTC" });
   const before = await snapshot(first);
   assert.equal((statSync(path).mode & 0o777).toString(8), "600");
 
-  const second = createHost(demoPorts(idle), { seed: seed(), journal: fileJournal(path), timers: idle });
+  const second = createHost(demoPorts(idle), { seed: seed(), store: fileChats(dirname(path), path), timers: idle });
   const replayed = await snapshot(second);
   assert.deepEqual(
     replayed.entities.map((e) => e.id),
@@ -34,7 +34,7 @@ test("a restarted host comes back with the same state and keeps counting", async
     if (e.kind === "approval") assert.notEqual(e.status, "pending");
     if (e.kind === "task") assert.ok(!["queued", "working", "waiting"].includes(e.status));
   }
-  const { id } = await second.call("chat.send", { text: "and this", timezone: "UTC" });
+  const { id } = await second.call("chat.send", { chat: "main", text: "and this", timezone: "UTC" });
   const after = await snapshot(second);
   assert.ok(after.seq > before.seq);
   assert.equal(after.entities.at(-1)?.id, id);
@@ -42,7 +42,7 @@ test("a restarted host comes back with the same state and keeps counting", async
 
 test("a torn last line is dropped and cut off, so the next append starts clean", async () => {
   const path = join(mkdtempSync(join(tmpdir(), "remuse-journal-")), "events.jsonl");
-  const host = createHost(demoPorts(idle), { seed: seed(), journal: fileJournal(path), timers: idle });
+  const host = createHost(demoPorts(idle), { seed: seed(), store: fileChats(dirname(path), path), timers: idle });
   const seq = (await snapshot(host)).seq;
   appendFileSync(path, '{"seq":');
   const journal = fileJournal(path);
@@ -53,10 +53,28 @@ test("a torn last line is dropped and cut off, so the next append starts clean",
 
 test("a whole line it cannot read stops the load, and the file is left as it was", async () => {
   const path = join(mkdtempSync(join(tmpdir(), "remuse-journal-")), "events.jsonl");
-  const host = createHost(demoPorts(idle), { seed: seed(), journal: fileJournal(path), timers: idle });
+  const host = createHost(demoPorts(idle), { seed: seed(), store: fileChats(dirname(path), path), timers: idle });
   await snapshot(host);
   appendFileSync(path, '{"seq":999,"event":{"kind":"renamed"}}\n');
   const before = readFileSync(path);
   assert.throws(() => fileJournal(path).load(), /line \d+ is not the next event/);
   assert.deepEqual(readFileSync(path), before);
+});
+
+test("side chats are kept beside the main chat's log, and a deleted one's log goes with it", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "remuse-chats-"));
+  const main = join(dir, "events.jsonl");
+  const first = createHost(demoPorts(idle), { store: fileChats(dir, main), timers: idle });
+  const side = await first.call("chats.create", {});
+  await first.call("chat.send", { chat: side.id, text: "a side thought", timezone: "UTC" });
+  const log = join(dir, "chats", `${side.id}.jsonl`);
+  assert.equal((statSync(log).mode & 0o777).toString(8), "600");
+  assert.equal((statSync(join(dir, "chats.json")).mode & 0o777).toString(8), "600");
+
+  const second = createHost(demoPorts(idle), { store: fileChats(dir, main), timers: idle });
+  const synced = await second.call("session.sync", { chat: side.id, since: null });
+  assert.ok(synced.kind === "snapshot" && synced.state.entities.some((e) => e.kind === "prompt" && e.text === "a side thought"));
+  await second.call("chats.delete", { id: side.id });
+  assert.throws(() => statSync(log));
+  assert.throws(() => fileChats(dir, main).journal("../events"), /not a chat id/);
 });

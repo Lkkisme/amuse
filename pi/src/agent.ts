@@ -12,7 +12,7 @@ import { type PiModelConfig, type PiSession, openSession, secretsOf } from "./se
 import { statusOf } from "./status.ts";
 import { relayTools } from "./runs.ts";
 import { scheduleTools } from "./schedules.ts";
-import { type Apps, appTools, tools } from "./tools.ts";
+import { type Apps, appTools, chatTools, tools } from "./tools.ts";
 import { type Search, webTools } from "./web.ts";
 
 export interface PiConfig extends PiModelConfig {
@@ -37,26 +37,34 @@ const toolLabels: Record<string, string> = {
   stop_run: "Stopping a background task",
 };
 
-/** prompt + interrupt on Pi. Prompts run one after another; interrupt aborts the current one. */
-export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt"> {
-  /** The run in progress, and its Pi session; tools act through it. Runs are sequential, so there is at most one. */
-  let current: AgentIO | undefined;
-  let session: PiSession | undefined;
-  const io = () => {
-    if (!current) throw new Error("no run in progress");
-    return current;
-  };
-  let queue: Promise<void> = Promise.resolve();
+/** One chat's agent: its runs one after another, the session of the one in progress, and its interrupt count. */
+interface Lane {
+  queue: Promise<void>;
+  session: PiSession | undefined;
   /** Bumped by interrupt: the run in progress says nothing more. Queued prompts and reports still run. */
-  let epoch = 0;
+  epoch: number;
+}
 
-  const run = async (turn: Turn, agent: AgentIO) => {
-    const mine = epoch;
-    const live = () => mine === epoch;
+/**
+ * prompt + interrupt + title on Pi. Each chat's prompts run one after another;
+ * chats run side by side; interrupt aborts the chat's current run.
+ */
+export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "title"> {
+  const lanes = new Map<string, Lane>();
+  const laneOf = (chat: string): Lane => {
+    const lane = lanes.get(chat) ?? { queue: Promise.resolve(), session: undefined, epoch: 0 };
+    lanes.set(chat, lane);
+    return lane;
+  };
+
+  const run = async (turn: Turn, agent: AgentIO, lane: Lane) => {
+    const mine = lane.epoch;
+    const live = () => mine === lane.epoch;
     const emit: AgentIO["emit"] = (say) => {
       if (live()) agent.emit(say);
     };
-    current = agent;
+    /** tools act through this run's chat */
+    const io = () => agent;
     emit({ kind: "activity", activity: { kind: "responding", label: null } });
     let reply: { id: string; at: string; text: string } | undefined;
     /** what came before the reply's first visible character */
@@ -67,7 +75,15 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt"> {
       lead = "";
     };
     try {
-      session = await openSession(cfg, cfg.system, [...tools(io, cfg.rules), ...scheduleTools(io), ...relayTools(io), ...webTools(io, cfg.rules, cfg.search), ...(cfg.apps ? appTools(io, cfg.apps) : [])]);
+      const session = await openSession(cfg, cfg.system, [
+        ...tools(io, cfg.rules),
+        ...chatTools(io),
+        ...scheduleTools(io),
+        ...relayTools(io),
+        ...webTools(io, cfg.rules, cfg.search),
+        ...(cfg.apps ? appTools(io, cfg.apps) : []),
+      ]);
+      lane.session = session;
       const pi = session.session;
       if (!live()) return;
       let failure: string | undefined;
@@ -108,30 +124,55 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt"> {
       const message = redact(error instanceof Error ? error.message : String(error), secretsOf(cfg));
       emit({ kind: "upserted", entity: { kind: "reply", id: newId("r"), at: new Date().toISOString(), text: `Something went wrong: ${message}`, streaming: false } });
     } finally {
-      session?.close();
-      session = undefined;
-      current = undefined;
+      lane.session?.close();
+      lane.session = undefined;
       emit({ kind: "activity", activity: null });
     }
   };
 
   return {
     prompt: (turn, agent) => {
-      queue = queue.then(() => run(turn, agent));
+      const lane = laneOf(agent.chat);
+      lane.queue = lane.queue.then(() => run(turn, agent, lane));
     },
-    interrupt: () => {
-      epoch++;
-      void session?.session.abort().catch(() => {});
+    interrupt: (agent) => {
+      const lane = laneOf(agent.chat);
+      lane.epoch++;
+      void lane.session?.session.abort().catch(() => {});
     },
+    title: (text) => title(cfg, text),
   };
+}
+
+/** A few words naming a chat after its first message, in that message's language. */
+async function title(cfg: PiModelConfig, text: string): Promise<string> {
+  const session = await openSession(cfg, "You name chats. Reply with a title of two to five words for a chat that starts with the user's message, in the language of the message. The title only: no quotes, no punctuation at the end.", []);
+  try {
+    let named = "";
+    const unsubscribe = session.session.subscribe((event) => {
+      if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") named += event.assistantMessageEvent.delta;
+    });
+    try {
+      await session.session.prompt(text.slice(0, 2_000), { expandPromptTemplates: false });
+    } finally {
+      unsubscribe();
+    }
+    return named.trim().split("\n")[0] ?? "";
+  } finally {
+    session.close();
+  }
 }
 
 /** The turn as the model gets it: the conversation, now on the user's clock, then what to do. */
 function brief(agent: AgentIO, turn: Turn): string {
   const { now, timezone } = agent.time();
+  const here = agent.chats().find((c) => c.id === agent.chat);
+  const where = here?.main
+    ? "You are in the main chat."
+    : `You are in a side chat${here?.title ? ` ("${here.title}")` : ""}: only this chat is shown below. The main chat and other chats are there to look up (list_chats, read_chat, recall with everywhere) when the user refers to them.`;
   const task =
     turn.kind === "message"
       ? "Reply to the user's newest message (the last lines above)."
       : `A note from your background work (not from the user; tell the user what matters):\n${turn.text}`;
-  return `The conversation so far, oldest first (times are the user's, ${timezone}):\n\n${agent.context()}\n\n---\nNow: ${localTime(now, timezone)}.\n${task}`;
+  return `${where}\n\nThe conversation so far, oldest first (times are the user's, ${timezone}):\n\n${agent.context()}\n\n---\nNow: ${localTime(now, timezone)}.\n${task}`;
 }

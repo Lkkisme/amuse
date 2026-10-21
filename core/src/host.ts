@@ -1,7 +1,8 @@
 /**
- * Runs the conversation: keeps the event log, decides client commands, and
- * hands effects to the ports. Ports say things (replies, activity) and change
- * anything else by acting through the rules, like clients do.
+ * Runs the conversations: the main chat and side chats, each with its own
+ * event log; decides client commands, and hands effects to the ports. Ports
+ * say things (replies, activity) and change anything else by acting through
+ * the rules, like clients do.
  * The host is a Session, so a transport only frames it (api/) or a client
  * uses it in-process (web demo, tests).
  */
@@ -11,6 +12,7 @@ import {
   type KindRule,
   type ToolKind,
   type Browser,
+  type Chat,
   type Connection,
   type Entity,
   type Envelope,
@@ -22,6 +24,7 @@ import {
   type Session,
   type State,
   type Update,
+  MAIN,
   apply,
   dispatch,
   empty,
@@ -47,7 +50,7 @@ import {
 import { deadline, userZone } from "./schedule.ts";
 import { type Timers, realTimers } from "./timers.ts";
 import type { Rules } from "./policy.ts";
-import { agentContext, recall } from "./context.ts";
+import { type Budget, agentContext, mentions, recall } from "./context.ts";
 
 /**
  * What ports may record directly: what the agent says (its replies, streamed)
@@ -61,18 +64,32 @@ export const newId = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
 
 export type Acted = { ok: true; id: string } | { ok: false; rejection: Rejection };
 
+/** A chat as the agent knows the others. */
+export interface ChatInfo {
+  id: string;
+  title: string;
+  main: boolean;
+  updated: string;
+}
+
 /**
- * What ports and agents can do: say things, act through the rules, wait for
- * an approval, and wake the chat agent with a note (not shown as a user
- * message), e.g. a finished run's result.
+ * What ports and agents can do in one chat: say things, act through the
+ * rules, wait for an approval, and wake the chat's agent with a note (not
+ * shown as a user message), e.g. a finished run's result.
  */
 export interface AgentIO {
+  /** the chat this is for (MAIN or a side chat's id) */
+  chat: string;
   emit: Emit;
   act(action: AgentAction): Acted;
-  /** The conversation so far, as the agent should know it (context.ts): newest in full, older in brief. */
+  /** The chat so far, as the agent should know it (context.ts): newest in full, older in brief. */
   context(): string;
-  /** Search the whole conversation, however old. */
-  recall(query: string): string;
+  /** Search this chat however old; `everywhere`: every chat. */
+  recall(query: string, everywhere?: boolean): string;
+  /** The chats there are. */
+  chats(): ChatInfo[];
+  /** Another chat as the agent would know it, by id; null if there is none. */
+  readChat(id: string): string | null;
   /** Resolves when the user decides approval `id` (from an `ask`), or it times out; at once if already settled. */
   decision(id: string): Promise<Answer>;
   /** Wake the chat agent with a note from background work. */
@@ -88,12 +105,14 @@ export interface AgentIO {
 /** What a run in flight hears from Muse. */
 export type RunMessage = { kind: "instruction"; text: string } | { kind: "stop" };
 
-/** The outside world. Every port gets the same AgentIO. */
+/** The outside world. Every port gets the AgentIO of the chat the work belongs to. */
 export interface Ports {
-  /** Run the agent: on what the user just said (already in the conversation), or on a note from background work. */
+  /** Run the chat's agent: on what the user just said (already in the chat), or on a note from background work. */
   prompt(turn: Turn, io: AgentIO): void;
-  /** Stop the agent's current run. */
+  /** Stop the chat's agent's current run. */
   interrupt(io: AgentIO): void;
+  /** A short title for a side chat, from its first message. */
+  title(text: string): Promise<string>;
   /** Run a browser task the agent started. */
   browse(browser: Browser, io: AgentIO): void;
   /**
@@ -141,6 +160,10 @@ export function describe(rejection: Rejection): string {
       return rejection.reason;
     case "notRunning":
       return `no run ${rejection.id} is in flight (it ended, or never was)`;
+    case "noChat":
+      return `no chat ${rejection.id}`;
+    case "mainChat":
+      return "the main chat cannot be renamed or deleted";
     case "invalid":
       return `cannot ${rejection.action} from ${rejection.from}`;
   }
@@ -150,10 +173,35 @@ export interface Clock {
   now(): string;
 }
 
-/** Where the event log survives restarts. The host replays it on start and appends every event. */
+/** Where a chat's event log survives restarts. The host replays it on start and appends every event. */
 export interface Journal {
   load(): Envelope[];
   append(envelope: Envelope): void;
+}
+
+/** Where the chats survive restarts: the list of them, and each one's log. */
+export interface ChatStore {
+  /** the chats there were (the main chat is added if missing) */
+  load(): Chat[];
+  save(chats: Chat[]): void;
+  journal(chat: string): Journal;
+  /** let go of a deleted chat's log */
+  remove(chat: string): void;
+}
+
+/** Chats kept in memory only (the demo, tests). */
+export function memoryChats(): ChatStore {
+  let chats: Chat[] = [];
+  const logs = new Map<string, Envelope[]>();
+  return {
+    load: () => chats,
+    save: (next) => void (chats = next),
+    journal: (chat) => ({
+      load: () => logs.get(chat) ?? [],
+      append: (envelope) => void logs.set(chat, [...(logs.get(chat) ?? []), envelope]),
+    }),
+    remove: (chat) => void logs.delete(chat),
+  };
 }
 
 /** A rejected command, carried to the transport as a JSON-RPC error. */
@@ -166,9 +214,10 @@ export class Rejected extends Error {
 }
 
 export interface HostOptions {
+  /** what the main chat starts with when it has no history */
   seed?: Entity[];
   clock?: Clock;
-  journal?: Journal;
+  store?: ChatStore;
   ids?: (prefix: string) => string;
   /** Entities a snapshot holds (more while older ones are still in play); older ones come by session.history. */
   snapshot?: number;
@@ -179,32 +228,100 @@ export interface HostOptions {
 /** setTimeout's longest wait (about 24.8 days); a later deadline is woken for and looked at again. */
 const LONGEST_WAIT = 2 ** 31 - 1;
 
+/** How much of another chat the agent reads at once. */
+const otherChat: Budget = { full: 12_000, brief: 4_000 };
+
+/** One chat as the host keeps it: the whole feed (clients may ask for any of it), its log, and its agent's IO. */
+interface Room {
+  chat: Chat;
+  state: State;
+  log: Envelope[];
+  journal: Journal;
+  agent: AgentIO;
+}
+
+/** The entity an agent action is about, if it is about one that exists (its chat is where it is recorded). */
+function subjectOf(action: AgentAction): string | null {
+  switch (action.kind) {
+    case "browserStatus":
+    case "browserStep":
+    case "browserEnded":
+    case "released":
+    case "taskStatus":
+    case "connected":
+    case "unschedule":
+    case "scheduleRan":
+    case "answer":
+      return action.id;
+    case "instruct":
+    case "stopRun":
+    case "question":
+      return action.run;
+    case "connect":
+    case "browse":
+    case "ask":
+    case "schedule":
+      return null;
+  }
+}
+
 export function createHost(ports: Ports, options: HostOptions = {}): Session {
   const clock = options.clock ?? { now: () => new Date().toISOString() };
   const snapshot = options.snapshot ?? 50;
-  /** the whole feed: the host never drops what clients may ask for */
-  let state: State = empty;
-  const log: Envelope[] = [];
+  const store = options.store ?? memoryChats();
+  const ids = options.ids ?? newId;
+  const rooms = new Map<string, Room>();
   const listeners = new Set<(update: Update) => void>();
+  const push = (update: Update) => listeners.forEach((listener) => listener(update));
 
-  const record = (envelope: Envelope) => {
-    state = apply(state, envelope);
-    log.push(envelope);
+  /** The main chat first, then side chats, most recently used first. */
+  const ordered = (): Chat[] => {
+    const all = [...rooms.values()].map((r) => r.chat);
+    return [...all.filter((c) => c.id === MAIN), ...all.filter((c) => c.id !== MAIN).sort((a, b) => Date.parse(b.updated) - Date.parse(a.updated))];
+  };
+  const saveChats = () => {
+    const chats = ordered();
+    store.save(chats);
+    push({ kind: "chats", chats });
+  };
+  const main = (): Room => {
+    const room = rooms.get(MAIN);
+    if (!room) throw new Error("the main chat is missing");
+    return room;
+  };
+  const roomOf = (chat: string): Room => {
+    const room = rooms.get(chat);
+    if (!room) throw new Rejected({ kind: "noChat", id: chat });
+    return room;
+  };
+  /** The chat an entity is in (ids are unique across chats). */
+  const holder = (id: string): Room | undefined => [...rooms.values()].find((r) => r.state.entities.some((e) => e.id === id));
+
+  const record = (room: Room, envelope: Envelope) => {
+    room.state = apply(room.state, envelope);
+    room.log.push(envelope);
   };
   /** Every change is recorded here; ports only reach the Say subset of them (AgentIO.emit). */
-  const commit = (change: Change) => {
-    const envelope = { seq: state.seq + 1, event: place(state, change) };
-    record(envelope);
-    options.journal?.append(envelope);
-    for (const listener of listeners) listener({ kind: "event", envelope });
-    if (change.kind === "upserted") arm(); // only an entity can move a deadline
+  const commit = (room: Room, change: Change) => {
+    const envelope = { seq: room.state.seq + 1, event: place(room.state, change) };
+    record(room, envelope);
+    room.journal.append(envelope);
+    push({ kind: "event", chat: room.chat.id, envelope });
+    if (change.kind !== "upserted") return;
+    arm(); // only an entity can move a deadline
+    // something said moves the chat up the list
+    const { entity } = change;
+    if (entity.kind === "prompt" || (entity.kind === "reply" && !entity.streaming)) {
+      room.chat = { ...room.chat, updated: clock.now() };
+      saveChats();
+    }
   };
 
-  /** One timer, for the earliest deadline; when it fires, whatever is due happens (decide.ts `tick`). */
+  /** One timer, for the earliest deadline in any chat; when it fires, whatever is due happens (decide.ts `tick`). */
   const timers = options.timers ?? realTimers;
   let armed: { at: string; handle: unknown } | null = null;
   function arm(): void {
-    const at = deadline(state);
+    const at = [...rooms.values()].map((r) => deadline(r.state)).reduce<string | null>((a, b) => (b !== null && (a === null || Date.parse(b) < Date.parse(a)) ? b : a), null);
     if (armed?.at === at) return;
     if (armed) timers.clear(armed.handle);
     armed = null;
@@ -214,13 +331,15 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
   }
   function fire(): void {
     armed = null;
-    const due = tick(state, clock.now());
-    due.changes.forEach(commit);
-    due.effects.forEach(run);
+    for (const room of [...rooms.values()]) {
+      const due = tick(room.state, clock.now());
+      due.changes.forEach((change) => commit(room, change));
+      due.effects.forEach((effect) => run(room, effect));
+    }
     arm();
   }
 
-  const context = (): Context => ({ now: clock.now(), id: options.ids ?? newId });
+  const context = (): Context => ({ now: clock.now(), id: ids });
 
   /** Callers waiting on an approval, settled when the user resolves it. */
   const waiting = new Map<string, ((answer: Answer) => void)[]>();
@@ -230,45 +349,78 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
   };
   /** Runs waiting on their questions, and runs listening for Muse. */
   const asking = new Map<string, ((outcome: QuestionOutcome) => void)[]>();
+  const answered = (id: string, outcome: QuestionOutcome) => {
+    asking.get(id)?.forEach((resolve) => resolve(outcome));
+    asking.delete(id);
+  };
   const listening = new Map<string, Set<(message: RunMessage) => void>>();
   const tell = (run: string, message: RunMessage) => listening.get(run)?.forEach((listener) => listener(message));
 
-  const agent: AgentIO = {
-    emit: commit,
-    decision(id) {
-      const approval = state.entities.find((e) => e.kind === "approval" && e.id === id);
-      if (approval?.kind === "approval" && approval.status !== "pending") return Promise.resolve({ verdict: approval.status, remember: false });
-      return new Promise((resolve) => waiting.set(id, [...(waiting.get(id) ?? []), resolve]));
-    },
-    report: (note) => ports.prompt({ kind: "note", text: note }, agent),
-    context: () => agentContext(state),
-    recall: (query) => recall(state, query),
-    time: () => ({ now: clock.now(), timezone: userZone(state) }),
-    answer(id) {
-      const question = state.entities.find((e) => e.kind === "question" && e.id === id);
-      if (question?.kind === "question" && question.status !== "open")
-        return Promise.resolve(question.status === "answered" ? { kind: "answered", text: question.answer ?? "" } : { kind: question.status });
-      return new Promise((resolve) => asking.set(id, [...(asking.get(id) ?? []), resolve]));
-    },
-    listen(run, listener) {
-      const set = listening.get(run) ?? new Set();
-      set.add(listener);
-      listening.set(run, set);
-      return () => {
-        set.delete(listener);
-        if (set.size === 0) listening.delete(run);
-      };
-    },
-    act(action) {
-      const decision = decideAgent(state, action.kind, action, context());
-      if (!decision.ok) return decision;
-      decision.changes.forEach(commit);
-      decision.effects.forEach(run);
-      return { ok: true, id: decision.output.id };
-    },
-  };
+  const titled = (chat: Chat) => (chat.id === MAIN ? "Main chat" : chat.title || "New chat");
 
-  function run(effect: Effect): void {
+  /** A chat's AgentIO: what its agent and the work it starts can do (`at`: the chat's room, once it exists). */
+  function agentOf(chat: string, at: () => Room): AgentIO {
+    const io: AgentIO = {
+      chat,
+      emit: (say) => commit(at(), say),
+      decision(id) {
+        const approval = holder(id)?.state.entities.find((e) => e.kind === "approval" && e.id === id);
+        if (approval?.kind === "approval" && approval.status !== "pending") return Promise.resolve({ verdict: approval.status, remember: false });
+        return new Promise((resolve) => waiting.set(id, [...(waiting.get(id) ?? []), resolve]));
+      },
+      report: (note) => {
+        // a chat deleted meanwhile has no one to tell
+        if (rooms.get(chat) === at()) ports.prompt({ kind: "note", text: note }, io);
+      },
+      context: () => agentContext(at().state),
+      recall(query, everywhere = false) {
+        const room = at();
+        if (!everywhere) return recall(room.state, query);
+        const found = [room, ...[...rooms.values()].filter((r) => r !== room)].flatMap((r) => {
+          const lines = mentions(r.state, query);
+          return lines.length === 0 ? [] : [`In ${r === room ? "this chat" : `"${titled(r.chat)}" (${r.chat.id})`}:\n${lines.join("\n")}`];
+        });
+        return found.length > 0 ? found.join("\n\n") : `Nothing in any chat mentions "${query}".`;
+      },
+      chats: () => ordered().map((c) => ({ id: c.id, title: titled(c), main: c.id === MAIN, updated: c.updated })),
+      readChat: (id) => {
+        const other = rooms.get(id);
+        return other ? agentContext(other.state, otherChat) || "(nothing said yet)" : null;
+      },
+      time: () => ({ now: clock.now(), timezone: userZoneOf(at()) }),
+      answer(id) {
+        const question = holder(id)?.state.entities.find((e) => e.kind === "question" && e.id === id);
+        if (question?.kind === "question" && question.status !== "open")
+          return Promise.resolve(question.status === "answered" ? { kind: "answered", text: question.answer ?? "" } : { kind: question.status });
+        return new Promise((resolve) => asking.set(id, [...(asking.get(id) ?? []), resolve]));
+      },
+      listen(run, listener) {
+        const set = listening.get(run) ?? new Set();
+        set.add(listener);
+        listening.set(run, set);
+        return () => {
+          set.delete(listener);
+          if (set.size === 0) listening.delete(run);
+        };
+      },
+      act(action) {
+        // recorded where its subject is; a schedule always in the main chat (its runs report there)
+        const subject = subjectOf(action);
+        const target = action.kind === "schedule" ? main() : ((subject !== null ? holder(subject) : undefined) ?? at());
+        const decision = decideAgent(target.state, action.kind, action, context());
+        if (!decision.ok) return decision;
+        decision.changes.forEach((change) => commit(target, change));
+        decision.effects.forEach((effect) => run(target, effect));
+        return { ok: true, id: decision.output.id };
+      },
+    };
+    return io;
+  }
+  /** The user's time zone: their device's when they last wrote, in this chat or, failing that, the main one. */
+  const userZoneOf = (room: Room) => (room.state.entities.some((e) => e.kind === "prompt") ? userZone(room.state) : userZone(main().state));
+
+  function run(room: Room, effect: Effect): void {
+    const { agent } = room;
     switch (effect.kind) {
       case "prompt":
         return ports.prompt({ kind: "message", text: effect.text }, agent);
@@ -294,48 +446,124 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
       case "halt":
         return tell(effect.run, { kind: "stop" });
       case "settled":
-        asking.get(effect.id)?.forEach((resolve) => resolve(effect.answer));
-        asking.delete(effect.id);
-        return;
+        return answered(effect.id, effect.answer);
     }
   }
 
-  /** Decide, record, then act. A rejection becomes a Rejected error. */
-  const command = <M extends Command["method"]>(method: M, params: Params[M]) => {
-    const decision = decide(state, { method, params }, context());
+  /** Decide in a chat, record, then act. A rejection becomes a Rejected error. */
+  const command = <M extends Command["method"]>(room: Room, method: M, params: Params[M]) => {
+    const decision = decide(room.state, { method, params }, context());
     if (!decision.ok) throw new Rejected(decision.rejection);
-    decision.changes.forEach(commit);
-    decision.effects.forEach(run);
+    decision.changes.forEach((change) => commit(room, change));
+    decision.effects.forEach((effect) => run(room, effect));
     return decision.output;
   };
+  /** A command about an entity, in the chat it is in (or the main chat, to be refused there). */
+  const about = <M extends Command["method"]>(id: string, method: M, params: Params[M]) => command(holder(id) ?? main(), method, params);
 
-  // a journal with history wins over the seed
-  const history = options.journal?.load() ?? [];
-  history.forEach(record);
-  recover(state, clock.now()).forEach(commit);
-  if (history.length === 0) for (const entity of options.seed ?? []) commit({ kind: "upserted", entity });
+  const open = (chat: Chat): Room => {
+    const room: Room = { chat, state: empty, log: [], journal: store.journal(chat.id), agent: agentOf(chat.id, () => room) };
+    rooms.set(chat.id, room);
+    return room;
+  };
+
+  // every chat's journal is replayed; the main chat's seed only when it has no history
+  const now = clock.now();
+  const stored = store.load();
+  const chats = stored.some((c) => c.id === MAIN) ? stored : [{ id: MAIN, title: "", at: now, updated: now }, ...stored];
+  for (const chat of chats) {
+    const room = open(chat);
+    const history = room.journal.load();
+    history.forEach((envelope) => record(room, envelope));
+    recover(room.state, now).forEach((change) => commit(room, change));
+    if (chat.id === MAIN && history.length === 0) for (const entity of options.seed ?? []) commit(room, { kind: "upserted", entity });
+  }
+  if (!stored.some((c) => c.id === MAIN)) store.save(ordered());
   arm(); // what fell due while remuse was down happens now (or is recorded as missed)
 
+  /** A side chat with no title yet is named after its first message. */
+  const nameAfter = (room: Room, text: string) => {
+    if (room.chat.id === MAIN || room.chat.title || room.state.entities.filter((e) => e.kind === "prompt").length !== 1) return;
+    void ports.title(text).then(
+      (title) => {
+        const clean = title.trim().replace(/^["'“”]+|["'“”.]+$/g, "").slice(0, 80);
+        if (!clean || rooms.get(room.chat.id) !== room || room.chat.title) return;
+        room.chat = { ...room.chat, title: clean };
+        saveChats();
+      },
+      () => {},
+    );
+  };
+
+  /** Delete a side chat: what runs in it is stopped, whoever waits on it hears no, then it is gone. */
+  const remove = (room: Room) => {
+    ports.interrupt(room.agent);
+    for (const e of room.state.entities) {
+      if (e.kind === "browser" && ["queued", "working", "waiting", "needs_you", "paused"].includes(e.status)) {
+        const stopped = decide(room.state, { method: "browser.control", params: { id: e.id, action: "stop" } }, context());
+        if (stopped.ok) stopped.effects.forEach((effect) => run(room, effect));
+      }
+      if (e.kind === "approval" && e.status === "pending") settle(e.id, { verdict: "denied", remember: false });
+      if (e.kind === "question" && e.status === "open") answered(e.id, { kind: "closed" });
+    }
+    rooms.delete(room.chat.id);
+    store.remove(room.chat.id);
+    saveChats();
+    arm();
+  };
+
   const handlers: Handlers = {
-    "session.sync": async ({ since }) =>
-      since !== null && since <= state.seq && (log[0]?.seq ?? 1) <= since + 1
+    "session.sync": async ({ chat, since }) => {
+      const { state, log } = roomOf(chat);
+      return since !== null && since <= state.seq && (log[0]?.seq ?? 1) <= since + 1
         ? { kind: "events", events: log.filter((e) => e.seq > since) }
-        : { kind: "snapshot", state: recent(state, snapshot) },
-    "session.history": async ({ before, limit }) => {
+        : { kind: "snapshot", state: recent(state, snapshot) };
+    },
+    "session.history": async ({ chat, before, limit }) => {
+      const { state } = roomOf(chat);
       const end = Math.min(before, state.entities.length);
       const start = Math.max(0, end - limit);
       return { seq: state.seq, earlier: start, entities: state.entities.slice(start, end) };
     },
-    "chat.send": async (params) => command("chat.send", params),
-    "chat.stop": async (params) => command("chat.stop", params),
-    "approval.resolve": async (params) => command("approval.resolve", params),
-    "connection.begin": async (params) => ({ url: await ports.connect(command("connection.begin", params), agent) }),
-    "connection.dismiss": async (params) => command("connection.dismiss", params),
-    "browser.control": async (params) => command("browser.control", params),
-    "browser.fit": async (params) => command("browser.fit", params),
-    "task.stop": async (params) => command("task.stop", params),
-    "schedules.list": async () => ({ schedules: state.entities.filter((e): e is Schedule => e.kind === "schedule").reverse() }),
-    "schedule.control": async (params) => command("schedule.control", params),
+    "chat.send": async (params) => {
+      const room = roomOf(params.chat);
+      const sent = command(room, "chat.send", params);
+      nameAfter(room, params.text);
+      return sent;
+    },
+    "chat.stop": async (params) => command(roomOf(params.chat), "chat.stop", params),
+    "chats.list": async () => ({ chats: ordered() }),
+    "chats.create": async () => {
+      const at = clock.now();
+      const room = open({ id: ids("c"), title: "", at, updated: at });
+      saveChats();
+      return room.chat;
+    },
+    "chats.rename": async ({ id, title }) => {
+      if (id === MAIN) throw new Rejected({ kind: "mainChat" });
+      const room = roomOf(id);
+      room.chat = { ...room.chat, title };
+      saveChats();
+      return null;
+    },
+    "chats.delete": async ({ id }) => {
+      if (id === MAIN) throw new Rejected({ kind: "mainChat" });
+      remove(roomOf(id));
+      return null;
+    },
+    "approval.resolve": async (params) => about(params.id, "approval.resolve", params),
+    "connection.begin": async (params) => {
+      const room = holder(params.id) ?? main();
+      return { url: await ports.connect(command(room, "connection.begin", params), room.agent) };
+    },
+    "connection.dismiss": async (params) => about(params.id, "connection.dismiss", params),
+    "browser.control": async (params) => about(params.id, "browser.control", params),
+    "browser.fit": async (params) => about(params.id, "browser.fit", params),
+    "task.stop": async (params) => about(params.id, "task.stop", params),
+    "schedules.list": async () => ({
+      schedules: [...rooms.values()].flatMap((r) => r.state.entities.filter((e): e is Schedule => e.kind === "schedule")).reverse(),
+    }),
+    "schedule.control": async (params) => about(params.id, "schedule.control", params),
     "apps.search": ({ query, cursor }) => ports.apps.search(query, cursor),
     "apps.accounts": async () => ({ accounts: await ports.apps.accounts() }),
     "apps.connect": async ({ app }) => ({ url: await ports.apps.connect(app) }),

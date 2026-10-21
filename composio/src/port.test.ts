@@ -10,6 +10,9 @@ const connection: Connection = { kind: "connection", id: "c1", at: "2026-10-20T0
 /** An AgentIO that records the actions the port takes. */
 function recording(onAct: (action: AgentAction) => void = () => {}, onReport: (note: string) => void = () => {}): AgentIO {
   return {
+    chat: "main",
+    chats: () => [],
+    readChat: () => null,
     emit: () => {},
     act: (action) => (onAct(action), { ok: true, id: "x" }),
     decision: async () => ({ verdict: "denied", remember: false }),

@@ -10,7 +10,8 @@ import type { State } from "@remuse/protocol";
 import type { Actions } from "../ui.ts";
 import { busy } from "../view.ts";
 
-export function Composer({ conversation, actions }: { conversation: State; actions: Actions }) {
+/** `place`: a side chat's title, said in the placeholder ("Message in …"); null in the main chat. */
+export function Composer({ conversation, place, actions }: { conversation: State; place: string | null; actions: Actions }) {
   const working = busy(conversation);
   const [draft, setDraft] = useState("");
 
@@ -42,7 +43,7 @@ export function Composer({ conversation, actions }: { conversation: State; actio
           <input
             className="min-w-0 flex-1 bg-transparent text-[15px] outline-none"
             style={{ color: "var(--text-primary)" }}
-            placeholder="Message"
+            placeholder={place ? `Message in ${place}` : "Message"}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {

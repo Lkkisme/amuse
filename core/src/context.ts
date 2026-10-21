@@ -105,10 +105,10 @@ export function agentContext(state: State, limits: Budget = budget): string {
   return [...earlier, ...lines.reverse()].join("\n");
 }
 
-/** The entities that mention `query` (case-insensitive), newest first, in full. */
-export function recall(state: State, query: string, limit = 10): string {
+/** The lines of the entities that mention `query` (case-insensitive), newest first, in full. */
+export function mentions(state: State, query: string, limit = 10): string[] {
   const needle = query.trim().toLowerCase();
-  if (!needle) return "Give words to search for.";
+  if (!needle) return [];
   const zone = userZone(state);
   const found: string[] = [];
   for (let i = state.entities.length - 1; i >= 0 && found.length < limit; i--) {
@@ -116,5 +116,12 @@ export function recall(state: State, query: string, limit = 10): string {
     const text = entity && line(entity, "full", zone);
     if (text?.toLowerCase().includes(needle)) found.push(text);
   }
+  return found;
+}
+
+/** What the conversation says about `query`, for the agent. */
+export function recall(state: State, query: string, limit = 10): string {
+  if (!query.trim()) return "Give words to search for.";
+  const found = mentions(state, query, limit);
   return found.length > 0 ? found.join("\n") : `Nothing in the conversation mentions "${query}".`;
 }

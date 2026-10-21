@@ -8,19 +8,27 @@ import { z } from "zod";
 import { Account, App, KindRule, Permission, Site, SiteRule, ToolKind } from "./apps.ts";
 import { Id, Resolution, Schedule, TimeZone } from "./entities.ts";
 import { Envelope, Index, Page, Seq, State } from "./events.ts";
+import { Chat, Push } from "./chats.ts";
 
 const call = <M extends string, P extends z.ZodObject>(method: M, params: P) =>
   z.object({ method: z.literal(method), params });
 
 export const Call = z.discriminatedUnion("method", [
-  /** Catch up from `since` (null: from nothing). */
-  call("session.sync", z.object({ since: Seq.nullable() })),
-  /** Up to `limit` entities just before feed index `before`, for a state holding only the recent end. */
-  call("session.history", z.object({ before: Index, limit: z.int().min(1).max(200) })),
+  /** Catch up on a chat from `since` (null: from nothing). */
+  call("session.sync", z.object({ chat: Id, since: Seq.nullable() })),
+  /** Up to `limit` of a chat's entities just before feed index `before`, for a state holding only the recent end. */
+  call("session.history", z.object({ chat: Id, before: Index, limit: z.int().min(1).max(200) })),
   /** `timezone`: the device's (Intl), so times are the user's own */
-  call("chat.send", z.object({ text: z.string().min(1), timezone: TimeZone })),
-  /** Stop the agent's current reply. */
-  call("chat.stop", z.object({})),
+  call("chat.send", z.object({ chat: Id, text: z.string().min(1), timezone: TimeZone })),
+  /** Stop the agent's current reply in a chat. */
+  call("chat.stop", z.object({ chat: Id })),
+  /** The chats there are: the main chat first, then side chats, most recently used first. */
+  call("chats.list", z.object({})),
+  /** Open a side chat; it is named after its first message. */
+  call("chats.create", z.object({})),
+  call("chats.rename", z.object({ id: Id, title: z.string().trim().min(1).max(80) })),
+  /** Delete a side chat for good, stopping whatever runs in it. */
+  call("chats.delete", z.object({ id: Id })),
   call("approval.resolve", z.object({ id: Id, resolution: Resolution })),
   /** Start connecting: returns the provider's hosted auth link. */
   call("connection.begin", z.object({ id: Id })),
@@ -65,6 +73,10 @@ export const results = {
   "session.history": Page,
   "chat.send": z.object({ id: Id }),
   "chat.stop": done,
+  "chats.list": z.object({ chats: z.array(Chat) }),
+  "chats.create": Chat,
+  "chats.rename": done,
+  "chats.delete": done,
   "approval.resolve": done,
   "connection.begin": z.object({ url: z.url() }),
   "connection.dismiss": done,
@@ -95,6 +107,10 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "session.history": (raw) => results["session.history"].parse(raw),
   "chat.send": (raw) => results["chat.send"].parse(raw),
   "chat.stop": (raw) => results["chat.stop"].parse(raw),
+  "chats.list": (raw) => results["chats.list"].parse(raw),
+  "chats.create": (raw) => results["chats.create"].parse(raw),
+  "chats.rename": (raw) => results["chats.rename"].parse(raw),
+  "chats.delete": (raw) => results["chats.delete"].parse(raw),
   "approval.resolve": (raw) => results["approval.resolve"].parse(raw),
   "connection.begin": (raw) => results["connection.begin"].parse(raw),
   "connection.dismiss": (raw) => results["connection.dismiss"].parse(raw),
@@ -143,8 +159,8 @@ export const Response = z.union([
   z.object({ jsonrpc: z.literal("2.0"), id: RpcId.nullable(), error: RpcError }),
 ]);
 
-/** The only notification: one event, server → client. */
-export const Notification = z.object({ jsonrpc: z.literal("2.0"), method: z.literal("event"), params: Envelope });
+/** The only notification, server → client: a chat's event, or the chats as they now are. */
+export const Notification = z.object({ jsonrpc: z.literal("2.0"), method: z.literal("push"), params: Push });
 
 export const errors = {
   parse: { code: -32700, message: "Parse error" },

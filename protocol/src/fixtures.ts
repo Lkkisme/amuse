@@ -96,11 +96,15 @@ export const envelopes: Envelope[] = [
 ];
 
 export const calls: Call[] = [
-  { method: "session.sync", params: { since: null } },
-  { method: "session.sync", params: { since: 7 } },
-  { method: "session.history", params: { before: 40, limit: 20 } },
-  { method: "chat.send", params: { text: "hi", timezone: "Asia/Shanghai" } },
-  { method: "chat.stop", params: {} },
+  { method: "session.sync", params: { chat: "main", since: null } },
+  { method: "session.sync", params: { chat: "c-1", since: 7 } },
+  { method: "session.history", params: { chat: "main", before: 40, limit: 20 } },
+  { method: "chat.send", params: { chat: "main", text: "hi", timezone: "Asia/Shanghai" } },
+  { method: "chat.stop", params: { chat: "main" } },
+  { method: "chats.list", params: {} },
+  { method: "chats.create", params: {} },
+  { method: "chats.rename", params: { id: "c-1", title: "Trip planning" } },
+  { method: "chats.delete", params: { id: "c-1" } },
   { method: "approval.resolve", params: { id: "a1", resolution: "allow_once" } },
   { method: "connection.begin", params: { id: "c1" } },
   { method: "connection.dismiss", params: { id: "c1" } },

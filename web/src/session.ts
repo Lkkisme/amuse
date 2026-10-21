@@ -6,7 +6,7 @@
  * a time as the user scrolls back, and go again when they return to the end.
  */
 import { useCallback, useEffect, useState } from "react";
-import { type Session, type State, apply, empty, prepend, recent } from "@remuse/protocol";
+import { type Chat, type Session, type State, apply, empty, prepend, recent } from "@remuse/protocol";
 
 /** Entities fetched per page back, and how many are kept on letting go. */
 const PAGE = 50;
@@ -19,14 +19,15 @@ export interface Conversation {
   release(): void;
 }
 
-/** Live conversation state: synced on mount, advanced by events, replaced on a reset; resyncs on a gap. */
-export function useConversation(session: Session): Conversation {
+/** One chat's live state: synced when shown, advanced by its events, replaced on a reset; resyncs on a gap. */
+export function useConversation(session: Session, chat: string): Conversation {
   const [state, setState] = useState<State>(empty);
 
   useEffect(() => {
     let live = true;
+    setState(empty); // another chat's feed is not this one's
     const resync = (since: number | null) =>
-      session.call("session.sync", { since }).then((result) => {
+      session.call("session.sync", { chat, since }).then((result) => {
         if (!live) return;
         switch (result.kind) {
           case "snapshot":
@@ -36,7 +37,8 @@ export function useConversation(session: Session): Conversation {
         }
       });
 
-    const unsubscribe = session.subscribe((update) =>
+    const unsubscribe = session.subscribe((update) => {
+      if (update.kind === "chats" || update.chat !== chat) return;
       setState((s) => {
         if (update.kind === "reset") return update.state; // the server started over: so do we
         const { envelope } = update;
@@ -44,24 +46,41 @@ export function useConversation(session: Session): Conversation {
         if (envelope.seq === s.seq + 1) return apply(s, envelope);
         void resync(s.seq); // missed some: catch up
         return s;
-      }),
-    );
-    void resync(null);
+      });
+    });
+    void resync(null).catch(() => {}); // a chat deleted meanwhile has nothing to show
+    return () => {
+      live = false;
+      unsubscribe();
+    };
+  }, [session, chat]);
+
+  const { earlier } = state;
+  const older = useCallback(async () => {
+    if (earlier === 0) return;
+    const page = await session.call("session.history", { chat, before: earlier, limit: PAGE });
+    // a page that crossed an event in flight does not fit and is dropped; scrolling asks again
+    setState((s) => prepend(s, page) ?? s);
+  }, [session, chat, earlier]);
+
+  const release = useCallback(() => setState((s) => (s.entities.length > 2 * PAGE ? recent(s, PAGE) : s)), []);
+
+  return { state, older, release };
+}
+
+/** The chats there are (main first, then side chats by use), as the server last said. */
+export function useChats(session: Session): Chat[] {
+  const [chats, setChats] = useState<Chat[]>([]);
+  useEffect(() => {
+    let live = true;
+    const unsubscribe = session.subscribe((update) => {
+      if (update.kind === "chats") setChats(update.chats);
+    });
+    void session.call("chats.list", {}).then(({ chats }) => live && setChats(chats));
     return () => {
       live = false;
       unsubscribe();
     };
   }, [session]);
-
-  const { earlier } = state;
-  const older = useCallback(async () => {
-    if (earlier === 0) return;
-    const page = await session.call("session.history", { before: earlier, limit: PAGE });
-    // a page that crossed an event in flight does not fit and is dropped; scrolling asks again
-    setState((s) => prepend(s, page) ?? s);
-  }, [session, earlier]);
-
-  const release = useCallback(() => setState((s) => (s.entities.length > 2 * PAGE ? recent(s, PAGE) : s)), []);
-
-  return { state, older, release };
+  return chats;
 }

@@ -6,6 +6,9 @@ import { type RunHandle, type Steerable, inbox } from "./runs.ts";
 function run() {
   let listener: ((m: RunMessage) => void) | undefined;
   const io: AgentIO = {
+    chat: "main",
+    chats: () => [],
+    readChat: () => null,
     emit: () => {},
     act: () => ({ ok: true, id: "x" }),
     decision: async () => ({ verdict: "denied", remember: false }),

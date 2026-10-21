@@ -27,7 +27,7 @@ export function Schedules({ session }: { session: Session }) {
   useEffect(
     () =>
       session.subscribe((update) => {
-        if (update.kind === "reset" || (update.envelope.event.kind === "upserted" && update.envelope.event.entity.kind === "schedule")) void load();
+        if (update.kind === "reset" || (update.kind === "event" && update.envelope.event.kind === "upserted" && update.envelope.event.entity.kind === "schedule")) void load();
       }),
     [session, load],
   );

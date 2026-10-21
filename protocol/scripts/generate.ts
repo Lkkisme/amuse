@@ -8,7 +8,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { z } from "zod";
 import * as protocol from "../src/index.ts";
-import { Call, Envelope, apply, empty, results } from "../src/index.ts";
+import { Call, Push, apply, empty, results } from "../src/index.ts";
 import { calls, envelopes } from "../src/fixtures.ts";
 
 const out = new URL("../.generated/", import.meta.url);
@@ -46,7 +46,7 @@ const openrpc = {
   openrpc: "1.3.2",
   info: { title: "remuse", version: "0.1.0" },
   methods,
-  "x-notifications": [{ name: "event", params: schema(Envelope) }],
+  "x-notifications": [{ name: "push", params: schema(Push) }],
 };
 
 const write = (file: string, value: unknown) => writeFileSync(new URL(file, out), `${JSON.stringify(value, null, 2)}\n`);

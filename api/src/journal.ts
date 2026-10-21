@@ -6,10 +6,11 @@
  * event — another version's format, a gap — stops the load with an error:
  * the history is never cut to fit.
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync, truncateSync } from "node:fs";
-import { dirname } from "node:path";
-import type { Journal } from "@remuse/core";
-import { Envelope } from "@remuse/protocol";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, truncateSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import type { ChatStore, Journal } from "@remuse/core";
+import { Chat, Envelope, MAIN } from "@remuse/protocol";
+import { z } from "zod";
 
 function parseLine(line: string): unknown {
   try {
@@ -42,5 +43,33 @@ export function fileJournal(path: string): Journal {
       mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
       appendFileSync(path, `${JSON.stringify(envelope)}\n`, { mode: 0o600 });
     },
+  };
+}
+
+/** A side chat's id as a file name: only ids the host makes (letters, digits, dashes) ever reach the disk. */
+const safeId = /^[A-Za-z0-9-]{1,80}$/;
+
+/**
+ * Chats on disk: the main chat's log where it always was (`main`), each side
+ * chat's at `<dir>/chats/<id>.jsonl`, and the list of chats at
+ * `<dir>/chats.json` (written whole through a temporary file, mode 600).
+ */
+export function fileChats(dir: string, main: string): ChatStore {
+  const list = join(dir, "chats.json");
+  const path = (chat: string) => {
+    if (chat === MAIN) return main;
+    if (!safeId.test(chat)) throw new Error(`not a chat id: ${chat}`);
+    return join(dir, "chats", `${chat}.jsonl`);
+  };
+  return {
+    load: () => (existsSync(list) ? z.array(Chat).parse(JSON.parse(readFileSync(list, "utf8"))) : []),
+    save(chats) {
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      const temporary = `${list}.next`;
+      writeFileSync(temporary, JSON.stringify(chats, null, 2), { mode: 0o600 });
+      renameSync(temporary, list);
+    },
+    journal: (chat) => fileJournal(path(chat)),
+    remove: (chat) => rmSync(path(chat), { force: true }),
   };
 }

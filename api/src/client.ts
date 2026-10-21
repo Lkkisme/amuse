@@ -2,9 +2,10 @@
  * A protocol Session over a WebSocket, for browsers (and Node 22+, which has
  * a global WebSocket). Results and events are parsed with the protocol
  * schemas on arrival, so a misbehaving server fails loudly at the boundary.
- * Reconnects with backoff and replays missed events from the last seq.
+ * Reconnects with backoff and replays each chat's missed events from its last seq.
  */
 import {
+  type Chat,
   type Envelope,
   type Method,
   Notification,
@@ -25,19 +26,23 @@ export function connect(url: string): Session & { close(): void } {
   const outbox: string[] = [];
   let socket: WebSocket | null = null;
   let nextId = 0;
-  let lastSeq = 0;
+  /** each chat's last seq seen: what a reconnect catches up from */
+  const lastSeq = new Map<string, number>();
   let retry = 0;
   let closed = false;
 
-  const deliver = (envelope: Envelope) => {
-    if (envelope.seq <= lastSeq) return;
-    lastSeq = envelope.seq;
-    for (const listener of listeners) listener({ kind: "event", envelope });
+  const deliver = (chat: string, envelope: Envelope) => {
+    if (envelope.seq <= (lastSeq.get(chat) ?? 0)) return;
+    lastSeq.set(chat, envelope.seq);
+    for (const listener of listeners) listener({ kind: "event", chat, envelope });
   };
   /** The server could not replay what we missed: start over from its state. */
-  const reset = (state: State) => {
-    lastSeq = state.seq;
-    for (const listener of listeners) listener({ kind: "reset", state });
+  const reset = (chat: string, state: State) => {
+    lastSeq.set(chat, state.seq);
+    for (const listener of listeners) listener({ kind: "reset", chat, state });
+  };
+  const chats = (list: Chat[]) => {
+    for (const listener of listeners) listener({ kind: "chats", chats: list });
   };
 
   const open = () => {
@@ -47,14 +52,20 @@ export function connect(url: string): Session & { close(): void } {
       const resumed = retry > 0;
       retry = 0;
       outbox.splice(0).forEach((frame) => ws.send(frame));
-      if (resumed)
-        void call("session.sync", { since: lastSeq }).then((r) => (r.kind === "events" ? r.events.forEach(deliver) : reset(r.state)));
+      if (resumed) {
+        void call("chats.list", {}).then((r) => chats(r.chats));
+        for (const [chat, since] of lastSeq)
+          void call("session.sync", { chat, since }).then((r) => (r.kind === "events" ? r.events.forEach((e) => deliver(chat, e)) : reset(chat, r.state)));
+      }
     };
     ws.onmessage = ({ data }) => {
       if (typeof data !== "string") return;
       const raw: unknown = JSON.parse(data);
       const note = Notification.safeParse(raw);
-      if (note.success) return deliver(note.data.params);
+      if (note.success) {
+        const push = note.data.params;
+        return push.kind === "event" ? deliver(push.chat, push.envelope) : chats(push.chats);
+      }
       const response = Response.parse(raw);
       const entry = typeof response.id === "number" ? pending.get(response.id) : undefined;
       if (!entry || typeof response.id !== "number") return;
@@ -78,9 +89,9 @@ export function connect(url: string): Session & { close(): void } {
         settle: (raw) => {
           // a snapshot the caller fetched is where we now stand, so a later reconnect catches up from there;
           // returned events move us forward only as they are delivered
-          if (method === "session.sync") {
+          if (method === "session.sync" && "chat" in params && typeof params.chat === "string") {
             const synced = parseResult["session.sync"](raw);
-            if (synced.kind === "snapshot") lastSeq = synced.state.seq;
+            if (synced.kind === "snapshot") lastSeq.set(params.chat, synced.state.seq);
           }
           resolve(parseResult[method](raw));
         },

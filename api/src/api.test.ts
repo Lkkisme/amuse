@@ -65,22 +65,23 @@ test("bad frames get the JSON-RPC error they deserve", async () => {
 
 test("the client syncs, sends, and folds the streamed events into the same state as the server", async () => {
   const session = connect(`${base}?token=${token}`);
-  const synced = await session.call("session.sync", { since: null });
+  const synced = await session.call("session.sync", { chat: "main", since: null });
   assert.equal(synced.kind, "snapshot");
   let state: State = synced.kind === "snapshot" ? synced.state : empty;
   const done = new Promise<void>((resolve) =>
     session.subscribe((u) => {
       if (u.kind === "reset") return void (state = u.state);
+      if (u.kind !== "event") return;
       state = apply(state, u.envelope);
       if (u.envelope.event.kind === "activity" && u.envelope.event.activity === null) resolve();
     }),
   );
-  const { id } = await session.call("chat.send", { text: "over the wire", timezone: "UTC" });
+  const { id } = await session.call("chat.send", { chat: "main", text: "over the wire", timezone: "UTC" });
   await done;
   assert.ok(state.entities.some((e) => e.id === id && e.kind === "prompt"));
   const last = state.entities.at(-1);
   assert.ok(last?.kind === "reply" && !last.streaming && last.text.includes("over the wire"));
-  const server = await session.call("session.sync", { since: null });
+  const server = await session.call("session.sync", { chat: "main", since: null });
   assert.ok(server.kind === "snapshot");
   assert.deepEqual(server.state, state);
   session.close();
@@ -90,7 +91,7 @@ test("a server that comes back without its log resets the client instead of free
   const first = await listen({ session: createHost(demoPorts(instant), { seed: seed(), timers: never }), token, port: 0, host: "127.0.0.1" });
   const url = `ws://127.0.0.1:${first.port}/rpc?token=${token}`;
   const session = connect(url);
-  const synced = await session.call("session.sync", { since: null });
+  const synced = await session.call("session.sync", { chat: "main", since: null });
   assert.ok(synced.kind === "snapshot" && synced.state.seq > 1);
   const reset = new Promise<number>((resolve) => session.subscribe((u) => (u.kind === "reset" ? resolve(u.state.seq) : undefined)));
   await first.close();
@@ -141,12 +142,15 @@ test("a client that reconnects receives the events it missed", async () => {
   const host = createHost(demoPorts(instant), { seed: seed(), timers: never });
   const first = await listen({ session: host, token, port: 0, host: "127.0.0.1" });
   const reader = connect(`ws://127.0.0.1:${first.port}/rpc?token=${token}`);
-  const synced = await reader.call("session.sync", { since: null });
+  const synced = await reader.call("session.sync", { chat: "main", since: null });
   assert.ok(synced.kind === "snapshot");
   let state: State = synced.state;
-  reader.subscribe((u) => (state = u.kind === "event" ? apply(state, u.envelope) : u.state));
+  reader.subscribe((u) => {
+    if (u.kind === "event") state = apply(state, u.envelope);
+    if (u.kind === "reset") state = u.state;
+  });
   await first.close(); // the network goes away; the conversation does not
-  const { id } = await host.call("chat.send", { text: "while you were away", timezone: "UTC" });
+  const { id } = await host.call("chat.send", { chat: "main", text: "while you were away", timezone: "UTC" });
   const second = await listen({ session: host, token, port: first.port, host: "127.0.0.1" });
   for (let i = 0; i < 60 && !state.entities.some((e) => e.id === id); i++) await new Promise((r) => setTimeout(r, 50));
   assert.ok(state.entities.some((e) => e.id === id), "the missed prompt arrived after the reconnect");

@@ -72,6 +72,8 @@ export function demoPorts<H>(timers: Timers<H>): Ports {
     rules,
     apps: demoApps(rules),
     fit: () => {}, // the demo's browsers are sketches
+    // a side chat is named after its first few words
+    title: async (text) => text.split(/\s+/).slice(0, 4).join(" "),
     prompt: (turn, { emit, act, time }) => {
       if (turn.kind === "note") return reply(emit, turn.text.replace(/^\[[^\]]*\]\n?/, ""));
       const { text } = turn;

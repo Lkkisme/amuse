@@ -11,7 +11,7 @@ const stateOf = (...entities: Entity[]): State => record(empty, entities.map((en
 const browser = (status: BrowserStatus, live = true): Browser => ({ kind: "browser", id: "b1", at, title: "Log in", url: "https://x.example/", status, instructions: "Log in", result: null, step: null, live });
 
 test("chat.send records the prompt and asks the agent", () => {
-  const d = decide(empty, { method: "chat.send", params: { text: "hi", timezone: "Asia/Shanghai" } }, ctx);
+  const d = decide(empty, { method: "chat.send", params: { chat: "main", text: "hi", timezone: "Asia/Shanghai" } }, ctx);
   assert.ok(d.ok);
   assert.deepEqual(d.output, { id: "p1" });
   assert.deepEqual(d.changes, [{ kind: "upserted", entity: { kind: "prompt", id: "p1", at, text: "hi", timezone: "Asia/Shanghai" } }]);
@@ -69,7 +69,7 @@ test("an approval resolves once; allow_* approves, deny_* denies", () => {
 
 test("chat.stop ends streaming replies and the activity, then interrupts", () => {
   const streaming = stateOf({ kind: "reply", id: "r1", at, text: "Hel", streaming: true });
-  const d = decide(streaming, { method: "chat.stop", params: {} }, ctx);
+  const d = decide(streaming, { method: "chat.stop", params: { chat: "main" } }, ctx);
   assert.ok(d.ok);
   assert.deepEqual(d.changes, [
     { kind: "upserted", entity: { kind: "reply", id: "r1", at, text: "Hel", streaming: false } },

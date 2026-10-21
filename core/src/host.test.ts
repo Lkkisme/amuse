@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Schedule, type Session, type State, apply, prepend } from "@remuse/protocol";
-import { type AgentIO, type Ports, type Timers, createHost, memoryRules } from "./index.ts";
+import { type AgentIO, type Ports, type Timers, createHost, memoryChats, memoryRules } from "./index.ts";
 
 /** Ports that do nothing but hand over the AgentIO, so tests can act like an agent. */
 function capture() {
@@ -9,6 +9,7 @@ function capture() {
   const runs: Schedule[] = [];
   const ports: Ports = {
     prompt: (_, agent) => void (io = agent),
+    title: async (text) => text.split(" ").slice(0, 3).join(" "),
     schedule: (schedule, agent) => {
       io = agent;
       runs.push(schedule);
@@ -62,7 +63,7 @@ function manualTime(start: string) {
 test("a decision already made is answered at once; one still open waits for the user", async () => {
   const { ports, io } = capture();
   const host = createHost(ports);
-  await host.call("chat.send", { text: "go", timezone: "UTC" });
+  await host.call("chat.send", { chat: "main", text: "go", timezone: "UTC" });
   const agent = io();
   assert.ok(agent);
   const asked = agent.act({ kind: "ask", action: "send", target: "gmail", detail: "{}", remember: true });
@@ -76,7 +77,7 @@ test("a decision already made is answered at once; one still open waits for the 
 test("an agent cannot move a run the user stopped", async () => {
   const { ports, io } = capture();
   const host = createHost(ports);
-  await host.call("chat.send", { text: "go", timezone: "UTC" });
+  await host.call("chat.send", { chat: "main", text: "go", timezone: "UTC" });
   const agent = io();
   assert.ok(agent);
   const started = agent.act({ kind: "browse", title: "t", url: "https://x.example/", instructions: "t" });
@@ -91,23 +92,25 @@ test("an agent cannot move a run the user stopped", async () => {
 test("a client holding only the recent end sees what the whole feed shows there, and pages back to all of it", async () => {
   const { ports, io } = capture();
   const host = createHost(ports, { snapshot: 3 });
-  for (const text of ["a", "b", "c", "d", "e"]) await host.call("chat.send", { text, timezone: "UTC" });
+  for (const text of ["a", "b", "c", "d", "e"]) await host.call("chat.send", { chat: "main", text, timezone: "UTC" });
   const agent = io();
   assert.ok(agent);
   const run = agent.act({ kind: "browse", title: "t", url: "https://x.example/", instructions: "t" });
   assert.ok(run.ok);
-  for (const text of ["f", "g", "h", "i"]) await host.call("chat.send", { text, timezone: "UTC" });
+  for (const text of ["f", "g", "h", "i"]) await host.call("chat.send", { chat: "main", text, timezone: "UTC" });
 
-  const synced = await host.call("session.sync", { since: null });
+  const synced = await host.call("session.sync", { chat: "main", since: null });
   assert.ok(synced.kind === "snapshot");
   let client = synced.state;
   assert.equal(client.earlier, 5); // reaches back to the run still in play
-  host.subscribe((u) => (client = u.kind === "event" ? apply(client, u.envelope) : u.state));
+  host.subscribe((u) => {
+    if (u.kind === "event") client = apply(client, u.envelope);
+  });
 
   agent.act({ kind: "browserEnded", id: run.id, status: "completed", result: "done" });
-  await host.call("chat.send", { text: "j", timezone: "UTC" });
+  await host.call("chat.send", { chat: "main", text: "j", timezone: "UTC" });
   while (client.earlier > 0) {
-    const page = await host.call("session.history", { before: client.earlier, limit: 2 });
+    const page = await host.call("session.history", { chat: "main", before: client.earlier, limit: 2 });
     const next = prepend(client, page);
     assert.ok(next);
     client = next;
@@ -118,8 +121,8 @@ test("a client holding only the recent end sees what the whole feed shows there,
 
 /** The whole feed, as a client with an unlimited window would hold it. */
 async function wholeFeed(host: Session): Promise<State> {
-  const page = await host.call("session.history", { before: Number.MAX_SAFE_INTEGER, limit: 200 });
-  const synced = await host.call("session.sync", { since: null });
+  const page = await host.call("session.history", { chat: "main", before: Number.MAX_SAFE_INTEGER, limit: 200 });
+  const synced = await host.call("session.sync", { chat: "main", since: null });
   assert.ok(synced.kind === "snapshot");
   return { ...synced.state, earlier: 0, entities: page.entities };
 }
@@ -128,7 +131,7 @@ test("a schedule runs in the background when its time comes, and again the next 
   const { ports, io, runs } = capture();
   const time = manualTime("2026-10-20T08:00:00Z");
   const host = createHost(ports, { clock: time.clock, timers: time.timers });
-  await host.call("chat.send", { text: "brief me at 8", timezone: "Asia/Shanghai" });
+  await host.call("chat.send", { chat: "main", text: "brief me at 8", timezone: "Asia/Shanghai" });
   const agent = io();
   assert.ok(agent);
   assert.deepEqual(agent.time(), { now: "2026-10-20T08:00:00.000Z", timezone: "Asia/Shanghai" });
@@ -149,7 +152,7 @@ test("an approval nobody answers times out, as a no to whoever waits on it", asy
   const { ports, io } = capture();
   const time = manualTime("2026-10-20T08:00:00Z");
   const host = createHost(ports, { clock: time.clock, timers: time.timers });
-  await host.call("chat.send", { text: "send it", timezone: "UTC" });
+  await host.call("chat.send", { chat: "main", text: "send it", timezone: "UTC" });
   const agent = io();
   assert.ok(agent);
   const asked = agent.act({ kind: "ask", action: "send", target: "gmail", detail: "{}", remember: true });
@@ -166,12 +169,12 @@ async function withRun() {
   const { ports, io, runs } = capture();
   const time = manualTime("2026-10-20T08:00:00Z");
   const host = createHost(ports, { clock: time.clock, timers: time.timers });
-  await host.call("chat.send", { text: "check the tides", timezone: "UTC" });
+  await host.call("chat.send", { chat: "main", text: "check the tides", timezone: "UTC" });
   const agent = io();
   assert.ok(agent);
   const run = agent.act({ kind: "browse", title: "Tides", url: "https://tides.example/", instructions: "Read today's tides" });
   assert.ok(run.ok);
-  const entity = async (id: string) => (await host.call("session.history", { before: 1000, limit: 200 })).entities.find((e) => e.id === id);
+  const entity = async (id: string) => (await host.call("session.history", { chat: "main", before: 1000, limit: 200 })).entities.find((e) => e.id === id);
   return { host, agent, run: run.id, time, runs, entity };
 }
 
@@ -232,4 +235,58 @@ test("Muse stops a run in flight, but not one the user holds; a schedule's run h
   agent.listen(made.id, (m) => heard.push(m.kind));
   assert.ok(agent.act({ kind: "stopRun", run: made.id }).ok);
   assert.deepEqual(heard, ["stop"]);
+});
+
+test("side chats: each its own feed and agent, named after its first message, listed by use, renamed, deleted", async () => {
+  const { ports, io } = capture();
+  const time = manualTime("2026-10-20T08:00:00Z");
+  const store = memoryChats();
+  const host = createHost(ports, { clock: time.clock, timers: time.timers, store });
+  const pushed: string[][] = [];
+  host.subscribe((u) => void (u.kind === "chats" && pushed.push(u.chats.map((c) => c.title))));
+  await host.call("chat.send", { chat: "main", text: "hello main", timezone: "UTC" });
+  const side = await host.call("chats.create", {});
+  time.advance(60_000);
+  await host.call("chat.send", { chat: side.id, text: "plan the trip please", timezone: "UTC" });
+  await new Promise((r) => setImmediate(r)); // the title arrives
+  const agent = io();
+  assert.equal(agent?.chat, side.id, "the side chat's agent answers it");
+
+  const { chats } = await host.call("chats.list", {});
+  assert.deepEqual(chats.map((c) => [c.id === "main" ? "main" : "side", c.title]), [["main", ""], ["side", "plan the trip"]]);
+  assert.ok(pushed.some((titles) => titles.includes("plan the trip")));
+  const feeds = await Promise.all(["main", side.id].map((chat) => host.call("session.history", { chat, before: 100, limit: 100 })));
+  assert.deepEqual(feeds.map((f) => f.entities.map((e) => (e.kind === "prompt" ? e.text : e.kind))), [["hello main"], ["plan the trip please"]]);
+
+  // the side chat's agent sees only its chat, and can read and search the others
+  assert.ok(agent);
+  assert.doesNotMatch(agent.context(), /hello main/);
+  assert.match(agent.readChat("main") ?? "", /hello main/);
+  assert.match(agent.recall("hello", true), /In "Main chat" \(main\):[\s\S]*hello main/);
+  assert.deepEqual(agent.chats().map((c) => c.title), ["Main chat", "plan the trip"]);
+
+  // a schedule set up in a side chat lives in the main chat, where its runs report
+  const made = agent.act({ kind: "schedule", title: "Briefing", instructions: "x", when: { kind: "repeat", cron: "0 8 * * *", timezone: "UTC" } });
+  assert.ok(made.ok);
+  const mainFeed = await host.call("session.history", { chat: "main", before: 100, limit: 100 });
+  assert.ok(mainFeed.entities.some((e) => e.id === made.id));
+
+  await host.call("chats.rename", { id: side.id, title: "Trip" });
+  assert.equal((await host.call("chats.list", {})).chats[1]?.title, "Trip");
+  await assert.rejects(host.call("chats.rename", { id: "main", title: "x" }), /main chat cannot be renamed/);
+  await host.call("chats.delete", { id: side.id });
+  assert.equal((await host.call("chats.list", {})).chats.length, 1);
+  await assert.rejects(host.call("session.sync", { chat: side.id, since: null }), /no chat/);
+});
+
+test("chats and their feeds survive a restart", async () => {
+  const store = memoryChats();
+  const first = createHost(capture().ports, { store, timers: manualTime("2026-10-20T08:00:00Z").timers });
+  const side = await first.call("chats.create", {});
+  await first.call("chat.send", { chat: side.id, text: "remember this", timezone: "UTC" });
+  const second = createHost(capture().ports, { store, timers: manualTime("2026-10-20T08:00:00Z").timers });
+  const { chats } = await second.call("chats.list", {});
+  assert.deepEqual(chats.map((c) => c.id), ["main", side.id]);
+  const synced = await second.call("session.sync", { chat: side.id, since: null });
+  assert.ok(synced.kind === "snapshot" && synced.state.entities.some((e) => e.kind === "prompt" && e.text === "remember this"));
 });

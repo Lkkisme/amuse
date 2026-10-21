@@ -2,7 +2,7 @@
  * UI-only state: which panels are open and what they show. Server state is
  * the conversation (session.ts); this never duplicates it, only ids into it.
  */
-import type { App } from "@remuse/protocol";
+import { type App, MAIN } from "@remuse/protocol";
 import type { SettingsData } from "./demo/settings.ts";
 
 export type SettingsSection = "general" | "connectors" | "permissions" | "schedules" | "secure-store";
@@ -11,6 +11,8 @@ export type Theme = "light" | "dark";
 
 export interface Ui {
   theme: Theme;
+  /** the chat on screen: MAIN or a side chat's id */
+  chat: string;
   chatsOpen: boolean;
   /** the Muse panel (profile and activity): docked on the right, or floating over the chat while the browser has the right */
   museOpen: boolean;
@@ -28,6 +30,7 @@ export interface Ui {
 
 export const initialUi: Ui = {
   theme: "light",
+  chat: MAIN,
   chatsOpen: false,
   museOpen: false,
   settings: { open: false, section: null, app: null },
@@ -55,6 +58,12 @@ export interface Actions {
   stopTask(taskId: string): void;
   openTaskDetail(taskId: string | null): void;
   setChats(open: boolean): void;
+  /** show a chat (the drawer closes) */
+  openChat(chat: string): void;
+  /** open a new side chat and show it */
+  newChat(): void;
+  renameChat(chat: string, title: string): void;
+  deleteChat(chat: string): void;
   setMuse(open: boolean): void;
   openSettings(section: SettingsSection | null): void;
   /** Settings › Connectors: an app's page, or back to the list (null) */

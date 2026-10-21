@@ -21,10 +21,14 @@ export function tools(io: () => AgentIO, rules: Rules): ToolDefinition[] {
       name: "recall",
       label: "Search the conversation",
       description:
-        "Search the whole conversation with the user, however old (what they said, what you said, browser tasks and their results). Use it when something older than what you see is needed.",
-      parameters: Type.Object({ status, query: Type.String({ description: "Words to look for" }) }),
-      async execute(_, { query }) {
-        return text(io().recall(query));
+        "Search this chat with the user, however old (what they said, what you said, browser tasks and their results); with `everywhere`, every chat. Use it when something older than what you see is needed.",
+      parameters: Type.Object({
+        status,
+        query: Type.String({ description: "Words to look for" }),
+        everywhere: Type.Optional(Type.Boolean({ description: "Search every chat, not just this one" })),
+      }),
+      async execute(_, { query, everywhere }) {
+        return text(io().recall(query, everywhere === true));
       },
     }),
     defineTool({
@@ -73,6 +77,31 @@ export function tools(io: () => AgentIO, rules: Rules): ToolDefinition[] {
       async execute(_, { provider, title }) {
         const result = io().act({ kind: "connect", provider, title });
         return text(result.ok ? `Asked the user to connect ${title}. Continue once they have.` : `Could not ask: ${describe(result.rejection)}.`);
+      },
+    }),
+  ];
+}
+
+/** Looking at the user's other chats: the main chat and side chats. */
+export function chatTools(io: () => AgentIO): ToolDefinition[] {
+  return [
+    defineTool({
+      name: "list_chats",
+      label: "Look at your chats",
+      description: "The user's chats: the main chat and side chats, with their titles and when each was last used.",
+      parameters: Type.Object({ status }),
+      async execute() {
+        const agent = io();
+        return text(agent.chats().map((c) => `- ${c.id}: ${c.title}${c.id === agent.chat ? " (this chat)" : ""}, last used ${c.updated}`).join("\n"));
+      },
+    }),
+    defineTool({
+      name: "read_chat",
+      label: "Read another chat",
+      description: "Read another of the user's chats by its id (from list_chats; the main chat is 'main'): its recent part in full, older parts in brief.",
+      parameters: Type.Object({ status, chat: Type.String() }),
+      async execute(_, { chat }) {
+        return text(io().readChat(chat) ?? `There is no chat ${chat}.`);
       },
     }),
   ];

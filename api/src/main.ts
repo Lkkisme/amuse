@@ -22,11 +22,11 @@ import { randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { composio, composioApps, composioConnector, composioDirectory } from "@remuse/composio";
-import { fileJournal } from "./journal.ts";
+import { fileChats } from "./journal.ts";
 import { browserPool, controller } from "@remuse/browser";
 import { type Ports, createHost, memoryRules, realTimers } from "@remuse/core";
 import { demoPorts, seed } from "@remuse/demo";
-import { type State, apply, empty } from "@remuse/protocol";
+import type { Entity } from "@remuse/protocol";
 import { type PiAuth, piAgent, piBrowserAgent, piScheduleRunner, untrustedRule } from "@remuse/pi";
 import { listen } from "./server.ts";
 import { fileRules } from "./rules.ts";
@@ -151,17 +151,25 @@ const demo = !(model && browserModel);
 const ports: Ports = model && browserModel ? real(model, browserModel) : demoPorts(realTimers);
 
 const journalPath = process.env["REMUSE_JOURNAL"];
-const journal = journalPath ? { journal: fileJournal(journalPath) } : {};
-const session = createHost(ports, { ...(demo ? { seed: seed() } : {}), ...journal });
+// side chats beside the main chat's log
+const store = journalPath ? { store: fileChats(dirname(journalPath), journalPath) } : {};
+const session = createHost(ports, { ...(demo ? { seed: seed() } : {}), ...store });
 
-// the live channel asks the conversation, folded here like any client, who holds a run
-const synced = await session.call("session.sync", { since: null });
-let state: State = synced.kind === "snapshot" ? synced.state : empty;
-session.subscribe((update) => (state = update.kind === "event" ? apply(state, update.envelope) : update.state));
-const live = browsers && {
-  browsers,
-  controlled: (id: string) => state.entities.some((e) => e.kind === "browser" && e.id === id && e.status === "paused"),
+// the live channel asks which runs the user holds, in any chat: followed here from the events like any client
+const held = new Set<string>();
+const follow = (entity: Entity) => {
+  if (entity.kind !== "browser") return;
+  if (entity.status === "paused") held.add(entity.id);
+  else held.delete(entity.id);
 };
+session.subscribe((update) => {
+  if (update.kind === "event" && update.envelope.event.kind === "upserted") follow(update.envelope.event.entity);
+});
+for (const { id } of (await session.call("chats.list", {})).chats) {
+  const synced = await session.call("session.sync", { chat: id, since: null });
+  if (synced.kind === "snapshot") synced.state.entities.forEach(follow);
+}
+const live = browsers && { browsers, controlled: (id: string) => held.has(id) };
 
 const web = process.env["REMUSE_WEB"];
 const origins = (process.env["REMUSE_ALLOWED_ORIGINS"] ?? "").split(",").map((o) => o.trim()).filter(Boolean);

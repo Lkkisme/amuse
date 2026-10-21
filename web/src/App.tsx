@@ -7,10 +7,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { connect } from "@remuse/api/client";
 import { createHost, realTimers } from "@remuse/core";
 import { demoPorts, seed } from "@remuse/demo";
-import type { Method, Params, Session } from "@remuse/protocol";
+import { MAIN, type Method, type Params, type Session } from "@remuse/protocol";
 import { seedSettings } from "./demo/settings.ts";
 import { type Connection, connection } from "./connection.ts";
-import { useConversation } from "./session.ts";
+import { useChats, useConversation } from "./session.ts";
 import { Unlock } from "./components/Unlock";
 import { type Actions, type Ui, initialUi } from "./ui.ts";
 import { viewerTabs } from "./view.ts";
@@ -57,8 +57,16 @@ export default function App() {
 function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
   const [link, setLink] = useState(() => openSession(where));
   const { session } = link;
-  const { state: conversation, older, release } = useConversation(session);
+  const chats = useChats(session);
   const [ui, setUi] = useState<Ui>(initialUi);
+  const { state: conversation, older, release } = useConversation(session, ui.chat);
+  /** the chat on screen, for actions made once (sending goes where the user is now) */
+  const chatRef = useRef(ui.chat);
+  chatRef.current = ui.chat;
+  // the chat on screen was deleted (here or on another device): back to the main chat
+  useEffect(() => {
+    if (chats.length > 0 && !chats.some((c) => c.id === ui.chat)) setUi((u) => ({ ...u, chat: MAIN, viewer: null }));
+  }, [chats, ui.chat]);
   const museOpen = useRef(ui.museOpen);
   museOpen.current = ui.museOpen;
   const [settings, setSettings] = useState(seedSettings);
@@ -94,8 +102,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         );
     return {
       // the device's time zone is the user's: times the agent sets and says are on their clock
-      send: (text) => call("chat.send", { text, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
-      stop: () => call("chat.stop", {}),
+      send: (text) => call("chat.send", { chat: chatRef.current, text, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+      stop: () => call("chat.stop", { chat: chatRef.current }),
       resolveApproval: (id, resolution) =>
         call("approval.resolve", { id, resolution }),
       openExplainer: (explainer) => patch((u) => ({ ...u, explainer })),
@@ -160,6 +168,18 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
       stopTask: (id) => call("task.stop", { id }),
       openTaskDetail: (taskDetail) => patch((u) => ({ ...u, taskDetail })),
       setChats: (chatsOpen) => patch((u) => ({ ...u, chatsOpen })),
+      // a chat's browsers are its own: the viewer starts over
+      openChat: (chat) => patch((u) => ({ ...u, chat, chatsOpen: false, viewer: null })),
+      newChat: () =>
+        void session.call("chats.create", {}).then(
+          ({ id }) => patch((u) => ({ ...u, chat: id, chatsOpen: false, viewer: null })),
+          (error: unknown) => patch((u) => ({ ...u, notice: error instanceof Error ? error.message : String(error) })),
+        ),
+      renameChat: (id, title) => call("chats.rename", { id, title }),
+      deleteChat: (id) => {
+        call("chats.delete", { id });
+        patch((u) => (u.chat === id ? { ...u, chat: MAIN, viewer: null } : u));
+      },
       // the avatar travels between the top and the panel
       setMuse: (museOpen) =>
         transition(() => patch((u) => ({ ...u, museOpen }))),
@@ -247,7 +267,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
             {ui.notice}
           </p>
         )}
-        <Composer conversation={conversation} actions={actions} />
+        <Composer conversation={conversation} place={ui.chat === MAIN ? null : (chats.find((c) => c.id === ui.chat)?.title || "New chat")} actions={actions} />
       </div>
 
       {ui.museOpen && (
@@ -257,7 +277,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           actions={actions}
         />
       )}
-      <ChatsPanel open={ui.chatsOpen} actions={actions} />
+      <ChatsPanel open={ui.chatsOpen} chats={chats} current={ui.chat} actions={actions} />
       <SettingsModal
         ui={ui.settings}
         theme={ui.theme}

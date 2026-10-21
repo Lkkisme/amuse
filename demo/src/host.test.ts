@@ -36,24 +36,26 @@ const clock = { now: () => "2026-10-20T08:00:00Z" };
 async function setup() {
   const { timers, advance } = manualTimers();
   const host = createHost(demoPorts(timers), { seed: seed(), clock, timers });
-  const synced = await host.call("session.sync", { since: null });
+  const synced = await host.call("session.sync", { chat: "main", since: null });
   let state: State = synced.kind === "snapshot" ? synced.state : empty;
-  host.subscribe((u) => (state = u.kind === "event" ? apply(state, u.envelope) : u.state));
+  host.subscribe((u) => {
+    if (u.kind === "event") state = apply(state, u.envelope);
+  });
   return { host, advance, view: () => state };
 }
 
 test("sync from nothing returns the seeded snapshot; sync from a seq returns the rest", async () => {
   const { host } = await setup();
-  const snapshot = await host.call("session.sync", { since: null });
+  const snapshot = await host.call("session.sync", { chat: "main", since: null });
   assert.equal(snapshot.kind, "snapshot");
   assert.ok(snapshot.kind === "snapshot" && snapshot.state.entities.length === seed().length);
-  const rest = await host.call("session.sync", { since: 10 });
+  const rest = await host.call("session.sync", { chat: "main", since: 10 });
   assert.ok(rest.kind === "events" && rest.events.every((e) => e.seq > 10));
 });
 
 test("a prompt streams a reply and clears the activity", async () => {
   const { host, advance, view } = await setup();
-  const { id } = await host.call("chat.send", { text: "hi", timezone: "UTC" });
+  const { id } = await host.call("chat.send", { chat: "main", text: "hi", timezone: "UTC" });
   assert.equal(view().entities.at(-1)?.id, id);
   assert.equal(view().activity?.kind, "responding");
   advance(10_000);
@@ -64,9 +66,9 @@ test("a prompt streams a reply and clears the activity", async () => {
 
 test("chat.stop cuts the reply mid-stream and nothing arrives afterwards", async () => {
   const { host, advance, view } = await setup();
-  await host.call("chat.send", { text: "a long answer please", timezone: "UTC" });
+  await host.call("chat.send", { chat: "main", text: "a long answer please", timezone: "UTC" });
   advance(1500); // reply started, a few words in
-  await host.call("chat.stop", {});
+  await host.call("chat.stop", { chat: "main" });
   const seq = view().seq;
   advance(10_000);
   assert.equal(view().seq, seq);
@@ -103,7 +105,7 @@ test("connecting returns the hosted link, then the callback marks it connected",
 
 test("the agent acts through the rules: a URL in the prompt starts a browser run that finishes", async () => {
   const { host, advance, view } = await setup();
-  await host.call("chat.send", { text: "check https://tides.example/today", timezone: "UTC" });
+  await host.call("chat.send", { chat: "main", text: "check https://tides.example/today", timezone: "UTC" });
   const run = () => view().entities.find((e) => e.kind === "browser" && e.url === "https://tides.example/today");
   assert.ok(run(), "the browser run started");
   advance(10_000);
@@ -121,7 +123,7 @@ test("an agent's ask becomes a pending approval; resolving it answers the waitin
     },
   };
   const host = createHost(ports, { clock, timers });
-  await host.call("chat.send", { text: "book it", timezone: "UTC" });
+  await host.call("chat.send", { chat: "main", text: "book it", timezone: "UTC" });
   assert.ok(io);
   const asked = io.act({ kind: "ask", action: "Submit", target: "opentable.com", detail: "Book a table for 4", remember: false });
   assert.ok(asked.ok);

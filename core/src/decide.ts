@@ -24,7 +24,7 @@ import type {
 import { APPROVAL_TTL_MS, GRACE_MS, MAX_SCHEDULES, check, later, nextRun, standing } from "./schedule.ts";
 
 /** Calls that do not touch the conversation: reading it, and the app directory (Ports.apps). */
-export type Query = Extract<Call, { method: "session.sync" | "session.history" | "schedules.list" | `apps.${string}` | `sites.${string}` }>;
+export type Query = Extract<Call, { method: "session.sync" | "session.history" | "schedules.list" | `chats.${string}` | `apps.${string}` | `sites.${string}` }>;
 /** Client calls that change the conversation. */
 export type Command = Exclude<Call, Query>;
 type CommandMethod = Command["method"];
@@ -115,6 +115,10 @@ export type Rejection =
   | { kind: "gone"; id: string }
   /** no run in flight has this id (it ended, or never was) */
   | { kind: "notRunning"; id: string }
+  /** there is no chat with this id */
+  | { kind: "noChat"; id: string }
+  /** the main chat is always there, under its own name */
+  | { kind: "mainChat" }
   /** a schedule the agent asked for cannot be: why, in words */
   | { kind: "unsound"; reason: string }
   | {

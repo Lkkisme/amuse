@@ -18,6 +18,9 @@ function setup(permission: Permission, answer: Answer = { verdict: "approved", r
     call: async (slug) => (ran.push(slug), { ok: true, data: "done" }),
   };
   const io: AgentIO = {
+    chat: "main",
+    chats: () => [],
+    readChat: () => null,
     emit: () => {},
     act: (action) => (asked.push(action), { ok: true, id: "a1" }),
     decision: async () => answer,
