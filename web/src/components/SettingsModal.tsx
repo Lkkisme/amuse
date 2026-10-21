@@ -2,7 +2,7 @@
  * Settings (surfaces 7, 9, 10): a page on a phone, a modal with a nav column on
  * a desktop — General (appearance; the password), Models (the user's keys and
  * the models chosen: Models.tsx), Connectors (the server's app directory: Connectors.tsx),
- * Permissions (per-site Allow/Ask/Deny) and Schedules. Modeled on the reference
+ * Permissions (per-site Allow/Ask/Deny), Schedules and the Sandbox (reset it). Modeled on the reference
  * settings sheet. (Muse's secure store is left out: the browser keeps logins
  * from the user's own sign-ins instead.)
  */
@@ -18,6 +18,7 @@ import {
   Shield,
   Sparkles,
   KeyRound,
+  Terminal,
   X,
   CalendarClock,
 } from "lucide-react";
@@ -31,6 +32,7 @@ import { SitePermissions } from "./SitePermissions";
 import { Schedules } from "./Schedules";
 import { Models } from "./Models";
 import { Logins } from "./Logins";
+import { Sandbox } from "./Sandbox";
 import { changePassword, lock } from "../connection.ts";
 
 const NAV: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
@@ -40,6 +42,7 @@ const NAV: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
   { id: "permissions", label: "Permissions", icon: <Shield size={18} /> },
   { id: "logins", label: "Saved logins", icon: <KeyRound size={18} /> },
   { id: "schedules", label: "Schedules", icon: <CalendarClock size={18} /> },
+  { id: "sandbox", label: "Sandbox", icon: <Terminal size={18} /> },
 ];
 
 /* ---------------- General ---------------- */
@@ -347,7 +350,7 @@ export function SettingsModal({
           >
             Settings
           </p>
-          {NAV.map((n) => (
+          {NAV.filter((n) => !demo || n.id !== "sandbox").map((n) => (
             <button
               key={n.id}
               className="flex items-center gap-3 rounded-xl px-3 py-3 text-left text-[16px] font-medium sm:py-2.5 sm:text-[15px]"
@@ -422,6 +425,7 @@ export function SettingsModal({
           )}
           {shown === "schedules" && <Schedules session={session} />}
           {shown === "logins" && <Logins session={session} />}
+          {shown === "sandbox" && <Sandbox session={session} />}
           {shown === "models" && (
             <Models
               session={session}

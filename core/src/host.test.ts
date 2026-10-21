@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Account, type Schedule, type Session, type State, apply, prepend } from "@amuse/protocol";
-import { type AgentIO, type Ports, type Timers, type Turn, createHost, memoryChats, memoryRules, noKeys, noLogins, noWorkspace } from "./index.ts";
+import { type AgentIO, type Ports, type Timers, type Turn, createHost, memoryChats, memoryRules, noKeys, noLogins, noSandbox, noWorkspace } from "./index.ts";
 
 /** Ports that do nothing but hand over the AgentIO, so tests can act like an agent. */
 function capture() {
@@ -35,6 +35,7 @@ function capture() {
     // one file was uploaded: the cat photo
     keys: noKeys,
     logins: noLogins,
+    sandbox: noSandbox,
     files: { ...noWorkspace, holds: async (a) => a.id === "f-cat" && a.name === "cat.jpg" && a.size === 2048 },
   };
   return { ports, io: () => io, runs };
@@ -447,4 +448,13 @@ test("every approval asked, in any chat, is listed newest first with its chat, a
       ["main", "Send the email", "approved", true, "gmail"],
     ],
   );
+});
+
+test("the sandbox is reset when the user asks; with none on the server they are told so", async () => {
+  const { ports } = capture();
+  await assert.rejects(createHost(ports).call("sandbox.reset", {}), /no sandbox/);
+  let wiped = 0;
+  const host = createHost({ ...ports, sandbox: { reset: async () => void wiped++ } });
+  assert.equal(await host.call("sandbox.reset", {}), null);
+  assert.equal(wiped, 1);
 });
