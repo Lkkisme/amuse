@@ -1,5 +1,6 @@
 {
   "name": "amuse",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "workspaces": [

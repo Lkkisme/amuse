@@ -47,3 +47,7 @@ Then `docker compose up -d`.
 - Use another port: `AMUSE_PUBLISH_PORT=9000` in `.env` (and `AMUSE_PUBLIC_URL=http://localhost:9000`).
 
 Development: [docs/development.md](docs/development.md).
+
+## License
+
+[MIT](LICENSE). Amuse is an independent project, not affiliated with Meta or its Muse.
