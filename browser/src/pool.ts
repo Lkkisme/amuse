@@ -9,7 +9,12 @@
  */
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import type { Controller, Element, Observation } from "./controller.ts";
+import {
+  type Controller,
+  ControllerError,
+  type Element,
+  type Observation,
+} from "./controller.ts";
 import { type Size, fitted, resize, standard } from "./desktop.ts";
 
 export interface Node {
@@ -43,7 +48,13 @@ export interface PageView {
   url: string;
   title: string;
   text: string;
-  elements: { ref: string; role: string; label: string; href: string | null; disabled: boolean }[];
+  elements: {
+    ref: string;
+    role: string;
+    label: string;
+    href: string | null;
+    disabled: boolean;
+  }[];
 }
 
 /** What the browser agent and the API need from browsers, per run. */
@@ -52,7 +63,12 @@ export interface Browsers {
    * Lease a browser and open `url`; waits while the pool is busy (rejects if `signal` aborts first),
    * or, with `wait: false`, rejects at once with PoolFull.
    */
-  open(run: string, url: string, signal?: AbortSignal, options?: { wait?: boolean }): Promise<void>;
+  open(
+    run: string,
+    url: string,
+    signal?: AbortSignal,
+    options?: { wait?: boolean },
+  ): Promise<void>;
   look(run: string): Promise<PageView>;
   step(run: string, step: Step): Promise<void>;
   screenshot(run: string): Promise<Uint8Array | null>;
@@ -80,7 +96,9 @@ export class PoolFull extends Error {
 
 export class StaleRef extends Error {
   constructor(ref: string) {
-    super(`Unknown or stale element ref "${ref.slice(0, 40)}". Look at the page again and use a fresh ref.`);
+    super(
+      `Unknown or stale element ref "${ref.slice(0, 40)}". Look at the page again and use a fresh ref.`,
+    );
   }
 }
 
@@ -99,12 +117,18 @@ const describe = (e: Element) => e.label?.trim() || e.href || e.tag || "";
 
 export function browserPool(
   nodes: Node[],
-  options: { profile?: string; desktop?: (vnc: string, size: Size) => Promise<void> } = {},
+  options: {
+    profile?: string;
+    desktop?: (vnc: string, size: Size) => Promise<void>;
+  } = {},
 ): Browsers & { reset(): Promise<void> } {
   const profile = options.profile ?? "remuse";
   const desktop = options.desktop ?? resize;
   const free = [...nodes];
-  const waiting: { take: (node: Node) => void; signal: AbortSignal | undefined }[] = [];
+  const waiting: {
+    take: (node: Node) => void;
+    signal: AbortSignal | undefined;
+  }[] = [];
   const runs = new Map<string, Run>();
 
   const lease = (signal?: AbortSignal) =>
@@ -147,7 +171,13 @@ export function browserPool(
         r.refs.set(e.element_id, ref);
       }
       r.current.set(ref, e.element_id);
-      return { ref, role: e.role ?? e.tag ?? "element", label: describe(e), href: e.href, disabled: e.disabled === true };
+      return {
+        ref,
+        role: e.role ?? e.tag ?? "element",
+        label: describe(e),
+        href: e.href,
+        disabled: e.disabled === true,
+      };
     });
     return { url: o.url, title: o.title, text: o.text_excerpt ?? "", elements };
   };
@@ -165,7 +195,15 @@ export function browserPool(
   return {
     async reset() {
       // these nodes are ours alone: sessions still live there were left by an earlier process
-      await Promise.all(nodes.map(async (n) => Promise.all((await n.controller.live()).map((s) => n.controller.delete(s).catch(() => {})))));
+      await Promise.all(
+        nodes.map(async (n) =>
+          Promise.all(
+            (await n.controller.live()).map((s) =>
+              n.controller.delete(s).catch(() => {}),
+            ),
+          ),
+        ),
+      );
     },
     async open(id, url, signal, { wait = true } = {}) {
       if (!wait && free.length === 0) throw new PoolFull(nodes.length);
@@ -180,7 +218,13 @@ export function browserPool(
           await node.controller.delete(session).catch(() => {});
           throw new Error("stopped");
         }
-        runs.set(id, { node, session, current: new Map(), refs: new Map(), taken: new Set() });
+        runs.set(id, {
+          node,
+          session,
+          current: new Map(),
+          refs: new Map(),
+          taken: new Set(),
+        });
       } catch (error) {
         release(node);
         throw error;
@@ -194,33 +238,59 @@ export function browserPool(
       const r = run(id);
       switch (step.kind) {
         case "click":
-          return act(r, { name: "click", body: { element_id: target(r, step.ref) } });
+          return act(r, {
+            name: "click",
+            body: { element_id: target(r, step.ref) },
+          });
         case "type": {
           const element_id = target(r, step.ref);
-          if (step.text.length > 5000) throw new Error("That text is too long to type at once (5000 characters at most).");
-          if (step.text) await act(r, { name: "type", body: { element_id, text: step.text, clear_first: true } });
+          if (step.text.length > 5000)
+            throw new Error(
+              "That text is too long to type at once (5000 characters at most).",
+            );
+          if (step.text)
+            await act(r, {
+              name: "type",
+              body: { element_id, text: step.text, clear_first: true },
+            });
           else {
             // the controller refuses empty text: clear the field by hand
             await act(r, { name: "click", body: { element_id } });
             await act(r, { name: "press", body: { key: "Control+a" } });
             await act(r, { name: "press", body: { key: "Delete" } });
           }
-          if (step.submit) await act(r, { name: "press", body: { key: "Enter" } });
+          if (step.submit)
+            await act(r, { name: "press", body: { key: "Enter" } });
           return;
         }
         case "press":
           return act(r, { name: "press", body: { key: step.key } });
         case "navigate": {
-          if (!URL.canParse(step.url) || !/^https?:$/.test(new URL(step.url).protocol)) throw new Error(`"${step.url}" is not an http(s) URL.`);
-          return act(r, { name: "navigate", body: { url: new URL(step.url).href } });
+          if (
+            !URL.canParse(step.url) ||
+            !/^https?:$/.test(new URL(step.url).protocol)
+          )
+            throw new Error(`"${step.url}" is not an http(s) URL.`);
+          return act(r, {
+            name: "navigate",
+            body: { url: new URL(step.url).href },
+          });
         }
         case "scroll":
-          return act(r, { name: "scroll", body: { delta_x: 0, delta_y: step.direction === "down" ? 700 : -700 } });
+          return act(r, {
+            name: "scroll",
+            body: {
+              delta_x: 0,
+              delta_y: step.direction === "down" ? 700 : -700,
+            },
+          });
       }
     },
     async screenshot(id) {
       const r = runs.get(id);
-      return r ? r.node.controller.screenshot(r.session).catch(() => null) : null;
+      return r
+        ? r.node.controller.screenshot(r.session).catch(() => null)
+        : null;
     },
     async remember(id) {
       const r = run(id);
@@ -248,7 +318,14 @@ export function browserPool(
       await mkdir(folder, { recursive: true, mode: 0o755 });
       await writeFile(join(folder, name), file.data, { mode: 0o644 });
       try {
-        await act(r, { name: "upload", body: { element_id, file_path: `${handoff.remote}/${id}/${name}`, approved: true } });
+        await act(r, {
+          name: "upload",
+          body: {
+            element_id,
+            file_path: `${handoff.remote}/${id}/${name}`,
+            approved: true,
+          },
+        });
       } finally {
         await rm(folder, { recursive: true, force: true });
       }
@@ -256,16 +333,27 @@ export function browserPool(
     async stillOpen(id) {
       const r = runs.get(id);
       if (!r) return false;
-      // only a window seen to have no tabs is closed; a controller that does not answer is not taken for that
-      return (await r.node.controller.tabs(r.session).catch(() => 1)) > 0;
+      // a window seen to have no tabs is closed, as is a session the controller no longer has (it restarted);
+      // a controller that does not answer is not taken for that
+      const tabs = await r.node.controller
+        .tabs(r.session)
+        .catch((error: unknown) =>
+          error instanceof ControllerError && error.status === 404 ? 0 : 1,
+        );
+      return tabs > 0;
     },
     async downloads(id) {
       const r = run(id);
-      const done = (await r.node.controller.downloads(r.session)).filter((d) => d.status === "completed" && !r.taken.has(d.url));
+      const done = (await r.node.controller.downloads(r.session)).filter(
+        (d) => d.status === "completed" && !r.taken.has(d.url),
+      );
       const files: FileData[] = [];
       for (const d of done) {
         r.taken.add(d.url);
-        files.push({ name: d.filename, data: await r.node.controller.artifact(d.url) });
+        files.push({
+          name: d.filename,
+          data: await r.node.controller.artifact(d.url),
+        });
       }
       return files;
     },
