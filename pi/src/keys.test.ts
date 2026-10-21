@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fileCredentials } from "./credentials.ts";
 import { bare, piKeys, plainly } from "./keys.ts";
+import { transcriber } from "./voice.ts";
 
 const composio = {
   id: "composio",
@@ -216,4 +217,35 @@ test("scheduled work runs on the chat's model until it has one of its own, and g
   await keys.choose("background", null);
   assert.equal(keys.model("background"), a.id);
   await assert.rejects(keys.choose("chat", null), /needs a model/);
+});
+
+test("the mic's speech service is chosen among those with a key; none chosen means the first of them", async () => {
+  const { keys } = setup();
+  assert.deepEqual((await keys.list()).voice, { services: [], chosen: null });
+  for (const provider of ["fireworks", "groq"]) {
+    const first = await keys.login(provider);
+    if (first.kind !== "prompt") return assert.fail("expected a prompt");
+    await keys.answer(first.login, "secret_key_1234");
+  }
+  const { voice } = await keys.list();
+  assert.deepEqual(voice.services.map((s) => s.provider), ["groq", "fireworks"]);
+  assert.equal(voice.chosen, null);
+  await keys.voice("fireworks");
+  assert.equal(keys.voiceChoice(), "fireworks");
+  await assert.rejects(keys.voice("openai"), /Add a key for openai/);
+  await assert.rejects(keys.voice("anthropic"), /does not turn speech into text/);
+  await keys.voice(null);
+  assert.equal(keys.voiceChoice(), null);
+});
+
+test("a chosen speech service is the one used", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "amuse-keys-"));
+  const store = fileCredentials(join(dir, "keys.json"));
+  await store.modify("groq", async () => ({ type: "api_key", key: "gsk_1" }));
+  await store.modify("fireworks", async () => ({ type: "api_key", key: "fw_1" }));
+  const asked: string[] = [];
+  const http: typeof fetch = async (input) => (asked.push(String(input)), new Response(JSON.stringify({ text: "hi" })));
+  await transcriber(store, () => "fireworks", http)(new Uint8Array([1]), "audio/webm");
+  await transcriber(store, () => null, http)(new Uint8Array([1]), "audio/webm");
+  assert.deepEqual(asked.map((u) => new URL(u).hostname), ["api.fireworks.ai", "api.groq.com"]);
 });

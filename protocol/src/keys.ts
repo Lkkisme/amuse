@@ -81,5 +81,7 @@ export const KeysState = z.object({
   background: ModelRef.nullable(),
   /** how much each thinks */
   thinking: z.object({ chat: ThinkingLevel, browser: ThinkingLevel, background: ThinkingLevel }),
+  /** speech to text for the mic: the services the user has a key for, and the one chosen (null: the first of them) */
+  voice: z.object({ services: z.array(z.object({ provider: z.string(), name: z.string() })), chosen: z.string().nullable() }),
 });
 export type KeysState = z.infer<typeof KeysState>;

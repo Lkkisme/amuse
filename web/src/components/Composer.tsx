@@ -43,9 +43,11 @@ export function Composer({ conversation, place, actions }: { conversation: State
   const [voice, setVoice] = useState<"idle" | "recording" | "transcribing">("idle");
   const [voiceProblem, setVoiceProblem] = useState<string | null>(null);
   const recorder = useRef<MediaRecorder | null>(null);
+  // browsers keep the mic from pages on plain http: there the mic is off, and says why
+  const secure = window.isSecureContext && !!navigator.mediaDevices?.getUserMedia;
   const listen = async () => {
     setVoiceProblem(null);
-    if (!navigator.mediaDevices?.getUserMedia) return setVoiceProblem("Voice needs this page on https.");
+    if (!secure) return setVoiceProblem("Voice needs Amuse on https (see the README: Other devices).");
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -178,7 +180,9 @@ export function Composer({ conversation, place, actions }: { conversation: State
               <button
                 aria-label={voice === "recording" ? "Stop dictating" : voice === "transcribing" ? "Turning speech into text" : "Dictate"}
                 disabled={voice === "transcribing"}
-                className={`flex size-9 shrink-0 items-center justify-center rounded-full ${voice === "idle" ? "hover-fade" : ""}`}
+                aria-disabled={!secure}
+                title={secure ? undefined : "Voice needs https"}
+                className={`flex size-9 shrink-0 items-center justify-center rounded-full ${voice === "idle" && secure ? "hover-fade" : ""} ${secure ? "" : "opacity-40"}`}
                 style={voice === "recording" ? { background: "var(--fill-red)", color: "#fff" } : { color: "var(--icon-secondary)" }}
                 onClick={() => (voice === "recording" ? stopListening() : void listen())}
               >

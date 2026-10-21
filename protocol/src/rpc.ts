@@ -92,6 +92,8 @@ export const Call = z.discriminatedUnion("method", [
   call("models.choose", z.object({ role: ModelRole, model: ModelRef.nullable() })),
   /** How much the chat's or the browser's model thinks (one of the levels its model takes). */
   call("models.think", z.object({ role: ModelRole, level: ThinkingLevel })),
+  /** Which speech service turns the mic into text (by provider); null: the first one with a key. */
+  call("models.voice", z.object({ provider: z.string().min(1).max(100).nullable() })),
 ]);
 
 export type Call = z.infer<typeof Call>;
@@ -141,6 +143,7 @@ export const results = {
   "keys.logout": done,
   "models.choose": done,
   "models.think": done,
+  "models.voice": done,
 } satisfies Record<Method, z.ZodType>;
 
 export type Params = { [C in Call as C["method"]]: C["params"] };
@@ -188,6 +191,7 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "keys.logout": (raw) => results["keys.logout"].parse(raw),
   "models.choose": (raw) => results["models.choose"].parse(raw),
   "models.think": (raw) => results["models.think"].parse(raw),
+  "models.voice": (raw) => results["models.voice"].parse(raw),
 };
 
 /** What a server implements: one function per method. */

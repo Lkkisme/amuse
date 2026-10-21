@@ -258,11 +258,13 @@ export interface Keys {
   choose(role: ModelRole, model: string | null): Promise<void>;
   /** How much a role's model thinks. */
   think(role: ModelRole, level: ThinkingLevel): Promise<void>;
+  /** Which speech service the mic uses (null: the first with a key). */
+  voice(provider: string | null): Promise<void>;
 }
 
 /** No keys: where none are kept (the demo, tests); the demo's agent needs none. */
 export const noKeys: Keys = {
-  list: async () => ({ providers: [], models: [], chat: null, browser: null, background: null, thinking: { chat: "off", browser: "off", background: "off" } }),
+  list: async () => ({ providers: [], models: [], chat: null, browser: null, background: null, thinking: { chat: "off", browser: "off", background: "off" }, voice: { services: [], chosen: null } }),
   login: async () => ({ kind: "failed", reason: "No keys are kept here." }),
   answer: async () => ({ kind: "failed", reason: "No keys are kept here." }),
   cancel: async () => {},
@@ -273,6 +275,9 @@ export const noKeys: Keys = {
   },
   think: async () => {
     throw new Error("No models are chosen here.");
+  },
+  voice: async () => {
+    throw new Error("No speech service is chosen here.");
   },
 };
 
@@ -810,6 +815,10 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     },
     "models.think": async ({ role, level }) => {
       await ports.keys.think(role, level);
+      return null;
+    },
+    "models.voice": async ({ provider }) => {
+      await ports.keys.voice(provider);
       return null;
     },
   };

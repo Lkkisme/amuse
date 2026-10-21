@@ -169,7 +169,7 @@ const none = async <T>(read: () => Promise<T[]>): Promise<T[]> => {
 /** the skills that ship with Amuse (pi/skills/); the user's own are read from the workspace each turn */
 const skills = builtInSkills();
 /** the composer's mic: speech to text with the user's own key (pi/src/voice.ts) */
-const toText = transcriber(credentials);
+const toText = transcriber(credentials, () => keys.voiceChoice());
 const speech = async (audio: Uint8Array, type: string) => {
   try {
     return { text: await toText(audio, type) };

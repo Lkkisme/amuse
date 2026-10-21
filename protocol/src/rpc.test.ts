@@ -32,7 +32,7 @@ const handlers: Handlers = {
   "logins.list": async () => ({ sites: [] }),
   "logins.forget": async () => null,
   "approvals.list": async () => ({ approvals: [] }),
-  "keys.list": async () => ({ providers: [], models: [], chat: null, browser: null, background: null, thinking: { chat: "off", browser: "off", background: "off" } }),
+  "keys.list": async () => ({ providers: [], models: [], chat: null, browser: null, background: null, thinking: { chat: "off", browser: "off", background: "off" }, voice: { services: [], chosen: null } }),
   "keys.login": async () => ({ kind: "done" }),
   "keys.answer": async () => ({ kind: "done" }),
   "keys.cancel": async () => null,
@@ -40,6 +40,7 @@ const handlers: Handlers = {
   "keys.logout": async () => null,
   "models.choose": async () => null,
   "models.think": async () => null,
+  "models.voice": async () => null,
 };
 
 test("a framed request parses into a typed call and dispatches to its handler", async () => {

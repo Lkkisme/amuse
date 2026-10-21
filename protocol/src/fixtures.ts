@@ -145,6 +145,7 @@ export const calls: Call[] = [
   { method: "keys.cancel", params: { login: "l-1" } },
   { method: "keys.test", params: { provider: "fireworks" } },
   { method: "keys.logout", params: { provider: "fireworks" } },
+  { method: "models.voice", params: { provider: "groq" } },
   { method: "models.think", params: { role: "chat", level: "medium" } },
   { method: "models.choose", params: { role: "chat", model: "fireworks/accounts/fireworks/models/glm-5p3-flash" } },
 ];

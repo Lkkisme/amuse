@@ -16,6 +16,7 @@ import { z } from "zod";
 import { type KeyFile, fileCredentials, readOnlyCredentials } from "./credentials.ts";
 import { redact } from "./redact.ts";
 import { type PiModelConfig, parseModel, runtime } from "./session.ts";
+import { voiceServices } from "./voice.ts";
 
 /** A key that is not a model provider's: one secret, asked for in a sentence, with where to get it. */
 export interface AppKey {
@@ -37,6 +38,8 @@ export interface PiKeys extends Keys {
   model(role: ModelRole): string | null;
   /** How much `role`'s model thinks. */
   thinking(role: ModelRole): ThinkingLevel;
+  /** The mic's speech service, as the user chose it (null: the first with a key). */
+  voiceChoice(): string | null;
   /** An app key (by its id), when set up. */
   appKey(id: string): string | null;
   /** Called after any key is set up or forgotten. */
@@ -48,6 +51,8 @@ const Choice = z.object({
   browser: z.string().nullable(),
   /** scheduled work's model; null: the chat's */
   background: z.string().nullable().default(null),
+  /** the mic's speech service (a provider); null: the first with a key */
+  voice: z.string().nullable().default(null),
   thinking: z
     .object({ chat: ThinkingLevel, browser: ThinkingLevel, background: ThinkingLevel.default("off") })
     .default({ chat: "off", browser: "off", background: "off" }),
@@ -140,7 +145,7 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
     auth: { kind: "keys", keys },
     ...(modelsPath ? { modelsPath } : {}),
   };
-  let choice: Choice = existsSync(choicePath) ? Choice.parse(JSON.parse(readFileSync(choicePath, "utf8"))) : { chat: null, browser: null, background: null, thinking: { chat: "off", browser: "off", background: "off" } };
+  let choice: Choice = existsSync(choicePath) ? Choice.parse(JSON.parse(readFileSync(choicePath, "utf8"))) : { chat: null, browser: null, background: null, voice: null, thinking: { chat: "off", browser: "off", background: "off" } };
   const choose = (next: Choice) => {
     writeFileSync(`${choicePath}.tmp`, JSON.stringify(next, null, 2), {
       mode: 0o600,
@@ -246,6 +251,7 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
   return {
     model: (role) => runs(role),
     thinking: (role) => choice.thinking[role],
+    voiceChoice: () => choice.voice,
     appKey: (id) => appKeys.get(id) ?? null,
     onChange: (listener) => void listeners.push(listener),
 
@@ -282,6 +288,7 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
         browser: choice.browser,
         background: choice.background,
         thinking: { chat: await inEffect("chat"), browser: await inEffect("browser"), background: await inEffect("background") },
+        voice: { services: voiceServices.filter((v) => stored.has(v.provider)).map(({ provider, name }) => ({ provider, name })), chosen: choice.voice },
       };
     },
 
@@ -384,6 +391,13 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
       choose({ ...choice, [role]: model, thinking: { ...choice.thinking, [role]: level } });
     },
 
+    async voice(provider) {
+      if (provider !== null && !voiceServices.some((v) => v.provider === provider))
+        throw new Rejected({ kind: "unsound", reason: `${provider} does not turn speech into text here.` });
+      if (provider !== null && !(await keys.read(provider))) throw new Rejected({ kind: "unsound", reason: `Add a key for ${provider} first.` });
+      choose({ ...choice, voice: provider });
+    },
+
     async think(role, level) {
       const chosen = runs(role);
       if (chosen === null) throw new Rejected({ kind: "unsound", reason: "Choose a model first." });
@@ -448,6 +462,7 @@ export async function adoptEnvironment({
       chat,
       browser: env["AMUSE_PI_BROWSER_MODEL"]?.trim() || chat,
       background: null,
+      voice: null,
       thinking: { chat: "off", browser: "off", background: "off" },
     };
     writeFileSync(choicePath, JSON.stringify(choice, null, 2), { mode: 0o600 });

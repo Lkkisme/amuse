@@ -10,10 +10,10 @@ import { plainly } from "./keys.ts";
 import { redact } from "./redact.ts";
 
 /** The speech-to-text services, in the order they are tried (by provider id, as in the keys). */
-const services = [
-  { provider: "openai", url: "https://api.openai.com/v1/audio/transcriptions", model: "gpt-4o-mini-transcribe" },
-  { provider: "groq", url: "https://api.groq.com/openai/v1/audio/transcriptions", model: "whisper-large-v3-turbo" },
-  { provider: "fireworks", url: "https://api.fireworks.ai/inference/v1/audio/transcriptions", model: "whisper-v3-turbo" },
+export const voiceServices = [
+  { provider: "openai", name: "OpenAI (GPT-4o mini Transcribe)", url: "https://api.openai.com/v1/audio/transcriptions", model: "gpt-4o-mini-transcribe" },
+  { provider: "groq", name: "Groq (Whisper large v3 turbo)", url: "https://api.groq.com/openai/v1/audio/transcriptions", model: "whisper-large-v3-turbo" },
+  { provider: "fireworks", name: "Fireworks (Whisper v3 turbo)", url: "https://api.fireworks.ai/inference/v1/audio/transcriptions", model: "whisper-v3-turbo" },
 ];
 
 /** Speech cannot be turned into text: why, in words for the user. */
@@ -22,9 +22,11 @@ export class VoiceUnavailable extends Error {}
 /** The audio a recording gives (webm or ogg with opus, mp4 on Safari), as a file name a service takes. */
 const fileName = (type: string) => `speech.${type.includes("ogg") ? "ogg" : type.includes("mp4") || type.includes("aac") ? "m4a" : type.includes("wav") ? "wav" : "webm"}`;
 
-export function transcriber(keys: KeyFile, http: typeof fetch = fetch) {
+/** `choice`: the provider the user chose for speech (null: the first one with a key). */
+export function transcriber(keys: KeyFile, choice: () => string | null = () => null, http: typeof fetch = fetch) {
   return async (audio: Uint8Array, type: string): Promise<string> => {
-    for (const service of services) {
+    const chosen = choice();
+    for (const service of voiceServices.filter((s) => chosen === null || s.provider === chosen)) {
       const credential = await keys.read(service.provider);
       const key = credential?.type === "api_key" ? credential.key : undefined;
       if (!key) continue;

@@ -54,6 +54,10 @@ export function Models({
     setError(null);
     session.call("models.think", { role, level }).then(load, fail);
   };
+  const voice = (provider: string | null) => {
+    setError(null);
+    session.call("models.voice", { provider }).then(load, fail);
+  };
   const forget = (provider: KeyProvider) => {
     setError(null);
     clear(provider.id);
@@ -181,6 +185,47 @@ export function Models({
           >
             Background runs your schedules, and keeps memory between
             conversations every hour; a cheaper model does well there.
+          </p>
+          <p className={label} style={{ color: "var(--text-secondary)" }}>
+            Voice
+          </p>
+          <div
+            className={group}
+            style={{ background: "var(--fill-secondary)" }}
+          >
+            <label className="flex items-center gap-3 py-2.5">
+              <span
+                className="text-[16px]"
+                style={{ color: "var(--text-primary)" }}
+              >
+                Speech to text
+              </span>
+              <select
+                aria-label="Speech to text"
+                className="min-w-0 flex-1 truncate bg-transparent text-right text-[15px] outline-none"
+                style={{ color: "var(--text-secondary)" }}
+                value={state.voice.chosen ?? ""}
+                onChange={(e) => voice(e.target.value || null)}
+              >
+                <option value="">
+                  {state.voice.services.length > 0
+                    ? "Automatic"
+                    : "Needs an OpenAI, Groq or Fireworks key"}
+                </option>
+                {state.voice.services.map((s) => (
+                  <option key={s.provider} value={s.provider}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <p
+            className="mt-2 px-1 text-[13px] leading-snug"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            Turns what you say into the mic into text. Automatic uses the first
+            of OpenAI, Groq and Fireworks you have a key for.
           </p>
           <p className={label} style={{ color: "var(--text-secondary)" }}>
             Your providers
