@@ -415,3 +415,30 @@ test("a Connect card still waiting is connected once its app has an active accou
   await host.call("apps.accounts", {});
   assert.equal(notes.length, 1, "once");
 });
+
+test("every approval asked, in any chat, is listed newest first with its chat, and an answer for good says so", async () => {
+  const time = manualTime("2026-10-20T08:00:00Z");
+  const { ports, io } = capture();
+  const host = createHost(ports, { clock: time.clock, timers: time.timers });
+  await host.call("chat.send", { chat: "main", text: "send it", timezone: "UTC", attachments: [] });
+  const main = io();
+  assert.ok(main);
+  const first = main.act({ kind: "ask", action: "Send the email", target: "me@a.com", detail: "To: x", remember: true, app: "gmail" });
+  assert.ok(first.ok);
+  await host.call("approval.resolve", { id: first.id, resolution: "allow_always" });
+  time.advance(60_000);
+  const side = await host.call("chats.create", {});
+  await host.call("chat.send", { chat: side.id, text: "and visit", timezone: "UTC", attachments: [] });
+  const other = io();
+  assert.ok(other);
+  const second = other.act({ kind: "ask", action: "Visit", target: "news.example", detail: "to read", remember: true });
+  assert.ok(second.ok);
+  const { approvals } = await host.call("approvals.list", {});
+  assert.deepEqual(
+    approvals.map((a) => [a.chat.id, a.approval.action, a.approval.status, a.approval.always, a.approval.app]),
+    [
+      [side.id, "Visit", "pending", false, null],
+      ["main", "Send the email", "approved", true, "gmail"],
+    ],
+  );
+});

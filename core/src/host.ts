@@ -8,6 +8,7 @@
  */
 import {
   type Account,
+  type Approval,
   type Attachment,
   type Permission,
   type KindRule,
@@ -746,6 +747,11 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     }),
     "schedule.control": async (params) => about(params.id, "schedule.control", params),
     "apps.search": ({ query, cursor }) => ports.apps.search(query, cursor),
+    "approvals.list": async () => ({
+      approvals: [...rooms.values()]
+        .flatMap((room) => room.state.entities.filter((e): e is Approval => e.kind === "approval").map((approval) => ({ chat: room.chat, approval })))
+        .sort((a, b) => Date.parse(b.approval.at) - Date.parse(a.approval.at)),
+    }),
     "apps.accounts": async () => {
       const accounts = await ports.apps.accounts();
       settleConnections(accounts);

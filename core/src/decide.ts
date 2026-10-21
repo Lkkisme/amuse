@@ -28,7 +28,7 @@ import type {
 import { APPROVAL_TTL_MS, GRACE_MS, MAX_SCHEDULES, check, later, nextRun, standing } from "./schedule.ts";
 
 /** Calls that do not touch the conversation: reading it, the app directory (Ports.apps) and the keys (Ports.keys). */
-export type Query = Extract<Call, { method: "session.sync" | "session.history" | "schedules.list" | `chats.${string}` | `apps.${string}` | `sites.${string}` | `keys.${string}` | `models.${string}` }>;
+export type Query = Extract<Call, { method: "session.sync" | "session.history" | "schedules.list" | `chats.${string}` | `apps.${string}` | `sites.${string}` | `keys.${string}` | `models.${string}` | `approvals.${string}` }>;
 /** Client calls that change the conversation. */
 export type Command = Exclude<Call, Query>;
 type CommandMethod = Command["method"];
@@ -261,7 +261,7 @@ const rules: Rules = {
     if (approval.status !== "pending") return reject({ kind: "invalid", action: "resolve", from: approval.status });
     // "always" is offered only where a rule can hold it
     if (lasting(resolution) && !approval.remember) return reject({ kind: "invalid", action: "always", from: approval.status });
-    return ok([upsert({ ...approval, status: verdict(resolution) })], [{ kind: "approval", id, resolution }], null);
+    return ok([upsert({ ...approval, status: verdict(resolution), always: lasting(resolution) })], [{ kind: "approval", id, resolution }], null);
   },
 
   "connection.begin": (state, { id }) => {
@@ -354,7 +354,7 @@ const agentRules: AgentRules = {
   ask: (_, { action, target, detail, remember, app = null }, ctx) => {
     const id = ctx.id("a");
     const expires = later(ctx.now, APPROVAL_TTL_MS);
-    return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, remember, status: "pending", expires, app })], [], { id });
+    return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, remember, status: "pending", expires, app, always: false })], [], { id });
   },
   schedule: (state, { title, instructions, when, needs = null, preset = false }, ctx) => {
     if (standing(state).length >= MAX_SCHEDULES) return reject({ kind: "unsound", reason: `there are already ${MAX_SCHEDULES} schedules; cancel one first` });

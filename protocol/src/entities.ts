@@ -90,6 +90,8 @@ export const Approval = z.object({
   expires: Instant,
   /** the app it is for (e.g. "gmail"), shown with its logo; null: not an app's */
   app: z.string().nullable().default(null),
+  /** the answer was for good (it became a rule) */
+  always: z.boolean().default(false),
 });
 
 /** The agent asking the user to connect an app (provider: e.g. "gmail"). */

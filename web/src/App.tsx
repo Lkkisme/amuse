@@ -397,6 +397,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         {ui.museOpen && (
           <MusePanel
             conversation={conversation}
+            session={session}
             mode={ui.viewer ? "floating" : "docked"}
             actions={actions}
           />

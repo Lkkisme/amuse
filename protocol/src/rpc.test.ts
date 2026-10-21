@@ -29,6 +29,7 @@ const handlers: Handlers = {
   "apps.permit": async () => null,
   "sites.rules": async () => ({ rules: [] }),
   "sites.permit": async () => null,
+  "approvals.list": async () => ({ approvals: [] }),
   "keys.list": async () => ({ providers: [], models: [], chat: null, browser: null, background: null, thinking: { chat: "off", browser: "off", background: "off" } }),
   "keys.login": async () => ({ kind: "done" }),
   "keys.answer": async () => ({ kind: "done" }),

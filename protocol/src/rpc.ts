@@ -6,7 +6,7 @@
  */
 import { z } from "zod";
 import { Account, App, KindRule, Permission, Site, SiteRule, ToolKind } from "./apps.ts";
-import { Attachment, Id, Resolution, Schedule, TimeZone } from "./entities.ts";
+import { Approval, Attachment, Id, Resolution, Schedule, TimeZone } from "./entities.ts";
 import { Envelope, Index, Page, Seq, State } from "./events.ts";
 import { Chat, Push } from "./chats.ts";
 import { KeyTest, KeysState, LoginStep, ModelRef, ModelRole, ThinkingLevel } from "./keys.ts";
@@ -70,6 +70,8 @@ export const Call = z.discriminatedUnion("method", [
   call("sites.rules", z.object({})),
   /** Set what the browser agent may do on a site; null: back to the default (ask). */
   call("sites.permit", z.object({ site: Site, permission: Permission.nullable() })),
+  /** Every approval asked in any chat, newest first, with the chat it is in: what was allowed or denied, and when. */
+  call("approvals.list", z.object({})),
   /** The providers there are for keys, which are set up, the models they offer and the ones chosen. */
   call("keys.list", z.object({})),
   /** Start setting up a provider's key: its first prompt (or done/failed). */
@@ -124,6 +126,7 @@ export const results = {
   "apps.permit": done,
   "sites.rules": z.object({ rules: z.array(SiteRule) }),
   "sites.permit": done,
+  "approvals.list": z.object({ approvals: z.array(z.object({ chat: Chat, approval: Approval })) }),
   "keys.list": KeysState,
   "keys.login": LoginStep,
   "keys.answer": LoginStep,
@@ -168,6 +171,7 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "apps.permit": (raw) => results["apps.permit"].parse(raw),
   "sites.rules": (raw) => results["sites.rules"].parse(raw),
   "sites.permit": (raw) => results["sites.permit"].parse(raw),
+  "approvals.list": (raw) => results["approvals.list"].parse(raw),
   "keys.list": (raw) => results["keys.list"].parse(raw),
   "keys.login": (raw) => results["keys.login"].parse(raw),
   "keys.answer": (raw) => results["keys.answer"].parse(raw),

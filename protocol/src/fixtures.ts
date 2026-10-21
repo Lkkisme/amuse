@@ -34,7 +34,7 @@ export const envelopes: Envelope[] = [
     event: {
       kind: "upserted",
       index: 3,
-      entity: { kind: "approval", id: "a1", at, action: "Send email", target: "restaurant@example.com", detail: "Table for 4", remember: true, status: "pending", expires: "2026-10-20T08:54:00Z", app: "gmail" },
+      entity: { kind: "approval", id: "a1", at, action: "Send email", target: "restaurant@example.com", detail: "Table for 4", remember: true, status: "pending", expires: "2026-10-20T08:54:00Z", app: "gmail", always: false },
     },
   },
   {
@@ -136,6 +136,7 @@ export const calls: Call[] = [
   { method: "apps.permit", params: { app: "gmail", kind: "write", permission: "ask" } },
   { method: "sites.rules", params: {} },
   { method: "sites.permit", params: { site: "bank.com", permission: "deny" } },
+  { method: "approvals.list", params: {} },
   { method: "keys.list", params: {} },
   { method: "keys.login", params: { provider: "fireworks" } },
   { method: "keys.answer", params: { login: "l-1", value: "fw_example" } },
