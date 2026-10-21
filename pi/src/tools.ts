@@ -108,8 +108,13 @@ export function tools(
           }
           void visitAnswer(agent, rules, asked.id, url).then((outcome) => {
             if (outcome !== "approved") return agent.report(`[browser task "${title}" not started] ${notVisited(url, outcome)}`);
+            // whatever the answer, the agent hears it at once (here: the task runs; its result comes later)
             const started = start();
-            if (!started.ok) agent.report(`[browser task "${title}" not started] ${describe(started.rejection)}`);
+            agent.report(
+              started.ok
+                ? `[browser task "${title}" started] The user allowed visiting ${siteOf(url) ?? url}; the task runs now, and its result comes as a report.`
+                : `[browser task "${title}" not started] ${describe(started.rejection)}`,
+            );
           });
           return text(`${siteOf(url)} has no rule yet, so the user is asked first; the task starts once they allow it. Tell the user briefly that you need their OK.`);
         }
