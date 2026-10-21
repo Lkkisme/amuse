@@ -1,0 +1,59 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { type AgentIO, type Say, memoryRules } from "@amuse/core";
+import { type FauxResponseStep, fauxProvider } from "@earendil-works/pi-ai";
+import { ModelRuntime, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { piAgent } from "./agent.ts";
+import { sessionOn } from "./session.ts";
+
+/**
+ * For tests of the chat agent: it on a scripted model (pi-ai's faux provider), and a chat that records
+ * what it says. Not a test itself.
+ */
+export async function chat(responses: FauxResponseStep[], extra: ToolDefinition[] = []) {
+  const models = await ModelRuntime.create({ authPath: join(mkdtempSync(join(tmpdir(), "amuse-auth-")), "auth.json"), modelsPath: null, refreshOnCreate: false });
+  const faux = fauxProvider({ provider: "faux", models: [{ id: "scripted" }] });
+  models.registerNativeProvider(faux.provider);
+  faux.setResponses(responses);
+  const said: Say[] = [];
+  /** how many turns have ended (each one ends with the activity line cleared) */
+  let ended = 0;
+  let wake: (() => void) | undefined;
+  const io: AgentIO = {
+    chat: "main",
+    chats: () => [{ id: "main", title: "Main chat", main: true, updated: "2026-10-21T08:00:00Z" }],
+    readChat: () => null,
+    emit: (say) => {
+      said.push(say);
+      if (say.kind === "activity" && say.activity === null) {
+        ended++;
+        wake?.();
+      }
+    },
+    act: () => ({ ok: true, id: "x" }),
+    decision: async () => ({ verdict: "denied", remember: false }),
+    report: () => {},
+    context: () => "[08:00] User: hello",
+    recall: () => "",
+    time: () => ({ now: "2026-10-21T08:00:00Z", timezone: "UTC" }),
+    lastWords: () => "hello",
+    answer: async () => ({ kind: "closed" }),
+    listen: () => () => {},
+  };
+  const agent = piAgent({
+    model: () => "faux/scripted",
+    auth: { kind: "environment" },
+    system: "You are a test.",
+    rules: memoryRules(),
+    open: (system, tools) => sessionOn(models, faux.getModel(), system, [...tools, ...extra]),
+  });
+  /** resolves once `turns` turns have ended */
+  const until = (turns: number) =>
+    new Promise<void>((resolve) => {
+      wake = () => ended >= turns && resolve();
+      wake();
+    });
+  const replies = () => said.flatMap((s) => (s.kind === "upserted" && s.entity.kind === "reply" ? [s.entity.text] : []));
+  return { agent, io, faux, replies, until };
+}

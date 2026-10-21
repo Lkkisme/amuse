@@ -19,7 +19,7 @@ export function inFlight(entity: Entity): boolean {
 
 /** What the chat agent is told about a run that has been going `minutes`. */
 export function beatNote(entity: Entity, minutes: number): string | null {
-  const ask = "Check on it if it seems stuck or slow (message_run, or stop_run if it should stop); tell the user only what they need to hear. If all is well, reply with nothing at all.";
+  const ask = "Check on it if it seems stuck or slow (message_run, or stop_run if it should stop); tell the user only what they need to hear. If all is well, call no_reply.";
   if (entity.kind === "browser") {
     const where = entity.status === "needs_you" ? "it waits for the user to do something in the browser" : entity.status === "waiting" ? "it waits for an answer or an approval" : `it is ${entity.status}`;
     const step = entity.step ? `, now: ${entity.step}` : "";

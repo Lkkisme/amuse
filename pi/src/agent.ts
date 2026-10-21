@@ -15,12 +15,14 @@ import { type Skill, allSkills, catalog, skillTools } from "./skills.ts";
 import type { Needs } from "@amuse/protocol";
 import type { SandboxClient } from "@amuse/sandbox";
 import { redact } from "./redact.ts";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { type PiModelConfig, type PiSession, openSession, secretsOf } from "./session.ts";
 import { statusOf } from "./status.ts";
 import { relayTools } from "./runs.ts";
 import { taskTools } from "./tasks.ts";
 import { scheduleTools } from "./schedules.ts";
 import { sandboxTools, secretTools } from "./sandbox.ts";
+import { silenceTools } from "./silence.ts";
 import { type Apps, appTools, chatTools, tools } from "./tools.ts";
 import { type Search, webTools } from "./web.ts";
 
@@ -44,6 +46,8 @@ export interface PiConfig extends PiModelConfig {
   skills?: Skill[];
   /** Schedules every instance starts with (memory upkeep, reflection), each set up once, on the user's clock, when they write. */
   defaults?: Defaults;
+  /** Where a turn's Pi session comes from (tests give one with a scripted model); the configured model's by default. */
+  open?: (system: string, tools: ToolDefinition[]) => Promise<PiSession>;
 }
 
 /** A schedule every instance starts with; after that it is the user's like any other. */
@@ -119,6 +123,7 @@ const toolLabels: Record<string, string> = {
   message_run: "Telling a background task",
   answer_question: "Passing on your answer",
   stop_run: "Stopping a background task",
+  no_reply: "Wrapping up",
 };
 
 /** One chat's agent: its runs one after another, the session of the one in progress, and its interrupt count. */
@@ -159,6 +164,8 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
     emit({ kind: "activity", activity: { kind: "responding", label: null } });
     /** what the model is writing in its current message */
     let said = "";
+    /** the model chose to say nothing this turn: whatever it writes is dropped */
+    let silent = false;
     try {
       // the user's language, said where the model weighs it most: the system prompt of this turn
       const language = scriptOf(agent.lastWords());
@@ -168,27 +175,24 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
       const news = turn.kind === "message" ? skillNews(every) : "";
       const system = [cfg.system, skills, language ? `The user writes in ${language}: reply in ${language}.` : ""].filter(Boolean).join("\n\n");
       if (turn.kind === "message") setUpDefaults(cfg.defaults, agent);
-      const session = await openSession(
-        cfg,
-        system,
-        [
-          // with memory, memory_search looks in the chats as recall did, and in memory/ too
-          ...tools(io, cfg.rules, { files: cfg.files, appsSetup: cfg.appsSetup }).filter((t) => !(cfg.files && t.name === "recall")),
-          ...(cfg.files ? [...memoryReadTools(io, cfg.files), ...memoryWriteTools(io, cfg.files)] : []),
-          ...skillTools(cfg.skills ?? [], cfg.files),
-          ...(cfg.about ? aboutTools(cfg.about) : []),
-          ...chatTools(io),
-          ...scheduleTools(io, cfg.files),
-          ...taskTools(io),
-          ...relayTools(io),
-          ...webTools(io, cfg.rules, cfg.search),
-          ...(cfg.apps ? appTools(io, cfg.apps) : []),
-          ...(cfg.files ? workspaceTools(io, cfg.files) : []),
-          ...(cfg.sandbox ? [...sandboxTools(cfg.sandbox), ...secretTools(io)] : []),
-        ],
-        // many calls in one turn, only what the script returns in its context
-        { codemode: true },
-      );
+      const toolset = [
+        // with memory, memory_search looks in the chats as recall did, and in memory/ too
+        ...tools(io, cfg.rules, { files: cfg.files, appsSetup: cfg.appsSetup }).filter((t) => !(cfg.files && t.name === "recall")),
+        ...(cfg.files ? [...memoryReadTools(io, cfg.files), ...memoryWriteTools(io, cfg.files)] : []),
+        ...skillTools(cfg.skills ?? [], cfg.files),
+        ...(cfg.about ? aboutTools(cfg.about) : []),
+        ...chatTools(io),
+        ...scheduleTools(io, cfg.files),
+        ...taskTools(io),
+        ...relayTools(io),
+        ...webTools(io, cfg.rules, cfg.search),
+        ...(cfg.apps ? appTools(io, cfg.apps) : []),
+        ...(cfg.files ? workspaceTools(io, cfg.files) : []),
+        ...(cfg.sandbox ? [...sandboxTools(cfg.sandbox), ...secretTools(io)] : []),
+        ...silenceTools(() => (silent = true)),
+      ];
+      // many calls in one turn, only what the script returns in its context
+      const session = await (cfg.open ? cfg.open(system, toolset) : openSession(cfg, system, toolset, { codemode: true }));
       lane.session = session;
       const pi = session.session;
       if (!live()) return;
@@ -210,7 +214,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
           const text = said.trim();
           said = "";
           if (stopReason === "error") failure = event.message.errorMessage ?? "The model run failed";
-          else if (text && stopReason !== "toolUse" && stopReason !== "aborted")
+          else if (text && !silent && stopReason !== "toolUse" && stopReason !== "aborted")
             emit({ kind: "upserted", entity: { kind: "reply", id: newId("r"), at: new Date().toISOString(), text, streaming: false, attachments: [] } });
         }
       });
@@ -306,6 +310,6 @@ function brief(agent: AgentIO, turn: Turn, remembered: string): string {
   const task =
     turn.kind === "message"
       ? "Reply to the user's newest message (the last lines above)."
-      : `A note from your background work (not from the user). Tell the user only what they need to hear, in your own words, never that a note came. If nothing needs them (all is well, nothing was waiting), reply with nothing at all: an empty reply is not shown.\n${turn.text}`;
+      : `A note from your background work (not from the user). Tell the user only what they need to hear, in your own words, never that a note came. If nothing needs them (all is well, nothing was waiting, you already told them), call no_reply and write nothing: never explain why you are staying silent.\n${turn.text}`;
   return `${where}\n\n${remembered ? `${remembered}\n\n---\n` : ""}The conversation so far, oldest first (times are the user's, ${timezone}):\n\n${agent.context()}\n\n---\nNow: ${nowIn(now, timezone)}.\n${task}`;
 }

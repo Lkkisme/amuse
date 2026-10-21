@@ -1,0 +1,49 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import type { Turn } from "@amuse/core";
+import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
+import { defineTool } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import { chat } from "./scripted-chat.ts";
+
+const note: Turn = { kind: "note", text: "[browser task b-1 completed] logged in" };
+
+test("no_reply ends a turn without a reply, and nothing the model wrote in it reaches the chat", async () => {
+  const { agent, io, faux, replies, until } = await chat([
+    fauxAssistantMessage([fauxText("(No reply needed: already reported.)"), fauxToolCall("no_reply", {})], { stopReason: "toolUse" }),
+    fauxAssistantMessage("Never asked for"),
+  ]);
+  agent.prompt(note, io);
+  await until(1);
+  assert.deepEqual(replies(), []);
+  assert.equal(faux.state.callCount, 1, "the model is not called again for a turn that stays silent");
+});
+
+test("what the model writes after no_reply in the same turn is dropped too", async () => {
+  const lookup = defineTool({
+    name: "lookup",
+    label: "Look up",
+    description: "Look something up",
+    parameters: Type.Object({}),
+    async execute() {
+      return { content: [{ type: "text", text: "found" }], details: null };
+    },
+  });
+  // a tool that does not end the turn alongside it: the model is called again, and what it then writes is not shown
+  const { agent, io, replies, until } = await chat(
+    [fauxAssistantMessage([fauxToolCall("no_reply", {}), fauxToolCall("lookup", {})], { stopReason: "toolUse" }), fauxAssistantMessage("Nothing new for you.")],
+    [lookup],
+  );
+  agent.prompt(note, io);
+  await until(1);
+  assert.deepEqual(replies(), []);
+});
+
+test("a turn that does not call no_reply replies as before, and a blank reply is not one", async () => {
+  const { agent, io, replies, until } = await chat([fauxAssistantMessage("Logged in."), fauxAssistantMessage("  \n ")]);
+  agent.prompt(note, io);
+  await until(1);
+  agent.prompt(note, io);
+  await until(2);
+  assert.deepEqual(replies(), ["Logged in."]);
+});

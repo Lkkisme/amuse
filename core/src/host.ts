@@ -74,6 +74,9 @@ import { type Budget, type Where, agentContext, budget, mentions, recall } from 
 export type Say = { kind: "upserted"; entity: Reply | Failure } | Extract<Change, { kind: "appended" | "activity" }>;
 export type Emit = (say: Say) => void;
 
+/** A finished reply with nothing in it (no words, no files): never shown, however the agent came to write it. */
+export const blank = (say: Say): boolean => say.kind === "upserted" && say.entity.kind === "reply" && !say.entity.streaming && !say.entity.text.trim() && say.entity.attachments.length === 0;
+
 /** Ids that stay unique across restarts and processes (a journal outlives any counter). */
 export const newId = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
 
@@ -589,7 +592,9 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
   function agentOf(chat: string, at: () => Room): AgentIO {
     const io: AgentIO = {
       chat,
-      emit: (say) => commit(at(), say),
+      emit: (say) => {
+        if (!blank(say)) commit(at(), say);
+      },
       decision(id) {
         const approval = holder(id)?.state.entities.find((e) => e.kind === "approval" && e.id === id);
         if (approval?.kind === "approval" && approval.status !== "pending") return Promise.resolve({ verdict: approval.status, remember: false });

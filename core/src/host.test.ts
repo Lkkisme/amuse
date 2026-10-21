@@ -360,6 +360,21 @@ test("a turn Amuse could not reply to is tried again once: the user's message as
   await assert.rejects(host.call("chat.retry", { id: "x1" }), /cannot retry from retried/);
 });
 
+test("a reply with nothing in it (no words, no files) never reaches the chat; a file alone does", async () => {
+  const { ports, io } = capture();
+  const host = createHost(ports);
+  await host.call("chat.send", { chat: "main", text: "anything new?", timezone: "UTC", attachments: [] });
+  const agent = io();
+  assert.ok(agent);
+  const at = "2026-10-20T08:00:00Z";
+  agent.emit({ kind: "upserted", entity: { kind: "reply", id: "r1", at, text: "", streaming: false, attachments: [] } });
+  agent.emit({ kind: "upserted", entity: { kind: "reply", id: "r2", at, text: " \n\t ", streaming: false, attachments: [] } });
+  agent.emit({ kind: "upserted", entity: { kind: "reply", id: "r3", at, text: "", streaming: false, attachments: [{ id: "f1", name: "a.txt", type: "text/plain", size: 1, path: "user/a.txt" }] } });
+  agent.emit({ kind: "upserted", entity: { kind: "reply", id: "r4", at, text: "Nothing new.", streaming: false, attachments: [] } });
+  const { entities } = await host.call("session.history", { chat: "main", before: 100, limit: 100 });
+  assert.deepEqual(entities.filter((e) => e.kind === "reply").map((e) => e.id), ["r3", "r4"]);
+});
+
 test("work handed off is looked in on: the chat agent hears how a task goes every ten minutes while it runs, and no more once it ends", async () => {
   const time = manualTime("2026-10-20T08:00:00Z");
   const notes: string[] = [];
