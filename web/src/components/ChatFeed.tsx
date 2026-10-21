@@ -310,7 +310,7 @@ function Sent({
   const single = media.length === 1;
   return (
     <div
-      className={`flex max-w-[78%] flex-col gap-1.5 ${mine ? "items-end" : "items-start"}`}
+      className={`flex max-w-[88%] sm:max-w-[78%] flex-col gap-1.5 ${mine ? "items-end" : "items-start"}`}
     >
       {media.length > 0 && (
         <div className={single ? "" : "grid grid-cols-2 gap-1.5"}>
@@ -436,7 +436,7 @@ function Bubble({
           {...press}
           ref={bubble}
           // Muse (measured): 16px text on 22px lines, 10px above and below, 16px at the sides
-          className="msg relative w-fit max-w-[78%] px-4 py-2.5 text-[16px] leading-[22px]"
+          className="msg relative w-fit max-w-[88%] sm:max-w-[78%] px-4 py-2.5 text-[16px] leading-[22px]"
           style={{
             ...corners(isUser ? "user" : "muse", place),
             background: isUser
