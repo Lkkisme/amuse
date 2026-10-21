@@ -16,6 +16,7 @@ import {
   type SiteRule,
 } from "@remuse/protocol";
 import { PermissionSelect } from "./PermissionSelect";
+import { Sheet } from "./Sheet";
 
 /** What the user typed, as a site: "https://www.Bank.com/login" and "bank.com" are both bank.com. */
 const asSite = (input: string): string | null => {
@@ -55,6 +56,11 @@ export function SitePermissions({
         setError(e instanceof Error ? e.message : String(e)),
       );
   };
+  const cancel = () => {
+    setDraft("");
+    setError(null);
+    onAdded();
+  };
   const add = () => {
     const site = asSite(draft);
     if (!site) return setError(`“${draft}” is not a website address.`);
@@ -70,47 +76,32 @@ export function SitePermissions({
         className="text-[13px] leading-snug"
         style={{ color: "var(--text-secondary)" }}
       >
-        Muse asks before visiting a website that is not listed here. Ask lets it
-        go there, and it still asks before anything that commits you (buying,
-        sending, submitting); Allow lets it act there without asking; Deny keeps
-        it off the site and stops it asking. A rule covers the site's subdomains
-        too.
+        Muse asks before visiting a website not listed here.
       </p>
-
-      {/* the bar's + opens this */}
-      {adding && (
-        <div
-          className="anim-fade-in mt-4 space-y-2.5 rounded-[18px] p-4"
-          style={{ background: "var(--fill-secondary)" }}
-        >
-          <div
-            className="flex items-center gap-2 rounded-[10px] px-3"
-            style={{ background: "var(--field)" }}
-          >
-            <Globe size={16} style={{ color: "var(--icon-secondary)" }} />
-            <input
-              autoFocus
-              aria-label="Website"
-              className="min-w-0 flex-1 bg-transparent py-2 text-[15px] outline-none"
-              style={{ color: "var(--text-primary)" }}
-              placeholder="news.ycombinator.com"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && draft.trim() && add()}
-            />
-            <PermissionSelect value={permission} onChange={setPermission} />
-          </div>
-          <button
-            disabled={!draft.trim()}
-            className="h-10 w-full rounded-full text-[15px] font-semibold text-white disabled:opacity-40"
-            style={{ background: "var(--fill-blue)" }}
-            onClick={add}
-          >
-            Add
-          </button>
-        </div>
-      )}
-      {error && (
+      <ul
+        className="mt-2 space-y-0.5 text-[13px] leading-snug"
+        style={{ color: "var(--text-secondary)" }}
+      >
+        <li>
+          <b className="font-medium" style={{ color: "var(--text-primary)" }}>
+            Allow
+          </b>{" "}
+          visits and acts without asking
+        </li>
+        <li>
+          <b className="font-medium" style={{ color: "var(--text-primary)" }}>
+            Ask
+          </b>{" "}
+          visits, asks before buying, sending or submitting
+        </li>
+        <li>
+          <b className="font-medium" style={{ color: "var(--text-primary)" }}>
+            Deny
+          </b>{" "}
+          never goes there
+        </li>
+      </ul>
+      {error && !adding && (
         <p
           role="alert"
           className="mt-2 text-[13px]"
@@ -119,6 +110,80 @@ export function SitePermissions({
           {error}
         </p>
       )}
+
+      {/* the bar's + opens this: a sheet from the bottom on a phone, a dialog on a desktop */}
+      <Sheet open={adding} onClose={cancel} bare>
+        <div className="flex flex-col items-center px-6 pb-6 pt-5 text-center">
+          <span
+            className="flex size-14 items-center justify-center rounded-[16px]"
+            style={{ background: "#ffffff", color: "#111112" }}
+          >
+            <Globe size={26} />
+          </span>
+          <p
+            className="mt-4 text-[20px] font-semibold"
+            style={{ color: "var(--text-primary)" }}
+          >
+            Add a website
+          </p>
+          <p
+            className="mt-1 text-[14px]"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            What Muse may do there
+          </p>
+          <div
+            className="mt-5 w-full overflow-hidden rounded-[18px] text-left"
+            style={{ background: "var(--field)" }}
+          >
+            <input
+              autoFocus
+              aria-label="Website"
+              className="w-full bg-transparent px-4 py-3.5 text-[16px] outline-none"
+              style={{ color: "var(--text-primary)" }}
+              placeholder="Website, like news.ycombinator.com"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && draft.trim() && add()}
+            />
+            <div
+              className="mx-4 border-t"
+              style={{ borderColor: "var(--fill-divider)" }}
+            />
+            <div
+              className="flex items-center justify-between px-4 py-2.5 text-[16px]"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              Muse may
+              <PermissionSelect value={permission} onChange={setPermission} />
+            </div>
+          </div>
+          {error && (
+            <p
+              role="alert"
+              className="mt-2 text-[13px]"
+              style={{ color: "var(--fill-red)" }}
+            >
+              {error}
+            </p>
+          )}
+          <button
+            disabled={!draft.trim()}
+            className="mt-6 h-12 w-full rounded-full text-[16px] font-semibold text-white disabled:opacity-40"
+            style={{ background: "var(--fill-blue)" }}
+            onClick={add}
+          >
+            Add
+          </button>
+          <button
+            className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
+            style={{ color: "var(--text-primary)" }}
+            onClick={cancel}
+          >
+            Cancel
+          </button>
+        </div>
+      </Sheet>
 
       <p
         className="mb-2 mt-6 px-1 text-[13px] font-medium"
