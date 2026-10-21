@@ -87,17 +87,22 @@ function EntityView({
   thumb,
   actions,
   onMenu,
+  sending,
 }: {
   entity: Entity;
   place: Place;
   thumb: Thumb;
   actions: Actions;
   onMenu: (menu: Menu) => void;
+  /** a message of the user's still on its way */
+  sending: boolean;
 }) {
   switch (entity.kind) {
     case "prompt":
     case "reply":
-      return <Bubble item={entity} place={place} onMenu={onMenu} />;
+      return (
+        <Bubble item={entity} place={place} onMenu={onMenu} sending={sending} />
+      );
     case "task":
       return <TaskCard task={entity} place={place} actions={actions} />;
     case "approval":
@@ -427,10 +432,12 @@ function Bubble({
   item,
   place,
   onMenu,
+  sending,
 }: {
   item: Message;
   place: Place;
   onMenu: (menu: Menu) => void;
+  sending: boolean;
 }) {
   const isUser = item.kind === "prompt";
   const bubble = useRef<HTMLDivElement>(null);
@@ -441,7 +448,7 @@ function Bubble({
   const { attachments } = item;
   return (
     <div
-      className={`anim-fade-in flex flex-col gap-1.5 ${isUser ? "items-end" : "items-start"}`}
+      className={`anim-fade-in flex flex-col gap-1.5 ${isUser ? "items-end" : "items-start"} transition-opacity ${sending ? "opacity-60" : ""}`}
     >
       {attachments.length > 0 && (
         <Sent attachments={attachments} mine={isUser} />
@@ -474,6 +481,14 @@ function Bubble({
           <ActionRow mine={isUser} text={item.text} />
         </div>
       )}
+      {sending && (
+        <span
+          className="activity-indicator-fade px-1 text-[12px]"
+          style={{ color: "var(--text-tertiary)" }}
+        >
+          Sending…
+        </span>
+      )}
     </div>
   );
 }
@@ -500,6 +515,8 @@ const OLDER_DISTANCE = 600;
 
 interface Props {
   conversation: State;
+  /** messages on their way (outgoing.ts): those not on the server yet, and the keys theirs keep once there */
+  outgoing: { sending: Prompt[]; keys: Map<string, string> };
   /** fetch the page before the oldest message held */
   older: () => Promise<void>;
   /** let go of pages fetched back */
@@ -510,14 +527,20 @@ interface Props {
 
 export function ChatFeed({
   conversation,
+  outgoing,
   older,
   release,
   thumb,
   actions,
 }: Props) {
+  // what is on its way goes at the end, as it will be once the server has it
   const feed = useMemo(
-    () => conversation.entities.filter(shown),
-    [conversation.entities],
+    () => [...conversation.entities.filter(shown), ...outgoing.sending],
+    [conversation.entities, outgoing.sending],
+  );
+  const sending = useMemo(
+    () => new Set(outgoing.sending.map((p) => p.id)),
+    [outgoing.sending],
   );
   /** messages in the whole feed: what "new" is counted against, so pages fetched back are not new */
   const total = conversation.earlier + conversation.entities.length;
@@ -695,7 +718,7 @@ export function ChatFeed({
           {feed.map((entity, i) => (
             // joining the one above: 2px under it between bubbles, 4px where a card is involved (the feed's gap is 12px)
             <div
-              key={entity.id}
+              key={outgoing.keys.get(entity.id) ?? entity.id}
               data-entity={entity.id}
               className={`flex flex-col gap-3 ${joins(feed[i - 1], entity) ? (isMessage(entity) && isMessage(feed[i - 1]) ? "-mt-2.5" : "-mt-2") : ""}`}
             >
@@ -711,6 +734,7 @@ export function ChatFeed({
                 thumb={thumb}
                 actions={actions}
                 onMenu={setMenu}
+                sending={sending.has(entity.id)}
               />
             </div>
           ))}

@@ -15,6 +15,7 @@ import { Files, serverFiles } from "./files.ts";
 import { Unlock } from "./components/Unlock";
 import { type Actions, type Ui, initialUi } from "./ui.ts";
 import { viewerTabs } from "./view.ts";
+import { type Outgoing, outgoingIn } from "./outgoing.ts";
 import { transition } from "./transition.ts";
 import { close, useBack } from "./back.ts";
 
@@ -74,6 +75,12 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
     older,
     release,
   } = useConversation(session, ui.chat);
+  /** messages on their way, shown at once (outgoing.ts) */
+  const [outgoing, setOutgoing] = useState<Outgoing[]>([]);
+  const shownOutgoing = useMemo(
+    () => outgoingIn(conversation.entities, outgoing, ui.chat),
+    [conversation.entities, outgoing, ui.chat],
+  );
   /** where files go and come from: the server's (the demo keeps none) */
   const files = useMemo(
     () => (where.kind === "server" ? serverFiles(where.rpc) : null),
@@ -154,13 +161,46 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
       );
     return {
       // the device's time zone is the user's: times the agent sets and says are on their clock
-      send: (text, attachments) =>
-        call("chat.send", {
-          chat: chatRef.current,
-          text,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          attachments,
-        }),
+      // shown at once as sending; one that does not get through comes off the chat (the composer takes it back)
+      send: (text, attachments) => {
+        const chat = chatRef.current;
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const key = `sending-${crypto.randomUUID()}`;
+        setOutgoing((list) => [
+          ...list,
+          {
+            key,
+            chat,
+            text,
+            attachments,
+            at: new Date().toISOString(),
+            timezone,
+            sent: null,
+            after: conversationRef.current.entities.at(-1)?.id ?? null,
+          },
+        ]);
+        return session
+          .call("chat.send", { chat, text, timezone, attachments })
+          .then(
+            ({ id }) =>
+              setOutgoing((list) =>
+                list.map((o) => (o.key === key ? { ...o, sent: id } : o)),
+              ),
+            (error: unknown) => {
+              setOutgoing((list) => list.filter((o) => o.key !== key));
+              const reason =
+                error instanceof Error ? error.message : String(error);
+              patch((u) => ({
+                ...u,
+                notice:
+                  reason === "disconnected"
+                    ? "Not sent: Amuse could not be reached. Your message is back in the box."
+                    : `Not sent: ${reason}`,
+              }));
+              throw error;
+            },
+          );
+      },
       stop: () => call("chat.stop", { chat: chatRef.current }),
       retry: (id) => call("chat.retry", { id }),
       resolveApproval: (id, resolution) =>
@@ -341,6 +381,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         >
           <ChatFeed
             conversation={conversation}
+            outgoing={shownOutgoing}
             older={older}
             release={release}
             thumb={where.kind === "server" ? where.thumb : null}

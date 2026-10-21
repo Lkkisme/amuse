@@ -108,9 +108,19 @@ export function Composer({ conversation, place, actions }: { conversation: State
 
   const submit = () => {
     if (!sendable || working) return;
-    actions.send(draft.trim(), ready);
+    const text = draft.trim();
+    const sent = pending.filter((p) => p.state.kind === "ready");
     setDraft("");
-    pending.forEach((p) => remove(p.key)); // a failed file goes too: it was not sent
+    pending.filter((p) => p.state.kind !== "ready").forEach((p) => remove(p.key)); // a failed file goes: it was not sent
+    // the sent files leave the box but keep their previews until the message is through: one that is not comes back
+    setPending((list) => list.filter((p) => !sent.includes(p)));
+    actions.send(text, ready).then(
+      () => sent.forEach((p) => p.preview && (URL.revokeObjectURL(p.preview), previews.current.delete(p.preview))),
+      () => {
+        setDraft((now) => (now.trim() ? `${text}\n${now}` : text));
+        setPending((list) => [...sent, ...list]);
+      },
+    );
   };
 
   return (

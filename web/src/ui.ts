@@ -44,8 +44,8 @@ export const initialUi: Ui = {
 
 /** Everything a component can ask for: protocol calls and UI changes. */
 export interface Actions {
-  /** say something in the chat on screen, with any files already uploaded */
-  send(text: string, attachments: Attachment[]): void;
+  /** say something in the chat on screen, with any files already uploaded; fails when it did not get through */
+  send(text: string, attachments: Attachment[]): Promise<void>;
   stop(): void;
   /** try again a turn Muse could not reply to */
   retry(failure: string): void;
