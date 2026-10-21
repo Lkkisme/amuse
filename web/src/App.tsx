@@ -172,6 +172,13 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
     if (docked) setUi((u) => (u.chatsOpen ? { ...u, chatsOpen: false } : u));
   }, [docked]);
   useEffect(() => {
+    // the browser's share of the window, when it is docked there: what floats over the chat dims all but it
+    document.documentElement.style.setProperty(
+      "--viewer-room",
+      `${ui.viewer && width >= 1024 ? viewerWidth : 0}px`,
+    );
+  }, [ui.viewer, width, viewerWidth]);
+  useEffect(() => {
     // read by what floats over the chat (the Muse panel), to keep beside the sidebar
     document.documentElement.style.setProperty(
       "--sidebar-width",

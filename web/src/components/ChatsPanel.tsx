@@ -72,9 +72,15 @@ export function DrawerSidebar({ open, ...props }: SidebarProps & { open: boolean
   const { mounted, closing, onAnimationEnd } = usePresence(open);
   if (!mounted) return null;
   return (
-    // clips the slide, so the panel comes out from the edge; a tap beside it closes it (dimmed on a phone only)
+    // clips the slide, so the panel comes out from the edge; a tap beside it closes it. What it dims is the
+    // chat, not the browser beside it
+
     <div className={`fixed inset-0 z-40 flex overflow-hidden md:pb-4 md:pl-4 md:pt-[60px] ${closing ? "pointer-events-none" : ""}`}>
-      <div className={`${closing ? "anim-fade-out" : "anim-fade-in"} absolute inset-0 bg-black/30 md:bg-transparent`} onClick={() => props.actions.setChats(false)} />
+      <div
+        className={`${closing ? "anim-fade-out" : "anim-fade-in"} absolute inset-y-0 left-0 bg-black/30`}
+        style={{ right: "var(--viewer-room)" }}
+        onClick={() => props.actions.setChats(false)}
+      />
       <aside
         onAnimationEnd={onAnimationEnd}
         className={`${closing ? "anim-pane-to-left pointer-events-none" : "anim-pane-from-left"} relative flex h-full max-w-[85vw] flex-col p-3 md:rounded-[28px]`}

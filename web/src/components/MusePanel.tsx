@@ -120,120 +120,126 @@ export function MusePanel({ conversation, session, mode, actions }: { conversati
   const [tab, setTab] = useState<Tab>("activity");
 
   return (
-    <aside
-      aria-label="Amuse"
-      // where the avatar travels in, the panel comes in with it, in the same transition (index.css); a panel
-      // sliding on its own would move the avatar's landing place under it
-      className={`${frame[mode]} ${travels() ? "" : mode === "docked" ? "anim-pane-from-right" : "anim-popover-in"} flex flex-col overflow-hidden`}
-      style={{
-        viewTransitionName: `muse-panel-${mode}`,
-        background: "var(--bg-primary)",
-        borderColor: "var(--fill-divider)",
-        ...(mode === "floating" ? { boxShadow: "var(--shadow-sheet)" } : {}),
-      }}
-    >
-      {/* 32px, 12px in: concentric with the floating window's 28px corners */}
-      <button
-        aria-label="Close"
-        className="hover-fade absolute right-3 top-3 z-10 flex size-8 items-center justify-center rounded-full"
-        style={{ color: "var(--icon-secondary)" }}
-        onClick={() => actions.setMuse(false)}
-      >
-        <X size={20} />
-      </button>
-
-      <div className="flex flex-col items-center px-4 pt-12">
-        <span className="relative">
-          <span
-            className="flex size-[100px] items-center justify-center rounded-full text-[38px] font-semibold"
-            style={{
-              ...museAvatar,
-              background: "var(--avatar-fill)",
-              color: "var(--avatar-text)",
-            }}
-          >
-            A
-          </span>
-        </span>
-        <p className="mt-3 text-[22px] font-semibold" style={{ color: "var(--text-primary)" }}>
-          Amuse
-        </p>
-        {/* only what is true now: nothing is said while it rests */}
-        <p className={`text-[15px] ${working ? "activity-indicator-fade" : "invisible"}`} style={{ color: "var(--text-secondary)" }}>
-          is working…
-        </p>
-      </div>
-
-      {/* segmented control: what Amuse did, what it asked, what comes next */}
-      <div role="tablist" className="mx-4 mt-7 grid h-[34px] grid-cols-3 rounded-full p-[3px]" style={{ background: "var(--fill-secondary)" }}>
-        {TABS.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            role="tab"
-            aria-label={label}
-            aria-selected={tab === id}
-            className="flex items-center justify-center rounded-full"
-            style={
-              tab === id
-                ? {
-                    background: "var(--segment-selected)",
-                    color: "var(--icon-primary)",
-                    boxShadow: "var(--shadow-float)",
-                  }
-                : { color: "var(--icon-secondary)" }
-            }
-            onClick={() => setTab(id)}
-          >
-            <Icon size={16} />
-          </button>
-        ))}
-      </div>
-
-      {tab === "approvals" && <Approvals session={session} conversation={conversation} actions={actions} />}
-      {tab === "upcoming" && <Upcoming session={session} />}
-      {tab === "activity" && (
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-5">
-          <p className="text-[17px] font-semibold" style={{ color: "var(--text-primary)" }}>
-            Today
-          </p>
-          {list.length === 0 ? (
-            <p className="mt-3 text-[14px]" style={{ color: "var(--text-secondary)" }}>
-              What Amuse does for you shows up here.
-            </p>
-          ) : (
-            <ul className="mt-3 space-y-4">
-              {list.map((item) => {
-                const Icon = item.done ? CircleCheck : item.icon;
-                return (
-                  <li key={item.id} className="flex items-start gap-3">
-                    <span
-                      className="flex size-[38px] shrink-0 items-center justify-center rounded-[10px]"
-                      style={{
-                        background: "var(--fill-secondary)",
-                        color: "var(--icon-primary)",
-                      }}
-                    >
-                      <Icon size={18} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[15px] font-medium" style={{ color: "var(--text-primary)" }}>
-                        {item.title}
-                      </span>
-                      <span className="block text-[14px]" style={{ color: "var(--text-secondary)" }}>
-                        {item.sub}
-                      </span>
-                      <span className="block text-[13px]" style={{ color: "var(--text-tertiary)" }}>
-                        {item.time}
-                      </span>
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
+    <>
+      {/* floating, it dims the chat (not the browser beside it); a tap there closes it */}
+      {mode === "floating" && (
+        <div className="anim-fade-in fixed inset-y-0 left-0 z-[54] bg-black/30" style={{ right: "var(--viewer-room)" }} onClick={() => actions.setMuse(false)} />
       )}
-    </aside>
+      <aside
+        aria-label="Amuse"
+        // where the avatar travels in, the panel comes in with it, in the same transition (index.css); a panel
+        // sliding on its own would move the avatar's landing place under it
+        className={`${frame[mode]} ${travels() ? "" : mode === "docked" ? "anim-pane-from-right" : "anim-popover-in"} flex flex-col overflow-hidden`}
+        style={{
+          viewTransitionName: `muse-panel-${mode}`,
+          background: "var(--bg-primary)",
+          borderColor: "var(--fill-divider)",
+          ...(mode === "floating" ? { boxShadow: "var(--shadow-sheet)" } : {}),
+        }}
+      >
+        {/* 32px, 12px in: concentric with the floating window's 28px corners */}
+        <button
+          aria-label="Close"
+          className="hover-fade absolute right-3 top-3 z-10 flex size-8 items-center justify-center rounded-full"
+          style={{ color: "var(--icon-secondary)" }}
+          onClick={() => actions.setMuse(false)}
+        >
+          <X size={20} />
+        </button>
+
+        <div className="flex flex-col items-center px-4 pt-12">
+          <span className="relative">
+            <span
+              className="flex size-[100px] items-center justify-center rounded-full text-[38px] font-semibold"
+              style={{
+                ...museAvatar,
+                background: "var(--avatar-fill)",
+                color: "var(--avatar-text)",
+              }}
+            >
+              A
+            </span>
+          </span>
+          <p className="mt-3 text-[22px] font-semibold" style={{ color: "var(--text-primary)" }}>
+            Amuse
+          </p>
+          {/* only what is true now: nothing is said while it rests */}
+          <p className={`text-[15px] ${working ? "activity-indicator-fade" : "invisible"}`} style={{ color: "var(--text-secondary)" }}>
+            is working…
+          </p>
+        </div>
+
+        {/* segmented control: what Amuse did, what it asked, what comes next */}
+        <div role="tablist" className="mx-4 mt-7 grid h-[34px] grid-cols-3 rounded-full p-[3px]" style={{ background: "var(--fill-secondary)" }}>
+          {TABS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              role="tab"
+              aria-label={label}
+              aria-selected={tab === id}
+              className="flex items-center justify-center rounded-full"
+              style={
+                tab === id
+                  ? {
+                      background: "var(--segment-selected)",
+                      color: "var(--icon-primary)",
+                      boxShadow: "var(--shadow-float)",
+                    }
+                  : { color: "var(--icon-secondary)" }
+              }
+              onClick={() => setTab(id)}
+            >
+              <Icon size={16} />
+            </button>
+          ))}
+        </div>
+
+        {tab === "approvals" && <Approvals session={session} conversation={conversation} actions={actions} />}
+        {tab === "upcoming" && <Upcoming session={session} />}
+        {tab === "activity" && (
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-5">
+            <p className="text-[17px] font-semibold" style={{ color: "var(--text-primary)" }}>
+              Today
+            </p>
+            {list.length === 0 ? (
+              <p className="mt-3 text-[14px]" style={{ color: "var(--text-secondary)" }}>
+                What Amuse does for you shows up here.
+              </p>
+            ) : (
+              <ul className="mt-3 space-y-4">
+                {list.map((item) => {
+                  const Icon = item.done ? CircleCheck : item.icon;
+                  return (
+                    <li key={item.id} className="flex items-start gap-3">
+                      <span
+                        className="flex size-[38px] shrink-0 items-center justify-center rounded-[10px]"
+                        style={{
+                          background: "var(--fill-secondary)",
+                          color: "var(--icon-primary)",
+                        }}
+                      >
+                        <Icon size={18} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[15px] font-medium" style={{ color: "var(--text-primary)" }}>
+                          {item.title}
+                        </span>
+                        <span className="block text-[14px]" style={{ color: "var(--text-secondary)" }}>
+                          {item.sub}
+                        </span>
+                        <span className="block text-[13px]" style={{ color: "var(--text-tertiary)" }}>
+                          {item.time}
+                        </span>
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        )}
+      </aside>
+    </>
   );
 }
 
