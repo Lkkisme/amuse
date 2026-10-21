@@ -12,6 +12,7 @@ import {
   Copy,
   File as FileIcon,
   Share,
+  TextSelect,
 } from "lucide-react";
 import type {
   Attachment,
@@ -164,9 +165,14 @@ function ActionRow({ mine, text }: { mine: boolean; text: string }) {
 }
 
 /** A message's long-press menu, and the bubble it came from (where it sits on screen). */
-type Menu = { message: Message; at: DOMRect };
+/** A long-pressed message: where the finger was, and its bubble (for selecting its text). */
+type Menu = {
+  message: Message;
+  point: { x: number; y: number };
+  bubble: HTMLElement;
+};
 
-const MENU_WIDTH = 288;
+const MENU_WIDTH = 176;
 const MARGIN = 12;
 
 /**
@@ -184,78 +190,91 @@ function MessageMenu({
   const [height, setHeight] = useState(0);
   useLayoutEffect(() => setHeight(card.current?.offsetHeight ?? 0), [menu]);
   if (!menu) return null;
-  const { message, at } = menu;
-  const mine = message.kind === "prompt";
+  const { message, point, bubble } = menu;
+  // where the finger was: beside it, toward the middle of the screen; above it when there is no room below
   const left = Math.min(
-    Math.max(MARGIN, mine ? at.right - MENU_WIDTH : at.left),
+    Math.max(MARGIN, point.x > innerWidth / 2 ? point.x - MENU_WIDTH : point.x),
     innerWidth - MENU_WIDTH - MARGIN,
   );
-  const top = Math.min(
-    Math.max(MARGIN, at.top + 10),
-    innerHeight - height - MARGIN,
-  );
-  const act = (fn: (text: string) => void) => () => {
-    fn(message.text);
+  const below = point.y + 8 + height <= innerHeight - MARGIN;
+  const top = Math.max(MARGIN, below ? point.y + 8 : point.y - 8 - height);
+  const act = (fn: () => void) => () => {
+    fn();
     onClose();
   };
   const row =
-    "hover-fade flex h-12 w-full items-center gap-3 rounded-xl px-3 text-[16px]";
+    "hover-fade flex h-11 w-full items-center gap-3 rounded-[12px] px-3 text-[15px]";
   return (
     <div className="fixed inset-0 z-[80]" onClick={onClose}>
       <div
         ref={card}
         role="menu"
-        className="anim-popover-in absolute rounded-[22px] px-3 pb-2 pt-3"
+        className="anim-popover-in absolute rounded-[18px] p-1.5"
         style={{
           left,
           top,
           width: MENU_WIDTH,
-          transformOrigin: mine ? "top right" : "top left",
+          transformOrigin: `${point.x - left}px ${point.y - top}px`,
           background: "var(--fill-primary)",
           boxShadow: "var(--shadow-sheet)",
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <p
-          className="px-1 text-[13px]"
-          style={{ color: "var(--text-secondary)" }}
+        <button
+          role="menuitem"
+          className={row}
+          style={{ color: "var(--text-primary)" }}
+          onClick={act(() => copyText(message.text))}
         >
-          {`${sameDay(message.at) ? "Today" : new Date(message.at).toLocaleDateString()} at ${time(message.at)}`}
-        </p>
-        <div
-          className="mt-2 border-t pt-1"
-          style={{ borderColor: "var(--fill-divider)" }}
+          <Copy size={18} /> Copy
+        </button>
+        <button
+          role="menuitem"
+          className={row}
+          style={{ color: "var(--text-primary)" }}
+          onClick={act(() => selectText(bubble))}
         >
-          {canShare() && (
-            <button
-              role="menuitem"
-              className={row}
-              style={{ color: "var(--text-primary)" }}
-              onClick={act(shareText)}
-            >
-              <Share size={18} /> Share
-            </button>
-          )}
+          <TextSelect size={18} /> Select
+        </button>
+        {canShare() && (
           <button
             role="menuitem"
             className={row}
             style={{ color: "var(--text-primary)" }}
-            onClick={act(copyText)}
+            onClick={act(() => shareText(message.text))}
           >
-            <Copy size={18} /> Copy
+            <Share size={18} /> Share
           </button>
-        </div>
+        )}
       </div>
     </div>
   );
 }
 
-const sameDay = (iso: string) =>
-  new Date(iso).toDateString() === new Date().toDateString();
+/**
+ * Select a bubble's words, for the phone's own handles to adjust: a bubble's text is not selectable
+ * on touch (the long press is the menu's), so it is, until the selection is let go of.
+ */
+function selectText(bubble: HTMLElement) {
+  const words = bubble.querySelector("[data-words]") ?? bubble;
+  bubble.dataset["selecting"] = "";
+  const range = document.createRange();
+  range.selectNodeContents(words);
+  const selection = getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  const letGo = () => {
+    if (getSelection()?.isCollapsed === false) return;
+    delete bubble.dataset["selecting"];
+    document.removeEventListener("selectionchange", letGo);
+  };
+  // the selection is made before this listens, so only a later change lets go
+  setTimeout(() => document.addEventListener("selectionchange", letGo), 0);
+}
 
 /** Long press: held this long without moving. */
 const PRESS_MS = 450;
-function useLongPress(onPress: () => void) {
+function useLongPress(onPress: (point: { x: number; y: number }) => void) {
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const start = useRef({ x: 0, y: 0 });
   const cancel = () => clearTimeout(timer.current);
@@ -264,7 +283,7 @@ function useLongPress(onPress: () => void) {
       if (e.pointerType !== "touch") return;
       start.current = { x: e.clientX, y: e.clientY };
       timer.current = setTimeout(() => {
-        onPress();
+        onPress(start.current);
         // lifting the finger clicks where it is, which is now the menu's backdrop: that click is the press's own
         const swallow = (click: MouseEvent) => {
           click.stopPropagation();
@@ -419,9 +438,9 @@ function Bubble({
 }) {
   const isUser = item.kind === "prompt";
   const bubble = useRef<HTMLDivElement>(null);
-  const press = useLongPress(() => {
-    const at = bubble.current?.getBoundingClientRect();
-    if (at) onMenu({ message: item, at });
+  const press = useLongPress((point) => {
+    if (bubble.current)
+      onMenu({ message: item, point, bubble: bubble.current });
   });
   const { attachments } = item;
   return (
@@ -446,9 +465,9 @@ function Bubble({
           }}
         >
           {item.kind === "prompt" ? (
-            item.text
+            <span data-words>{item.text}</span>
           ) : (
-            <div className={item.streaming ? "shimmer-text" : undefined}>
+            <div data-words className={item.streaming ? "shimmer-text" : undefined}>
               <RichText text={item.text} />
             </div>
           )}

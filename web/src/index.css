@@ -280,6 +280,8 @@
 @media (hover: none) {
   .msg-actions { display: none; }
   .msg { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+  /* …until Select in its menu: its words can be selected, with the phone's own handles */
+  .msg[data-selecting] { user-select: text; -webkit-user-select: text; }
 }
 
 /* Buttons show they can be pressed (Tailwind's base resets them to the arrow) */
