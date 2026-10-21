@@ -3,14 +3,14 @@
  * schedule runs next, whether a schedule the agent asks for is sound, and
  * the limits that keep a mistaken one from running away.
  */
-import type { Schedule, State, When } from "@remuse/protocol";
+import type { Schedule, State, When } from "@amuse/protocol";
 import { Cron } from "croner";
 
 /** Most schedules active or paused at once. */
 export const MAX_SCHEDULES = 20;
 /** Fewest minutes between two runs of a schedule. */
 export const MIN_INTERVAL_MINUTES = 15;
-/** How late a run may still start (remuse was not running at its time); later, it is missed. */
+/** How late a run may still start (amuse was not running at its time); later, it is missed. */
 export const GRACE_MS = 2 * 60 * 60_000;
 /** How long an approval waits for an answer before it times out (as a no). */
 export const APPROVAL_TTL_MS = 30 * 60_000;

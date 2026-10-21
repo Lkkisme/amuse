@@ -7,7 +7,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { MessageCircle, MoreHorizontal, Plus, Search, Settings } from "lucide-react";
-import { type Chat, MAIN } from "@remuse/protocol";
+import { type Chat, MAIN } from "@amuse/protocol";
 import type { Actions } from "../ui.ts";
 import { NAV_PAGES } from "./nav";
 import { usePresence } from "./usePresence";

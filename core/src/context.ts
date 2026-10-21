@@ -8,7 +8,7 @@
  * The same conversation always gives the same context, and a restart loses
  * nothing.
  */
-import type { Attachment, Entity, State, When } from "@remuse/protocol";
+import type { Attachment, Entity, State, When } from "@amuse/protocol";
 import { localTime, userZone } from "./schedule.ts";
 
 export interface Budget {
@@ -56,7 +56,7 @@ export function line(entity: Entity, detail: Detail, zone: string, where: Where 
     case "reply": {
       if (!entity.text.trim() && entity.attachments.length === 0) return null;
       const files = entity.attachments.length > 0 ? ` [sent: ${entity.attachments.map(describe(where)).join(", ")}]` : "";
-      return `[${at}] Muse: ${full ? entity.text : clip(entity.text, 160)}${files}`;
+      return `[${at}] Amuse: ${full ? entity.text : clip(entity.text, 160)}${files}`;
     }
     case "browser": {
       const head = `[${at}] Browser task ${entity.id} "${entity.title}" (${entity.status}${entity.live ? ", open" : ""}) at ${entity.url}`;

@@ -8,7 +8,7 @@
  * operates a browser); and it hands off no work of its own.
  */
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { AgentIO } from "@remuse/core";
+import type { AgentIO } from "@amuse/core";
 import type { PiConfig } from "./agent.ts";
 import { workspaceTools } from "./attachments.ts";
 import { redact } from "./redact.ts";
@@ -23,10 +23,10 @@ export type Worked = { kind: "done"; record: string } | { kind: "failed"; reason
 
 /** What every helper is told, before the work's own rules. */
 export const helperRules = [
-  "You are a background helper of a personal assistant (Muse). You are not in the chat: nothing you write reaches the user directly.",
+  "You are a background helper of a personal assistant (Amuse). You are not in the chat: nothing you write reaches the user directly.",
   "Do the work with your tools. Reading runs at once; what sends, changes or deletes may go to the user for approval: then that step waits for them, and if they decline or do not answer, it is not done; never try another way around it.",
   "For a website that must be operated (log in, fill, click), start a browser task with `browse`; you cannot operate a browser yourself.",
-  "If you need an answer only the user has, ask with `ask_user` (it waits for them, and may get no answer). Messages from Muse may arrive while you work: follow them.",
+  "If you need an answer only the user has, ask with `ask_user` (it waits for them, and may get no answer). Messages from Amuse may arrive while you work: follow them.",
   "Never claim something you did not do or see.",
   untrustedRule,
 ];

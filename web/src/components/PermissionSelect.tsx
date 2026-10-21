@@ -1,6 +1,6 @@
 /** Allow / Ask / Deny, as a plain select styled as Muse's dropdown. */
 import { ChevronDown } from "lucide-react";
-import type { Permission } from "@remuse/protocol";
+import type { Permission } from "@amuse/protocol";
 
 const PERMISSIONS: Permission[] = ["allow", "ask", "deny"];
 const permissionName: Record<Permission, string> = { allow: "Allow", ask: "Ask", deny: "Deny" };

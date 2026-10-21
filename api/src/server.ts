@@ -9,7 +9,7 @@
  */
 import { createReadStream, statSync } from "node:fs";
 import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
-import type { Session } from "@remuse/protocol";
+import type { Session } from "@amuse/protocol";
 import { WebSocketServer } from "ws";
 import { z } from "zod";
 import { type Access, PasswordRejected } from "./access.ts";
@@ -33,7 +33,7 @@ export interface Options {
   host: string;
 }
 
-const cookieName = "remuse";
+const cookieName = "amuse";
 
 /** decodeURIComponent that never throws: a malformed value is simply no session. */
 function decoded(value: string): string | null {
@@ -220,7 +220,7 @@ export function listen({ session, live, files: uploads, web, returned, access, p
     const found = req.method === "GET" ? uploads.find(url.pathname.slice("/files/".length)) : null;
     if (!found) return void res.writeHead(404).end();
     const { attachment, file: path } = found;
-    const size = statSync(path).size; // as it is now (Muse may have rewritten it)
+    const size = statSync(path).size; // as it is now (Amuse may have rewritten it)
     const inline = shownInline(attachment.type);
     const headers = {
       "content-type": inline ? attachment.type : "application/octet-stream",
@@ -250,13 +250,13 @@ export function listen({ session, live, files: uploads, web, returned, access, p
   const back = async (url: URL, res: ServerResponse) => {
     const key = url.searchParams.get("key");
     const connected = key && returned ? await returned(key) : false;
-    const message = connected ? "Connected — you can close this tab and go back to Muse." : "Thanks — you can close this tab and go back to Muse.";
+    const message = connected ? "Connected — you can close this tab and go back to Amuse." : "Thanks — you can close this tab and go back to Amuse.";
     res.writeHead(200, {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
     });
     res.end(
-      `<!doctype html><meta name="viewport" content="width=device-width"><title>Muse</title><p style="font:16px system-ui;text-align:center;margin-top:30vh">${message}</p><script>setTimeout(()=>window.close(),1500)</script>`,
+      `<!doctype html><meta name="viewport" content="width=device-width"><title>Amuse</title><p style="font:16px system-ui;text-align:center;margin-top:30vh">${message}</p><script>setTimeout(()=>window.close(),1500)</script>`,
     );
   };
   const http = createServer((req, res) => {

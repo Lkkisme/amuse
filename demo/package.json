@@ -1,5 +1,5 @@
 {
-  "name": "@remuse/demo",
+  "name": "@amuse/demo",
   "private": true,
   "type": "module",
   "exports": { ".": "./src/index.ts" },
@@ -8,7 +8,7 @@
     "test": "node --test 'src/**/*.test.ts'"
   },
   "dependencies": {
-    "@remuse/core": "*",
-    "@remuse/protocol": "*"
+    "@amuse/core": "*",
+    "@amuse/protocol": "*"
   }
 }

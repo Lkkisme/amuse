@@ -122,7 +122,7 @@ export function browserPool(
     desktop?: (vnc: string, size: Size) => Promise<void>;
   } = {},
 ): Browsers & { reset(): Promise<void> } {
-  const profile = options.profile ?? "remuse";
+  const profile = options.profile ?? "amuse";
   const desktop = options.desktop ?? resize;
   const free = [...nodes];
   const waiting: {

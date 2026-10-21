@@ -4,8 +4,8 @@
  * most used first, is fetched once in a while and searched here: by name and
  * id first, then by description and category, each in order of use.
  */
-import { type AppDirectory, type Rules, kinds, permissionOf } from "@remuse/core";
-import type { Account, AccountStatus, App } from "@remuse/protocol";
+import { type AppDirectory, type Rules, kinds, permissionOf } from "@amuse/core";
+import type { Account, AccountStatus, App } from "@amuse/protocol";
 import type { Composio, Toolkit } from "./client.ts";
 
 /** How long the fetched list is good for. */

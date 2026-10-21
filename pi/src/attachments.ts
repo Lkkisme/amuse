@@ -9,8 +9,8 @@
  * untrusted data.
  */
 import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
-import { type AgentIO, type Workspace, newId, size } from "@remuse/core";
-import type { Attachment } from "@remuse/protocol";
+import { type AgentIO, type Workspace, newId, size } from "@amuse/core";
+import type { Attachment } from "@amuse/protocol";
 import { Type } from "typebox";
 import { extractText, getDocumentProxy } from "unpdf";
 import { status } from "./status.ts";

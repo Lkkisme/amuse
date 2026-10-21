@@ -19,7 +19,7 @@ import type {
   Failure,
   Schedule,
   Task,
-} from "@remuse/protocol";
+} from "@amuse/protocol";
 import { repeats, scheduleState } from "../schedules.ts";
 import type { Actions } from "../ui.ts";
 import { type Place, alone, corners } from "./shape.ts";
@@ -358,7 +358,7 @@ export function FailureCard({
             className="text-[14px] font-semibold"
             style={{ color: "var(--text-primary)" }}
           >
-            Muse couldn't reply
+            Amuse couldn't reply
           </p>
           <p
             className="mt-0.5 text-[13px] leading-snug"

@@ -2,14 +2,14 @@
 # controller). One session per node (one desktop each), so concurrency = number of pairs (3).
 # Each pair has its own internal network; only the node gets an egress network. No Docker socket.
 # Secrets are made on first start by `secrets` (kept in its volume, never typed in): the bearer
-# token between remuse and the controllers, and the key that encrypts saved logins.
+# token between amuse and the controllers, and the key that encrypts saved logins.
 # Used by compose.yaml (production) and compose.dev.yaml (published on localhost for `mise run dev`).
-# More pairs: copy a pair block and add it to REMUSE_BROWSERS in compose.yaml.
+# More pairs: copy a pair block and add it to AMUSE_BROWSERS in compose.yaml.
 # Images build from auto-browser at a pinned commit (a fork carrying the desktop-resize fix).
 
 x-node: &node
   build: https://github.com/Microwave-WYB/auto-browser.git#fe9f152c5dd9859b225b6322452b05a709958deb:browser-node
-  image: ${AB_NODE_IMAGE:-remuse-ab-node:fe9f152}
+  image: ${AB_NODE_IMAGE:-amuse-ab-node:fe9f152}
   restart: unless-stopped
   shm_size: 2gb
   mem_limit: 3g
@@ -42,7 +42,7 @@ x-node-env: &node-env
 
 x-controller: &controller
   build: https://github.com/Microwave-WYB/auto-browser.git#a9aa98571c5dc3a5f4ee595bb5962ff2bbcd80d8:controller
-  image: ${AB_CONTROLLER_IMAGE:-remuse-ab-controller:a9aa985}
+  image: ${AB_CONTROLLER_IMAGE:-amuse-ab-controller:a9aa985}
   restart: unless-stopped
   # the controller reads secrets from env only: load them from the secrets volume, then start as usual
   command:
@@ -70,7 +70,7 @@ x-controller-env: &controller-env
   REQUIRE_AUTH_STATE_ENCRYPTION: "true"
   ALLOWED_HOSTS: "*"
   MAX_SESSIONS: "1"
-  # remuse asks the user before every upload itself (the controller's own approvals are not seen by anyone)
+  # amuse asks the user before every upload itself (the controller's own approvals are not seen by anyone)
   REQUIRE_APPROVAL_FOR_UPLOADS: "false"
   REQUEST_RATE_LIMIT_REQUESTS: "1200"
   AUTH_STATE_MAX_AGE_HOURS: "720"
@@ -78,7 +78,7 @@ x-controller-env: &controller-env
 services:
   # first start only: make the secrets that are missing; later starts leave them alone
   secrets:
-    image: ${AB_CONTROLLER_IMAGE:-remuse-ab-controller:a9aa985}
+    image: ${AB_CONTROLLER_IMAGE:-amuse-ab-controller:a9aa985}
     user: "0"
     read_only: true
     network_mode: none
@@ -97,10 +97,10 @@ services:
                 return
             os.write(fd, value.encode()); os.close(fd); os.chown(path, owner, 0)
         os.chmod("/secrets", 0o711)  # enter, never list; the controllers have no capability to bypass it
-        # remuse (uid 1000) owns the token; the controllers (root, without capabilities) read it as group 0
+        # amuse (uid 1000) owns the token; the controllers (root, without capabilities) read it as group 0
         make("auto-browser-token", secrets.token_hex(24), 1000, 0o440)
         make("logins-key", base64.urlsafe_b64encode(os.urandom(32)).decode(), 0, 0o400)  # Fernet key, controllers only
-        # the folders remuse hands a file to upload through: remuse (uid 1000) puts it there, the controller
+        # the folders amuse hands a file to upload through: amuse (uid 1000) puts it there, the controller
         # (root without capabilities) makes its own session folder beside it and reads the file
         for folder in ("/handoff/1", "/handoff/2", "/handoff/3"):
             os.chmod(folder, 0o1777)
@@ -188,6 +188,6 @@ volumes:
   controller-1:
   controller-2:
   controller-3:
-  handoff-1: # a file on its way into an upload, put there by remuse (pair 1)
+  handoff-1: # a file on its way into an upload, put there by amuse (pair 1)
   handoff-2:
   handoff-3:

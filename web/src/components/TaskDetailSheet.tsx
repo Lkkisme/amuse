@@ -5,7 +5,7 @@
  */
 import { RichText } from "./markdown";
 import { CircleCheck } from "lucide-react";
-import type { State } from "@remuse/protocol";
+import type { State } from "@amuse/protocol";
 import type { Actions } from "../ui.ts";
 import { byId, taskStatus } from "../view.ts";
 import { Sheet } from "./Sheet";

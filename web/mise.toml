@@ -9,6 +9,6 @@ depends = ["//:install"]
 run = "npm run dev"
 
 [tasks.build-dev]
-description = "Build dist for the API to serve on its own origin (REMUSE_WEB)"
+description = "Build dist for the API to serve on its own origin (AMUSE_WEB)"
 depends = ["//:install"]
-run = "VITE_REMUSE_MODE=same-origin npx vite build --logLevel warn"
+run = "VITE_AMUSE_MODE=same-origin npx vite build --logLevel warn"

@@ -7,7 +7,7 @@
  * app (allow, ask, deny), as Muse does ("Change GitHub repository content:
  * Ask"); a denied tool the agent does not even see.
  */
-import type { Permission, ToolKind } from "@remuse/protocol";
+import type { Permission, ToolKind } from "@amuse/protocol";
 
 const readVerbs = new Set(["GET", "LIST", "FETCH", "SEARCH", "FIND", "READ", "QUERY", "LOOKUP", "VIEW", "DESCRIBE", "COUNT", "EXPORT", "DOWNLOAD"]);
 const writeWords = new Set([

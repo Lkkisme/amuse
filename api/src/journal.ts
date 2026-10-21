@@ -8,8 +8,8 @@
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { ChatStore, Journal } from "@remuse/core";
-import { Chat, Envelope, MAIN } from "@remuse/protocol";
+import type { ChatStore, Journal } from "@amuse/core";
+import { Chat, Envelope, MAIN } from "@amuse/protocol";
 import { z } from "zod";
 
 function parseLine(line: string): unknown {

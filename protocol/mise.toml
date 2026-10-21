@@ -10,7 +10,7 @@ description = "Generate Kotlin (kotlinx.serialization) types from the JSON Schem
 depends = ["generate"]
 sources = ["scripts/kotlin.ts", ".generated/protocol.schema.json"]
 outputs = [".generated/kotlin/Protocol.kt"]
-run = "node scripts/kotlin.ts remuse.protocol"
+run = "node scripts/kotlin.ts amuse.protocol"
 
 [tasks.kotlin-check]
 description = "Compile the generated Kotlin and round-trip the TS fixtures through it"

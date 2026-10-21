@@ -4,7 +4,7 @@
  * viewer sends passes the VNC gate, so input reaches the desktop only while
  * the conversation says the user holds the run (status paused).
  */
-import { type Browsers, nodeOrigin } from "@remuse/browser";
+import { type Browsers, nodeOrigin } from "@amuse/browser";
 import { WebSocket } from "ws";
 import { vncGate } from "./vnc.ts";
 

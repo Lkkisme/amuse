@@ -3,7 +3,7 @@
  * wording), times, and the agent line under the avatar. Pure functions of
  * the conversation; nothing here is state.
  */
-import type { Activity, Browser, BrowserStatus, Entity, State, TaskStatus } from "@remuse/protocol";
+import type { Activity, Browser, BrowserStatus, Entity, State, TaskStatus } from "@amuse/protocol";
 
 export const browserStatus: Record<BrowserStatus, { label: string; color: string }> = {
   queued: { label: "Queued", color: "var(--icon-secondary)" },

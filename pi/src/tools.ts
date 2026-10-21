@@ -5,8 +5,8 @@
  * background while the chat goes on.
  */
 import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
-import { type AgentIO, type Rules, type Workspace, describe, siteAccess, siteOf } from "@remuse/core";
-import type { Permission } from "@remuse/protocol";
+import { type AgentIO, type Rules, type Workspace, describe, siteAccess, siteOf } from "@amuse/core";
+import type { Permission } from "@amuse/protocol";
 import { untrusted } from "./untrusted.ts";
 import { Type } from "typebox";
 import { status } from "./status.ts";

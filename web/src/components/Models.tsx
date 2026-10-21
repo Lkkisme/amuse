@@ -12,7 +12,7 @@ import type {
   KeysState,
   ModelRole,
   Session,
-} from "@remuse/protocol";
+} from "@amuse/protocol";
 import { KeyLine, KeyLogin, type TestState, useKeyTests } from "./KeyLogin";
 
 const label = "mb-2 mt-6 px-1 text-[13px] font-medium";
@@ -105,7 +105,7 @@ export function Models({
         className="text-[13px] leading-snug"
         style={{ color: "var(--text-secondary)" }}
       >
-        Muse runs on a model you choose, with your own API key.
+        Amuse runs on a model you choose, with your own API key.
       </p>
       {error && (
         <p

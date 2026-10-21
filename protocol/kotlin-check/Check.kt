@@ -5,9 +5,9 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
-import remuse.protocol.Call
-import remuse.protocol.Envelope
-import remuse.protocol.State
+import amuse.protocol.Call
+import amuse.protocol.Envelope
+import amuse.protocol.State
 
 fun main(args: Array<String>) {
   val json = Json { explicitNulls = true }

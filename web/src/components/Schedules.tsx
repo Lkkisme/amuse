@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { CalendarClock } from "lucide-react";
-import type { Schedule, Session } from "@remuse/protocol";
+import type { Schedule, Session } from "@amuse/protocol";
 import { moment, outcomes, repeats, scheduleState } from "../schedules.ts";
 
 type Control = "pause" | "resume" | "cancel";
@@ -58,9 +58,9 @@ export function Schedules({ session }: { session: Session }) {
         className="text-[13px] leading-snug"
         style={{ color: "var(--text-secondary)" }}
       >
-        Work Muse runs on its own at set times, like a morning briefing. Each
-        run works in the background with the same permissions as Muse and tells
-        you only what is worth telling. Ask Muse in the chat to set one up.
+        Work Amuse runs on its own at set times, like a morning briefing. Each
+        run works in the background with the same permissions as Amuse and tells
+        you only what is worth telling. Ask Amuse in the chat to set one up.
       </p>
       {schedules && schedules.length === 0 && (
         <p

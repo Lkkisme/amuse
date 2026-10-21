@@ -3,15 +3,15 @@ import { mkdtempSync, statSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createHost, type Timers } from "@remuse/core";
-import { demoPorts } from "@remuse/demo";
-import { Attachment } from "@remuse/protocol";
+import { createHost, type Timers } from "@amuse/core";
+import { demoPorts } from "@amuse/demo";
+import { Attachment } from "@amuse/protocol";
 import { MAX_FILE, workspace } from "./workspace.ts";
 import type { Access } from "./access.ts";
 import { listen } from "./server.ts";
 
 const never: Timers<number> = { set: () => 0, clear: () => {} };
-/** In with the cookie "remuse=s", and only with it. */
+/** In with the cookie "amuse=s", and only with it. */
 const access: Access = {
   ready: () => true,
   setup: async () => "s",
@@ -22,7 +22,7 @@ const access: Access = {
 };
 
 async function serve() {
-  const dir = mkdtempSync(join(tmpdir(), "remuse-files-"));
+  const dir = mkdtempSync(join(tmpdir(), "amuse-files-"));
   const files = workspace(join(dir, "workspace"), join(dir, "sent.json"));
   const server = await listen({
     session: createHost({ ...demoPorts(never), files }, { timers: never }),
@@ -38,13 +38,13 @@ async function serve() {
       headers: {
         "content-type": type,
         "x-file-name": encodeURIComponent(name),
-        ...(auth ? { cookie: "remuse=s" } : {}),
+        ...(auth ? { cookie: "amuse=s" } : {}),
       },
       body,
     });
   const get = (id: string, headers: Record<string, string> = {}) =>
     fetch(`${http}/files/${id}`, {
-      headers: { cookie: "remuse=s", ...headers },
+      headers: { cookie: "amuse=s", ...headers },
     });
   return { dir, files, server, upload, get };
 }
@@ -111,7 +111,7 @@ test("no upload without a session, none over the limit, and no file by a made-up
 });
 
 test("the workspace stays inside itself, and the chat's files follow them when they move, and are gone when deleted", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "remuse-ws-"));
+  const dir = mkdtempSync(join(tmpdir(), "amuse-ws-"));
   const files = workspace(join(dir, "workspace"), join(dir, "sent.json"));
   await files.write("notes/today.md", new TextEncoder().encode("# hi"), false);
   await assert.rejects(files.write("notes/today.md", new Uint8Array(), false), /already exists/);

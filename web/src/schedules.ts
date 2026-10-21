@@ -3,7 +3,7 @@
  * 8:00 AM"), when it runs next ("Tomorrow, 8:00 AM"), how its last run went.
  */
 import cronstrue from "cronstrue";
-import type { RunOutcome, Schedule, When } from "@remuse/protocol";
+import type { RunOutcome, Schedule, When } from "@amuse/protocol";
 
 const here = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 
@@ -39,7 +39,7 @@ export const outcomes: Record<RunOutcome, string> = {
   quiet: "Nothing to report",
   failed: "Failed",
   missed: "Missed",
-  stopped: "Stopped by Muse",
+  stopped: "Stopped by Amuse",
 };
 
 /** The line under a schedule's title: what it is doing or will do next. */

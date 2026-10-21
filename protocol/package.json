@@ -1,5 +1,5 @@
 {
-  "name": "@remuse/protocol",
+  "name": "@amuse/protocol",
   "private": true,
   "type": "module",
   "exports": { ".": "./src/index.ts" },

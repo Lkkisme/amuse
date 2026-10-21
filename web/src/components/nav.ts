@@ -1,6 +1,6 @@
 /**
  * Muse's page navigation, shared by the desktop icon rail and the mobile
- * drawer (Muse mobile has a bottom bar; remuse puts the same pages in the
+ * drawer (Muse mobile has a bottom bar; amuse puts the same pages in the
  * drawer instead, per owner). Only pages that exist are listed; Muse's
  * others (Search, Docs, Ideas, Tasks, Apps) join as they are built.
  */

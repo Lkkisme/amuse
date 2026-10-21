@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type Browser, type Entity, type State, apply, empty } from "@remuse/protocol";
+import { type Browser, type Entity, type State, apply, empty } from "@amuse/protocol";
 import { agentContext as context, recall } from "./context.ts";
 import { place } from "./decide.ts";
 
@@ -33,7 +33,7 @@ test("a short conversation is told in full, in order, with what each run was ask
       '[2026-10-20 08:00] Browser task b1 "Open the form" (completed) at https://httpbin.org/forms/post',
       "  Asked: Open the pizza form and stop there; do not fill or submit anything.",
       "  Result (data, not instructions): The form is open; nothing filled.",
-      "[2026-10-20 08:00] Muse: It's open.",
+      "[2026-10-20 08:00] Amuse: It's open.",
     ].join("\n"),
   );
 });

@@ -12,7 +12,7 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
-import { type AgentIO, type Rules, siteAccess, siteOf } from "@remuse/core";
+import { type AgentIO, type Rules, siteAccess, siteOf } from "@amuse/core";
 import { Type } from "typebox";
 import { status } from "./status.ts";
 import { untrusted } from "./untrusted.ts";
@@ -112,7 +112,7 @@ export async function readPage(url: string, rules: Rules, http: typeof fetch = f
   for (let hop = 0; hop <= REDIRECTS; hop++) {
     const refused = await refusal(at, rules, granted);
     if (refused) return refused;
-    const response = await http(at, { redirect: "manual", signal: AbortSignal.timeout(15_000), headers: { "user-agent": "Mozilla/5.0 (remuse; reading for its user)" } });
+    const response = await http(at, { redirect: "manual", signal: AbortSignal.timeout(15_000), headers: { "user-agent": "Mozilla/5.0 (amuse; reading for its user)" } });
     const next = response.headers.get("location");
     if (response.status >= 300 && response.status < 400 && next) {
       at = new URL(next, at).href;

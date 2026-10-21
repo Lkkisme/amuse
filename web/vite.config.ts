@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
 /** dev: the API this server stands in front of, so the app and its session cookie are one origin */
-const api = process.env["REMUSE_API"];
+const api = process.env["AMUSE_API"];
 const routes = ["/files", "/thumb", "/unlock", "/setup", "/lock", "/password", "/connected"];
 const proxy = api
   ? {

@@ -1,4 +1,4 @@
-# remuse UI spec
+# amuse UI spec
 
 Everything below is replicated from reference screenshots in
 `~/.local/share/openmuse-pi/muse-ref/` (visual reference only — never commit them).

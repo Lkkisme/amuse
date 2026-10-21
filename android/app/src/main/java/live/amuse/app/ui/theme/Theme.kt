@@ -1,4 +1,4 @@
-package live.remuse.app.ui.theme
+package live.amuse.app.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
@@ -30,7 +30,7 @@ private val MuseColors = darkColorScheme(
 )
 
 @Composable
-fun RemuseTheme(content: @Composable () -> Unit) {
+fun AmuseTheme(content: @Composable () -> Unit) {
     // Muse is dark-first; follow the system only for light fallback in the future.
     if (isSystemInDarkTheme()) {
         MaterialTheme(colorScheme = MuseColors, content = content)

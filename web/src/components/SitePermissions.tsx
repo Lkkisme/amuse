@@ -8,13 +8,13 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { Globe, X } from "lucide-react";
-import { siteOf } from "@remuse/core";
+import { siteOf } from "@amuse/core";
 import {
   type Permission,
   type Session,
   Site,
   type SiteRule,
-} from "@remuse/protocol";
+} from "@amuse/protocol";
 import { PermissionSelect } from "./PermissionSelect";
 import { Sheet } from "./Sheet";
 
@@ -76,7 +76,7 @@ export function SitePermissions({
         className="text-[13px] leading-snug"
         style={{ color: "var(--text-secondary)" }}
       >
-        Muse asks before visiting a website not listed here.
+        Amuse asks before visiting a website not listed here.
       </p>
       <ul
         className="mt-2 space-y-0.5 text-[13px] leading-snug"
@@ -130,7 +130,7 @@ export function SitePermissions({
             className="mt-1 text-[14px]"
             style={{ color: "var(--text-secondary)" }}
           >
-            What Muse may do there
+            What Amuse may do there
           </p>
           <div
             className="mt-5 w-full overflow-hidden rounded-[18px] text-left"
@@ -154,7 +154,7 @@ export function SitePermissions({
               className="flex items-center justify-between px-4 py-2.5 text-[16px]"
               style={{ color: "var(--text-secondary)" }}
             >
-              Muse may
+              Amuse may
               <PermissionSelect value={permission} onChange={setPermission} />
             </div>
           </div>

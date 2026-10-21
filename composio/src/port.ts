@@ -7,8 +7,8 @@
  * now", so a forged one cannot connect anything. Gives up quietly after
  * `timeoutMs` (the card stays pending; the user can tap Connect again).
  */
-import type { AgentIO, Ports, Timers } from "@remuse/core";
-import type { Connection } from "@remuse/protocol";
+import type { AgentIO, Ports, Timers } from "@amuse/core";
+import type { Connection } from "@amuse/protocol";
 import type { Composio } from "./client.ts";
 
 export interface ConnectorOptions<H> {

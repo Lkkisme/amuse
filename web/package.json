@@ -1,5 +1,5 @@
 {
-  "name": "remuse-web",
+  "name": "amuse-web",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -11,10 +11,10 @@
   },
   "dependencies": {
     "@novnc/novnc": "^1.7.0",
-    "@remuse/api": "*",
-    "@remuse/core": "*",
-    "@remuse/demo": "*",
-    "@remuse/protocol": "*",
+    "@amuse/api": "*",
+    "@amuse/core": "*",
+    "@amuse/demo": "*",
+    "@amuse/protocol": "*",
     "cronstrue": "^3.37.0",
     "lucide-react": "^1.60.0",
     "react": "^18.3.1",

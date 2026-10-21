@@ -23,7 +23,7 @@ import type {
   Task,
   TaskStatus,
   When,
-} from "@remuse/protocol";
+} from "@amuse/protocol";
 import { APPROVAL_TTL_MS, GRACE_MS, MAX_SCHEDULES, check, later, nextRun, standing } from "./schedule.ts";
 
 /** Calls that do not touch the conversation: reading it, the app directory (Ports.apps) and the keys (Ports.keys). */
@@ -510,7 +510,7 @@ export function tick(state: State, now: string): { changes: Change[]; effects: E
       const next = e.when.kind === "once" ? null : nextRun(e.when, now);
       const moved: Schedule = { ...e, next, status: next ? "active" : "done" };
       if (Date.parse(now) - Date.parse(e.next) > GRACE_MS) {
-        changes.push(upsert({ ...moved, last: { at: e.next, outcome: "missed", summary: "remuse was not running at the time" } }));
+        changes.push(upsert({ ...moved, last: { at: e.next, outcome: "missed", summary: "amuse was not running at the time" } }));
       } else {
         const running: Schedule = { ...moved, running: true };
         changes.push(upsert(running));

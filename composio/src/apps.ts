@@ -3,8 +3,8 @@
  * user's rules (core/policy.ts): a tool the user denied is never offered,
  * and each tool comes with what the agent may do with it.
  */
-import { type Rules, kindOf, kindByName, permissionOf } from "@remuse/core";
-import type { Permission, ToolKind } from "@remuse/protocol";
+import { type Rules, kindOf, kindByName, permissionOf } from "@amuse/core";
+import type { Permission, ToolKind } from "@amuse/protocol";
 import type { Composio } from "./client.ts";
 
 export function composioApps(client: Composio, userId: string, rules: Rules) {

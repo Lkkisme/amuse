@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { AgentIO, RunMessage } from "@remuse/core";
+import type { AgentIO, RunMessage } from "@amuse/core";
 import { type RunHandle, type Steerable, inbox } from "./runs.ts";
 
 function run() {
@@ -27,7 +27,7 @@ function run() {
   return { handle, send: (m: RunMessage) => listener?.(m), listening: () => listener !== undefined };
 }
 
-test("Muse's message reaches a session mid-run before its next step; between prompts it waits for the next one", () => {
+test("Amuse's message reaches a session mid-run before its next step; between prompts it waits for the next one", () => {
   const r = run();
   const steered: string[] = [];
   const session: Steerable = { isStreaming: true, steer: async (text) => void steered.push(text) };
@@ -36,7 +36,7 @@ test("Muse's message reaches a session mid-run before its next step; between pro
   const mail = inbox(r.handle, () => current, () => stopped++);
   r.send({ kind: "instruction", text: "Also check tomorrow" });
   assert.deepEqual(steered, []);
-  assert.match(mail.drain(), /Message from Muse[\s\S]*Also check tomorrow/);
+  assert.match(mail.drain(), /Message from Amuse[\s\S]*Also check tomorrow/);
   assert.equal(mail.drain(), "", "drained once");
   current = session;
   r.send({ kind: "instruction", text: "Skip the weekend" });

@@ -7,7 +7,7 @@
  * over the chat instead; on a phone, a page of its own.
  */
 import { CalendarClock, CircleCheck, Clock, Fingerprint, Globe, List, ListTodo, Pencil, Plug, ShieldCheck, X, Zap } from "lucide-react";
-import type { Entity, State } from "@remuse/protocol";
+import type { Entity, State } from "@amuse/protocol";
 import { museAvatar, travels } from "../transition.ts";
 import type { Actions } from "../ui.ts";
 import { browserLook, host, taskStatus, time } from "../view.ts";
@@ -46,7 +46,7 @@ function done(entity: Entity): Done | null {
     case "question":
       return null; // between the agents, not shown to the user
     case "failure":
-      return null; // a notice in the chat, not something Muse did
+      return null; // a notice in the chat, not something Amuse did
     case "schedule":
       return { id: entity.id, title: entity.title, sub: `${repeats(entity.when)} · ${scheduleState(entity)}`, time: at, done: entity.status === "done", icon: CalendarClock };
   }
@@ -66,7 +66,7 @@ export function MusePanel({ conversation, mode, actions }: { conversation: State
 
   return (
     <aside
-      aria-label="Muse"
+      aria-label="Amuse"
       // where the avatar travels in, the panel comes in with it, in the same transition (index.css); a panel
       // sliding on its own would move the avatar's landing place under it
       className={`${frame[mode]} ${travels() ? "" : mode === "docked" ? "anim-pane-from-right" : "anim-popover-in"} flex flex-col overflow-hidden`}
@@ -88,7 +88,7 @@ export function MusePanel({ conversation, mode, actions }: { conversation: State
             className="flex size-[100px] items-center justify-center rounded-full text-[38px] font-semibold"
             style={{ ...museAvatar, background: "var(--avatar-fill)", color: "var(--avatar-text)" }}
           >
-            M
+            A
           </span>
           <span
             aria-hidden
@@ -99,7 +99,7 @@ export function MusePanel({ conversation, mode, actions }: { conversation: State
           </span>
         </span>
         <p className="mt-3 text-[22px] font-semibold" style={{ color: "var(--text-primary)" }}>
-          Muse
+          Amuse
         </p>
         {working ? (
           <p className="activity-indicator-fade text-[15px]" style={{ color: "var(--text-secondary)" }}>
@@ -134,7 +134,7 @@ export function MusePanel({ conversation, mode, actions }: { conversation: State
         </p>
         {list.length === 0 ? (
           <p className="mt-3 text-[14px]" style={{ color: "var(--text-secondary)" }}>
-            What Muse does for you shows up here.
+            What Amuse does for you shows up here.
           </p>
         ) : (
           <ul className="mt-3 space-y-4">

@@ -1,13 +1,13 @@
 /**
- * remuse web app. The conversation is the fold of the session's events;
+ * amuse web app. The conversation is the fold of the session's events;
  * Ui is local panel state; Actions turn clicks into protocol calls or panel
  * changes. Components get exactly the slices they render.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { connect } from "@remuse/api/client";
-import { createHost, realTimers } from "@remuse/core";
-import { demoPorts, seed } from "@remuse/demo";
-import { MAIN, type Method, type Params, type Session } from "@remuse/protocol";
+import { connect } from "@amuse/api/client";
+import { createHost, realTimers } from "@amuse/core";
+import { demoPorts, seed } from "@amuse/demo";
+import { MAIN, type Method, type Params, type Session } from "@amuse/protocol";
 import { type Connection, connection } from "./connection.ts";
 import { useChats, useConversation } from "./session.ts";
 import { applyTheme, storedTheme } from "./theme.ts";
@@ -18,7 +18,7 @@ import { viewerTabs } from "./view.ts";
 import { transition } from "./transition.ts";
 import { close, useBack } from "./back.ts";
 
-const VIEWER_WIDTH = "remuse.viewerWidth";
+const VIEWER_WIDTH = "amuse.viewerWidth";
 /** The viewer is at least 420px; the chat keeps at least 360px beside the 56px rail. */
 const clampViewer = (width: number) =>
   Math.round(Math.max(420, Math.min(width, innerWidth - 56 - 360)));

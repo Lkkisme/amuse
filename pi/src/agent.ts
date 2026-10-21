@@ -1,13 +1,13 @@
 /**
  * The agent port on Pi (@earendil-works/pi-coding-agent). The conversation
- * lives in remuse's events, not in Pi: each turn is a fresh Pi session given
+ * lives in amuse's events, not in Pi: each turn is a fresh Pi session given
  * the conversation as the core renders it (context.ts), so a restart loses
  * nothing and the context never outgrows the model. Its reply is what it
  * says once it is done (no more tools); what it writes on the way is not shown
  * (the status line says what it is doing). Pi's coding tools, extensions,
- * skills and context files are all off: the model sees only remuse's tools (tools.ts).
+ * skills and context files are all off: the model sees only amuse's tools (tools.ts).
  */
-import { type AgentIO, type Ports, type Rules, type Turn, type Workspace, localTime, newId } from "@remuse/core";
+import { type AgentIO, type Ports, type Rules, type Turn, type Workspace, localTime, newId } from "@amuse/core";
 import { images, workspaceTools } from "./attachments.ts";
 import { redact } from "./redact.ts";
 import { type PiModelConfig, type PiSession, openSession, secretsOf } from "./session.ts";

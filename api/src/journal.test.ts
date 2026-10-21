@@ -3,8 +3,8 @@ import { appendFileSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { createHost, type Timers } from "@remuse/core";
-import { demoPorts, seed } from "@remuse/demo";
+import { createHost, type Timers } from "@amuse/core";
+import { demoPorts, seed } from "@amuse/demo";
 import { fileChats, fileJournal } from "./journal.ts";
 
 const idle: Timers<number> = { set: () => 0, clear: () => {} };
@@ -15,7 +15,7 @@ const snapshot = async (host: ReturnType<typeof createHost>) => {
 };
 
 test("a restarted host comes back with the same state and keeps counting", async () => {
-  const path = join(mkdtempSync(join(tmpdir(), "remuse-journal-")), "log", "events.jsonl");
+  const path = join(mkdtempSync(join(tmpdir(), "amuse-journal-")), "log", "events.jsonl");
   const first = createHost(demoPorts(idle), { seed: seed(), store: fileChats(dirname(path), path), timers: idle });
   await first.call("chat.send", { chat: "main", text: "remember me", timezone: "UTC", attachments: [] });
   const before = await snapshot(first);
@@ -41,7 +41,7 @@ test("a restarted host comes back with the same state and keeps counting", async
 });
 
 test("a torn last line is dropped and cut off, so the next append starts clean", async () => {
-  const path = join(mkdtempSync(join(tmpdir(), "remuse-journal-")), "events.jsonl");
+  const path = join(mkdtempSync(join(tmpdir(), "amuse-journal-")), "events.jsonl");
   const host = createHost(demoPorts(idle), { seed: seed(), store: fileChats(dirname(path), path), timers: idle });
   const seq = (await snapshot(host)).seq;
   appendFileSync(path, '{"seq":');
@@ -52,7 +52,7 @@ test("a torn last line is dropped and cut off, so the next append starts clean",
 });
 
 test("a whole line it cannot read stops the load, and the file is left as it was", async () => {
-  const path = join(mkdtempSync(join(tmpdir(), "remuse-journal-")), "events.jsonl");
+  const path = join(mkdtempSync(join(tmpdir(), "amuse-journal-")), "events.jsonl");
   const host = createHost(demoPorts(idle), { seed: seed(), store: fileChats(dirname(path), path), timers: idle });
   await snapshot(host);
   appendFileSync(path, '{"seq":999,"event":{"kind":"renamed"}}\n');
@@ -62,7 +62,7 @@ test("a whole line it cannot read stops the load, and the file is left as it was
 });
 
 test("side chats are kept beside the main chat's log, and a deleted one's log goes with it", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "remuse-chats-"));
+  const dir = mkdtempSync(join(tmpdir(), "amuse-chats-"));
   const main = join(dir, "events.jsonl");
   const first = createHost(demoPorts(idle), { store: fileChats(dir, main), timers: idle });
   const side = await first.call("chats.create", {});

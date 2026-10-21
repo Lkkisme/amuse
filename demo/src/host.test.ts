@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type Envelope, type State, apply, empty } from "@remuse/protocol";
-import { type AgentIO, Rejected, type Timers, type Turn, createHost } from "@remuse/core";
+import { type Envelope, type State, apply, empty } from "@amuse/protocol";
+import { type AgentIO, Rejected, type Timers, type Turn, createHost } from "@amuse/core";
 import { demoPorts, seed } from "./index.ts";
 
 /** Timers that only fire when the test says so. */

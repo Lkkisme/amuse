@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type Workspace, noWorkspace } from "@remuse/core";
+import { type Workspace, noWorkspace } from "@amuse/core";
 import { images, textOf } from "./attachments.ts";
 
 /** A one-page PDF that says "Hello PDF". */

@@ -2,7 +2,7 @@
  * UI-only state: which panels are open and what they show. Server state is
  * the conversation (session.ts); this never duplicates it, only ids into it.
  */
-import { type App, type Attachment, type KeyProvider, MAIN } from "@remuse/protocol";
+import { type App, type Attachment, type KeyProvider, MAIN } from "@amuse/protocol";
 
 export type SettingsSection = "general" | "models" | "connectors" | "permissions" | "schedules";
 

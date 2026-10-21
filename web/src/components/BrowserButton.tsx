@@ -1,5 +1,5 @@
 /**
- * The browser button, top-right where Muse has its Invite button (remuse has
+ * The browser button, top-right where Muse has its Invite button (amuse has
  * no invites). Like the menu button, it never moves: it opens the browser
  * viewer and, while the viewer is open, morphs in place into the button that
  * collapses it, staying above the viewer (whose header leaves it the corner).
@@ -7,7 +7,7 @@
  * in flight: an orange "!" while one waits for you, a pulsing dot while one works.
  */
 import { Monitor, PanelRightClose, X } from "lucide-react";
-import type { State } from "@remuse/protocol";
+import type { State } from "@amuse/protocol";
 import type { Actions } from "../ui.ts";
 import { browserLook, pillBrowser } from "../view.ts";
 

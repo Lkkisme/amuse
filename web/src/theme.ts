@@ -6,7 +6,7 @@
 export type Theme = "system" | "light" | "dark";
 export const THEMES: Theme[] = ["system", "light", "dark"];
 
-const KEY = "remuse.theme";
+const KEY = "amuse.theme";
 const dark = () => matchMedia("(prefers-color-scheme: dark)");
 
 /** The user's pick on this device; the system's by default. */

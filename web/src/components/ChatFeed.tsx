@@ -20,8 +20,8 @@ import type {
   Prompt,
   Reply,
   State,
-} from "@remuse/protocol";
-import { size } from "@remuse/core";
+} from "@amuse/protocol";
+import { size } from "@amuse/core";
 import { useFiles } from "../files.ts";
 import type { Actions } from "../ui.ts";
 import { thinking, time } from "../view.ts";
@@ -703,7 +703,7 @@ export function ChatFeed({
               <div
                 className="flex w-fit items-center gap-1.5 rounded-[22px] px-4 py-3.5"
                 style={{ background: "var(--fill-secondary)" }}
-                aria-label="Muse is thinking"
+                aria-label="Amuse is thinking"
               >
                 {[0, 1, 2].map((i) => (
                   <span
@@ -717,7 +717,7 @@ export function ChatFeed({
           )}
         </div>
         {/* Jump-to-bottom: a plain down-arrow button while far from the bottom;
-          "N messages" pill (Muse ref 09-waiting) when new ones arrived. */}
+          "N messages" pill (Amuse ref 09-waiting) when new ones arrived. */}
         {(far || pendingCount > 0) &&
           !atBottom &&
           (pendingCount > 0 ? (

@@ -76,7 +76,7 @@ test("fields outside the schema are dropped at the boundary", () => {
   assert.equal("control" in parsed.event.entity, false);
 });
 
-test("statuses outside Muse's vocabulary are rejected", () => {
+test("statuses outside Amuse's vocabulary are rejected", () => {
   const browser = { kind: "browser", id: "b1", at, title: "t", url: "https://x.example/", status: "sleeping" };
   assert.equal(EnvelopeSchema.safeParse({ seq: 1, event: { kind: "upserted", index: 0, entity: browser } }).success, false);
 });

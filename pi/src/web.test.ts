@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type AgentAction, type AgentIO, type Answer, memoryRules } from "@remuse/core";
+import { type AgentAction, type AgentIO, type Answer, memoryRules } from "@amuse/core";
 import { type Read, pageText, privateAddress, readForAgent, readPage } from "./web.ts";
 
 const textOf = (read: Read) => (read.kind === "text" ? read.text : `unlisted ${read.url}`);
@@ -101,7 +101,7 @@ test("this machine is refused outright, without asking the user about it", async
   assert.deepEqual(quiet.asked, []);
 });
 
-test("a helper holds on the approval and reads on with the page; nothing goes to Muse but that it waits", async () => {
+test("a helper holds on the approval and reads on with the page; nothing goes to Amuse but that it waits", async () => {
   const http = answering({ "http://1.1.1.1/": { status: 200, body: "<p>Hello</p>" } });
   const held: string[] = [];
   const hold = { waiting: (what: string) => void held.push(`waiting ${what}`), working: () => void held.push("working") };

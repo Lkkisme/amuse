@@ -6,7 +6,7 @@
  * did: the task ends with that result, and Muse is told.
  */
 import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
-import { type AgentIO, type Ports, describe, localTime } from "@remuse/core";
+import { type AgentIO, type Ports, describe, localTime } from "@amuse/core";
 import { Type } from "typebox";
 import type { PiConfig } from "./agent.ts";
 import { status } from "./status.ts";
@@ -39,8 +39,8 @@ export function taskTools(io: () => AgentIO): ToolDefinition[] {
 
 const helper = [
   ...helperRules,
-  "This is one task Muse handed you. First set out your plan with `plan` (a few short steps, in the user's language), and mark steps done as you go.",
-  "When done, end with what you did and found, in the user's language, plain text: Muse passes it on.",
+  "This is one task Amuse handed you. First set out your plan with `plan` (a few short steps, in the user's language), and mark steps done as you go.",
+  "When done, end with what you did and found, in the user's language, plain text: Amuse passes it on.",
 ].join("\n");
 
 /** Runs tasks with Pi: a helper each; stopping one aborts it where it is. */

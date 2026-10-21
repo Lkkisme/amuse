@@ -1,5 +1,5 @@
 {
-  "name": "@remuse/browser",
+  "name": "@amuse/browser",
   "private": true,
   "type": "module",
   "exports": {

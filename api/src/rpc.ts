@@ -4,8 +4,8 @@
  * ever sees typed calls. Errors map to JSON-RPC codes; a core Rejection is
  * -32000 with the reason as the message.
  */
-import { Call, type Notification, Request, type Response, type Session, errors } from "@remuse/protocol";
-import { Rejected } from "@remuse/core";
+import { Call, type Notification, Request, type Response, type Session, errors } from "@amuse/protocol";
+import { Rejected } from "@amuse/core";
 
 const methods = new Set<string>(Call.options.map((option) => option.shape.method.value));
 const rejected = -32000;

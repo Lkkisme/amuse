@@ -1,5 +1,5 @@
 /**
- * One auto-browser controller, over its REST API: only the calls remuse
+ * One auto-browser controller, over its REST API: only the calls amuse
  * makes, every response parsed with zod at the boundary. The controller's
  * element ids (op-…) never leave the browser package.
  */
@@ -44,7 +44,7 @@ export type Action =
   | { name: "type"; body: { element_id: string; text: string; clear_first: boolean } }
   | { name: "press"; body: { key: string } }
   | { name: "scroll"; body: { delta_x: number; delta_y: number } }
-  /** a file already in the controller's upload folder, into a file input (remuse approves uploads itself) */
+  /** a file already in the controller's upload folder, into a file input (amuse approves uploads itself) */
   | { name: "upload"; body: { element_id: string; file_path: string; approved: boolean } };
 
 /** A file the page downloaded, kept by the controller. */
@@ -98,7 +98,7 @@ export function controller(base: string, token: string, http: typeof fetch = fet
 
   return {
     async create(startUrl, profile) {
-      const body = { name: "remuse", start_url: startUrl, ...(profile ? { auth_profile: profile } : {}) };
+      const body = { name: "amuse", start_url: startUrl, ...(profile ? { auth_profile: profile } : {}) };
       return (await json(Session, "POST", "/sessions", body, 90_000)).id;
     },
     observe: (session) => json(Observation, "POST", `/sessions/${session}/observe`, { preset: "normal", limit: 120 }),

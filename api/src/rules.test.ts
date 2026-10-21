@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { fileRules } from "./rules.ts";
 
 test("rules survive a restart, the file stays the owner's, and a broken file stops the start", async () => {
-  const path = join(mkdtempSync(join(tmpdir(), "remuse-rules-")), "rules.json");
+  const path = join(mkdtempSync(join(tmpdir(), "amuse-rules-")), "rules.json");
   await fileRules(path).set("gmail", "destructive", "deny");
   await fileRules(path).setSite("bank.com", "deny");
   assert.deepEqual(await fileRules(path).of("gmail"), { destructive: "deny" });

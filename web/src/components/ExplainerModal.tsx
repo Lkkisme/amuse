@@ -6,7 +6,7 @@
  * to begin connecting; Cancel only closes the sheet.
  */
 import { BarChart3, Eye, ToggleLeft } from "lucide-react";
-import type { Connection, State } from "@remuse/protocol";
+import type { Connection, State } from "@amuse/protocol";
 import type { Actions } from "../ui.ts";
 import { byId, providerLogo } from "../view.ts";
 import { Sheet } from "./Sheet";
@@ -26,17 +26,17 @@ function ExplainerBody({ req, open, actions }: { req: Connection; open: boolean;
     {
       icon: BarChart3,
       title: `Level up with ${req.title}`,
-      body: `Muse will access your ${req.title} data and its metadata.`,
+      body: `Amuse will access your ${req.title} data and its metadata.`,
     },
     {
       icon: ToggleLeft,
-      title: "You choose what Muse can do",
-      body: "By default, Muse will ask before taking actions it thinks need review. Disconnect at any time in Settings.",
+      title: "You choose what Amuse can do",
+      body: "By default, Amuse will ask before taking actions it thinks need review. Disconnect at any time in Settings.",
     },
     {
       icon: Eye,
       title: "Keep an eye on things",
-      body: "Muse may take unexpected actions. Monitor it carefully.",
+      body: "Amuse may take unexpected actions. Monitor it carefully.",
     },
   ];
 

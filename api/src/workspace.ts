@@ -13,8 +13,8 @@ import { lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/
 import { basename, dirname, extname, join } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { type Entry, type Workspace, WorkspaceError, newId } from "@remuse/core";
-import { Attachment } from "@remuse/protocol";
+import { type Entry, type Workspace, WorkspaceError, newId } from "@amuse/core";
+import { Attachment } from "@amuse/protocol";
 import { z } from "zod";
 
 /** The largest file the server takes. */

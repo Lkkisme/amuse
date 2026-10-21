@@ -6,7 +6,7 @@
  * a time as the user scrolls back, and go again when they return to the end.
  */
 import { useCallback, useEffect, useState } from "react";
-import { type Chat, type Session, type State, apply, empty, prepend, recent } from "@remuse/protocol";
+import { type Chat, type Session, type State, apply, empty, prepend, recent } from "@amuse/protocol";
 
 /** Entities fetched per page back, and how many are kept on letting go. */
 const PAGE = 50;

@@ -80,7 +80,7 @@ export function useBack(ui: Ui, closeTop: (layer: Layer) => void): void {
   useEffect(() => {
     if (depth > entries.current) {
       for (; entries.current < depth; entries.current++)
-        history.pushState({ remuse: entries.current + 1 }, "");
+        history.pushState({ amuse: entries.current + 1 }, "");
     } else if (depth < entries.current && !unwinding.current) {
       unwinding.current = true;
       history.go(depth - entries.current);

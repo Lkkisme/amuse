@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { ChevronRight, KeyRound, LayoutGrid } from "lucide-react";
-import type { App, KeyProvider, Session } from "@remuse/protocol";
+import type { App, KeyProvider, Session } from "@amuse/protocol";
 import { Connectors } from "./Connectors";
 import { KeyLine, KeyLogin, useKeyTests } from "./KeyLogin";
 import { Sheet } from "./Sheet";
@@ -77,7 +77,7 @@ export function AppsKey({
           className="mt-1 max-w-[300px] text-[14px]"
           style={{ color: "var(--text-secondary)" }}
         >
-          Muse reaches Gmail, your calendar and many other apps through
+          Amuse reaches Gmail, your calendar and many other apps through
           Composio. Each app only lets in software it has approved; Composio is
           approved by them, so you need not set up each app yourself.
         </p>

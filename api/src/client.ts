@@ -16,7 +16,7 @@ import {
   type State,
   type Update,
   parseResult,
-} from "@remuse/protocol";
+} from "@amuse/protocol";
 
 type Pending = { settle: (raw: unknown) => void; fail: (error: Error) => void };
 

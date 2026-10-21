@@ -20,7 +20,7 @@ import {
   X,
   CalendarClock,
 } from "lucide-react";
-import type { Session } from "@remuse/protocol";
+import type { Session } from "@amuse/protocol";
 import type { Actions, SettingsSection, Theme, Ui } from "../ui.ts";
 import { THEMES } from "../theme.ts";
 import { usePresence } from "./usePresence";

@@ -16,8 +16,8 @@ import {
   noWorkspace,
   permissionOf,
   verdict,
-} from "@remuse/core";
-import type { Account, App, Entity } from "@remuse/protocol";
+} from "@amuse/core";
+import type { Account, App, Entity } from "@amuse/protocol";
 
 const demoApp = (id: string, name: string, description: string): App => ({
   id,

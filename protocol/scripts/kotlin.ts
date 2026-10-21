@@ -23,7 +23,7 @@ type Schema = {
   anyOf?: Schema[];
 };
 
-const pkg = process.argv[2] ?? "remuse.protocol";
+const pkg = process.argv[2] ?? "amuse.protocol";
 const dir = new URL("../.generated/", import.meta.url);
 const defs: Record<string, Schema> = JSON.parse(readFileSync(new URL("protocol.schema.json", dir), "utf8")).$defs;
 

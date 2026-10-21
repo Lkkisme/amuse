@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "live.remuse.app"
+    namespace = "live.amuse.app"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "live.remuse.app"
+        applicationId = "live.amuse.app"
         minSdk = 29
         targetSdk = 35
         versionCode = 1

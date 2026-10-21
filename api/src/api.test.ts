@@ -3,9 +3,9 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
-import { createHost, type Timers } from "@remuse/core";
-import { demoPorts, seed } from "@remuse/demo";
-import { type State, apply, empty } from "@remuse/protocol";
+import { createHost, type Timers } from "@amuse/core";
+import { demoPorts, seed } from "@amuse/demo";
+import { type State, apply, empty } from "@amuse/protocol";
 import { connect } from "./client.ts";
 import { type Access, fileAccess } from "./access.ts";
 import { listen } from "./server.ts";
@@ -205,7 +205,7 @@ test("a client that reconnects receives the events it missed", async () => {
 
 /** A server whose way in is real: a fresh instance, the password not set yet. */
 async function guarded() {
-  const access = fileAccess(join(mkdtempSync(join(tmpdir(), "remuse-access-")), "access.json"));
+  const access = fileAccess(join(mkdtempSync(join(tmpdir(), "amuse-access-")), "access.json"));
   const server = await listen({
     session: createHost(demoPorts(instant), { timers: never }),
     access,
@@ -319,9 +319,9 @@ test("a malformed cookie is no session — it can never take the server down", a
   const { post, cookieOf, opens, close } = await guarded();
   try {
     const good = cookieOf(await post("/setup", { password: "correct horse" }));
-    assert.equal(await opens({ cookie: "remuse=%E0%A4%A" }), "refused");
-    assert.equal(await opens({ cookie: "remuse=%" }), "refused");
-    assert.equal(await opens({ cookie: "remuse=wrong" }), "refused");
+    assert.equal(await opens({ cookie: "amuse=%E0%A4%A" }), "refused");
+    assert.equal(await opens({ cookie: "amuse=%" }), "refused");
+    assert.equal(await opens({ cookie: "amuse=wrong" }), "refused");
     assert.equal(await opens({ cookie: good }), "open"); // still alive
   } finally {
     await close();

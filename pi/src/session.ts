@@ -1,5 +1,5 @@
 /**
- * Opening a Pi session the remuse way: a given model and system prompt, only
+ * Opening a Pi session the amuse way: a given model and system prompt, only
  * the tools passed in (no built-ins, MCP, extensions, skills or context
  * files), in memory. The model runtime is created once per credential source;
  * the model is the one chosen when the session opens.
@@ -123,7 +123,7 @@ export async function openSession(cfg: PiModelConfig, system: string, tools: Too
   const model = models.getModel(spec.provider, spec.id);
   if (!model) throw new Error(`Model "${chosen}" is not available.`);
   // Pi wants a working directory; nothing is read from or written to it.
-  const cwd = mkdtempSync(join(tmpdir(), "remuse-pi-"));
+  const cwd = mkdtempSync(join(tmpdir(), "amuse-pi-"));
   const { session } = await createAgentSession({
     cwd,
     agentDir: cwd,

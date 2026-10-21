@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { close, layers } from "./back.ts";
-import type { KeyProvider } from "@remuse/protocol";
+import type { KeyProvider } from "@amuse/protocol";
 import { type Ui, initialUi } from "./ui.ts";
 
 const app = { id: "gmail", name: "Gmail", description: "Email", logo: null };

@@ -6,7 +6,7 @@
  * is recorded through the core's rules, so the user sees it in the chat.
  */
 import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
-import { type AgentIO, describe } from "@remuse/core";
+import { type AgentIO, describe } from "@amuse/core";
 import { Type } from "typebox";
 import { status } from "./status.ts";
 import { untrusted } from "./untrusted.ts";
@@ -92,7 +92,7 @@ export function askTool(run: RunHandle, hooks: { waiting?: () => void; working?:
     name: "ask_user",
     label: "Ask the user",
     description:
-      "Ask the user a question only they can answer (which of two options, a detail the task left open). Muse relays it; this waits for the answer, up to 30 minutes. Not for things to do in the browser.",
+      "Ask the user a question only they can answer (which of two options, a detail the task left open). Amuse relays it; this waits for the answer, up to 30 minutes. Not for things to do in the browser.",
     parameters: Type.Object({ status, question: Type.String({ description: "One clear question, in the user's language" }) }),
     async execute(_, { question }) {
       const asked = run.io.act({ kind: "question", run: run.id, text: question });
@@ -122,7 +122,7 @@ export interface Steerable {
 
 export function inbox(run: RunHandle, session: () => Steerable | null, onStop: () => void): { drain(): string; close(): void } {
   const pending: string[] = [];
-  const say = (message: string) => `[Message from Muse, the user's assistant, while you work]\n${message}`;
+  const say = (message: string) => `[Message from Amuse, the user's assistant, while you work]\n${message}`;
   const close = run.io.listen(run.id, (message) => {
     if (message.kind === "stop") return onStop();
     const live = session();

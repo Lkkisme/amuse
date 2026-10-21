@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Toolkit } from "./client.ts";
-import { memoryRules } from "@remuse/core";
+import { memoryRules } from "@amuse/core";
 import { composioDirectory, score } from "./directory.ts";
 
 const tk = (slug: string, name: string, description = "", categories: string[] = []): Toolkit => ({ slug, name, description, logo: null, categories });

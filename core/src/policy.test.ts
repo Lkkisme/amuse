@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Permission } from "@remuse/protocol";
+import type { Permission } from "@amuse/protocol";
 import { defaultPermission, kindOf, memoryRules, permissionOf, siteAccess, siteOf } from "./policy.ts";
 
 test("a tool's own hints decide its kind; without any, its name does", () => {

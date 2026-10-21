@@ -209,8 +209,8 @@ test("the controller client parses responses and sends the bearer token", async 
   );
 });
 
-// Against a real pool when one is running (mise run dev starts it): REMUSE_TEST_BROWSER=http://127.0.0.1:18101|<token>
-const real = process.env["REMUSE_TEST_BROWSER"];
+// Against a real pool when one is running (mise run dev starts it): AMUSE_TEST_BROWSER=http://127.0.0.1:18101|<token>
+const real = process.env["AMUSE_TEST_BROWSER"];
 test(
   "a real auto-browser node opens, looks, acts and closes",
   { skip: !real },
@@ -251,7 +251,7 @@ test("a run starts at the standard desktop size; the user's screen reshapes it; 
 });
 
 test("an upload hands the controller only that file, in the shared folder, for as long as it takes", async () => {
-  const local = mkdtempSync(join(tmpdir(), "remuse-handoff-"));
+  const local = mkdtempSync(join(tmpdir(), "amuse-handoff-"));
   const log: string[] = [];
   const base = fakeController(log);
   let seen = "";

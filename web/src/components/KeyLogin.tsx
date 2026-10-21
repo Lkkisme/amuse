@@ -11,7 +11,7 @@ import type {
   KeyTest,
   LoginStep,
   Session,
-} from "@remuse/protocol";
+} from "@amuse/protocol";
 import { Sheet } from "./Sheet";
 
 export function KeyLogin({

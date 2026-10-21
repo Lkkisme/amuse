@@ -10,8 +10,8 @@
  */
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import type { AuthEvent, AuthInteraction, AuthPrompt } from "@earendil-works/pi-ai";
-import { type Keys, Rejected, newId } from "@remuse/core";
-import type { KeyProvider, LoginNote, LoginPrompt, LoginStep, ModelOption, ModelRole } from "@remuse/protocol";
+import { type Keys, Rejected, newId } from "@amuse/core";
+import type { KeyProvider, LoginNote, LoginPrompt, LoginStep, ModelOption, ModelRole } from "@amuse/protocol";
 import { z } from "zod";
 import { type KeyFile, fileCredentials, readOnlyCredentials } from "./credentials.ts";
 import { redact } from "./redact.ts";
@@ -405,11 +405,11 @@ export async function adoptEnvironment({
   }
   // an empty file says the environment was looked at
   if (adopted.length === 0) await keys.delete("none");
-  const chat = env["REMUSE_PI_MODEL"]?.trim() || null;
+  const chat = env["AMUSE_PI_MODEL"]?.trim() || null;
   if (!existsSync(choicePath) && chat) {
     const choice: Choice = {
       chat,
-      browser: env["REMUSE_PI_BROWSER_MODEL"]?.trim() || chat,
+      browser: env["AMUSE_PI_BROWSER_MODEL"]?.trim() || chat,
     };
     writeFileSync(choicePath, JSON.stringify(choice, null, 2), { mode: 0o600 });
   }

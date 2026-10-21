@@ -35,7 +35,7 @@ import {
   dispatch,
   empty,
   recent,
-} from "@remuse/protocol";
+} from "@amuse/protocol";
 import {
   type AgentAction,
   type Change,
@@ -606,7 +606,7 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     if (chat.id === MAIN && history.length === 0) for (const entity of options.seed ?? []) commit(room, { kind: "upserted", entity });
   }
   if (!stored.some((c) => c.id === MAIN)) store.save(ordered());
-  arm(); // what fell due while remuse was down happens now (or is recorded as missed)
+  arm(); // what fell due while amuse was down happens now (or is recorded as missed)
 
   /** A side chat with no title yet is named after its first message. */
   const nameAfter = (room: Room, text: string) => {

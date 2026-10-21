@@ -3,52 +3,52 @@
  * is whoever knows the master password, set on the first visit (access.json
  * beside the journal); the model providers' keys, Composio's and the models
  * chosen are set up in the app (keys.json, models.json).
- *   REMUSE_PORT   default 8797
- *   REMUSE_HOST   default 127.0.0.1
- *   REMUSE_JOURNAL  JSONL file the event log lives in (survives restarts), with the rest of the
+ *   AMUSE_PORT   default 8797
+ *   AMUSE_HOST   default 127.0.0.1
+ *   AMUSE_JOURNAL  JSONL file the event log lives in (survives restarts), with the rest of the
  *                 data beside it; without one, everything goes in a temporary folder
- *   REMUSE_PI_MODEL, REMUSE_PI_BROWSER_MODEL, <PROVIDER>_API_KEY, REMUSE_PI_AUTH, REMUSE_COMPOSIO_KEY(_FILE)
+ *   AMUSE_PI_MODEL, AMUSE_PI_BROWSER_MODEL, <PROVIDER>_API_KEY, AMUSE_PI_AUTH, AMUSE_COMPOSIO_KEY(_FILE)
  *                 read once, when there is no keys.json yet: taken over into it
- *   REMUSE_BROWSERS  the auto-browser pool: name|controller URL|noVNC URL, comma-separated
+ *   AMUSE_BROWSERS  the auto-browser pool: name|controller URL|noVNC URL, comma-separated
  *                 (see compose.browsers.yaml); AUTO_BROWSER_TOKEN_FILE holds the controllers' bearer token
- *   REMUSE_PUBLIC_URL  this server's address as the user's browser reaches it (http://host:port);
+ *   AMUSE_PUBLIC_URL  this server's address as the user's browser reaches it (http://host:port);
  *                 lets connectors send the user straight back for an instant "connected"
- *   REMUSE_WEB    directory of the built web app to serve (same origin as /rpc and /live)
+ *   AMUSE_WEB    directory of the built web app to serve (same origin as /rpc and /live)
  */
 import { dirname, join } from "node:path";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { ComposioError, NoComposioKey, composio, composioApps, composioGuide, composioConnector, composioDirectory, keyedComposio } from "@remuse/composio";
+import { ComposioError, NoComposioKey, composio, composioApps, composioGuide, composioConnector, composioDirectory, keyedComposio } from "@amuse/composio";
 import { fileChats } from "./journal.ts";
 import { workspace } from "./workspace.ts";
-import { browserPool, controller } from "@remuse/browser";
-import { type Ports, Rejected, createHost, memoryRules, realTimers } from "@remuse/core";
-import type { Entity } from "@remuse/protocol";
-import { type PiAuth, adoptEnvironment, fileCredentials, piAgent, piBrowserAgent, piKeys, piScheduleRunner, piTaskRunner, untrustedRule } from "@remuse/pi";
+import { browserPool, controller } from "@amuse/browser";
+import { type Ports, Rejected, createHost, memoryRules, realTimers } from "@amuse/core";
+import type { Entity } from "@amuse/protocol";
+import { type PiAuth, adoptEnvironment, fileCredentials, piAgent, piBrowserAgent, piKeys, piScheduleRunner, piTaskRunner, untrustedRule } from "@amuse/pi";
 import { fileAccess } from "./access.ts";
 import { listen } from "./server.ts";
 import { fileRules } from "./rules.ts";
 
-const port = Number(process.env["REMUSE_PORT"] ?? 8797);
-const host = process.env["REMUSE_HOST"] ?? "127.0.0.1";
+const port = Number(process.env["AMUSE_PORT"] ?? 8797);
+const host = process.env["AMUSE_HOST"] ?? "127.0.0.1";
 
 /** where everything is kept: beside the journal (or, with none, somewhere that goes with this run) */
-const journalFile = process.env["REMUSE_JOURNAL"];
-const dataDir = journalFile ? dirname(journalFile) : mkdtempSync(join(tmpdir(), "remuse-data-"));
+const journalFile = process.env["AMUSE_JOURNAL"];
+const dataDir = journalFile ? dirname(journalFile) : mkdtempSync(join(tmpdir(), "amuse-data-"));
 const access = fileAccess(join(dataDir, "access.json"));
 
 /** The user's keys and models, set up in the app; what the environment held before is taken over once. */
 const keysPath = join(dataDir, "keys.json");
 const choicePath = join(dataDir, "models.json");
-const keyFile = process.env["REMUSE_COMPOSIO_KEY_FILE"];
+const keyFile = process.env["AMUSE_COMPOSIO_KEY_FILE"];
 const adopted = await adoptEnvironment({
   keysPath,
   choicePath,
   apps: {
-    composio: keyFile ? readFileSync(keyFile, "utf8").trim() : process.env["REMUSE_COMPOSIO_KEY"],
+    composio: keyFile ? readFileSync(keyFile, "utf8").trim() : process.env["AMUSE_COMPOSIO_KEY"],
   },
   env: process.env,
-  ...(process.env["REMUSE_PI_AUTH"] ? { authFile: process.env["REMUSE_PI_AUTH"] } : {}),
+  ...(process.env["AMUSE_PI_AUTH"] ? { authFile: process.env["AMUSE_PI_AUTH"] } : {}),
 });
 if (adopted.length > 0) console.log(`Keys taken over from the environment: ${adopted.join(", ")}. Set them in the app from now on.`);
 const credentials = fileCredentials(keysPath);
@@ -72,7 +72,7 @@ const auth: PiAuth = { kind: "keys", keys: credentials };
 const model = () => keys.model("chat");
 const browserModel = () => keys.model("browser");
 const system = [
-  "You are Muse, a personal assistant in a chat app. Write like a person texting: short, plain sentences, usually one to three. Plain text only: no markdown (no headings, bold, lists or tables), no emoji. Say a longer thing as a few short messages' worth of plain prose, not a document.",
+  "You are Amuse, a personal assistant in a chat app. Write like a person texting: short, plain sentences, usually one to three. Plain text only: no markdown (no headings, bold, lists or tables), no emoji. Say a longer thing as a few short messages' worth of plain prose, not a document.",
   "Reply in the language and script of the user's latest message, unless they ask for another; a foreign word in their message does not change it. Pages, mails and tool results in other languages never change it: read them as they are, say it in the user's language. Something you write for them to use elsewhere (a post, an email) is in the language they ask for it in.",
   'Talk like a capable secretary, not like software. The user hears what you did and found, not how it works inside: unless they ask, never mention ids (b-…, s-…, q-…), tool or function names, agents, runs, sessions, reports, notes, prompts or internal statuses. Say "I\'m opening the site", "I\'ll check your mail every hour", "it\'s asking which date you want", in plain words. What you hear from your background work stays between you and it; pass on only what the user needs, in your own words. If the user does ask how something works or what you did, answer plainly and truthfully.',
   "Do quick things yourself: a fact to look up, a page to read, something to fetch from a connected app, a file to sort. Hand work off only when: it is long and self-contained (`start_task`, so the chat goes on), several independent pieces can go at once (a task each), a website must be operated (`browse`: only a browser task drives a browser), or it should run later or regularly (`schedule`). Do not hand off what you can answer at once.",
@@ -99,7 +99,7 @@ const composioUser = "owner";
 const rules = journalFile ? fileRules(join(dataDir, "rules.json")) : memoryRules();
 // Muse's workspace, and the index of sent files beside it
 const files = workspace(join(dataDir, "workspace"), join(dataDir, "sent.json"));
-const publicUrl = process.env["REMUSE_PUBLIC_URL"];
+const publicUrl = process.env["AMUSE_PUBLIC_URL"];
 const connector = composioConnector(composioClient, {
   userId: composioUser,
   timers: realTimers,
@@ -117,7 +117,7 @@ const connector = composioConnector(composioClient, {
 /** The controllers' bearer token, made on first start by compose.browsers.yaml's `secrets`. */
 const tokenFile = process.env["AUTO_BROWSER_TOKEN_FILE"];
 const browserToken = tokenFile ? readFileSync(tokenFile, "utf8").trim() : "";
-const nodes = (process.env["REMUSE_BROWSERS"] ?? "")
+const nodes = (process.env["AMUSE_BROWSERS"] ?? "")
   .split(",")
   .map((entry) => entry.trim().split("|"))
   .flatMap(([name, api, novnc, handoff]) => {
@@ -227,7 +227,7 @@ const ports: Ports = {
   },
 };
 
-const journalPath = process.env["REMUSE_JOURNAL"];
+const journalPath = process.env["AMUSE_JOURNAL"];
 // side chats beside the main chat's log
 const store = journalPath ? { store: fileChats(dirname(journalPath), journalPath) } : {};
 const session = createHost(ports, store);
@@ -248,7 +248,7 @@ for (const { id } of (await session.call("chats.list", {})).chats) {
 }
 const live = browsers && { browsers, controlled: (id: string) => held.has(id) };
 
-const web = process.env["REMUSE_WEB"];
+const web = process.env["AMUSE_WEB"];
 await listen({
   session,
   files,
@@ -261,7 +261,7 @@ await listen({
 });
 for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => process.exit(0));
 // the way in: the first visit sets the master password
-if (!access.ready()) console.log(`remuse is ready. Open ${publicUrl ?? `http://${host}:${port}`} and set the master password.`);
+if (!access.ready()) console.log(`amuse is ready. Open ${publicUrl ?? `http://${host}:${port}`} and set the master password.`);
 console.log(
-  `remuse api on ws://${host}:${port}/rpc (model: ${model() ?? "none chosen"}, browser model: ${browserModel() ?? "none chosen"}, apps: ${keys.appKey("composio") ? "composio" : "no key"}, browsers: ${nodes.length ? nodes.map((n) => n.name).join(",") : "none"})`,
+  `amuse api on ws://${host}:${port}/rpc (model: ${model() ?? "none chosen"}, browser model: ${browserModel() ?? "none chosen"}, apps: ${keys.appKey("composio") ? "composio" : "no key"}, browsers: ${nodes.length ? nodes.map((n) => n.name).join(",") : "none"})`,
 );

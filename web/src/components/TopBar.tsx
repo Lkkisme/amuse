@@ -4,7 +4,7 @@
  * line ("is responding", "Re-observing page", ...).
  */
 import { List, Menu, PanelLeftClose, ShieldAlert, Wrench } from "lucide-react";
-import type { State } from "@remuse/protocol";
+import type { State } from "@amuse/protocol";
 import type { Actions } from "../ui.ts";
 import { type AgentLine, agentLine } from "../view.ts";
 import { museAvatar } from "../transition.ts";
@@ -21,7 +21,7 @@ export function TopBar({ conversation, museOpen, actions }: { conversation: Stat
       <span className="size-11" />
 
       {/* The avatar and its badge take the clicks that land on them (the bar around them lets them through).
-          Muse avatar bubble, drawn over the top of its name badge (Muse: 52px avatar, badge tucked 4px under).
+          Amuse avatar bubble, drawn over the top of its name badge (Amuse: 52px avatar, badge tucked 4px under).
           Its shadow is a layer of its own under the badge, so it falls on the chat, not on the badge. */}
       {!museOpen && (
         <div className="pointer-events-none absolute left-1/2 top-2 z-10 flex -translate-x-1/2 flex-col items-center">
@@ -31,12 +31,12 @@ export function TopBar({ conversation, museOpen, actions }: { conversation: Stat
             style={{ boxShadow: "var(--shadow-float)" }}
           />
           <button
-            aria-label="Muse"
+            aria-label="Amuse"
             className="pointer-events-auto relative z-[2] flex size-[52px] items-center justify-center rounded-full text-[20px] font-semibold"
             style={{ ...museAvatar, background: "var(--avatar-fill)", color: "var(--avatar-text)" }}
             onClick={() => actions.setMuse(true)}
           >
-            M
+            A
           </button>
           <AvatarBadge line={agentLine(conversation)} />
         </div>
@@ -54,7 +54,7 @@ function AvatarBadge({ line }: { line: AgentLine | null }) {
       style={{ background: "var(--fill-primary)", boxShadow: "var(--shadow-float)" }}
     >
       <span className="text-[14px] font-semibold leading-[18px]" style={{ color: "var(--text-primary)" }}>
-        Muse
+        Amuse
       </span>
       {line && Icon && (
         <span

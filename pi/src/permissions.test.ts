@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { AgentAction, AgentIO, Answer } from "@remuse/core";
-import type { Permission } from "@remuse/protocol";
+import type { AgentAction, AgentIO, Answer } from "@amuse/core";
+import type { Permission } from "@amuse/protocol";
 import { type Apps, appCall } from "./tools.ts";
 import type { Hold } from "./runs.ts";
 
@@ -80,6 +80,6 @@ test("a helper's app action holds until the user answers, then runs and gives th
   const told = await s.runHeld({ waiting: (what) => void held.push(what), working: () => void held.push("working") });
   assert.deepEqual(s.ran, ["GMAIL_SEND_EMAIL"]);
   assert.match(told, /done/);
-  assert.deepEqual(s.reports, [], "nothing goes to Muse");
+  assert.deepEqual(s.reports, [], "nothing goes to Amuse");
   assert.equal(held.length, 2);
 });

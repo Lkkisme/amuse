@@ -4,7 +4,7 @@
  * (GET /files/<id>, for the page to show). The demo has none.
  */
 import { createContext, useContext } from "react";
-import { Attachment } from "@remuse/protocol";
+import { Attachment } from "@amuse/protocol";
 
 export interface FileAccess {
   upload(file: File): Promise<Attachment>;

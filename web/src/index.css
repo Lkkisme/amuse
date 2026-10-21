@@ -18,14 +18,14 @@
   --fill-green: #008200; /* text-success green-650 */
   --fill-orange: #c65323; /* text-warning orange-650 */
   --fill-red: #c01f37; /* text-destructive red-650 */
-  /* remuse: pill button inside a gray card (ref 52-connreq-desktop: lighter than the card) */
+  /* amuse: pill button inside a gray card (ref 52-connreq-desktop: lighter than the card) */
   --fill-card-button: var(--fill-primary);
-  /* remuse: soft shadows, wide and faint — floating chrome, raised popovers, sheets */
+  /* amuse: soft shadows, wide and faint — floating chrome, raised popovers, sheets */
   --shadow-float: 0 2px 16px rgba(0, 0, 0, 0.06);
   --shadow-raised: 0 6px 32px rgba(0, 0, 0, 0.08);
   --shadow-sheet: 0 12px 56px rgba(0, 0, 0, 0.1);
   --shadow-drawer: 8px 0 48px rgba(0, 0, 0, 0.08);
-  /* remuse: Muse's avatar, in the warm beige of its plush mascot */
+  /* amuse: Muse's avatar, in the warm beige of its plush mascot */
   --avatar-fill: linear-gradient(160deg, #f4e9da, #e0cbb0);
   --avatar-text: #75583d;
 }

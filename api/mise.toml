@@ -13,6 +13,6 @@ description = "A throwaway API for live tests: dev ports and keys, but its own p
 depends = ["//:install"]
 run = '''
 set -a; . "$HOME/.config/remuse/dev.env"; set +a
-export REMUSE_HOST=127.0.0.1 REMUSE_PORT="${PORT:-8799}" REMUSE_JOURNAL="$(mktemp -d)/events.jsonl"
+export AMUSE_HOST=127.0.0.1 AMUSE_PORT="${PORT:-8799}" AMUSE_JOURNAL="$(mktemp -d)/events.jsonl"
 exec node src/main.ts
 '''

@@ -1,4 +1,4 @@
-# remuse: the API serves the web app, /rpc and /live. Browsers run in the auto-browser pool
+# amuse: the API serves the web app, /rpc and /live. Browsers run in the auto-browser pool
 # (compose.browsers.yaml). Secrets are mounted files, never baked in.
 
 FROM node:24-bookworm-slim AS deps
@@ -16,7 +16,7 @@ RUN npm ci --no-audit --no-fund
 
 FROM deps AS web
 COPY . .
-RUN cd web && VITE_REMUSE_MODE=same-origin npx vite build --logLevel warn
+RUN cd web && VITE_AMUSE_MODE=same-origin npx vite build --logLevel warn
 
 FROM deps AS runtime-deps
 RUN npm ci --omit=dev --workspace api --no-audit --no-fund
@@ -35,10 +35,10 @@ COPY api api
 COPY --from=web /app/web/dist web/dist
 RUN mkdir -p /data && chown node:node /data
 USER node
-ENV REMUSE_HOST=0.0.0.0 \
-    REMUSE_PORT=8080 \
-    REMUSE_WEB=/app/web/dist \
-    REMUSE_JOURNAL=/data/events.jsonl
+ENV AMUSE_HOST=0.0.0.0 \
+    AMUSE_PORT=8080 \
+    AMUSE_WEB=/app/web/dist \
+    AMUSE_JOURNAL=/data/events.jsonl
 EXPOSE 8080
 VOLUME /data
 CMD ["node", "api/src/main.ts"]

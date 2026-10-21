@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type Approval, type Entity, type Schedule, type State, apply, empty } from "@remuse/protocol";
+import { type Approval, type Entity, type Schedule, type State, apply, empty } from "@amuse/protocol";
 import { type Change, type Context, decide, decideAgent, place, recover, tick } from "./decide.ts";
 import { APPROVAL_TTL_MS, GRACE_MS, MAX_SCHEDULES, check, deadline, later, localTime, nextRun, wallClock } from "./schedule.ts";
 import { agentContext } from "./context.ts";

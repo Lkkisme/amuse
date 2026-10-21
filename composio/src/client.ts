@@ -1,5 +1,5 @@
 /**
- * The few Composio REST calls remuse needs (v3, developer `ak_` key sent as
+ * The few Composio REST calls amuse needs (v3, developer `ak_` key sent as
  * x-api-key). Responses are parsed with zod here, so a changed API fails
  * loudly at the boundary instead of leaking `undefined` inward.
  */

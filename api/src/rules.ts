@@ -7,8 +7,8 @@
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { type AllRules, type Rules, noRules, setRule, setSiteRule } from "@remuse/core";
-import { Permission, Site, ToolKind } from "@remuse/protocol";
+import { type AllRules, type Rules, noRules, setRule, setSiteRule } from "@amuse/core";
+import { Permission, Site, ToolKind } from "@amuse/protocol";
 import { z } from "zod";
 
 const File = z.object({ apps: z.record(z.string(), z.partialRecord(ToolKind, Permission)), sites: z.record(Site, Permission) });

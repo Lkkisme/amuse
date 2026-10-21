@@ -148,7 +148,7 @@ export const When = z.discriminatedUnion("kind", [
 
 /**
  * How a schedule's run went: reported (it told the conversation something),
- * quiet (nothing worth saying), failed, stopped (by Muse), or missed (remuse was not running
+ * quiet (nothing worth saying), failed, stopped (by Muse), or missed (amuse was not running
  * then, and it was too late to catch up).
  */
 export const RunOutcome = z.enum(["reported", "quiet", "failed", "missed", "stopped"]);

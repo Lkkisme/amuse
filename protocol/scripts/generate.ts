@@ -44,7 +44,7 @@ const methods = Call.options.map((option) => {
 
 const openrpc = {
   openrpc: "1.3.2",
-  info: { title: "remuse", version: "0.1.0" },
+  info: { title: "amuse", version: "0.1.0" },
   methods,
   "x-notifications": [{ name: "push", params: schema(Push) }],
 };

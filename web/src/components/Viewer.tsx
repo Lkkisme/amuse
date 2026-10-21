@@ -27,7 +27,7 @@ import {
   X,
 } from "lucide-react";
 import { useState } from "react";
-import type { Browser, State } from "@remuse/protocol";
+import type { Browser, State } from "@amuse/protocol";
 import type { Actions, Ui } from "../ui.ts";
 import {
   browserLook,
@@ -137,7 +137,7 @@ function NoBrowser({ actions }: { actions: Actions }) {
           className="max-w-[280px] text-[14px]"
           style={{ color: "var(--text-secondary)" }}
         >
-          When Muse browses for you, it shows up here to watch or take over. You
+          When Amuse browses for you, it shows up here to watch or take over. You
           can open one of your own too.
         </p>
         <button

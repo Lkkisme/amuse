@@ -1,8 +1,8 @@
 /**
  * Where the conversation lives:
  *   demo    no server configured: the real core runs in the browser with scripted ports
- *   server  VITE_REMUSE_URL (a full ws URL), or the same origin the app was served from
- *           (VITE_REMUSE_MODE=same-origin: the Docker build, and dev through Vite's proxy)
+ *   server  VITE_AMUSE_URL (a full ws URL), or the same origin the app was served from
+ *           (VITE_AMUSE_MODE=same-origin: the Docker build, and dev through Vite's proxy)
  *   locked  same-origin, but this browser has no session yet; `ready`: the master password is set
  * The master password opens a session the server keeps as an HttpOnly cookie, so scripts, URLs
  * and logs never see it.
@@ -51,9 +51,9 @@ async function reason(response: Response): Promise<string> {
 }
 
 export async function connection(): Promise<Connection> {
-  const explicit = import.meta.env["VITE_REMUSE_URL"];
+  const explicit = import.meta.env["VITE_AMUSE_URL"];
   if (typeof explicit === "string" && explicit) return server(explicit);
-  if (import.meta.env["VITE_REMUSE_MODE"] !== "same-origin") return { kind: "demo" };
+  if (import.meta.env["VITE_AMUSE_MODE"] !== "same-origin") return { kind: "demo" };
 
   const unlocked = await fetch("/unlock").catch(() => null);
   if (unlocked?.status !== 204) {

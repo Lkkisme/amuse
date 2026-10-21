@@ -4,7 +4,7 @@
  * an approval card; an answer for good becomes the site's rule (visiting
  * allowed, acting still asked; or never).
  */
-import { type Acted, type AgentIO, type Outcome, type Rules, siteOf, visitRule } from "@remuse/core";
+import { type Acted, type AgentIO, type Outcome, type Rules, siteOf, visitRule } from "@amuse/core";
 
 /** Post the card asking whether `url`'s site may be visited, and what for. */
 export function askToVisit(io: AgentIO, url: string, why: string): Acted {

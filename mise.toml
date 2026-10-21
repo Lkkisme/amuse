@@ -27,17 +27,17 @@ depends = ["dockerfile-check", "//protocol:kotlin", "//protocol:check", "//core:
 run = "true"
 
 [tasks.dev]
-description = "Dev preview: the browser pool (Docker), API (restarts on change) + Vite with HMR, using ~/.config/remuse/dev.env; web on $REMUSE_HOST:5184"
+description = "Dev preview: the browser pool (Docker), API (restarts on change) + Vite with HMR, using ~/.config/remuse/dev.env; web on $AMUSE_HOST:5184"
 depends = ["install"]
 run = '''
 set -a; . "$HOME/.config/remuse/dev.env"; set +a
 # the web server stands in front of the API: one origin, so the session cookie just works
-export VITE_REMUSE_MODE=same-origin REMUSE_API="http://$REMUSE_HOST:$REMUSE_PORT"
-# the auto-browser pool, published on localhost (REMUSE_BROWSERS in the dev env points at it)
+export VITE_AMUSE_MODE=same-origin AMUSE_API="http://$AMUSE_HOST:$AMUSE_PORT"
+# the auto-browser pool, published on localhost (AMUSE_BROWSERS in the dev env points at it)
 mkdir -p "$HOME/.local/share/remuse/dev-handoff/1" "$HOME/.local/share/remuse/dev-handoff/2" "$HOME/.local/share/remuse/dev-handoff/3"
-docker compose -p remuse-browsers -f compose.browsers.yaml -f compose.dev.yaml up -d --wait
+docker compose -p amuse-browsers -f compose.browsers.yaml -f compose.dev.yaml up -d --wait
 trap 'kill 0' EXIT
 (cd api && node --watch src/main.ts) &
-(cd web && npx vite --port 5184 --strictPort --host "$REMUSE_HOST") &
+(cd web && npx vite --port 5184 --strictPort --host "$AMUSE_HOST") &
 wait
 '''

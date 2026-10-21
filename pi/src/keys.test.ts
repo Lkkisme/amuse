@@ -18,7 +18,7 @@ const composio = {
 };
 
 function setup() {
-  const dir = mkdtempSync(join(tmpdir(), "remuse-keys-"));
+  const dir = mkdtempSync(join(tmpdir(), "amuse-keys-"));
   const path = join(dir, "keys.json");
   const keys = piKeys({
     keys: fileCredentials(path),
@@ -116,7 +116,7 @@ test("a sign-in can be stopped, and an unknown provider is refused", async () =>
 });
 
 test("a key is tried on request: none set up says so; an app's test says how it went, never echoing the key", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "remuse-keys-"));
+  const dir = mkdtempSync(join(tmpdir(), "amuse-keys-"));
   let works = true;
   const keys = piKeys({
     keys: fileCredentials(join(dir, "keys.json")),
@@ -162,7 +162,7 @@ test("a key pasted as an env file line gives its value", async () => {
   assert.equal(bare("abcDEF123=="), "abcDEF123==");
   assert.equal(bare("KEY="), "KEY=");
 
-  const dir = mkdtempSync(join(tmpdir(), "remuse-keys-"));
+  const dir = mkdtempSync(join(tmpdir(), "amuse-keys-"));
   const keys = piKeys({ keys: fileCredentials(join(dir, "keys.json")), choicePath: join(dir, "models.json"), apps: [composio] });
   const first = await keys.login("composio");
   if (first.kind !== "prompt") return assert.fail("expected a prompt");

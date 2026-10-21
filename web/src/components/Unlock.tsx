@@ -42,7 +42,7 @@ export function Unlock({ ready }: { ready: boolean }) {
           boxShadow: "var(--shadow-float)",
         }}
       >
-        M
+        A
       </span>
       <div className="max-w-xs text-center">
         <p
@@ -56,8 +56,8 @@ export function Unlock({ ready }: { ready: boolean }) {
           style={{ color: "var(--text-secondary)" }}
         >
           {ready
-            ? "Enter your password to open Muse on this device."
-            : "Muse is new here. Choose the password that opens it, on this device and any other."}
+            ? "Enter your password to open Amuse on this device."
+            : "Amuse is new here. Choose the password that opens it, on this device and any other."}
         </p>
       </div>
       <input

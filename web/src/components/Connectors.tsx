@@ -15,7 +15,7 @@ import type {
   Permission,
   Session,
   ToolKind,
-} from "@remuse/protocol";
+} from "@amuse/protocol";
 import { AppLogo } from "./AppLogo";
 import { PermissionSelect } from "./PermissionSelect";
 
@@ -231,7 +231,7 @@ export function Connectors({
           <Note>
             {query
               ? `No connected app matches “${query}”.`
-              : "Nothing connected yet. Connect apps under Available, or ask Muse to."}
+              : "Nothing connected yet. Connect apps under Available, or ask Amuse to."}
           </Note>
         ) : (
           <Group>{shownConnected.map(row)}</Group>
@@ -305,7 +305,7 @@ function AppPage({
           className="mt-0.5 max-w-[360px] text-[13px]"
           style={{ color: "var(--text-secondary)" }}
         >
-          {app.description || "Muse can use the accounts you connect."}
+          {app.description || "Amuse can use the accounts you connect."}
         </p>
       </div>
       {error}

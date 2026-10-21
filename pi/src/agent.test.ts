@@ -21,7 +21,7 @@ test("the read-only credential store parses Pi auth files and refuses writes", a
   const { join } = await import("node:path");
   const { tmpdir } = await import("node:os");
   const { readOnlyCredentials } = await import("./credentials.ts");
-  const dir = mkdtempSync(join(tmpdir(), "remuse-auth-"));
+  const dir = mkdtempSync(join(tmpdir(), "amuse-auth-"));
   const good = join(dir, "auth.json");
   writeFileSync(good, JSON.stringify({ openrouter: { type: "api_key", key: "sk-test" } }));
   const store = readOnlyCredentials(good);

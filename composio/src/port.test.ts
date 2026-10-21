@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Connection } from "@remuse/protocol";
-import type { AgentAction, AgentIO, Timers } from "@remuse/core";
+import type { Connection } from "@amuse/protocol";
+import type { AgentAction, AgentIO, Timers } from "@amuse/core";
 import { type AccountStatus, type Composio, composio } from "./client.ts";
 import { composioConnector } from "./port.ts";
 
@@ -112,7 +112,7 @@ test("the user's return connects at once, exactly once; a forged key does nothin
     link: async (_toolkit, _user, url) => ((callback = url ?? ""), { url: "https://connect.example/x", account: "ca_1" }),
     status: async () => "active",
   };
-  const port = composioConnector(client, { userId: "owner", timers, callbackUrl: (key) => `https://remuse.example/connected?key=${key}` });
+  const port = composioConnector(client, { userId: "owner", timers, callbackUrl: (key) => `https://amuse.example/connected?key=${key}` });
   await port.connect(connection, recording((a) => actions.push(a)));
   const key = new URL(callback).searchParams.get("key") ?? "";
   assert.equal(await port.returned("forged"), false);

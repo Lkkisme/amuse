@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type Schedule, type Session, type State, apply, prepend } from "@remuse/protocol";
+import { type Schedule, type Session, type State, apply, prepend } from "@amuse/protocol";
 import { type AgentIO, type Ports, type Timers, type Turn, createHost, memoryChats, memoryRules, noKeys, noWorkspace } from "./index.ts";
 
 /** Ports that do nothing but hand over the AgentIO, so tests can act like an agent. */
@@ -183,7 +183,7 @@ async function withRun() {
   return { host, agent, run: run.id, time, runs, entity };
 }
 
-test("Muse tells a run in flight something more: it is recorded, and the run hears it; a run that ended hears nothing", async () => {
+test("Amuse tells a run in flight something more: it is recorded, and the run hears it; a run that ended hears nothing", async () => {
   const { host, agent, run, entity } = await withRun();
   const heard: string[] = [];
   const stop = agent.listen(run, (m) => heard.push(m.kind === "instruction" ? m.text : "stop"));
@@ -196,7 +196,7 @@ test("Muse tells a run in flight something more: it is recorded, and the run hea
   assert.deepEqual(agent.act({ kind: "instruct", run, text: "and the day after" }), { ok: false, rejection: { kind: "notRunning", id: run } });
 });
 
-test("a run's question waits for Muse's answer; the run waits for the user meanwhile; one answer only", async () => {
+test("a run's question waits for Amuse's answer; the run waits for the user meanwhile; one answer only", async () => {
   const { agent, run, entity } = await withRun();
   const asked = agent.act({ kind: "question", run, text: "Which beach?" });
   assert.ok(asked.ok);
@@ -223,7 +223,7 @@ test("a question nobody answers times out; one whose run ends is closed", async 
   assert.deepEqual(await unanswered, { kind: "closed" });
 });
 
-test("Muse stops a run in flight, but not one the user holds; a schedule's run hears the stop", async () => {
+test("Amuse stops a run in flight, but not one the user holds; a schedule's run hears the stop", async () => {
   const { host, agent, run, entity, time, runs } = await withRun();
   await host.call("browser.control", { id: run, action: "take" });
   assert.deepEqual(agent.act({ kind: "stopRun", run }), { ok: false, rejection: { kind: "invalid", action: "stopRun", from: "paused" } });
@@ -340,7 +340,7 @@ test("a task: handed to a helper, its plan kept, told more while it works, asked
   assert.deepEqual(agent.act({ kind: "taskEnded", id: other.id, status: "completed", result: "late" }), { ok: false, rejection: { kind: "invalid", action: "taskEnded", from: "stopped" } });
 });
 
-test("a turn Muse could not reply to is tried again once: the user's message as sent, or the note it was on", async () => {
+test("a turn Amuse could not reply to is tried again once: the user's message as sent, or the note it was on", async () => {
   const turns: Turn[] = [];
   const { ports } = capture();
   const host = createHost({ ...ports, prompt: (turn, io) => void (turns.push(turn), (last = io)) });

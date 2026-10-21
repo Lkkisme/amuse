@@ -44,11 +44,11 @@ Alpha variants `--ai-gray-aNNN` are `#000814`-based with hex alpha, e.g. a650 = 
 blue: 050 `#e6f7ff` … 450 `#2d9dff`, 500 `#1793ff`, 650 `#0064d4`, 1100 `#00102c`.
 
 Fonts: `optimisticAI` (body), `optimisticText` (UI text), `optimisticMono` (mono),
-`hatchLetterCaveat` (handwritten accents). Free metric-compatible stand-in for remuse:
+`hatchLetterCaveat` (handwritten accents). Free metric-compatible stand-in for amuse:
 Inter (body) + JetBrains Mono; do not bundle Meta font files.
 
 Accent theme system: `data-accent-color` ∈ blue/indigo/green/red/purple/pink/orange/monochrome,
-each mapping `--accent` (light `-650`) and `--accent-dark` (dark `-500`). remuse: blue only.
+each mapping `--accent` (light `-650`) and `--accent-dark` (dark `-500`). amuse: blue only.
 
 ## Usage notes
 

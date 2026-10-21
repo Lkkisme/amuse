@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type Browser, type BrowserStatus, type Entity, type State, apply, empty } from "@remuse/protocol";
+import { type Browser, type BrowserStatus, type Entity, type State, apply, empty } from "@amuse/protocol";
 import { type Change, type Context, decide, decideAgent, place, recover } from "./decide.ts";
 
 const at = "2026-10-20T08:00:00Z";
@@ -20,7 +20,7 @@ test("chat.send records the prompt and asks the agent", () => {
 
 type Move = "take" | "handBack" | "stop";
 
-test("browser moves follow Muse: take → paused, handBack → working (on a job), stop → stopped", () => {
+test("browser moves follow Amuse: take → paused, handBack → working (on a job), stop → stopped", () => {
   const moves: [BrowserStatus, Move, BrowserStatus][] = [
     ["working", "take", "paused"],
     ["needs_you", "take", "paused"],

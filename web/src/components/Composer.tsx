@@ -10,8 +10,8 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, CircleAlert, File as FileIcon, Mic, Plus, Square, X } from "lucide-react";
-import type { Attachment, State } from "@remuse/protocol";
-import { size } from "@remuse/core";
+import type { Attachment, State } from "@amuse/protocol";
+import { size } from "@amuse/core";
 import type { Actions } from "../ui.ts";
 import { busy } from "../view.ts";
 import { useFiles } from "../files.ts";
