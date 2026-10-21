@@ -48,6 +48,10 @@ interface Run {
   stop: AbortController;
   /** Set while the user holds the browser; resolves when it is handed back. */
   held: { promise: Promise<void>; settle: () => void } | null;
+  /** the user has taken control (not only been asked to) */
+  taken: boolean;
+  /** While the agent waits for the user: a message from Amuse that ends the wait (false: not now, the user has it). */
+  nudge: ((message: string) => boolean) | null;
   steps: number;
   finished: boolean;
   /** the user's rules: a site denied is never shown (policy.ts) */
@@ -226,6 +230,14 @@ function runTools(run: Run): ToolDefinition[] {
   const consequential = Type.Optional(
     Type.Boolean({ description: "true when this step buys, sends, deletes, publishes, books or submits something that commits the user" }),
   );
+  // what a consequential step's card says: what it does and why, in the user's words (never a ref like e139)
+  const said = {
+    what: Type.Optional(
+      Type.String({ description: "For a consequential step: what it does, as the user would say it, in their language, with the specifics ('Change the account language to English'). It titles their approval card." }),
+    ),
+    why: Type.Optional(Type.String({ description: "For a consequential step: why, tied to what the user asked (one plain line). Shown on the card." })),
+  };
+  const unsaid = () => text("A consequential step needs `what` and `why` for the user's approval card, in their words. Call again with both.");
   const refused = () =>
     run.stop.signal.aborted ? stoppedText() : text("The user did not approve this step (they declined, or did not answer in time). Do not do it; finish or ask what they want instead.");
 
@@ -241,19 +253,24 @@ function runTools(run: Run): ToolDefinition[] {
       name: "click",
       label: "Click",
       description: "Click the element with this ref. Mark consequential clicks; they wait for the user's approval.",
-      parameters: Type.Object({ status, ref: Type.String(), consequential, what: Type.Optional(Type.String({ description: "for consequential clicks: what it will do, for the user" })) }),
-      execute: async (_, { ref: r, consequential: risky, what }) =>
-        risky && !(await approve("Click", what ?? `Click ${r}`)) ? refused() : act({ kind: "click", ref: r }),
+      parameters: Type.Object({ status, ref: Type.String(), consequential, ...said }),
+      execute: async (_, { ref: r, consequential: risky, what, why }) => {
+        if (!risky) return act({ kind: "click", ref: r });
+        if (!what?.trim() || !why?.trim()) return unsaid();
+        return (await approve(what, why)) ? act({ kind: "click", ref: r }) : refused();
+      },
     }),
     defineTool({
       name: "type",
       label: "Type",
       description: "Replace the text in a field; set submit to press Enter afterwards. Mark consequential submits.",
-      parameters: Type.Object({ status, ref: Type.String(), text: Type.String(), submit: Type.Optional(Type.Boolean()), consequential }),
-      execute: async (_, { ref: r, text: value, submit, consequential: risky }) =>
-        risky && submit && !(await approve("Submit", `Enter "${value}" and submit`))
-          ? refused()
-          : act({ kind: "type", ref: r, text: value, submit: submit === true }),
+      parameters: Type.Object({ status, ref: Type.String(), text: Type.String(), submit: Type.Optional(Type.Boolean()), consequential, ...said }),
+      execute: async (_, { ref: r, text: value, submit, consequential: risky, what, why }) => {
+        const typed = () => act({ kind: "type", ref: r, text: value, submit: submit === true });
+        if (!risky || !submit) return typed();
+        if (!what?.trim() || !why?.trim()) return unsaid();
+        return (await approve(what, `${why}\n\nEnters: ${value}`)) ? typed() : refused();
+      },
     }),
     defineTool({
       name: "press",
@@ -295,8 +312,19 @@ function runTools(run: Run): ToolDefinition[] {
         run.held ??= hold();
         set("needs_you");
         run.io.report(`[browser task "${run.browser.title}" needs the user]\n${untrusted(reason)}`);
-        if ((await untilStopped(run, run.held.promise)) === "stopped") return stoppedText();
-        return text(`The user handed the browser back.\n\n${await observe(run)}`);
+        // the user hands it back; or, until they take it, Amuse sends what it needs (a code from their mail, say)
+        const held = run.held;
+        const ended = new Promise<string | null>((resolve) => {
+          held.promise.then(() => resolve(null), () => resolve(null));
+          run.nudge = (message) => (run.taken ? false : (resolve(message), true));
+        });
+        const outcome = await untilStopped(run, ended);
+        run.nudge = null;
+        if (outcome === "stopped") return stoppedText();
+        if (outcome === null) return text(`The user handed the browser back.\n\n${await observe(run)}`);
+        run.held = null;
+        set("working");
+        return text(`Amuse sent this while you waited (the user may have done nothing in the browser):\n${outcome}\n\n${await observe(run)}`);
       },
     }),
     askTool(handle(run), { waiting: () => set("waiting"), working: () => set("working") }),
@@ -466,7 +494,7 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers, rules: Ru
           const start = siteOf(browser.url);
           const run: Run = {
             browser, browsers, url: browser.url, io, session: null, stop, held: theirs ? hold() : null, steps: 0, finished: false, rules,
-            allowed: browser.url, granted: new Set(start ? [start] : []), workspace, downloaded: [], jobs: 0, queue: Promise.resolve(), idle: null, mail: null, end: null, watch: null,
+            allowed: browser.url, granted: new Set(start ? [start] : []), workspace, downloaded: [], jobs: 0, queue: Promise.resolve(), idle: null, mail: null, end: null, watch: null, taken: theirs, nudge: null,
           };
           runs.set(browser.id, run);
           const pi = await openSession(cfg, system, runTools(run));
@@ -479,7 +507,7 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers, rules: Ru
             say(event.toolName === "finish" ? null : (statusOf(event.args) ?? browserLabels[event.toolName] ?? "Working in the browser"));
           });
           // Muse's messages reach the session before its next step; a stop comes as the browser port's own
-          run.mail = inbox(handle(run), () => run.session, () => {});
+          run.mail = inbox(handle(run), () => run.session, () => {}, (message) => run.nudge?.(message) ?? false);
           run.end = () => {
             run.mail?.close();
             unsubscribe();
@@ -511,6 +539,7 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers, rules: Ru
       switch (action) {
         case "take":
           if (run) {
+            run.taken = true;
             run.held ??= hold();
             clearTimeout(run.idle ?? undefined);
           }
@@ -518,6 +547,7 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers, rules: Ru
         case "handBack":
           void browsers.remember(browser.id).catch(() => {}); // the user may have just logged in
           if (!run) return close(browser.id, io);
+          run.taken = false;
           run.held?.settle();
           run.held = null;
           // back to its job, or idle (between jobs, or the user's own with none yet)

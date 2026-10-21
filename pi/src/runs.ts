@@ -120,11 +120,13 @@ export interface Steerable {
   steer(text: string): Promise<unknown>;
 }
 
-export function inbox(run: RunHandle, session: () => Steerable | null, onStop: () => void): { drain(): string; close(): void } {
+/** `take`: a message the run takes itself, now, instead of with its next step (true: taken). */
+export function inbox(run: RunHandle, session: () => Steerable | null, onStop: () => void, take?: (text: string) => boolean): { drain(): string; close(): void } {
   const pending: string[] = [];
   const say = (message: string) => `[Message from Amuse, the user's assistant, while you work]\n${message}`;
   const close = run.io.listen(run.id, (message) => {
     if (message.kind === "stop") return onStop();
+    if (take?.(message.text)) return;
     const live = session();
     if (live?.isStreaming) void live.steer(say(message.text)).catch(() => pending.push(message.text));
     else pending.push(message.text);

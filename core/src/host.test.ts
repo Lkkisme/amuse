@@ -357,3 +357,30 @@ test("a turn Amuse could not reply to is tried again once: the user's message as
   ]);
   await assert.rejects(host.call("chat.retry", { id: "x1" }), /cannot retry from retried/);
 });
+
+test("work handed off is looked in on: the chat agent hears how a task goes every ten minutes while it runs, and no more once it ends", async () => {
+  const time = manualTime("2026-10-20T08:00:00Z");
+  const notes: string[] = [];
+  const { ports, io } = capture();
+  const host = createHost(
+    { ...ports, prompt: (turn, agent) => (turn.kind === "note" ? void notes.push(turn.text) : ports.prompt(turn, agent)) },
+    { clock: time.clock, timers: time.timers },
+  );
+  await host.call("chat.send", { chat: "main", text: "compare the offers", timezone: "UTC", attachments: [] });
+  const agent = io();
+  assert.ok(agent);
+  const made = agent.act({ kind: "task", title: "Compare offers", instructions: "Compare them" });
+  assert.ok(made.ok);
+  assert.ok(agent.act({ kind: "taskSteps", id: made.id, steps: [{ label: "Read", done: true }, { label: "Compare", done: false }] }).ok);
+  time.advance(9 * 60_000);
+  assert.deepEqual(notes, [], "not before ten minutes");
+  time.advance(60_000);
+  assert.equal(notes.length, 1);
+  assert.match(notes[0] ?? "", /\[heartbeat\] Your task "Compare offers" .* has been going 10 minutes; it is \w+, 1 of 2 steps done \(next: Compare\)/);
+  time.advance(10 * 60_000);
+  assert.equal(notes.length, 2);
+  assert.match(notes[1] ?? "", /going 20 minutes/);
+  assert.ok(agent.act({ kind: "taskEnded", id: made.id, status: "completed", result: "B" }).ok);
+  time.advance(30 * 60_000);
+  assert.equal(notes.length, 2, "an ended task is not looked in on");
+});

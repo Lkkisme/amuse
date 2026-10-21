@@ -55,6 +55,7 @@ import {
   verdict,
 } from "./decide.ts";
 import { deadline, userZone } from "./schedule.ts";
+import { BEAT_MS, beatNote, inFlight } from "./heartbeat.ts";
 import { type Timers, realTimers } from "./timers.ts";
 import type { Rules } from "./policy.ts";
 import { type Budget, type Where, agentContext, budget, mentions, recall } from "./context.ts";
@@ -428,6 +429,11 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     room.journal.append(envelope);
     push({ kind: "event", chat: room.chat.id, envelope });
     if (change.kind !== "upserted") return;
+    // a run that starts is looked in on from now; one that is done is no longer
+    const { entity: moved } = change;
+    if (inFlight(moved)) {
+      if (!beats.has(moved.id)) beats.set(moved.id, { room, since: clock.now(), last: clock.now() });
+    } else beats.delete(moved.id);
     arm(); // only an entity can move a deadline
     // something said moves the chat up the list
     const { entity } = change;
@@ -440,8 +446,29 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
   /** One timer, for the earliest deadline in any chat; when it fires, whatever is due happens (decide.ts `tick`). */
   const timers = options.timers ?? realTimers;
   let armed: { at: string; handle: unknown } | null = null;
+  /** Runs in flight, by id: their chat, since when, and when the chat agent last heard how they go. */
+  const beats = new Map<string, { room: Room; since: string; last: string }>();
+  const nextBeat = (): string | null =>
+    [...beats.values()].map((b) => new Date(Date.parse(b.last) + BEAT_MS).toISOString()).reduce<string | null>((a, b) => (a === null || Date.parse(b) < Date.parse(a) ? b : a), null);
+  /** Tell the chat agent how each run that is due goes. */
+  const beat = (now: string) => {
+    for (const [id, b] of beats) {
+      if (Date.parse(now) - Date.parse(b.last) < BEAT_MS) continue;
+      const entity = b.room.state.entities.find((e) => e.id === id);
+      if (!entity || !inFlight(entity) || rooms.get(b.room.chat.id) !== b.room) {
+        beats.delete(id);
+        continue;
+      }
+      b.last = now;
+      const note = beatNote(entity, Math.round((Date.parse(now) - Date.parse(b.since)) / 60_000));
+      if (note) ports.prompt({ kind: "note", text: note }, b.room.agent);
+    }
+  };
   function arm(): void {
-    const at = [...rooms.values()].map((r) => deadline(r.state)).reduce<string | null>((a, b) => (b !== null && (a === null || Date.parse(b) < Date.parse(a)) ? b : a), null);
+    const at = [...[...rooms.values()].map((r) => deadline(r.state)), nextBeat()].reduce<string | null>(
+      (a, b) => (b !== null && (a === null || Date.parse(b) < Date.parse(a)) ? b : a),
+      null,
+    );
     if (armed?.at === at) return;
     if (armed) timers.clear(armed.handle);
     armed = null;
@@ -456,6 +483,7 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
       due.changes.forEach((change) => commit(room, change));
       due.effects.forEach((effect) => run(room, effect));
     }
+    beat(clock.now());
     arm();
   }
 
