@@ -10,7 +10,7 @@ import { ArrowDown, ChevronDown, Copy, Share } from "lucide-react";
 import type { Entity, Prompt, Reply, State } from "@remuse/protocol";
 import type { Actions } from "../ui.ts";
 import { thinking, time } from "../view.ts";
-import { ApprovalCard, BrowserCard, ConnectionCard, InstructionCard, QuestionCard, ScheduleCard, TaskCard } from "./cards";
+import { ApprovalCard, BrowserCard, ConnectionCard, ScheduleCard, TaskCard } from "./cards";
 import { RichText } from "./markdown";
 import { type Place, type Side, corners } from "./shape.ts";
 
@@ -30,6 +30,29 @@ const STAMP_GAP_MS = 10 * 60_000;
 const stamped = (previous: Entity | undefined, entity: Entity) => !previous || Date.parse(entity.at) - Date.parse(previous.at) > STAMP_GAP_MS;
 
 
+/**
+ * What the chat shows. Not Muse's exchanges with its background runs: those
+ * are between the agents (Muse tells the user what matters in its own words).
+ * Not a reply that ended with nothing to read (a model's stray line breaks
+ * before a tool call).
+ */
+function shown(entity: Entity): boolean {
+  switch (entity.kind) {
+    case "instruction":
+    case "question":
+      return false;
+    case "reply":
+      return entity.streaming || entity.text.trim() !== "";
+    case "prompt":
+    case "task":
+    case "approval":
+    case "connection":
+    case "browser":
+    case "schedule":
+      return true;
+  }
+}
+
 /** Messages render as bubbles; every other entity is a card. */
 function EntityView({ entity, place, thumb, actions, onMenu }: { entity: Entity; place: Place; thumb: Thumb; actions: Actions; onMenu: (menu: Menu) => void }) {
   switch (entity.kind) {
@@ -47,9 +70,8 @@ function EntityView({ entity, place, thumb, actions, onMenu }: { entity: Entity;
     case "schedule":
       return <ScheduleCard schedule={entity} place={place} actions={actions} />;
     case "instruction":
-      return <InstructionCard instruction={entity} place={place} />;
     case "question":
-      return <QuestionCard question={entity} place={place} />;
+      return null; // between the agents (see `shown`)
   }
 }
 
@@ -225,8 +247,7 @@ interface Props {
 }
 
 export function ChatFeed({ conversation, older, release, thumb, actions }: Props) {
-  // a reply that ended with nothing to read (a model's stray line breaks before a tool call) is not shown
-  const feed = useMemo(() => conversation.entities.filter((e) => e.kind !== "reply" || e.streaming || e.text.trim() !== ""), [conversation.entities]);
+  const feed = useMemo(() => conversation.entities.filter(shown), [conversation.entities]);
   /** messages in the whole feed: what "new" is counted against, so pages fetched back are not new */
   const total = conversation.earlier + conversation.entities.length;
   /** the message whose long-press menu is open (touch) */

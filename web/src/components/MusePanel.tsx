@@ -6,7 +6,7 @@
  * Docked on the right; while the browser has the right, a floating window
  * over the chat instead; on a phone, a page of its own.
  */
-import { CalendarClock, CircleCheck, CircleHelp, Clock, Fingerprint, Globe, List, ListTodo, Pencil, Plug, ShieldCheck, X, Zap } from "lucide-react";
+import { CalendarClock, CircleCheck, Clock, Fingerprint, Globe, List, ListTodo, Pencil, Plug, ShieldCheck, X, Zap } from "lucide-react";
 import type { Entity, State } from "@remuse/protocol";
 import { museAvatar, travels } from "../transition.ts";
 import type { Actions } from "../ui.ts";
@@ -43,9 +43,8 @@ function done(entity: Entity): Done | null {
     }
     case "connection":
       return { id: entity.id, title: `Connect ${entity.title}`, sub: entity.status === "connected" ? "Connected" : "Waiting for you to connect", time: at, done: entity.status === "connected", icon: Plug };    case "instruction":
-      return null;
     case "question":
-      return { id: entity.id, title: `${entity.title} asks`, sub: entity.status === "open" ? "Waiting for your answer" : entity.status === "answered" ? "Answered" : "No answer", time: at, done: entity.status === "answered", icon: CircleHelp };
+      return null; // between the agents, not shown to the user
     case "schedule":
       return { id: entity.id, title: entity.title, sub: `${repeats(entity.when)} · ${scheduleState(entity)}`, time: at, done: entity.status === "done", icon: CalendarClock };
   }

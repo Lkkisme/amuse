@@ -2,8 +2,8 @@
  * Cards in the chat feed: one component per non-message entity kind.
  * Props are protocol entities; behavior goes through Actions.
  */
-import { CalendarClock, Check, ChevronRight, CircleAlert, CircleCheck, CircleHelp, Globe, ListTodo, Send, ShieldCheck } from "lucide-react";
-import type { Approval, Browser, Connection, Instruction, Question, Schedule, Task } from "@remuse/protocol";
+import { CalendarClock, Check, ChevronRight, CircleAlert, CircleCheck, Globe, ListTodo, ShieldCheck } from "lucide-react";
+import type { Approval, Browser, Connection, Schedule, Task } from "@remuse/protocol";
 import { repeats, scheduleState } from "../schedules.ts";
 import type { Actions } from "../ui.ts";
 import { type Place, alone, corners } from "./shape.ts";
@@ -188,53 +188,6 @@ export function ConnectionCard({ connection, place = alone, actions }: { connect
         {connection.status === "connected" && <Check size={15} />}
         {label}
       </button>
-    </div>
-  );
-}
-
-/* ---------- Muse and its runs ---------- */
-
-/** One line over a relayed message: who it is between, in small type. */
-function RelayHead({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <p className="flex items-center gap-1.5 text-[12px] font-medium" style={{ color: "var(--text-secondary)" }}>
-      {icon}
-      <span className="truncate">{children}</span>
-    </p>
-  );
-}
-
-/** What Muse told one of its runs while it worked: shown so the user always sees what their runs were told. */
-export function InstructionCard({ instruction, place = alone }: { instruction: Instruction; place?: Place }) {
-  return (
-    <div {...shell(place, "w-full max-w-[340px] px-3.5 py-2.5", 18)}>
-      <RelayHead icon={<Send size={13} />}>To “{instruction.title}”</RelayHead>
-      <p className="mt-1 whitespace-pre-wrap text-[14px] leading-snug" style={{ color: "var(--text-primary)" }}>
-        {instruction.text}
-      </p>
-    </div>
-  );
-}
-
-const questionState: Record<Question["status"], string> = {
-  open: "Waiting for your answer: reply to Muse in the chat",
-  answered: "Answered",
-  timed_out: "No answer in time; it went on without",
-  closed: "The task ended before an answer",
-};
-
-/** A run's question to the user, relayed by Muse; answered in the chat, so the card only shows where it stands. */
-export function QuestionCard({ question, place = alone }: { question: Question; place?: Place }) {
-  return (
-    <div {...shell(place, "w-full max-w-[340px] px-3.5 py-2.5", 18)}>
-      <RelayHead icon={<CircleHelp size={13} />}>“{question.title}” asks</RelayHead>
-      <p className="mt-1 whitespace-pre-wrap text-[14px] leading-snug" style={{ color: "var(--text-primary)" }}>
-        {question.text}
-      </p>
-      <p className="mt-1.5 text-[12px]" style={{ color: question.status === "open" ? "var(--fill-blue)" : "var(--text-secondary)" }}>
-        {questionState[question.status]}
-        {question.answer !== null && `: ${question.answer}`}
-      </p>
     </div>
   );
 }
