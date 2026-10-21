@@ -82,7 +82,8 @@ export const Call = z.discriminatedUnion("method", [
   /** Forget a provider's key. */
   call("keys.logout", z.object({ provider: z.string().min(1).max(100) })),
   /** Choose the model Muse chats with, or the one that works in the browser (it must see pictures). */
-  call("models.choose", z.object({ role: ModelRole, model: ModelRef })),
+  /** null: back to the default (only the background's: the chat's model) */
+  call("models.choose", z.object({ role: ModelRole, model: ModelRef.nullable() })),
   /** How much the chat's or the browser's model thinks (one of the levels its model takes). */
   call("models.think", z.object({ role: ModelRole, level: ThinkingLevel })),
 ]);

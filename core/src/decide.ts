@@ -23,6 +23,7 @@ import type {
   Task,
   TaskStatus,
   When,
+  Needs,
 } from "@amuse/protocol";
 import { APPROVAL_TTL_MS, GRACE_MS, MAX_SCHEDULES, check, later, nextRun, standing } from "./schedule.ts";
 
@@ -111,11 +112,12 @@ export type AgentAction =
   /** The app's account is live: the connection is connected. */
   | { kind: "connected"; id: string }
   /** Set up work to run later or regularly. */
-  | { kind: "schedule"; title: string; instructions: string; when: When }
+  | { kind: "schedule"; title: string; instructions: string; when: When; needs?: Needs | null; preset?: boolean }
   /** Cancel a schedule for good. */
   | { kind: "unschedule"; id: string }
   /** A schedule's run has ended, and how. */
-  | { kind: "scheduleRan"; id: string; outcome: Exclude<RunOutcome, "missed">; summary: string }
+  /** `skipped`: its condition (`needs`) held it back; it does not count as a run */
+  | { kind: "scheduleRan"; id: string; outcome: Exclude<RunOutcome, "missed"> | "skipped"; summary: string }
   /** Muse tells a run in flight something more: a further instruction, a correction. */
   | { kind: "instruct"; run: string; text: string }
   /** Muse stops a run in flight (not one the user holds: that is theirs). */
@@ -354,12 +356,12 @@ const agentRules: AgentRules = {
     const expires = later(ctx.now, APPROVAL_TTL_MS);
     return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, remember, status: "pending", expires })], [], { id });
   },
-  schedule: (state, { title, instructions, when }, ctx) => {
+  schedule: (state, { title, instructions, when, needs = null, preset = false }, ctx) => {
     if (standing(state).length >= MAX_SCHEDULES) return reject({ kind: "unsound", reason: `there are already ${MAX_SCHEDULES} schedules; cancel one first` });
     const sound = check(when, ctx.now);
     if (!sound.ok) return reject({ kind: "unsound", reason: sound.reason });
     const id = ctx.id("s");
-    return ok([upsert({ kind: "schedule", id, at: ctx.now, title, instructions, when, status: "active", next: sound.next, running: false, last: null })], [], { id });
+    return ok([upsert({ kind: "schedule", id, at: ctx.now, title, instructions, when, status: "active", next: sound.next, running: false, last: null, needs, preset })], [], { id });
   },
   unschedule: (state, { id }) => {
     const schedule = find(state, "schedule", id);
@@ -372,7 +374,8 @@ const agentRules: AgentRules = {
     if (!schedule) return reject({ kind: "notFound", entity: "schedule", id });
     if (!schedule.running) return reject({ kind: "invalid", action: "scheduleRan", from: schedule.status });
     const closed = closeQuestions(state, id);
-    return ok([upsert({ ...schedule, running: false, last: { at: ctx.now, outcome, summary } }), ...closed.changes], closed.effects, { id });
+    const last = outcome === "skipped" ? schedule.last : { at: ctx.now, outcome, summary };
+    return ok([upsert({ ...schedule, running: false, last }), ...closed.changes], closed.effects, { id });
   },
   instruct: (state, { run, text }, ctx) => {
     const target = flight(state, run);

@@ -14,7 +14,8 @@ import { workspaceTools } from "./attachments.ts";
 import { redact } from "./redact.ts";
 import { type Hold, type RunHandle, askTool, inbox } from "./runs.ts";
 import { type PiSession, openSession, secretsOf } from "./session.ts";
-import { appTools, tools } from "./tools.ts";
+import { appTools, chatTools, tools } from "./tools.ts";
+import { memoryReadTools } from "./memory.ts";
 import { untrustedRule } from "./untrusted.ts";
 import { webTools } from "./web.ts";
 
@@ -38,7 +39,10 @@ export const helperRules = [
 export function helperTools(cfg: PiConfig, run: RunHandle, hold: Hold): ToolDefinition[] {
   const io = () => run.io;
   return [
-    ...tools(io, cfg.rules, { files: cfg.files, hold }).filter((t) => t.name !== "request_connection"),
+    ...tools(io, cfg.rules, { files: cfg.files, hold }).filter((t) => t.name !== "request_connection" && !(cfg.files && t.name === "recall")),
+    // what was said, and what is remembered: to look up (memory files are kept with the workspace tools)
+    ...chatTools(io),
+    ...(cfg.files ? memoryReadTools(io, cfg.files) : []),
     ...webTools(io, cfg.rules, cfg.search, hold),
     ...(cfg.apps ? appTools(io, cfg.apps, hold) : []),
     ...(cfg.files ? workspaceTools(io, cfg.files, { send: false }) : []),

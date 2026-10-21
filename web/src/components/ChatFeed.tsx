@@ -14,13 +14,7 @@ import {
   Share,
   TextSelect,
 } from "lucide-react";
-import type {
-  Attachment,
-  Entity,
-  Prompt,
-  Reply,
-  State,
-} from "@amuse/protocol";
+import type { Attachment, Entity, Prompt, Reply, State } from "@amuse/protocol";
 import { size } from "@amuse/core";
 import { useFiles } from "../files.ts";
 import type { Actions } from "../ui.ts";
@@ -73,12 +67,14 @@ function shown(entity: Entity): boolean {
         entity.text.trim() !== "" ||
         entity.attachments.length > 0
       );
+    // one every instance starts with was not asked for here: it is in Settings › Schedules
+    case "schedule":
+      return !entity.preset;
     case "prompt":
     case "task":
     case "approval":
     case "connection":
     case "browser":
-    case "schedule":
     case "failure":
       return true;
   }
@@ -468,7 +464,10 @@ function Bubble({
           {item.kind === "prompt" ? (
             <span data-words>{item.text}</span>
           ) : (
-            <div data-words className={item.streaming ? "shimmer-text" : undefined}>
+            <div
+              data-words
+              className={item.streaming ? "shimmer-text" : undefined}
+            >
               <RichText text={item.text} />
             </div>
           )}

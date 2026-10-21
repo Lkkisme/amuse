@@ -46,7 +46,7 @@ export function Models({
   useEffect(() => void load(), [load]);
   const fail = (e: unknown) =>
     setError(e instanceof Error ? e.message : String(e));
-  const choose = (role: ModelRole, model: string) => {
+  const choose = (role: ModelRole, model: string | null) => {
     setError(null);
     session.call("models.choose", { role, model }).then(load, fail);
   };
@@ -157,7 +157,31 @@ export function Models({
               value={state.thinking.browser}
               onChange={(level) => think("browser", level)}
             />
+            {/* scheduled work: memory upkeep, reflection, the user's schedules */}
+            <ModelPicker
+              title="Background"
+              value={state.background}
+              options={models}
+              unset="Same as chat"
+              onChange={(m) => choose("background", m)}
+            />
+            <ThinkingPicker
+              title="Background"
+              levels={
+                models.find((m) => m.id === (state.background ?? state.chat))
+                  ?.thinking ?? []
+              }
+              value={state.thinking.background}
+              onChange={(level) => think("background", level)}
+            />
           </div>
+          <p
+            className="mt-2 px-1 text-[13px] leading-snug"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            Background runs your schedules, and keeps memory between
+            conversations every hour; a cheaper model does well there.
+          </p>
           <p className={label} style={{ color: "var(--text-secondary)" }}>
             Your providers
           </p>
@@ -406,12 +430,15 @@ function ModelPicker({
   title,
   value,
   options,
+  unset,
   onChange,
 }: {
   title: string;
   value: string | null;
   options: KeysState["models"];
-  onChange: (model: string) => void;
+  /** what no choice means, where it means something ("Same as chat"); else one must be chosen */
+  unset?: string;
+  onChange: (model: string | null) => void;
 }) {
   return (
     <label className="flex items-center gap-3 py-2.5">
@@ -421,11 +448,19 @@ function ModelPicker({
       <select
         aria-label={`${title} model`}
         className="min-w-0 flex-1 truncate bg-transparent text-right text-[15px] outline-none"
-        style={{ color: value ? "var(--text-secondary)" : "var(--fill-blue)" }}
+        style={{
+          color: value || unset ? "var(--text-secondary)" : "var(--fill-blue)",
+        }}
         value={value ?? ""}
-        onChange={(e) => e.target.value && onChange(e.target.value)}
+        onChange={(e) =>
+          e.target.value ? onChange(e.target.value) : unset && onChange(null)
+        }
       >
-        {!value && <option value="">Choose a model</option>}
+        {unset ? (
+          <option value="">{unset}</option>
+        ) : (
+          !value && <option value="">Choose a model</option>
+        )}
         {value && !options.some((o) => o.id === value) && (
           <option value={value}>{value}</option>
         )}

@@ -6,10 +6,16 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { CalendarClock } from "lucide-react";
-import type { Schedule, Session } from "@amuse/protocol";
+import type { Needs, Schedule, Session } from "@amuse/protocol";
 import { moment, outcomes, repeats, scheduleState } from "../schedules.ts";
 
 type Control = "pause" | "resume" | "cancel";
+
+/** What a run waits for besides its time, said after when it runs. */
+const waits: Record<Needs, string> = {
+  conversation: "when there was conversation",
+  lull: "after a conversation goes quiet",
+};
 
 export function Schedules({ session }: { session: Session }) {
   const [schedules, setSchedules] = useState<Schedule[] | null>(null);
@@ -126,7 +132,9 @@ function List({
                 className="text-[13px]"
                 style={{ color: "var(--text-secondary)" }}
               >
-                {repeats(s.when)} · {scheduleState(s)}
+                {repeats(s.when)}
+                {s.needs ? ` ${waits[s.needs]}` : ""} · {scheduleState(s)}
+                {s.preset ? " · Built in" : ""}
               </p>
               {s.last && (
                 <p

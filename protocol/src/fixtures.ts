@@ -73,6 +73,8 @@ export const envelopes: Envelope[] = [
         next: "2026-10-21T00:00:00Z",
         running: false,
         last: { at: "2026-10-20T00:00:00Z", outcome: "quiet", summary: "Nothing new" },
+        needs: null,
+        preset: false,
       },
     },
   },
@@ -81,7 +83,7 @@ export const envelopes: Envelope[] = [
     event: {
       kind: "upserted",
       index: 7,
-      entity: { kind: "schedule", id: "s2", at, title: "Call the dentist", instructions: "Remind the user to call the dentist", when: { kind: "once", at: "2026-10-21T01:00:00Z" }, status: "done", next: null, running: false, last: null },
+      entity: { kind: "schedule", id: "s2", at, title: "Call the dentist", instructions: "Remind the user to call the dentist", when: { kind: "once", at: "2026-10-21T01:00:00Z" }, status: "done", next: null, running: false, last: null, needs: null, preset: false },
     },
   },
   { seq: 12, event: { kind: "upserted", index: 8, entity: { kind: "instruction", id: "i1", at, run: "b1", title: "Log in", text: "Also download the itinerary PDF" } } },

@@ -9,6 +9,8 @@
  */
 import { type AgentIO, type Ports, type Rules, type Turn, type Workspace, nowIn, newId } from "@amuse/core";
 import { images, workspaceTools } from "./attachments.ts";
+import { memoryBrief, memoryReadTools, memoryWriteTools } from "./memory.ts";
+import type { Needs } from "@amuse/protocol";
 import { redact } from "./redact.ts";
 import { type PiModelConfig, type PiSession, openSession, secretsOf } from "./session.ts";
 import { statusOf } from "./status.ts";
@@ -30,6 +32,33 @@ export interface PiConfig extends PiModelConfig {
   files?: Workspace;
   /** While apps are not set up: how the user sets them up (null once they are). */
   appsSetup?: () => string | null;
+  /** Schedules every instance starts with (memory upkeep, reflection), set up once, on the user's clock, when they first write. */
+  defaults?: Defaults;
+}
+
+/** A schedule every instance starts with; after that it is the user's like any other. */
+export interface DefaultSchedule {
+  title: string;
+  instructions: string;
+  /** on the user's clock */
+  cron: string;
+  needs: Needs | null;
+}
+
+export interface Defaults {
+  schedules: DefaultSchedule[];
+  /** whether they were set up already (once only: the user may have changed or cancelled them since) */
+  done(): boolean;
+  markDone(): void;
+}
+
+/** Set the default schedules up once, in the main chat, on the user's clock (their time zone is known once they write). */
+function setUpDefaults(defaults: Defaults | undefined, agent: AgentIO): void {
+  if (!defaults || defaults.done() || !agent.chats().find((c) => c.id === agent.chat)?.main) return;
+  const { timezone } = agent.time();
+  for (const d of defaults.schedules)
+    agent.act({ kind: "schedule", title: d.title, instructions: d.instructions, when: { kind: "repeat", cron: d.cron, timezone }, needs: d.needs, preset: true });
+  defaults.markDone();
 }
 
 const toolLabels: Record<string, string> = {
@@ -86,8 +115,11 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
       // the user's language, said where the model weighs it most: the system prompt of this turn
       const language = scriptOf(agent.lastWords());
       const system = language ? `${cfg.system}\nThe user writes in ${language}: reply in ${language}.` : cfg.system;
+      if (turn.kind === "message") setUpDefaults(cfg.defaults, agent);
       const session = await openSession(cfg, system, [
-        ...tools(io, cfg.rules, { files: cfg.files, appsSetup: cfg.appsSetup }),
+        // with memory, memory_search looks in the chats as recall did, and in memory/ too
+        ...tools(io, cfg.rules, { files: cfg.files, appsSetup: cfg.appsSetup }).filter((t) => !(cfg.files && t.name === "recall")),
+        ...(cfg.files ? [...memoryReadTools(io, cfg.files), ...memoryWriteTools(io, cfg.files)] : []),
         ...chatTools(io),
         ...scheduleTools(io),
         ...taskTools(io),
@@ -122,7 +154,8 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
       try {
         // the images the user just sent are seen with their message
         const shown = turn.kind === "message" && cfg.files ? await images(cfg.files, turn.attachments) : [];
-        await pi.prompt(brief(agent, turn), { expandPromptTemplates: false, ...(shown.length > 0 ? { images: shown } : {}) });
+        const remembered = cfg.files ? await memoryBrief(cfg.files).catch(() => "") : "";
+        await pi.prompt(brief(agent, turn, remembered), { expandPromptTemplates: false, ...(shown.length > 0 ? { images: shown } : {}) });
       } finally {
         unsubscribe();
       }
@@ -201,7 +234,7 @@ type Language = "Chinese" | "Japanese" | "Korean";
 const scripts: Record<Language, RegExp> = { Japanese: /[\u3040-\u30ff]/, Korean: /[\uac00-\ud7af]/, Chinese: /[\u4e00-\u9fff]/ };
 
 /** The turn as the model gets it: the conversation, now on the user's clock, then what to do. */
-function brief(agent: AgentIO, turn: Turn): string {
+function brief(agent: AgentIO, turn: Turn, remembered: string): string {
   const { now, timezone } = agent.time();
   const here = agent.chats().find((c) => c.id === agent.chat);
   const where = here?.main
@@ -211,5 +244,5 @@ function brief(agent: AgentIO, turn: Turn): string {
     turn.kind === "message"
       ? "Reply to the user's newest message (the last lines above)."
       : `A note from your background work (not from the user; tell the user what matters):\n${turn.text}`;
-  return `${where}\n\nThe conversation so far, oldest first (times are the user's, ${timezone}):\n\n${agent.context()}\n\n---\nNow: ${nowIn(now, timezone)}.\n${task}`;
+  return `${where}\n\n${remembered ? `${remembered}\n\n---\n` : ""}The conversation so far, oldest first (times are the user's, ${timezone}):\n\n${agent.context()}\n\n---\nNow: ${nowIn(now, timezone)}.\n${task}`;
 }

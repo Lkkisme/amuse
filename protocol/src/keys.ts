@@ -39,7 +39,8 @@ export const ModelOption = z.object({
 });
 export type ModelOption = z.infer<typeof ModelOption>;
 
-export const ModelRole = z.enum(["chat", "browser"]);
+/** chat: Amuse in the chat; browser: its browser agent; background: scheduled work (the chat's model when none is chosen) */
+export const ModelRole = z.enum(["chat", "browser", "background"]);
 export type ModelRole = z.infer<typeof ModelRole>;
 
 export const LoginPrompt = z.object({
@@ -76,7 +77,9 @@ export const KeysState = z.object({
   models: z.array(ModelOption),
   chat: ModelRef.nullable(),
   browser: ModelRef.nullable(),
+  /** null: scheduled work runs on the chat's model */
+  background: ModelRef.nullable(),
   /** how much each thinks */
-  thinking: z.object({ chat: ThinkingLevel, browser: ThinkingLevel }),
+  thinking: z.object({ chat: ThinkingLevel, browser: ThinkingLevel, background: ThinkingLevel }),
 });
 export type KeysState = z.infer<typeof KeysState>;

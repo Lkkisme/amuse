@@ -162,6 +162,15 @@ export const RunOutcome = z.enum(["reported", "quiet", "failed", "missed", "stop
  *   done       a one-off that has run
  *   cancelled  for good
  */
+/**
+ * When a schedule's run is worth starting at all (checked before any work):
+ *   conversation  there was conversation since its last run
+ *   lull          there was, it has gone quiet (20 minutes), and the last run is 4 hours back
+ * A run its condition holds back is skipped, and not counted as a run.
+ */
+export const Needs = z.enum(["conversation", "lull"]);
+export type Needs = z.infer<typeof Needs>;
+
 export const Schedule = z.object({
   kind: z.literal("schedule"),
   id: Id,
@@ -176,6 +185,10 @@ export const Schedule = z.object({
   running: z.boolean(),
   /** how the latest run went, in a few words; null before the first */
   last: z.object({ at: Instant, outcome: RunOutcome, summary: z.string() }).nullable(),
+  /** what a run waits for besides its time; null: nothing */
+  needs: Needs.nullable().default(null),
+  /** one every instance starts with (not asked for in the chat, so not shown there); the user's like any other */
+  preset: z.boolean().default(false),
 });
 
 /**

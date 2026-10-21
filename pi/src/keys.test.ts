@@ -189,7 +189,7 @@ test("each role's model thinks as much as chosen, within what the model takes; a
   assert.equal(keys.thinking("chat"), "off");
   await keys.think("chat", "high");
   assert.equal(keys.thinking("chat"), "high");
-  assert.deepEqual((await keys.list()).thinking, { chat: "high", browser: "off" });
+  assert.deepEqual((await keys.list()).thinking, { chat: "high", browser: "off", background: "off" });
 
   await keys.choose("chat", plain.id);
   assert.equal(keys.thinking("chat"), "off", "a model that does not think");
@@ -199,4 +199,21 @@ test("each role's model thinks as much as chosen, within what the model takes; a
   await keys.choose("browser", always.id);
   const shown = (await keys.list()).thinking.browser;
   assert.ok(always.thinking.includes(shown), `${shown} is one of ${always.thinking.join(",")}`);
+});
+
+test("scheduled work runs on the chat's model until it has one of its own, and goes back to it", async () => {
+  const { keys } = setup();
+  const first = await keys.login("fireworks");
+  if (first.kind !== "prompt") return assert.fail("expected a prompt");
+  await keys.answer(first.login, "fw_secret_key_1234");
+  const [a, b] = (await keys.list()).models;
+  assert.ok(a && b);
+  await keys.choose("chat", a.id);
+  assert.equal(keys.model("background"), a.id);
+  await keys.choose("background", b.id);
+  assert.equal(keys.model("background"), b.id);
+  assert.equal((await keys.list()).background, b.id);
+  await keys.choose("background", null);
+  assert.equal(keys.model("background"), a.id);
+  await assert.rejects(keys.choose("chat", null), /needs a model/);
 });

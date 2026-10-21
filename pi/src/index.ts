@@ -13,3 +13,4 @@ export * from "./tasks.ts";
 export * from "./worker.ts";
 export * from "./keys.ts";
 export * from "./credentials.ts";
+export * from "./memory.ts";

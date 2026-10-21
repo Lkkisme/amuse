@@ -33,7 +33,7 @@ export interface AppKey {
 const TEST_TIMEOUT_MS = 30_000;
 
 export interface PiKeys extends Keys {
-  /** The model chosen for `role`, as "provider/model-id"; null: none yet. */
+  /** The model `role` runs on, as "provider/model-id" (scheduled work: the chat's when it has none of its own); null: none yet. */
   model(role: ModelRole): string | null;
   /** How much `role`'s model thinks. */
   thinking(role: ModelRole): ThinkingLevel;
@@ -46,7 +46,11 @@ export interface PiKeys extends Keys {
 const Choice = z.object({
   chat: z.string().nullable(),
   browser: z.string().nullable(),
-  thinking: z.object({ chat: ThinkingLevel, browser: ThinkingLevel }).default({ chat: "off", browser: "off" }),
+  /** scheduled work's model; null: the chat's */
+  background: z.string().nullable().default(null),
+  thinking: z
+    .object({ chat: ThinkingLevel, browser: ThinkingLevel, background: ThinkingLevel.default("off") })
+    .default({ chat: "off", browser: "off", background: "off" }),
 });
 type Choice = z.infer<typeof Choice>;
 
@@ -136,7 +140,7 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
     auth: { kind: "keys", keys },
     ...(modelsPath ? { modelsPath } : {}),
   };
-  let choice: Choice = existsSync(choicePath) ? Choice.parse(JSON.parse(readFileSync(choicePath, "utf8"))) : { chat: null, browser: null, thinking: { chat: "off", browser: "off" } };
+  let choice: Choice = existsSync(choicePath) ? Choice.parse(JSON.parse(readFileSync(choicePath, "utf8"))) : { chat: null, browser: null, background: null, thinking: { chat: "off", browser: "off", background: "off" } };
   const choose = (next: Choice) => {
     writeFileSync(`${choicePath}.tmp`, JSON.stringify(next, null, 2), {
       mode: 0o600,
@@ -173,9 +177,12 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
     }));
   };
 
+  /** The model `role` runs on: its own, or (scheduled work) the chat's when it has none. */
+  const runs = (role: ModelRole): string | null => (role === "background" ? (choice.background ?? choice.chat) : choice[role]);
   /** The level `role`'s model thinks at: the one chosen, or the nearest it takes (some cannot be off). */
   const inEffect = async (role: ModelRole): Promise<ThinkingLevel> => {
-    const spec = choice[role] ? parseModel(choice[role]) : undefined;
+    const ref = runs(role);
+    const spec = ref ? parseModel(ref) : undefined;
     const model = spec && (await runtime(cfg)).getModel(spec.provider, spec.id);
     return model ? clampThinkingLevel(model, choice.thinking[role]) : choice.thinking[role];
   };
@@ -237,7 +244,7 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
   };
 
   return {
-    model: (role) => choice[role],
+    model: (role) => runs(role),
     thinking: (role) => choice.thinking[role],
     appKey: (id) => appKeys.get(id) ?? null,
     onChange: (listener) => void listeners.push(listener),
@@ -273,7 +280,8 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
         models: await available(),
         chat: choice.chat,
         browser: choice.browser,
-        thinking: { chat: await inEffect("chat"), browser: await inEffect("browser") },
+        background: choice.background,
+        thinking: { chat: await inEffect("chat"), browser: await inEffect("browser"), background: await inEffect("background") },
       };
     },
 
@@ -357,11 +365,15 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
       await loadAppKeys();
       // a model of a provider without a key can no longer be used
       const keep = (ref: string | null) => (ref !== null && parseModel(ref)?.provider === provider ? null : ref);
-      choose({ ...choice, chat: keep(choice.chat), browser: keep(choice.browser) });
+      choose({ ...choice, chat: keep(choice.chat), browser: keep(choice.browser), background: keep(choice.background) });
       changed();
     },
 
     async choose(role, model) {
+      if (model === null) {
+        if (role !== "background") throw new Rejected({ kind: "unsound", reason: `The ${role} needs a model of its own.` });
+        return choose({ ...choice, background: null });
+      }
       const option = (await available()).find((m) => m.id === model);
       if (!option) throw new Rejected({ kind: "unsound", reason: `${model} is not offered by a provider set up with a key.` });
       if (role === "browser" && !option.images) throw new Rejected({ kind: "unsound", reason: `${option.name} does not see pictures, which the browser needs.` });
@@ -373,7 +385,7 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
     },
 
     async think(role, level) {
-      const chosen = choice[role];
+      const chosen = runs(role);
       if (chosen === null) throw new Rejected({ kind: "unsound", reason: "Choose a model first." });
       const option = (await available()).find((m) => m.id === chosen);
       if (!option?.thinking.includes(level)) throw new Rejected({ kind: "unsound", reason: `${option?.name ?? chosen} does not take the thinking level ${level}.` });
@@ -435,7 +447,8 @@ export async function adoptEnvironment({
     const choice: Choice = {
       chat,
       browser: env["AMUSE_PI_BROWSER_MODEL"]?.trim() || chat,
-      thinking: { chat: "off", browser: "off" },
+      background: null,
+      thinking: { chat: "off", browser: "off", background: "off" },
     };
     writeFileSync(choicePath, JSON.stringify(choice, null, 2), { mode: 0o600 });
   }

@@ -242,14 +242,14 @@ export interface Keys {
   /** Try a provider's key with one short request. */
   test(provider: string): Promise<KeyTest>;
   logout(provider: string): Promise<void>;
-  choose(role: ModelRole, model: string): Promise<void>;
+  choose(role: ModelRole, model: string | null): Promise<void>;
   /** How much a role's model thinks. */
   think(role: ModelRole, level: ThinkingLevel): Promise<void>;
 }
 
 /** No keys: where none are kept (the demo, tests); the demo's agent needs none. */
 export const noKeys: Keys = {
-  list: async () => ({ providers: [], models: [], chat: null, browser: null, thinking: { chat: "off", browser: "off" } }),
+  list: async () => ({ providers: [], models: [], chat: null, browser: null, background: null, thinking: { chat: "off", browser: "off", background: "off" } }),
   login: async () => ({ kind: "failed", reason: "No keys are kept here." }),
   answer: async () => ({ kind: "failed", reason: "No keys are kept here." }),
   cancel: async () => {},

@@ -8,7 +8,7 @@
  */
 import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
 import { type AgentIO, type Ports, describe, nowIn, wallClock } from "@amuse/core";
-import type { RunOutcome, When } from "@amuse/protocol";
+import type { Chat, RunOutcome, Schedule, When } from "@amuse/protocol";
 import { Type } from "typebox";
 import type { PiConfig } from "./agent.ts";
 import { briefed, clip, helperRules, helperTools, holding, work } from "./worker.ts";
@@ -16,6 +16,22 @@ import { status } from "./status.ts";
 
 type Text = { content: { type: "text"; text: string }[]; details: null };
 const text = (value: string): Text => ({ content: [{ type: "text", text: value }], details: null });
+
+const QUIET_MS = 20 * 60_000;
+const LULL_GAP_MS = 4 * 60 * 60_000;
+
+/**
+ * Whether a run is worth starting (Schedule.needs): conversation since its last run; for a lull,
+ * also quiet for a while now, and the last run hours back. Checked before any model is asked.
+ */
+export function worthRunning(schedule: Schedule, chats: Pick<Chat, "updated">[], now: string): boolean {
+  if (!schedule.needs) return true;
+  const since = Date.parse(schedule.last?.at ?? schedule.at);
+  const latest = Math.max(0, ...chats.map((c) => Date.parse(c.updated)));
+  if (latest <= since) return false;
+  if (schedule.needs === "conversation") return true;
+  return Date.parse(now) - latest >= QUIET_MS && Date.parse(now) - since >= LULL_GAP_MS;
+}
 
 /** What the agent asked for, as a When on the user's clock; or why it cannot be one. */
 export function whenOf(args: { cron?: string; at?: string; timezone?: string }, userZone: string): { ok: true; when: When } | { ok: false; reason: string } {
@@ -49,13 +65,18 @@ export function scheduleTools(io: () => AgentIO): ToolDefinition[] {
         cron: Type.Optional(Type.String({ description: "Repeating: a 5-field cron pattern (minute hour day-of-month month day-of-week), e.g. '0 8 * * *' for every day at 8:00, '0 * * * *' hourly. At most every 15 minutes." })),
         at: Type.Optional(Type.String({ description: "One-off: the user's local date and time, 'YYYY-MM-DD HH:mm'" })),
         timezone: Type.Optional(Type.String({ description: "An IANA time zone, only if the user names one other than their own" })),
+        needs: Type.Optional(
+          Type.Union([Type.Literal("conversation"), Type.Literal("lull")], {
+            description: "Run only when worth it: 'conversation' if there was conversation since the last run; 'lull' once a conversation has gone quiet (at most every 4 hours)",
+          }),
+        ),
       }),
-      async execute(_, { title, instructions, cron, at, timezone }) {
+      async execute(_, { title, instructions, cron, at, timezone, needs }) {
         const agent = io();
         const { timezone: zone } = agent.time();
         const when = whenOf({ ...(cron ? { cron } : {}), ...(at ? { at } : {}), ...(timezone ? { timezone } : {}) }, zone);
         if (!when.ok) return text(`Not scheduled: ${when.reason}.`);
-        const made = agent.act({ kind: "schedule", title, instructions, when: when.when });
+        const made = agent.act({ kind: "schedule", title, instructions, when: when.when, needs: needs ?? null });
         if (!made.ok) return text(`Not scheduled: ${describe(made.rejection)}.`);
         return text(`Scheduled ${made.id}. Tell the user briefly when it will run (their time zone is ${zone}); the schedule shows in the chat.`);
       },
@@ -85,6 +106,8 @@ export function piScheduleRunner(cfg: PiConfig): Pick<Ports, "schedule"> {
   return {
     schedule: (schedule, io) =>
       void (async () => {
+        // nothing to do yet: no model is asked, and it does not count as a run
+        if (!worthRunning(schedule, io.chats(), io.time().now)) return void io.act({ kind: "scheduleRan", id: schedule.id, outcome: "skipped", summary: "" });
         const stop = new AbortController();
         const run = { id: schedule.id, title: schedule.title, noun: "scheduled task", io, stop: stop.signal, abort: () => stop.abort() };
         let reported = false;

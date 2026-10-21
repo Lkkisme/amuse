@@ -21,6 +21,8 @@ const daily: Schedule = {
   next: "2026-10-21T00:00:00Z",
   running: false,
   last: null,
+  needs: null,
+  preset: false,
 };
 
 test("a cron runs on the user's clock, strictly after the given instant; a one-off once", () => {
@@ -136,4 +138,19 @@ test("the agent sees times on the user's clock, and its schedules", () => {
 test("now is told with the weekday, the user's local time and their zone", () => {
   assert.equal(nowIn("2026-10-21T07:30:00Z", "America/Los_Angeles"), "Wednesday 2026-10-21 00:30 (America/Los_Angeles)");
   assert.equal(nowIn("2026-10-21T07:30:00Z", "Nowhere/Else"), "Wednesday 2026-10-21 07:30 (UTC)");
+});
+
+test("a run its condition held back is skipped: it ends, and the last run stays what it was", () => {
+  const before: Schedule["last"] = { at: "2026-10-20T00:00:00Z", outcome: "quiet", summary: "Nothing new" };
+  const running: Schedule = { ...daily, running: true, last: before, needs: "conversation" };
+  const skipped = decideAgent(stateOf(running), "scheduleRan", { kind: "scheduleRan", id: "s1", outcome: "skipped", summary: "" }, ctx);
+  assert.ok(skipped.ok);
+  assert.deepEqual(skipped.changes, [{ kind: "upserted", entity: { ...running, running: false, last: before } }]);
+});
+
+test("a schedule keeps what its runs wait for", () => {
+  const made = decideAgent(empty, "schedule", { kind: "schedule", title: "Memory", instructions: "Tidy memory", when: daily.when, needs: "conversation" }, ctx);
+  assert.ok(made.ok);
+  const entity = made.changes[0]?.kind === "upserted" ? made.changes[0].entity : null;
+  assert.equal(entity?.kind === "schedule" ? entity.needs : undefined, "conversation");
 });
