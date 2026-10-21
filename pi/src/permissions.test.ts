@@ -3,6 +3,7 @@ import { test } from "node:test";
 import type { AgentAction, AgentIO, Answer } from "@remuse/core";
 import type { Permission } from "@remuse/protocol";
 import { type Apps, appCall } from "./tools.ts";
+import type { Hold } from "./runs.ts";
 
 /** An app whose every action has `permission`, recording what runs and what is remembered. */
 function setup(permission: Permission, answer: Answer = { verdict: "approved", remember: false }) {
@@ -37,7 +38,8 @@ function setup(permission: Permission, answer: Answer = { verdict: "approved", r
     await new Promise((r) => setImmediate(r)); // let a background approval settle
     return told;
   };
-  return { run, ran, remembered, asked, reports };
+  const runHeld = (hold: Hold) => appCall(io, apps, "GMAIL_SEND_EMAIL", { to: "x@y.z" }, undefined, hold);
+  return { run, runHeld, ran, remembered, asked, reports };
 }
 
 test("denied: nothing runs and nothing is asked", async () => {
@@ -70,4 +72,14 @@ test("asked and not answered in time: nothing runs, and the agent hears why", as
   await s.run();
   assert.deepEqual(s.ran, []);
   assert.match(s.reports[0] ?? "", /did not answer the approval in time/);
+});
+
+test("a helper's app action holds until the user answers, then runs and gives the result back to the helper", async () => {
+  const s = setup("ask", { verdict: "approved", remember: false });
+  const held: string[] = [];
+  const told = await s.runHeld({ waiting: (what) => void held.push(what), working: () => void held.push("working") });
+  assert.deepEqual(s.ran, ["GMAIL_SEND_EMAIL"]);
+  assert.match(told, /done/);
+  assert.deepEqual(s.reports, [], "nothing goes to Muse");
+  assert.equal(held.length, 2);
 });

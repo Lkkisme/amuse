@@ -17,6 +17,7 @@ import { Type } from "typebox";
 import { status } from "./status.ts";
 import { untrusted } from "./untrusted.ts";
 import { askToVisit, notVisited, visitAnswer } from "./visits.ts";
+import type { Hold } from "./runs.ts";
 
 export interface SearchResult {
   title: string;
@@ -135,11 +136,21 @@ const failed = (url: string, e: unknown) => `Could not read ${url}: ${e instance
  * site with no rule, ask the user and return, reading it in the background once
  * they allow it (the agent gets the page as a report). Returns what the agent is told now.
  */
-export async function readForAgent(io: AgentIO, rules: Rules, url: string, http: typeof fetch = fetch): Promise<string> {
+export async function readForAgent(io: AgentIO, rules: Rules, url: string, http: typeof fetch = fetch, hold?: Hold): Promise<string> {
   const read = await readPage(url, rules, http).catch((e: unknown): Read => ({ kind: "text", text: failed(url, e) }));
   if (read.kind === "text") return untrusted(read.text);
   const asked = askToVisit(io, read.url, "To read the page");
   if (!asked.ok) return `Could not ask to visit ${siteOf(read.url)}.`;
+  if (hold) {
+    // a helper holds here until the user answers, then reads on
+    hold.waiting(`to visit ${siteOf(read.url)} (to read ${read.url})`);
+    const outcome = await visitAnswer(io, rules, asked.id, read.url);
+    hold.working();
+    if (outcome !== "approved") return notVisited(read.url, outcome);
+    const site = siteOf(read.url);
+    const again = await readPage(read.url, rules, http, new Set(site ? [site] : [])).catch((e: unknown): Read => ({ kind: "text", text: failed(read.url, e) }));
+    return again.kind === "text" ? untrusted(again.text) : `${read.url} led on to ${siteOf(again.url)}, which needs the user's permission too; read that address to ask for it.`;
+  }
   void visitAnswer(io, rules, asked.id, read.url).then(async (outcome) => {
     if (outcome !== "approved") return io.report(`[page not read] ${notVisited(read.url, outcome)}`);
     const site = siteOf(read.url);
@@ -156,13 +167,13 @@ export async function readForAgent(io: AgentIO, rules: Rules, url: string, http:
 const text = (value: string) => ({ content: [{ type: "text" as const, text: value }], details: null });
 
 /** web_read always; web_search where a search is configured. */
-export function webTools(io: () => AgentIO, rules: Rules, search: Search | undefined): ToolDefinition[] {
+export function webTools(io: () => AgentIO, rules: Rules, search: Search | undefined, hold?: Hold): ToolDefinition[] {
   const read = defineTool({
     name: "web_read",
     label: "Read a web page",
     description: "Read a public web page as text, without a browser: quick, for looking things up. Use browse instead when something on the page has to be done (log in, fill, click).",
     parameters: Type.Object({ status, url: Type.String({ description: "Absolute http(s) URL" }) }),
-    execute: async (_, { url }) => text(await readForAgent(io(), rules, url)),
+    execute: async (_, { url }) => text(await readForAgent(io(), rules, url, fetch, hold)),
   });
   if (!search) return [read];
   const find = defineTool({

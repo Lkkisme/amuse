@@ -79,7 +79,7 @@ test("chat.stop ends streaming replies and the activity, then interrupts", () =>
 });
 
 test("only running tasks stop", () => {
-  const task = (status: "working" | "completed"): Entity => ({ kind: "task", id: "t1", at, title: "T", steps: [], status });
+  const task = (status: "working" | "completed"): Entity => ({ kind: "task", id: "t1", at, title: "T", steps: [], status, instructions: "", result: null });
   assert.ok(decide(stateOf(task("working")), { method: "task.stop", params: { id: "t1" } }, ctx).ok);
   assert.equal(decide(stateOf(task("completed")), { method: "task.stop", params: { id: "t1" } }, ctx).ok, false);
 });

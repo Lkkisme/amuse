@@ -16,6 +16,7 @@ function capture() {
     },
     interrupt: () => {},
     browse: () => {},
+    task: () => {},
     browser: () => {},
     approval: () => {},
     stopTask: () => {},
@@ -303,4 +304,36 @@ test("a file is sent with a message only as it was uploaded; the agent gets it w
   await assert.rejects(host.call("chat.send", { chat: "main", text: "hi", timezone: "UTC", attachments: [{ ...cat, size: 1 }] }), /file f-cat was not uploaded here/);
   const { entities } = await host.call("session.history", { chat: "main", before: 100, limit: 100 });
   assert.equal(entities.length, 1, "a refused send records nothing");
+});
+
+test("a task: handed to a helper, its plan kept, told more while it works, asked, and ended with a result; or stopped", async () => {
+  const started: string[] = [];
+  const stopped: string[] = [];
+  const { ports, io } = capture();
+  const host = createHost({ ...ports, task: (task) => void started.push(task.title), stopTask: (id) => void stopped.push(id) }, { timers: manualTime("2026-10-20T08:00:00Z").timers });
+  await host.call("chat.send", { chat: "main", text: "compare the three offers", timezone: "UTC", attachments: [] });
+  const agent = io();
+  assert.ok(agent);
+  const made = agent.act({ kind: "task", title: "Compare offers", instructions: "Read the three offers in user/ and compare price and terms" });
+  assert.ok(made.ok);
+  assert.deepEqual(started, ["Compare offers"]);
+  assert.ok(agent.act({ kind: "taskSteps", id: made.id, steps: [{ label: "Read the offers", done: true }, { label: "Compare", done: false }] }).ok);
+  const heard: string[] = [];
+  agent.listen(made.id, (m) => heard.push(m.kind === "instruction" ? m.text : "stop"));
+  assert.ok(agent.act({ kind: "instruct", run: made.id, text: "Also note the delivery dates" }).ok);
+  assert.deepEqual(heard, ["Also note the delivery dates"]);
+  const asked = agent.act({ kind: "question", run: made.id, text: "Which currency?" });
+  assert.ok(asked.ok);
+  const answer = agent.answer(asked.id);
+  assert.ok(agent.act({ kind: "taskEnded", id: made.id, status: "completed", result: "B is cheapest" }).ok);
+  assert.deepEqual(await answer, { kind: "closed" }, "its open question closes with it");
+  const { entities } = await host.call("session.history", { chat: "main", before: 100, limit: 100 });
+  const task = entities.find((e) => e.id === made.id);
+  assert.equal(task?.kind === "task" && `${task.status}: ${task.result} (${task.steps.length} steps)`, "completed: B is cheapest (2 steps)");
+
+  const other = agent.act({ kind: "task", title: "Second", instructions: "x" });
+  assert.ok(other.ok);
+  assert.ok(agent.act({ kind: "stopRun", run: other.id }).ok);
+  assert.deepEqual(stopped, [other.id]);
+  assert.deepEqual(agent.act({ kind: "taskEnded", id: other.id, status: "completed", result: "late" }), { ok: false, rejection: { kind: "invalid", action: "taskEnded", from: "stopped" } });
 });

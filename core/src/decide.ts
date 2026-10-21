@@ -19,6 +19,7 @@ import type {
   RunOutcome,
   Schedule,
   State,
+  Task,
   TaskStatus,
   When,
 } from "@remuse/protocol";
@@ -48,6 +49,8 @@ export type Effect =
   | { kind: "browser"; browser: Browser; action: BrowserAction }
   | { kind: "approval"; id: string; resolution: Resolution }
   | { kind: "stopTask"; id: string }
+  /** a task the agent handed off: run it in the background */
+  | { kind: "task"; task: Task }
   | { kind: "browse"; browser: Browser }
   /** shape the run's desktop like the user's screen */
   | { kind: "fit"; id: string; viewer: { width: number; height: number } }
@@ -66,7 +69,9 @@ export type Effect =
 export type BrowserProgress = Extract<BrowserStatus, "working" | "waiting" | "needs_you">;
 /** How a run the agent drove may end: always with a result. */
 export type BrowserEnd = Extract<BrowserStatus, "completed" | "failed">;
-export type TaskProgress = Extract<TaskStatus, "working" | "waiting" | "completed" | "failed">;
+export type TaskProgress = Extract<TaskStatus, "working" | "waiting">;
+/** How a task ends, from the helper running it: always with a result. */
+export type TaskEnd = Extract<TaskStatus, "completed" | "failed">;
 
 /**
  * What agents and ports may do to the conversation. Decided like client
@@ -88,6 +93,12 @@ export type AgentAction =
   /** A browser run's end, from the agent driving it, with what came of it. */
   | { kind: "browserEnded"; id: string; status: BrowserEnd; result: string }
   | { kind: "taskStatus"; id: string; status: TaskProgress }
+  /** Hand long or parallel work to a background helper; it starts at once. `instructions`: everything it must know. */
+  | { kind: "task"; title: string; instructions: string }
+  /** The helper's plan for its task, as it now stands. */
+  | { kind: "taskSteps"; id: string; steps: { label: string; done: boolean }[] }
+  /** A task's end, from its helper, with what came of it. */
+  | { kind: "taskEnded"; id: string; status: TaskEnd; result: string }
   /** The run's browser is gone (closed): its card is only a record from now on. */
   | { kind: "released"; id: string }
   /** The app's account is live: the connection is connected. */
@@ -185,16 +196,18 @@ function find<K extends Entity["kind"]>(state: State, kind: K, id: string): Extr
   return state.entities.find((e): e is Extract<Entity, { kind: K }> => e.kind === kind && e.id === id);
 }
 
-/** A run in flight, by id: a browser run not ended, or a schedule's run under way. */
-type Flight = { kind: "browser"; browser: Browser } | { kind: "schedule"; schedule: Schedule };
+/** A run in flight, by id: a browser run or a task not ended, or a schedule's run under way. */
+type Flight = { kind: "browser"; browser: Browser } | { kind: "task"; task: Task } | { kind: "schedule"; schedule: Schedule };
 function flight(state: State, run: string): Flight | undefined {
   const browser = find(state, "browser", run);
   if (browser && (agentHeld.includes(browser.status) || browser.status === "paused")) return { kind: "browser", browser };
+  const task = find(state, "task", run);
+  if (task && runningTask.includes(task.status)) return { kind: "task", task };
   const schedule = find(state, "schedule", run);
   if (schedule?.running) return { kind: "schedule", schedule };
   return undefined;
 }
-const titleOf = (f: Flight) => (f.kind === "browser" ? f.browser.title : f.schedule.title);
+const titleOf = (f: Flight) => (f.kind === "browser" ? f.browser.title : f.kind === "task" ? f.task.title : f.schedule.title);
 
 /** A run has ended: its open questions will not be answered now. */
 function closeQuestions(state: State, run: string): { changes: Change[]; effects: Effect[] } {
@@ -285,7 +298,8 @@ const rules: Rules = {
     const task = find(state, "task", id);
     if (!task) return reject({ kind: "notFound", entity: "task", id });
     if (!runningTask.includes(task.status)) return reject({ kind: "invalid", action: "stop", from: task.status });
-    return ok([upsert({ ...task, status: "stopped" })], [{ kind: "stopTask", id }], null);
+    const closed = closeQuestions(state, id);
+    return ok([upsert({ ...task, status: "stopped" }), ...closed.changes], [{ kind: "stopTask", id }, ...closed.effects], null);
   },
 };
 
@@ -343,6 +357,7 @@ const agentRules: AgentRules = {
     if (!target) return reject({ kind: "notRunning", id: run });
     const closed = closeQuestions(state, run);
     if (target.kind === "schedule") return ok(closed.changes, [{ kind: "halt", run }, ...closed.effects], { id: run });
+    if (target.kind === "task") return ok([upsert({ ...target.task, status: "stopped" }), ...closed.changes], [{ kind: "stopTask", id: run }, ...closed.effects], { id: run });
     // the user holds it: theirs to stop or hand back
     if (target.browser.status === "paused") return reject({ kind: "invalid", action: "stopRun", from: "paused" });
     const stopped: Browser = { ...target.browser, status: "stopped", step: null, live: false };
@@ -353,8 +368,13 @@ const agentRules: AgentRules = {
     if (!target) return reject({ kind: "notRunning", id: run });
     const id = ctx.id("q");
     const asked: Question = { kind: "question", id, at: ctx.now, run, title: titleOf(target), text, status: "open", answer: null, expires: later(ctx.now, APPROVAL_TTL_MS) };
-    // a browser run asking is waiting for the user (Muse's "Waiting for you")
-    const waiting = target.kind === "browser" && target.browser.status === "working" ? [upsert({ ...target.browser, status: "waiting" })] : [];
+    // a run asking is waiting for the user (Muse's "Waiting for you")
+    const waiting =
+      target.kind === "browser" && target.browser.status === "working"
+        ? [upsert({ ...target.browser, status: "waiting" })]
+        : target.kind === "task" && target.task.status === "working"
+          ? [upsert({ ...target.task, status: "waiting" })]
+          : [];
     return ok([upsert(asked), ...waiting], [], { id });
   },
   answer: (state, { id, text }) => {
@@ -391,6 +411,23 @@ const agentRules: AgentRules = {
     if (!agentHeld.includes(browser.status) && browser.status !== "paused") return reject({ kind: "invalid", action: "browserEnded", from: browser.status });
     const closed = closeQuestions(state, id);
     return ok([upsert({ ...browser, status, result, step: null }), ...closed.changes], closed.effects, { id });
+  },
+  task: (_, { title, instructions }, ctx) => {
+    const task: Task = { kind: "task", id: ctx.id("t"), at: ctx.now, title, steps: [], status: "working", instructions, result: null };
+    return ok([upsert(task)], [{ kind: "task", task }], { id: task.id });
+  },
+  taskSteps: (state, { id, steps }) => {
+    const task = find(state, "task", id);
+    if (!task) return reject({ kind: "notFound", entity: "task", id });
+    if (!runningTask.includes(task.status)) return reject({ kind: "invalid", action: "taskSteps", from: task.status });
+    return ok([upsert({ ...task, steps })], [], { id });
+  },
+  taskEnded: (state, { id, status, result }) => {
+    const task = find(state, "task", id);
+    if (!task) return reject({ kind: "notFound", entity: "task", id });
+    if (!runningTask.includes(task.status)) return reject({ kind: "invalid", action: "taskEnded", from: task.status });
+    const closed = closeQuestions(state, id);
+    return ok([upsert({ ...task, status, result }), ...closed.changes], closed.effects, { id });
   },
   taskStatus: (state, { id, status }) => {
     const task = find(state, "task", id);

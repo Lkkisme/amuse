@@ -23,6 +23,7 @@ import {
   type Results,
   type Schedule,
   type Session,
+  type Task,
   type State,
   type Update,
   MAIN,
@@ -118,6 +119,8 @@ export interface Ports {
   title(text: string): Promise<string>;
   /** Run a browser task the agent started. */
   browse(browser: Browser, io: AgentIO): void;
+  /** Run a task the agent handed off, with a background helper (a general agent); it ends with `taskEnded`. */
+  task(task: Task, io: AgentIO): void;
   /**
    * Run a schedule whose time has come, in the background, apart from the
    * chat. It reports to the chat only what is worth telling (io.report), and
@@ -322,6 +325,8 @@ function subjectOf(action: AgentAction): string | null {
     case "browserEnded":
     case "released":
     case "taskStatus":
+    case "taskSteps":
+    case "taskEnded":
     case "connected":
     case "unschedule":
     case "scheduleRan":
@@ -333,6 +338,7 @@ function subjectOf(action: AgentAction): string | null {
       return action.run;
     case "connect":
     case "browse":
+    case "task":
     case "ask":
     case "schedule":
       return null;
@@ -516,6 +522,8 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
         return ports.stopTask(effect.id, agent);
       case "browse":
         return ports.browse(effect.browser, agent);
+      case "task":
+        return ports.task(effect.task, agent);
       case "fit":
         return ports.fit(effect, agent);
       case "run":

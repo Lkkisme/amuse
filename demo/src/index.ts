@@ -250,6 +250,15 @@ export function demoPorts<H>(timers: Timers<H>): Ports {
           : "Understood, I dropped the draft.",
       ),
     stopTask: () => {},
+    // a scripted helper: it plans, works a while, and comes back
+    task: (task, { act, report }) => {
+      act({ kind: "taskSteps", id: task.id, steps: [{ label: "Look into it", done: false }, { label: "Sum it up", done: false }] });
+      timers.set(2000, () => act({ kind: "taskSteps", id: task.id, steps: [{ label: "Look into it", done: true }, { label: "Sum it up", done: false }] }));
+      timers.set(4000, () => {
+        if (act({ kind: "taskEnded", id: task.id, status: "completed", result: "Looked into it; here is the summary." }).ok)
+          report(`[task "${task.title}" finished]\nLooked into it; here is the summary.`);
+      });
+    },
     connect: async (connection, { emit, act }) => {
       // the provider's hosted page would call back; here it just succeeds
       timers.set(800, () => {
@@ -293,6 +302,8 @@ export function seed(): Entity[] {
       at: minutesAgo(31),
       title: "Aquarium trip research",
       status: "working",
+      instructions: "Research the aquarium exhibits for the school trip",
+      result: null,
       steps: [
         { label: "Open the trip email", done: true },
         { label: "List exhibit options", done: true },

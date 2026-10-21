@@ -100,3 +100,15 @@ test("this machine is refused outright, without asking the user about it", async
   assert.match(await readForAgent(quiet.io, memoryRules(), "http://127.0.0.1:8000/"), /not on the public web/);
   assert.deepEqual(quiet.asked, []);
 });
+
+test("a helper holds on the approval and reads on with the page; nothing goes to Muse but that it waits", async () => {
+  const http = answering({ "http://1.1.1.1/": { status: 200, body: "<p>Hello</p>" } });
+  const held: string[] = [];
+  const hold = { waiting: (what: string) => void held.push(`waiting ${what}`), working: () => void held.push("working") };
+  const yes = agentIO({ verdict: "approved", remember: false });
+  assert.match(await readForAgent(yes.io, memoryRules(), "http://1.1.1.1/", http, hold), /Hello/);
+  assert.deepEqual(held, ["waiting to visit 1.1.1.1 (to read http://1.1.1.1/)", "working"]);
+  assert.deepEqual(yes.reports, []);
+  const no = agentIO({ verdict: "denied", remember: false });
+  assert.match(await readForAgent(no.io, memoryRules(), "http://1.1.1.1/", http, hold), /did not allow/);
+});

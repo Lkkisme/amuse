@@ -11,11 +11,12 @@ import { untrusted } from "./untrusted.ts";
 import { Type } from "typebox";
 import { status } from "./status.ts";
 import { askToVisit, notVisited, visitAnswer } from "./visits.ts";
+import type { Hold } from "./runs.ts";
 
 const text = (value: string) => ({ content: [{ type: "text" as const, text: value }], details: null });
 
 /** Tools bound to the agent IO of the run in progress; `files`: the workspace, where browser tasks may be given files to upload. */
-export function tools(io: () => AgentIO, rules: Rules, files?: Workspace): ToolDefinition[] {
+export function tools(io: () => AgentIO, rules: Rules, files?: Workspace, hold?: Hold): ToolDefinition[] {
   return [
     defineTool({
       name: "recall",
@@ -62,6 +63,15 @@ export function tools(io: () => AgentIO, rules: Rules, files?: Workspace): ToolD
           // a site with no rule is not visited until the user allows it: ask, and start once they do
           const asked = askToVisit(agent, url, `For a browser task: ${title}`);
           if (!asked.ok) return text(`Not started: ${describe(asked.rejection)}.`);
+          if (hold) {
+            // a helper holds here until the user answers
+            hold.waiting(`to visit ${siteOf(url)} for a browser task: ${title}`);
+            const outcome = await visitAnswer(agent, rules, asked.id, url);
+            hold.working();
+            if (outcome !== "approved") return text(`Not started: ${notVisited(url, outcome)}`);
+            const started = start();
+            return text(started.ok ? `Started browser task ${started.id}; you get its result as a message.` : `Not started: ${describe(started.rejection)}.`);
+          }
           void visitAnswer(agent, rules, asked.id, url).then((outcome) => {
             if (outcome !== "approved") return agent.report(`[browser task "${title}" not started] ${notVisited(url, outcome)}`);
             const started = start();
@@ -155,7 +165,7 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s
 const appOf = (slug: string) => slug.split("_")[0]?.toLowerCase() ?? "";
 
 /** Find and use actions of the user's connected apps; consequential ones need approval. */
-export function appTools(io: () => AgentIO, apps: Apps): ToolDefinition[] {
+export function appTools(io: () => AgentIO, apps: Apps, hold?: Hold): ToolDefinition[] {
   return [
     defineTool({
       name: "app_tools",
@@ -189,7 +199,7 @@ export function appTools(io: () => AgentIO, apps: Apps): ToolDefinition[] {
         arguments: Type.Record(Type.String(), Type.Unknown()),
         account: Type.Optional(Type.String({ description: "Which account (its email or id), when the app has several" })),
       }),
-      execute: async (_, { action, arguments: args, account }) => text(await appCall(io(), apps, action, args, account)),
+      execute: async (_, { action, arguments: args, account }) => text(await appCall(io(), apps, action, args, account, hold)),
     }),
   ];
 }
@@ -199,7 +209,7 @@ export function appTools(io: () => AgentIO, apps: Apps): ToolDefinition[] {
  * at once, or once they approve (in the background; the agent gets a report),
  * keeping an answer meant for always. Returns what the agent is told now.
  */
-export async function appCall(io: AgentIO, apps: Apps, action: string, args: Record<string, unknown>, asked: string | undefined): Promise<string> {
+export async function appCall(io: AgentIO, apps: Apps, action: string, args: Record<string, unknown>, asked: string | undefined, hold?: Hold): Promise<string> {
   const app = appOf(action);
   const chosen = pick(app, await apps.accounts(app), asked);
   if (!chosen.ok) return chosen.text;
@@ -222,6 +232,15 @@ export async function appCall(io: AgentIO, apps: Apps, action: string, args: Rec
     remember: true, // an answer for always holds for the app's actions of this kind
   });
   if (!approval.ok) return `Could not ask for approval: ${describe(approval.rejection)}.`;
+  if (hold) {
+    // a helper holds here until the user answers, then goes on with the result
+    hold.waiting(`to ${label} as ${account.label ?? app}`);
+    const { verdict, remember } = await io.decision(approval.id);
+    hold.working();
+    if (remember) await apps.remember(app, action, verdict === "approved" ? "allow" : "deny").catch(() => {});
+    if (verdict !== "approved") return `Not done: the user ${verdict === "denied" ? "declined it" : "did not answer in time"}. Do not try another way.`;
+    return outcome(await apps.call(action, args, account.id).catch((e: unknown): Result => ({ ok: false, error: String(e) })));
+  }
   void io.decision(approval.id).then(async ({ verdict, remember }) => {
     if (remember) await apps.remember(app, action, verdict === "approved" ? "allow" : "deny").catch(() => {});
     if (verdict === "denied") return io.report(`[app action "${label}" declined by the user]`);

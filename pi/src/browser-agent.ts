@@ -113,10 +113,13 @@ function runTools(run: Run): ToolDefinition[] {
     const site = siteOf(url);
     return site && run.granted.has(site) ? "yes" : "ask";
   };
+  /** The card is the system's; Muse is told what waits on it, to tell the user in a sentence why it appeared. */
+  const waitingOn = (what: string) => run.io.report(`[browser task "${run.browser.title}" (${run.browser.id}) waits for the user's approval] ${what}`);
   /** Ask the user to let this run visit `url`'s site: null once they have, else what the agent is told. */
   const visit = async (url: string): Promise<string | null> => {
     const asked = askToVisit(run.io, url, `For the browser task: ${run.browser.title}`);
     if (!asked.ok) return `Could not ask to visit ${siteOf(url) ?? url}.`;
+    waitingOn(`to visit ${siteOf(url) ?? url}`);
     set("waiting");
     const outcome = await untilStopped(run, visitAnswer(run.io, run.rules, asked.id, url));
     if (outcome === "stopped") return "The task was stopped.";
@@ -199,6 +202,7 @@ function runTools(run: Run): ToolDefinition[] {
     if (site && siteAccess(await run.rules.sites(), run.url) === "allow") return true;
     const asked = run.io.act({ kind: "ask", action, target: site ?? run.url, detail, remember: site !== null });
     if (!asked.ok) return false;
+    waitingOn(`${action} on ${site ?? run.url}: ${detail}`);
     set("waiting");
     const decided = await untilStopped(run, run.io.decision(asked.id));
     if (decided === "stopped") return false;
@@ -297,6 +301,7 @@ function runTools(run: Run): ToolDefinition[] {
         // the user's file going to a site: asked every time, never kept as a rule
         const asked = run.io.act({ kind: "ask", action: "Upload a file", target: site, detail: `${file} to ${site}`, remember: false });
         if (!asked.ok) return text("Could not ask the user.");
+        waitingOn(`to upload ${file} to ${site}`);
         set("waiting");
         const decided = await untilStopped(run, run.io.decision(asked.id));
         if (decided === "stopped") return stoppedText();

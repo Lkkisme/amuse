@@ -21,7 +21,7 @@ export function relayTools(io: () => AgentIO): ToolDefinition[] {
       name: "message_run",
       label: "Tell a background run",
       description:
-        "Tell one of your runs in flight (a browser task b-…, or a schedule s-… while it runs) something more: a further instruction, a correction, what the user just added. It reads it before its next step. Not for answering its questions: use answer_question.",
+        "Tell one of your runs in flight (a browser task b-…, a task t-…, or a schedule s-… while it runs) something more: a further instruction, a correction, what the user just added. It reads it before its next step. Not for answering its questions: use answer_question.",
       parameters: Type.Object({ status, run: Type.String({ description: "The run's id, e.g. b-…" }), text: Type.String({ description: "What it should know or do, in full" }) }),
       async execute(_, { run, text: message }) {
         const told = io().act({ kind: "instruct", run, text: message });
@@ -41,7 +41,7 @@ export function relayTools(io: () => AgentIO): ToolDefinition[] {
     defineTool({
       name: "stop_run",
       label: "Stop a background run",
-      description: "Stop one of your runs in flight (b-… or s-…) when the user wants it stopped or it is no longer needed. A browser the user has taken over is theirs: tell them instead.",
+      description: "Stop one of your runs in flight (b-…, t-… or s-…) when the user wants it stopped or it is no longer needed. A browser the user has taken over is theirs: tell them instead.",
       parameters: Type.Object({ status, run: Type.String() }),
       async execute(_, { run }) {
         const done = io().act({ kind: "stopRun", run });
@@ -49,6 +49,17 @@ export function relayTools(io: () => AgentIO): ToolDefinition[] {
       },
     }),
   ];
+}
+
+/**
+ * How a background helper waits on an approval: the step holds where it is
+ * until the user answers (as in Muse), and Muse is told once what waits, to
+ * tell the user why the card appeared. The chat agent never holds (the chat
+ * would stop): its tools ask, return, and finish in the background.
+ */
+export interface Hold {
+  waiting(what: string): void;
+  working(): void;
 }
 
 /** A run as its tools see it: who it is, what to say to whom, and when it is stopped. */

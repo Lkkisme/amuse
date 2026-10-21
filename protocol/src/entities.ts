@@ -55,14 +55,22 @@ export const Step = z.object({ label: z.string(), done: z.boolean() });
 /** waiting: it asked the user something in chat and is blocked on the answer. */
 export const TaskStatus = z.enum(["queued", "working", "waiting", "completed", "failed", "stopped"]);
 
-/** Work the agent runs in the background while the chat goes on. */
+/**
+ * Work Muse hands to a background helper (a general agent) while the chat goes
+ * on: long work it can do on its own, or one of several things done at once.
+ */
 export const Task = z.object({
   kind: z.literal("task"),
   id: Id,
   at: Instant,
   title: z.string(),
+  /** its plan, as the helper keeps it */
   steps: z.array(Step),
   status: TaskStatus,
+  /** what it was asked, in full */
+  instructions: z.string().default(""),
+  /** how it ended, in a few words, once it has (completed or failed); null before */
+  result: z.string().nullable().default(null),
 });
 
 /** How the user answers an approval; the *_always / session ones also create a rule. */

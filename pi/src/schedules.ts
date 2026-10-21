@@ -8,17 +8,11 @@
  */
 import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
 import { type AgentIO, type Ports, describe, localTime, wallClock } from "@remuse/core";
-import type { RunOutcome, Schedule, When } from "@remuse/protocol";
+import type { RunOutcome, When } from "@remuse/protocol";
 import { Type } from "typebox";
 import type { PiConfig } from "./agent.ts";
-import { redact } from "./redact.ts";
-import { type PiSession, openSession, secretsOf } from "./session.ts";
-import { type RunHandle, askTool, inbox } from "./runs.ts";
+import { briefed, clip, helperRules, helperTools, holding, work } from "./worker.ts";
 import { status } from "./status.ts";
-import { appTools, tools } from "./tools.ts";
-import { untrustedRule } from "./untrusted.ts";
-import { webTools } from "./web.ts";
-import { workspaceTools } from "./attachments.ts";
 
 type Text = { content: { type: "text"; text: string }[]; details: null };
 const text = (value: string): Text => ({ content: [{ type: "text", text: value }], details: null });
@@ -80,32 +74,19 @@ export function scheduleTools(io: () => AgentIO): ToolDefinition[] {
 }
 
 const background = [
-  "You run one scheduled task in the background for the user of a personal assistant (Muse). You are not in the chat: nothing you write reaches the user except through `report`.",
-  "Do the task with your tools. Reading runs at once; anything that sends, changes or deletes goes to the user for approval and runs once they approve (it may time out if they are away): ask only when the task needs it.",
-  "If you need an answer only the user has to do the task, ask with `ask_user` (it waits for them, and may get no answer if they are away). Messages from Muse may arrive while you work: follow them.",
+  ...helperRules,
+  "This run is one scheduled task.",
   "If there is something the user should hear, call `report` once with it: the facts, in the user's language, plain text. If nothing is worth telling (no new mail that matters, nothing changed), do not report: the user is not to be bothered for nothing.",
   "When done, end with one short line, in the user's language, on what you did and found; it is kept as the run's record, not shown in the chat.",
-  "Never claim something you did not do or see.",
-  untrustedRule,
 ].join("\n");
 
-/** The briefing a run gets: what it is, now on the user's clock, the task, and the conversation as background. */
-function briefing(schedule: Schedule, io: AgentIO): string {
-  const { now, timezone } = io.time();
-  return [
-    `Now: ${localTime(now, timezone)} (${timezone}).`,
-    `Scheduled task "${schedule.title}" (${schedule.id}). Instructions:\n${schedule.instructions}`,
-    `---\nThe conversation with the user so far, for background only (do not answer it):\n\n${io.context()}`,
-  ].join("\n\n");
-}
-
-/** Runs schedules with Pi: one background session each, the chat agent's tools minus setting up more work, plus `report`. */
+/** Runs schedules with Pi: a helper each (worker.ts), with `report` to tell the user what is worth telling. */
 export function piScheduleRunner(cfg: PiConfig): Pick<Ports, "schedule"> {
   return {
     schedule: (schedule, io) =>
       void (async () => {
         const stop = new AbortController();
-        const run: RunHandle = { id: schedule.id, title: schedule.title, noun: "scheduled task", io, stop: stop.signal };
+        const run = { id: schedule.id, title: schedule.title, noun: "scheduled task", io, stop: stop.signal, abort: () => stop.abort() };
         let reported = false;
         const report = defineTool({
           name: "report",
@@ -119,55 +100,23 @@ export function piScheduleRunner(cfg: PiConfig): Pick<Ports, "schedule"> {
             return text("Reported. Finish with your one-line record.");
           },
         });
-        const own = () => io;
-        const toolset = [
-          ...tools(own, cfg.rules, cfg.files).filter((t) => t.name !== "request_connection"),
-          ...webTools(own, cfg.rules, cfg.search),
-          ...(cfg.apps ? appTools(own, cfg.apps) : []),
-          ...(cfg.files ? workspaceTools(own, cfg.files, { send: false }) : []),
-          askTool(run),
-          report,
-        ];
-        let session: PiSession | null = null;
-        // Muse's messages reach the run before its next step; its stop ends the run where it is
-        const mail = inbox(run, () => session?.session ?? null, () => {
-          stop.abort();
-          void session?.session.abort().catch(() => {});
-        });
-        let record = "";
+        const { now, timezone } = io.time();
+        const worked = await work(
+          cfg,
+          run,
+          background,
+          [...helperTools(cfg, run, holding(run)), report],
+          briefed(io, `${localTime(now, timezone)} (${timezone})`, `Scheduled task "${schedule.title}" (${schedule.id}). Instructions:\n${schedule.instructions}`),
+        );
         const end = (outcome: Exclude<RunOutcome, "missed">, summary: string) => io.act({ kind: "scheduleRan", id: schedule.id, outcome, summary: clip(summary) });
-        try {
-          session = await openSession(cfg, background, toolset);
-          try {
-            let current = "";
-            let failure: string | undefined;
-            const unsubscribe = session.session.subscribe((event) => {
-              if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") current += event.assistantMessageEvent.delta;
-              else if (event.type === "message_end" && event.message.role === "assistant") {
-                if (event.message.stopReason === "error") failure = event.message.errorMessage ?? "The model run failed";
-                if (current.trim()) record = current.trim();
-                current = "";
-              }
-            });
-            try {
-              if (!stop.signal.aborted) await session.session.prompt([briefing(schedule, io), mail.drain()].filter(Boolean).join("\n\n"), { expandPromptTemplates: false });
-            } finally {
-              unsubscribe();
-            }
-            if (stop.signal.aborted) return void end("stopped", "Stopped by Muse");
-            if (failure !== undefined) throw new Error(failure);
-          } finally {
-            session.close();
-          }
-          end(reported ? "reported" : "quiet", record || (reported ? "Reported" : "Nothing to report"));
-        } catch (error) {
-          if (stop.signal.aborted) return void end("stopped", "Stopped by Muse");
-          end(reported ? "reported" : "failed", redact(error instanceof Error ? error.message : String(error), secretsOf(cfg)));
-        } finally {
-          mail.close();
+        switch (worked.kind) {
+          case "stopped":
+            return void end("stopped", "Stopped by Muse");
+          case "failed":
+            return void end(reported ? "reported" : "failed", worked.reason);
+          case "done":
+            return void end(reported ? "reported" : "quiet", worked.record || (reported ? "Reported" : "Nothing to report"));
         }
       })(),
   };
 }
-
-const clip = (s: string) => (s.length > 300 ? `${s.slice(0, 299)}…` : s);

@@ -24,6 +24,8 @@ export const envelopes: Envelope[] = [
         title: "Reply to the trip coordinator",
         steps: [{ label: "Draft the reply", done: true }],
         status: "waiting",
+        instructions: "Draft a reply to the trip coordinator; do not send it",
+        result: null,
       },
     },
   },
