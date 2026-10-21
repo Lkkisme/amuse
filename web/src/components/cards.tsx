@@ -9,7 +9,7 @@ import type { Actions } from "../ui.ts";
 import { type Place, alone, corners } from "./shape.ts";
 import { AppLogo } from "./AppLogo";
 import { useEffect, useState } from "react";
-import { bannerActive, browserStatus, hue, providerLogo, taskStatus } from "../view.ts";
+import { bannerActive, browserLook, hue, providerLogo, taskStatus } from "../view.ts";
 
 const CARD_BG = "var(--fill-secondary)";
 
@@ -334,7 +334,7 @@ function EndedBrowserCard({ browser, place }: { browser: Browser; place: Place }
           Browser
         </p>
         <p className="truncate text-[13px]" style={{ color: "var(--text-secondary)" }}>
-          {browserStatus[browser.status].label} · {browser.title}
+          {browserLook(browser).label} · {browser.title}
         </p>
       </div>
     </div>
@@ -356,7 +356,7 @@ export function BrowserCard({
   place?: Place;
   actions: Actions;
 }) {
-  const meta = browserStatus[browser.status];
+  const meta = browserLook(browser);
   const open = () => actions.openViewer(browser.id);
   if (!browser.live) return <EndedBrowserCard browser={browser} place={place} />;
   return (

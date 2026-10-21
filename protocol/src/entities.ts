@@ -101,24 +101,37 @@ export const Connection = z.object({
 });
 
 /**
- * Muse's browser task statuses. Takeover is a status, not a flag: paused
- * means the user controls the browser.
+ * A browser's statuses. Takeover is a status, not a flag: paused means the
+ * user controls the browser.
+ *   working    its agent is on a job
  *   waiting    the agent asked something in chat (shown "Waiting for you")
  *   needs_you  the user must act in the browser ("Action required")
+ *   idle       open, between jobs: its agent waits for the next one
+ *   stopped    closed by the user (or Muse) in the middle of things
+ *   completed, failed  how a job ended, from before browsers stayed open between jobs
  */
-export const BrowserStatus = z.enum(["queued", "working", "waiting", "needs_you", "paused", "completed", "failed", "stopped"]);
+export const BrowserStatus = z.enum(["queued", "working", "waiting", "needs_you", "paused", "idle", "completed", "failed", "stopped"]);
 
+/**
+ * A browser and its own agent, one for the other, from opening to closing
+ * (Muse's browser tasks open one; the user can open one of their own). It
+ * does one job at a time and stays open between them, remembering what
+ * happened in it, until it is closed (or has stood idle a while).
+ */
 export const Browser = z.object({
   kind: z.literal("browser"),
   id: Id,
   at: Instant,
+  /** the current (or last) job's name; "Your browser" for one the user opened */
   title: z.string(),
   url: z.url(),
   status: BrowserStatus,
-  /** what the user asked of this run, in full: what to do and what not to (the title is only its name) */
+  /** the current (or last) job in full: what to do and what not to; "" before it has had one */
   instructions: z.string(),
-  /** how it ended, in a few words, once it has (completed or failed); null before */
+  /** how the last job ended, in a few words; null while one is on (or before any) */
   result: z.string().nullable(),
+  /** whether the last job was done or could not be */
+  outcome: z.enum(["completed", "failed"]).nullable().default(null),
   /** what its agent is doing right now ("Opening page"), while it works; null otherwise */
   step: z.string().nullable(),
   /** the run still has its browser, to watch and take over; once it is gone the card is only a record */

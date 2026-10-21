@@ -57,8 +57,20 @@ interface Run {
   granted: Set<string>;
   /** Muse's workspace: where the files it may upload are, and where downloads go */
   workspace: Workspace | undefined;
-  /** what the pages downloaded, as saved in the workspace */
+  /** what the pages downloaded in this job, as saved in the workspace */
   downloaded: string[];
+  /** jobs begun so far in this browser */
+  jobs: number;
+  /** the jobs, one after another */
+  queue: Promise<void>;
+  /** the timer that closes it after standing idle */
+  idle: ReturnType<typeof setTimeout> | null;
+  /** where Muse's messages wait for the next step */
+  mail: { drain(): string; close(): void } | null;
+  /** let go of its agent session */
+  end: (() => void) | null;
+  /** the timer that looks for its window closed by the user */
+  watch: ReturnType<typeof setInterval> | null;
 }
 
 const text = (value: string) => ({ content: [{ type: "text" as const, text: value }], details: null });
@@ -329,9 +341,10 @@ function runTools(run: Run): ToolDefinition[] {
         if (!run.stop.signal.aborted) run.io.act({ kind: "browserEnded", id: run.browser.id, status: done ? "completed" : "failed", result });
         await collect(); // the last step's download, too
         const kept = run.downloaded.length > 0 ? `\nDownloaded and kept in the workspace: ${run.downloaded.join(", ")}` : "";
-        run.io.report(`[browser task "${run.browser.title}" ${done ? "finished" : "failed"}]\n${untrusted(result)}${kept}`);
+        // the browser stays open, with this agent, for a next job
+        run.io.report(`[browser task "${run.browser.title}" (${run.browser.id}) ${done ? "finished" : "failed"}; the browser stays open for a next job]\n${untrusted(result)}${kept}`);
         void run.session?.abort();
-        return text("Finished.");
+        return text("Finished. Wait for the next task.");
       },
     }),
   ];
@@ -349,111 +362,165 @@ const browserLabels: Record<string, string> = {
   ask_user: "Asking you",
 };
 
-/** A finished run's browser stays open this long for the user to look at, then closes (freeing its node). */
-const keepFinishedMs = 30 * 60_000;
+/** An open browser standing idle this long (no job, not held) closes: its logins kept, its place given up. */
+const idleMs = 30 * 60_000;
+/** How often an open browser is looked at, to see if the user closed its window in the browser itself. */
+const watchMs = 5_000;
 
-/** browse + browser control on real pages, with a Pi agent per run; `workspace`: where the files it may upload are, and where downloads go. */
-export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers, rules: Rules, workspace?: Workspace): Pick<Ports, "browse" | "browser" | "fit"> {
-  /** Every run from browse until it ends; its controller is there before its page is. */
-  const stops = new Map<string, AbortController>();
+/**
+ * Browsers with their agents, one for the other: a browser opens with its
+ * agent (on Muse's first job for it, or idle for one the user opened), takes
+ * job after job in the same agent session (it remembers what happened in the
+ * browser), and closes when stopped or after standing idle; `workspace`:
+ * where the files it may upload are, and where downloads go.
+ */
+export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers, rules: Rules, workspace?: Workspace): Pick<Ports, "browse" | "job" | "browser" | "fit"> {
+  /** Every open browser, from browse until it closes. */
   const runs = new Map<string, Run>();
 
-  const fail = (browser: Browser, io: AgentIO, why: string) => {
-    if (io.act({ kind: "browserEnded", id: browser.id, status: "failed", result: why }).ok) io.report(`[browser task "${browser.title}" failed]\n${untrusted(why)}`);
+  const failed = (browser: Browser, io: AgentIO, why: string) => {
+    if (io.act({ kind: "browserEnded", id: browser.id, status: "failed", result: why }).ok) io.report(`[browser task "${browser.title}" (${browser.id}) failed]\n${untrusted(why)}`);
   };
 
-  const drive = async (run: Run) => {
-    const pi = await openSession(cfg, system, runTools(run));
-    run.session = pi.session;
-    // what the browser agent is doing is its run's (the chat agent's activity line is the chat agent's own);
-    // a run the user holds, or one that ended, takes no step (the rules refuse it, which is fine)
-    const say = (step: string | null) => void run.io.act({ kind: "browserStep", id: run.browser.id, step });
-    const unsubscribe = pi.session.subscribe((event) => {
-      if (event.type !== "tool_execution_start" || run.stop.signal.aborted) return;
-      say(event.toolName === "finish" ? null : (statusOf(event.args) ?? browserLabels[event.toolName] ?? "Working in the browser"));
-    });
-    // Muse's messages reach the session before its next step; a stop comes as the browser port's own
-    const mail = inbox(handle(run), () => run.session, () => {});
-    const withMail = (prompt: string) => [prompt, mail.drain()].filter(Boolean).join("\n\n");
-    try {
-      if (run.stop.signal.aborted) return;
-      // the user's ask in full: what to do and what not to (page content stays data, see untrusted.ts)
-      const given = run.browser.files.length > 0 ? `\n\nFiles you were given to upload (each upload asks the user): ${run.browser.files.join(", ")}` : "";
-      await pi.session.prompt(withMail(`Task: ${run.browser.title}\n\n${run.browser.instructions}${given}\n\nThe start page ${run.browser.url} is open.`), {
-        expandPromptTemplates: false,
-      });
-      if (!run.finished && !run.stop.signal.aborted)
-        await pi.session.prompt(withMail("Call finish now with the result, or need_user if you are blocked."), { expandPromptTemplates: false });
-      if (!run.finished && !run.stop.signal.aborted) fail(run.browser, run.io, "It stopped without a result.");
-    } finally {
-      mail.close();
-      unsubscribe();
-      say(null);
-      pi.close();
+  /** Close a browser: its agent stops, its logins are kept, its node is let go, and its card says so. */
+  const close = (id: string, io: AgentIO) => {
+    const run = runs.get(id);
+    runs.delete(id);
+    if (run) {
+      clearTimeout(run.idle ?? undefined);
+      clearInterval(run.watch ?? undefined);
+      run.stop.abort();
+      void run.session?.abort().catch(() => {});
+      run.end?.();
     }
+    void browsers
+      .remember(id)
+      .catch(() => {})
+      .then(() => browsers.close(id))
+      .finally(() => io.act({ kind: "released", id }));
+  };
+  /** Idle from now: closed in a while, unless it gets a job or the user takes it. */
+  const standIdle = (run: Run) => {
+    clearTimeout(run.idle ?? undefined);
+    run.idle = setTimeout(() => close(run.browser.id, run.io), idleMs);
+    run.idle.unref?.();
   };
 
-  /** Close a run's browser, then say so: its card becomes a record. */
-  const release = (id: string, io: AgentIO) =>
-    void browsers.close(id).finally(() => io.act({ kind: "released", id }));
+  /** One job, in the browser's own agent session. */
+  const doJob = async (run: Run) => {
+    const { session } = run;
+    if (!session || run.stop.signal.aborted) return;
+    clearTimeout(run.idle ?? undefined);
+    run.steps = 0;
+    run.finished = false;
+    run.downloaded = [];
+    // the user's ask in full: what to do and what not to (page content stays data, see untrusted.ts)
+    const given = run.browser.files.length > 0 ? `\n\nFiles you were given to upload (each upload asks the user): ${run.browser.files.join(", ")}` : "";
+    const where = run.jobs === 0 ? `The start page ${run.browser.url} is open.` : `This is your next task, in the same browser, as you left it (now at ${run.url}).`;
+    run.jobs++;
+    const withMail = (prompt: string) => [prompt, run.mail?.drain()].filter(Boolean).join("\n\n");
+    try {
+      await session.prompt(withMail(`Task: ${run.browser.title}\n\n${run.browser.instructions}${given}\n\n${where}`), { expandPromptTemplates: false });
+      if (!run.finished && !run.stop.signal.aborted)
+        await session.prompt(withMail("Call finish now with the result, or need_user if you are blocked."), { expandPromptTemplates: false });
+      if (!run.finished && !run.stop.signal.aborted) failed(run.browser, run.io, "It stopped without a result.");
+    } catch (error) {
+      if (!run.stop.signal.aborted) failed(run.browser, run.io, redact(error instanceof Error ? error.message : String(error), secretsOf(cfg)));
+    }
+    // between jobs it stands idle (if the user holds it, from when they hand it back)
+    if (!run.stop.signal.aborted && !run.held) standIdle(run);
+  };
+  const enqueue = (run: Run) => {
+    run.queue = run.queue.then(() => doJob(run));
+  };
 
   return {
     browse(browser, io) {
       const stop = new AbortController();
-      stops.set(browser.id, stop);
-      let opened = false;
-      const end = () => {
-        stops.delete(browser.id);
-        runs.delete(browser.id);
-        // a finished run's browser stays a while to be looked at or taken over; one that never opened goes now
-        if (opened) setTimeout(() => release(browser.id, io), keepFinishedMs).unref?.();
-        else release(browser.id, io);
-      };
-      // a site the user does not allow is not opened at all
+      // one the user opened is theirs to browse: it opens at once or not at all; Muse's own waits its turn
+      const theirs = browser.instructions === "";
+      // a site the user does not allow is not opened at all for Muse
       const refuse = async () => {
+        if (theirs) return null;
         const where = (await browsers.look(browser.id).catch(() => null))?.url ?? browser.url;
         return siteAccess(await rules.sites(), where) === "deny" ? (siteOf(where) ?? where) : null;
       };
       rules
         .sites()
         .then((sites) => {
-          if (siteAccess(sites, browser.url) === "deny") throw new Error(`The user does not allow ${siteOf(browser.url) ?? browser.url}.`);
-          return browsers.open(browser.id, browser.url, stop.signal);
+          if (!theirs && siteAccess(sites, browser.url) === "deny") throw new Error(`The user does not allow ${siteOf(browser.url) ?? browser.url}.`);
+          return browsers.open(browser.id, browser.url, stop.signal, { wait: !theirs });
         })
         .then(async () => {
-          opened = true;
-          if (stop.signal.aborted) return release(browser.id, io); // stopped while it was opening
+          if (stop.signal.aborted) return close(browser.id, io); // stopped while it was opening
           const denied = await refuse(); // where it opened (after any redirect)
-          if (denied) return fail(browser, io, `The user does not allow ${denied}.`);
+          if (denied) {
+            failed(browser, io, `The user does not allow ${denied}.`);
+            return close(browser.id, io);
+          }
           // its start site has a rule, or the user allowed it before it started (tools.ts browse)
           const start = siteOf(browser.url);
-          const run: Run = { browser, browsers, url: browser.url, io, session: null, stop, held: null, steps: 0, finished: false, rules, allowed: browser.url, granted: new Set(start ? [start] : []), workspace, downloaded: [] };
+          const run: Run = {
+            browser, browsers, url: browser.url, io, session: null, stop, held: theirs ? hold() : null, steps: 0, finished: false, rules,
+            allowed: browser.url, granted: new Set(start ? [start] : []), workspace, downloaded: [], jobs: 0, queue: Promise.resolve(), idle: null, mail: null, end: null, watch: null,
+          };
           runs.set(browser.id, run);
-          await drive(run);
+          const pi = await openSession(cfg, system, runTools(run));
+          run.session = pi.session;
+          // what the browser's agent is doing is the browser's (the chat agent's activity line is its own);
+          // a browser the user holds, or one between jobs, takes no step (the rules refuse it, which is fine)
+          const say = (step: string | null) => void run.io.act({ kind: "browserStep", id: run.browser.id, step });
+          const unsubscribe = pi.session.subscribe((event) => {
+            if (event.type !== "tool_execution_start" || run.stop.signal.aborted) return;
+            say(event.toolName === "finish" ? null : (statusOf(event.args) ?? browserLabels[event.toolName] ?? "Working in the browser"));
+          });
+          // Muse's messages reach the session before its next step; a stop comes as the browser port's own
+          run.mail = inbox(handle(run), () => run.session, () => {});
+          run.end = () => {
+            run.mail?.close();
+            unsubscribe();
+            pi.close();
+          };
+          // the user may close its window in the browser itself: then it is closed, as from its tab
+          run.watch = setInterval(() => {
+            void browsers.stillOpen(browser.id).then((open) => {
+              if (!open && runs.get(browser.id) === run) close(browser.id, io);
+            });
+          }, watchMs);
+          run.watch.unref?.();
+          if (!theirs) enqueue(run);
         })
         .catch((error: unknown) => {
-          if (!stop.signal.aborted) fail(browser, io, redact(error instanceof Error ? error.message : String(error), secretsOf(cfg)));
-        })
-        .finally(end);
+          if (stop.signal.aborted) return;
+          failed(browser, io, redact(error instanceof Error ? error.message : String(error), secretsOf(cfg)));
+          close(browser.id, io);
+        });
+    },
+    job(browser, io) {
+      const run = runs.get(browser.id);
+      if (!run) return failed(browser, io, "That browser is no longer open.");
+      run.browser = browser;
+      enqueue(run);
     },
     browser({ browser, action }, io) {
       const run = runs.get(browser.id);
       switch (action) {
         case "take":
-          if (run) run.held ??= hold();
+          if (run) {
+            run.held ??= hold();
+            clearTimeout(run.idle ?? undefined);
+          }
           return;
         case "handBack":
           void browsers.remember(browser.id).catch(() => {}); // the user may have just logged in
-          void browsers.fit(browser.id, null).catch(() => {}); // back to the size the agent works at
-          // nothing left to resume: it ends as it had, or as the user left it
-          if (!run) return void io.act({ kind: "browserEnded", id: browser.id, status: "completed", result: browser.result ?? "The user finished it in the browser." });
+          if (!run) return close(browser.id, io);
           run.held?.settle();
           run.held = null;
+          // back to its job, or idle (between jobs, or the user's own with none yet)
+          if (browser.status === "idle") standIdle(run);
           return;
         case "stop":
-          stops.get(browser.id)?.abort();
-          void run?.session?.abort();
-          return release(browser.id, io);
+          return close(browser.id, io);
       }
     },
     fit({ id, viewer }) {

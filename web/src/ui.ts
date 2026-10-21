@@ -20,7 +20,7 @@ export interface Ui {
   /** section null: on a phone, the list of sections (on a desktop, the first one) */
   settings: { open: boolean; section: SettingsSection | null; app: App | null };
   /** browser viewer: active tab, and tabs the user closed (every other run is a tab) */
-  viewer: { browserId: string | null; closedTabs: string[] } | null;
+  viewer: { browserId: string | null } | null;
   /** connection whose pre-connect explainer is open */
   explainer: string | null;
   /** task whose detail sheet is open */
@@ -55,10 +55,13 @@ export interface Actions {
   openViewer(browserId: string | null): void;
   closeViewer(): void;
   selectTab(browserId: string): void;
+  /** close a browser (its tab): its agent stops, its logins are kept, its place is given up */
   closeTab(browserId: string): void;
+  /** open a browser of the user's own, held by them from the start, and show it */
+  newBrowser(): void;
   control(browserId: string, action: "take" | "handBack" | "stop"): void;
-  /** while the user holds it: shape the run's desktop like this view (CSS px) */
-  fit(browserId: string, view: { width: number; height: number }): void;
+  /** while a browser is viewed: shape its desktop like this view (CSS px); null: back to the standard size */
+  fit(browserId: string, view: { width: number; height: number } | null): void;
   stopTask(taskId: string): void;
   openTaskDetail(taskId: string | null): void;
   setChats(open: boolean): void;

@@ -67,6 +67,8 @@ export interface Controller {
   live(): Promise<string[]>;
   /** What the session's pages have downloaded so far. */
   downloads(session: string): Promise<Download[]>;
+  /** How many tabs the session has open (none: the user closed its window). */
+  tabs(session: string): Promise<number>;
   /** A downloaded file's bytes, by its /artifacts/ url. */
   artifact(url: string): Promise<Uint8Array>;
 }
@@ -118,6 +120,7 @@ export function controller(base: string, token: string, http: typeof fetch = fet
       return (await json(z.array(Session), "GET", "/sessions")).filter((s) => s.live).map((s) => s.id);
     },
     downloads: (session) => json(z.array(Download.loose()), "GET", `/sessions/${session}/downloads`),
+    tabs: async (session) => (await json(z.array(z.object({ index: z.int() }).loose()), "GET", `/sessions/${session}/tabs`)).length,
     async artifact(url) {
       if (!url.startsWith("/artifacts/")) throw new ControllerError("not an artifact");
       return new Uint8Array(await (await request("GET", url, undefined, 120_000)).arrayBuffer());

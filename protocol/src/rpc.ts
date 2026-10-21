@@ -42,8 +42,13 @@ export const Call = z.discriminatedUnion("method", [
   call("connection.dismiss", z.object({ id: Id })),
   /** take: → paused (user in control); handBack: → working; stop: → stopped. */
   call("browser.control", z.object({ id: Id, action: z.enum(["take", "handBack", "stop"]) })),
-  /** While the user holds a run: shape its desktop like their screen (CSS px of the view). */
-  call("browser.fit", z.object({ id: Id, width: z.int().min(200).max(8000), height: z.int().min(200).max(8000) })),
+  /** While the user views a browser: shape its desktop like their view (CSS px); null: back to the standard size. */
+  call(
+    "browser.fit",
+    z.object({ id: Id, view: z.object({ width: z.int().min(200).max(8000), height: z.int().min(200).max(8000) }).nullable() }),
+  ),
+  /** Open a browser of the user's own, held by them from the start, in a chat; it counts against the browsers there are. */
+  call("browser.open", z.object({ chat: Id, url: z.url() })),
   call("task.stop", z.object({ id: Id })),
   /** Every schedule there is (the feed a client holds may not reach back to them), newest first. */
   call("schedules.list", z.object({})),
@@ -90,6 +95,7 @@ export const results = {
   "connection.dismiss": done,
   "browser.control": done,
   "browser.fit": done,
+  "browser.open": z.object({ id: Id }),
   "task.stop": done,
   "schedules.list": z.object({ schedules: z.array(Schedule) }),
   "schedule.control": done,
@@ -125,6 +131,7 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "connection.dismiss": (raw) => results["connection.dismiss"].parse(raw),
   "browser.control": (raw) => results["browser.control"].parse(raw),
   "browser.fit": (raw) => results["browser.fit"].parse(raw),
+  "browser.open": (raw) => results["browser.open"].parse(raw),
   "task.stop": (raw) => results["task.stop"].parse(raw),
   "schedules.list": (raw) => results["schedules.list"].parse(raw),
   "schedule.control": (raw) => results["schedule.control"].parse(raw),

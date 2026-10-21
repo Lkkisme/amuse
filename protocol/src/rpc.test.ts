@@ -17,6 +17,7 @@ const handlers: Handlers = {
   "connection.dismiss": async () => null,
   "browser.control": async () => null,
   "browser.fit": async () => null,
+  "browser.open": async () => ({ id: "b2" }),
   "task.stop": async () => null,
   "schedules.list": async () => ({ schedules: [] }),
   "schedule.control": async () => null,

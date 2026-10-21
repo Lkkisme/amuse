@@ -196,7 +196,12 @@ export function demoPorts<H>(timers: Timers<H>): Ports {
         });
       });
     },
+    // a next job in an open browser: done at once
+    job: (browser, { act }) => {
+      timers.set(2000, () => act({ kind: "browserEnded", id: browser.id, status: "completed", result: "Done in the same browser." }));
+    },
     browse: (browser, { act }) => {
+      if (browser.instructions === "") return; // the user's own: theirs to browse
       // a login page needs the user; anything else finishes on its own
       timers.set(3000, () =>
         /login|signin/.test(browser.url)
@@ -341,6 +346,7 @@ export function seed(): Entity[] {
       result: "Found 12 exhibits; the kelp forest feeding is at 11:30.",
       step: null,
       live: false,
+      outcome: null,
       files: [],
     },
     {
@@ -362,6 +368,7 @@ export function seed(): Entity[] {
       result: null,
       step: null,
       live: true,
+      outcome: null,
       files: [],
     },
     {
@@ -375,6 +382,7 @@ export function seed(): Entity[] {
       result: null,
       step: null,
       live: true,
+      outcome: null,
       files: [],
     },
     {

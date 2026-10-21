@@ -39,7 +39,13 @@ export function tools(io: () => AgentIO, rules: Rules, files?: Workspace, hold?:
         "Start a task in a real browser: opening sites, reading pages, filling forms, logging in. It runs in the background and the user can watch or take over. Returns immediately; do not wait for it.",
       parameters: Type.Object({ status,
         title: Type.String({ description: "Short task title the user will see, e.g. 'Check the tide schedule'" }),
-        url: Type.String({ description: "Absolute http(s) URL to start from" }),
+        url: Type.Optional(Type.String({ description: "Absolute http(s) URL to start from, for a new browser" })),
+        browser: Type.Optional(
+          Type.String({
+            description:
+              "To go on in a browser that is still open and idle (its id, b-…; the user's own included): its agent remembers what happened there. Leave out to open a new browser.",
+          }),
+        ),
         instructions: Type.String({
           description:
             "Everything the browser agent must know, in full: what to do, what to bring back, and every limit the user set (e.g. 'open it but do not fill or submit anything'). It sees nothing of the chat but this.",
@@ -50,11 +56,16 @@ export function tools(io: () => AgentIO, rules: Rules, files?: Workspace, hold?:
           }),
         ),
       }),
-      async execute(_, { title, url, instructions, files: given }) {
-        if (!URL.canParse(url) || !/^https?:$/.test(new URL(url).protocol)) return text(`Not started: "${url}" is not an http(s) URL.`);
+      async execute(_, { title, url, browser, instructions, files: given }) {
         const granted = [...new Set(given ?? [])];
         if (granted.length > 0 && !files) return text("Not started: no files are kept here to give it.");
         for (const path of granted) if (!(await files?.exists(path))) return text(`Not started: there is no ${path} in the workspace.`);
+        // a next job for a browser that is open: the same browser, the same agent
+        if (browser) {
+          const given = io().act({ kind: "browserJob", id: browser, title, instructions, files: granted });
+          return text(given.ok ? `Given to browser ${browser}; it goes on there in the background.` : `Not given: ${describe(given.rejection)}.`);
+        }
+        if (!url || !URL.canParse(url) || !/^https?:$/.test(new URL(url).protocol)) return text(`Not started: "${url ?? ""}" is not an http(s) URL.`);
         const access = siteAccess(await rules.sites(), url);
         if (access === "deny") return text(`Not started: the user does not allow ${siteOf(url)}. Tell them; do not try another way to reach it.`);
         const agent = io();

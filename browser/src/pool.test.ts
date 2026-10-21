@@ -9,6 +9,8 @@ import { type Action, type Controller, type Observation, type Size, StaleRef, br
 const sizes = (log: string[] = []) => async (vnc: string, { width, height }: Size) => void log.push(`${vnc} ${width}x${height}`);
 
 /** A controller over a scripted page: a link and a search box, both pages share ids. */
+/** set to make the fake's window closed */
+let closed = false;
 function fakeController(log: string[] = []): Controller {
   let url = "https://a.example/";
   const page = (): Observation => ({
@@ -40,6 +42,7 @@ function fakeController(log: string[] = []): Controller {
       { filename: "big.zip", status: "in_progress", url: "/artifacts/s1/downloads/big.zip" },
     ],
     artifact: async (u) => new TextEncoder().encode(`bytes of ${u}`),
+    tabs: async () => (closed ? 0 : 1),
   };
 }
 
@@ -165,4 +168,14 @@ test("finished downloads are handed over once each", async () => {
   const first = await pool.downloads("r1");
   assert.deepEqual(first.map((f) => [f.name, new TextDecoder().decode(f.data)]), [["report.pdf", "bytes of /artifacts/s1/downloads/report.pdf"]]);
   assert.deepEqual(await pool.downloads("r1"), []);
+});
+
+test("a run whose window the user closed is no longer open; an unanswered controller is not taken for that", async () => {
+  const pool = browserPool([{ name: "n1", controller: fakeController(), vnc: "ws://n1/websockify" }], { desktop: sizes() });
+  await pool.open("r1", "https://a.example/");
+  assert.equal(await pool.stillOpen("r1"), true);
+  closed = true;
+  assert.equal(await pool.stillOpen("r1"), false);
+  closed = false;
+  assert.equal(await pool.stillOpen("nope"), false);
 });

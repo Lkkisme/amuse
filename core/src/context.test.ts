@@ -20,6 +20,7 @@ const run: Browser = {
   result: "The form is open; nothing filled.",
   step: null,
   live: false,
+  outcome: null,
   files: [],
 };
 

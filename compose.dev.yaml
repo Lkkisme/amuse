@@ -5,6 +5,8 @@ services:
   ab-node-1: { ports: ["127.0.0.1:18102:6080"] }
   ab-controller-2: { ports: ["127.0.0.1:18201:8000"] }
   ab-node-2: { ports: ["127.0.0.1:18202:6080"] }
+  ab-controller-3: { ports: ["127.0.0.1:18301:8000"] }
+  ab-node-3: { ports: ["127.0.0.1:18302:6080"] }
 # secrets on the host, so the API running outside Docker can read the controllers' token
 # secrets and upload hand-off folders on the host, so the API running outside Docker can reach them
 # (REMUSE_BROWSERS in the dev env: pool1|…|…|$HOME/.local/share/remuse/dev-handoff/1, and so on)
@@ -18,6 +20,10 @@ volumes:
   handoff-2:
     driver: local
     driver_opts: { type: none, o: bind, device: "${HOME}/.local/share/remuse/dev-handoff/2" }
+  handoff-3:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${HOME}/.local/share/remuse/dev-handoff/3" }
 networks:
   pair-1: { internal: false }
   pair-2: { internal: false }
+  pair-3: { internal: false }

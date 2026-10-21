@@ -55,8 +55,10 @@ export type Effect =
   /** a task the agent handed off: run it in the background */
   | { kind: "task"; task: Task }
   | { kind: "browse"; browser: Browser }
-  /** shape the run's desktop like the user's screen */
-  | { kind: "fit"; id: string; viewer: { width: number; height: number } }
+  /** shape a browser's desktop like the user's view of it; null: back to the standard size */
+  | { kind: "fit"; id: string; viewer: { width: number; height: number } | null }
+  /** a job for a browser that is open: its agent takes it on */
+  | { kind: "job"; browser: Browser }
   /** a schedule's time has come: run it in the background */
   | { kind: "run"; schedule: Schedule }
   /** an approval went unanswered: whoever waits on it hears no */
@@ -95,6 +97,8 @@ export type AgentAction =
   | { kind: "browserStep"; id: string; step: string | null }
   /** A browser run's end, from the agent driving it, with what came of it. */
   | { kind: "browserEnded"; id: string; status: BrowserEnd; result: string }
+  /** Give a browser that is open and idle its next job (its agent remembers what happened in it). */
+  | { kind: "browserJob"; id: string; title: string; instructions: string; files: string[] }
   | { kind: "taskStatus"; id: string; status: TaskProgress }
   /** Hand long or parallel work to a background helper; it starts at once. `instructions`: everything it must know. */
   | { kind: "task"; title: string; instructions: string }
@@ -146,7 +150,7 @@ export type Rejection =
 
 /** What a command yields besides changes: the prompt chat.send created, the connection to begin. */
 export type Outputs = {
-  [M in CommandMethod]: M extends "chat.send" ? { id: string } : M extends "connection.begin" ? Connection : null;
+  [M in CommandMethod]: M extends "chat.send" | "browser.open" ? { id: string } : M extends "connection.begin" ? Connection : null;
 };
 
 export type Decision<T> = { ok: true; changes: Change[]; effects: Effect[]; output: T } | { ok: false; rejection: Rejection };
@@ -159,11 +163,14 @@ export interface Context {
 type BrowserAction = Params["browser.control"]["action"];
 type ScheduleAction = Params["schedule.control"]["action"];
 
-/** Browser transitions (Muse): where each action may start, and where it lands. */
-const browserMoves: Record<BrowserAction, { from: readonly BrowserStatus[]; to: BrowserStatus }> = {
-  take: { from: ["working", "waiting", "needs_you", "completed"], to: "paused" },
-  handBack: { from: ["paused"], to: "working" },
-  stop: { from: ["queued", "working", "waiting", "needs_you", "paused"], to: "stopped" },
+/** A job is on: the browser was given one, and it has not ended. */
+const onJob = (b: Browser) => b.instructions !== "" && b.result === null;
+
+/** Browser transitions (Muse): where each action may start, and where it lands (handing back: to the job, or idle). */
+const browserMoves: Record<BrowserAction, { from: readonly BrowserStatus[]; to: (b: Browser) => BrowserStatus }> = {
+  take: { from: ["working", "waiting", "needs_you", "idle", "completed"], to: () => "paused" },
+  handBack: { from: ["paused"], to: (b) => (onJob(b) ? "working" : "idle") },
+  stop: { from: ["queued", "working", "waiting", "needs_you", "paused", "idle"], to: () => "stopped" },
 };
 
 /** A run the agent may still move: in flight and not held by the user. */
@@ -203,7 +210,7 @@ function find<K extends Entity["kind"]>(state: State, kind: K, id: string): Extr
 type Flight = { kind: "browser"; browser: Browser } | { kind: "task"; task: Task } | { kind: "schedule"; schedule: Schedule };
 function flight(state: State, run: string): Flight | undefined {
   const browser = find(state, "browser", run);
-  if (browser && (agentHeld.includes(browser.status) || browser.status === "paused")) return { kind: "browser", browser };
+  if (browser?.live && (agentHeld.includes(browser.status) || browser.status === "paused" || browser.status === "idle")) return { kind: "browser", browser };
   const task = find(state, "task", run);
   if (task && runningTask.includes(task.status)) return { kind: "task", task };
   const schedule = find(state, "schedule", run);
@@ -277,17 +284,23 @@ const rules: Rules = {
     if (action === "take" && !browser.live) return reject({ kind: "gone", id });
     // a stopped run's browser closes at once
     // the user takes it, or it stops: its agent is doing nothing now
-    const moved: Browser = { ...browser, status: move.to, step: action === "handBack" ? browser.step : null, live: action === "stop" ? false : browser.live };
+    const moved: Browser = { ...browser, status: move.to(browser), step: action === "handBack" ? browser.step : null, live: action === "stop" ? false : browser.live };
     const closed = action === "stop" ? closeQuestions(state, id) : { changes: [], effects: [] };
     return ok([upsert(moved), ...closed.changes], [{ kind: "browser", browser: moved, action }, ...closed.effects], null);
   },
 
-  /** Only the user's own hold reshapes the desktop; the agent keeps its standard size. */
-  "browser.fit": (state, { id, width, height }) => {
+  /** A browser being viewed takes the shape of the view (the agent works at it too); null when it is not. */
+  "browser.fit": (state, { id, view }) => {
     const browser = find(state, "browser", id);
     if (!browser) return reject({ kind: "notFound", entity: "browser", id });
-    if (browser.status !== "paused") return reject({ kind: "invalid", action: "fit", from: browser.status });
-    return ok([], [{ kind: "fit", id, viewer: { width, height } }], null);
+    if (!browser.live) return reject({ kind: "gone", id });
+    return ok([], [{ kind: "fit", id, viewer: view }], null);
+  },
+
+  /** The user's own browser: held by them from the start, its agent idle until it is given a job. */
+  "browser.open": (_, { url }, ctx) => {
+    const browser: Browser = { kind: "browser", id: ctx.id("b"), at: ctx.now, title: "Your browser", url, status: "paused", instructions: "", result: null, outcome: null, step: null, live: true, files: [] };
+    return ok([upsert(browser)], [{ kind: "browse", browser }], { id: browser.id });
   },
 
   "schedule.control": (state, { id, action }, ctx) => {
@@ -364,6 +377,8 @@ const agentRules: AgentRules = {
   instruct: (state, { run, text }, ctx) => {
     const target = flight(state, run);
     if (!target) return reject({ kind: "notRunning", id: run });
+    // an idle browser takes a job, not a word in passing
+    if (target.kind === "browser" && target.browser.status === "idle") return reject({ kind: "invalid", action: "instruct", from: "idle" });
     const id = ctx.id("i");
     return ok([upsert({ kind: "instruction", id, at: ctx.now, run, title: titleOf(target), text })], [{ kind: "instruct", run, text }], { id });
   },
@@ -381,6 +396,7 @@ const agentRules: AgentRules = {
   question: (state, { run, text }, ctx) => {
     const target = flight(state, run);
     if (!target) return reject({ kind: "notRunning", id: run });
+    if (target.kind === "browser" && target.browser.status === "idle") return reject({ kind: "invalid", action: "question", from: "idle" });
     const id = ctx.id("q");
     const asked: Question = { kind: "question", id, at: ctx.now, run, title: titleOf(target), text, status: "open", answer: null, expires: later(ctx.now, APPROVAL_TTL_MS) };
     // a run asking is waiting for the user (Muse's "Waiting for you")
@@ -399,7 +415,7 @@ const agentRules: AgentRules = {
     return ok([upsert({ ...question, status: "answered", answer: text })], [{ kind: "settled", id, answer: { kind: "answered", text } }], { id });
   },
   browse: (_, { title, url, instructions, files }, ctx) => {
-    const browser: Browser = { kind: "browser", id: ctx.id("b"), at: ctx.now, title, url, status: "working", instructions, result: null, step: null, live: true, files };
+    const browser: Browser = { kind: "browser", id: ctx.id("b"), at: ctx.now, title, url, status: "working", instructions, result: null, step: null, live: true, outcome: null, files };
     return ok([upsert(browser)], [{ kind: "browse", browser }], { id: browser.id });
   },
   released: (state, { id }) => {
@@ -422,10 +438,19 @@ const agentRules: AgentRules = {
   browserEnded: (state, { id, status, result }) => {
     const browser = find(state, "browser", id);
     if (!browser) return reject({ kind: "notFound", entity: "browser", id });
-    // a run the user holds ends too when they hand back what was left of it (paused → completed)
+    // a job the user holds ends too when they hand back what was left of it; the browser stays open, idle
     if (!agentHeld.includes(browser.status) && browser.status !== "paused") return reject({ kind: "invalid", action: "browserEnded", from: browser.status });
     const closed = closeQuestions(state, id);
-    return ok([upsert({ ...browser, status, result, step: null }), ...closed.changes], closed.effects, { id });
+    const idle: Browser = { ...browser, status: browser.status === "paused" ? "paused" : "idle", result, outcome: status, step: null };
+    return ok([upsert(idle), ...closed.changes], closed.effects, { id });
+  },
+  browserJob: (state, { id, title, instructions, files }) => {
+    const browser = find(state, "browser", id);
+    if (!browser) return reject({ kind: "notFound", entity: "browser", id });
+    if (!browser.live) return reject({ kind: "gone", id });
+    if (browser.status !== "idle") return reject({ kind: "invalid", action: "browserJob", from: browser.status });
+    const working: Browser = { ...browser, title, instructions, files, status: "working", result: null, outcome: null, step: null };
+    return ok([upsert(working)], [{ kind: "job", browser: working }], { id });
   },
   task: (_, { title, instructions }, ctx) => {
     const task: Task = { kind: "task", id: ctx.id("t"), at: ctx.now, title, steps: [], status: "working", instructions, result: null };
@@ -508,8 +533,8 @@ export function recover(state: State, now: string): Change[] {
       case "reply":
         return e.streaming ? { ...e, streaming: false } : null;
       case "browser": {
-        // the pool lets go of every browser on start: none is live after a restart
-        const status = terminalBrowser.includes(e.status) ? e.status : "stopped";
+        // the pool lets go of every browser on start: none is live after a restart; a job that was on is cut short
+        const status = terminalBrowser.includes(e.status) || e.status === "idle" ? e.status : onJob(e) ? "stopped" : "idle";
         return status === e.status && !e.live && e.step === null ? null : { ...e, status, step: null, live: false };
       }
       case "task":

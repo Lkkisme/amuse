@@ -118,8 +118,10 @@ export interface Ports {
   interrupt(io: AgentIO): void;
   /** A short title for a side chat, from its first message. */
   title(text: string): Promise<string>;
-  /** Run a browser task the agent started. */
+  /** Open a browser with its own agent: on its first job (Muse's browse), or idle and held by the user (one they opened). */
   browse(browser: Browser, io: AgentIO): void;
+  /** Give an open browser's agent its next job. */
+  job(browser: Browser, io: AgentIO): void;
   /** Run a task the agent handed off, with a background helper (a general agent); it ends with `taskEnded`. */
   task(task: Task, io: AgentIO): void;
   /**
@@ -324,6 +326,7 @@ function subjectOf(action: AgentAction): string | null {
     case "browserStatus":
     case "browserStep":
     case "browserEnded":
+    case "browserJob":
     case "released":
     case "taskStatus":
     case "taskSteps":
@@ -525,6 +528,8 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
         return ports.stopTask(effect.id, agent);
       case "browse":
         return ports.browse(effect.browser, agent);
+      case "job":
+        return ports.job(effect.browser, agent);
       case "task":
         return ports.task(effect.task, agent);
       case "fit":
@@ -654,6 +659,7 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     "connection.dismiss": async (params) => about(params.id, "connection.dismiss", params),
     "browser.control": async (params) => about(params.id, "browser.control", params),
     "browser.fit": async (params) => about(params.id, "browser.fit", params),
+    "browser.open": async (params) => command(roomOf(params.chat), "browser.open", params),
     "task.stop": async (params) => about(params.id, "task.stop", params),
     "schedules.list": async () => ({
       schedules: [...rooms.values()].flatMap((r) => r.state.entities.filter((e): e is Schedule => e.kind === "schedule")).reverse(),

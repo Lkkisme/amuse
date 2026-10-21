@@ -1,5 +1,5 @@
 # The browser pool: auto-browser pairs (a headful Chromium desktop with noVNC, and its REST
-# controller). One session per node (one desktop each), so concurrency = number of pairs.
+# controller). One session per node (one desktop each), so concurrency = number of pairs (3).
 # Each pair has its own internal network; only the node gets an egress network. No Docker socket.
 # Secrets are made on first start by `secrets` (kept in its volume, never typed in): the bearer
 # token between remuse and the controllers, and the key that encrypts saved logins.
@@ -83,7 +83,7 @@ services:
     read_only: true
     network_mode: none
     restart: "no"
-    volumes: [secrets:/secrets, handoff-1:/handoff/1, handoff-2:/handoff/2]
+    volumes: [secrets:/secrets, handoff-1:/handoff/1, handoff-2:/handoff/2, handoff-3:/handoff/3]
     entrypoint:
       - python
       - -c
@@ -102,7 +102,7 @@ services:
         make("logins-key", base64.urlsafe_b64encode(os.urandom(32)).decode(), 0, 0o400)  # Fernet key, controllers only
         # the folders remuse hands a file to upload through: remuse (uid 1000) puts it there, the controller
         # (root without capabilities) makes its own session folder beside it and reads the file
-        for folder in ("/handoff/1", "/handoff/2"):
+        for folder in ("/handoff/1", "/handoff/2", "/handoff/3"):
             os.chmod(folder, 0o1777)
 
   ab-node-1:
@@ -149,18 +149,45 @@ services:
       TAKEOVER_URL: http://ab-node-2:6080/vnc.html?autoconnect=true
     volumes: [profile-2:/node-profile:ro, controller-2:/data, logins:/data/auth, handoff-2:/data/uploads, secrets:/secrets:ro]
 
+  ab-node-3:
+    <<: *node
+    networks: [pair-3, egress-3]
+    environment:
+      <<: *node-env
+      PLAYWRIGHT_SERVER_ADVERTISED_HOST: ab-node-3
+      NOVNC_ALLOWED_HOSTS: ab-node-3,127.0.0.1,localhost
+      NOVNC_ALLOWED_ORIGINS: http://localhost:6080
+    volumes: [profile-3:/data/profile]
+  ab-controller-3:
+    <<: *controller
+    networks: [pair-3]
+    depends_on:
+      ab-node-3: { condition: service_healthy }
+      secrets: { condition: service_completed_successfully }
+    environment:
+      <<: *controller-env
+      CONTROLLER_ALLOWED_HOSTS: ab-controller-3,localhost,127.0.0.1,::1
+      BROWSER_WS_ENDPOINT_FILE: /node-profile/browser-ws-endpoint.txt
+      TAKEOVER_URL: http://ab-node-3:6080/vnc.html?autoconnect=true
+    volumes: [profile-3:/node-profile:ro, controller-3:/data, logins:/data/auth, handoff-3:/data/uploads, secrets:/secrets:ro]
+
 networks:
   pair-1: { internal: true }
   pair-2: { internal: true }
+  pair-3: { internal: true }
   egress-1: {}
   egress-2: {}
+  egress-3: {}
 
 volumes:
   secrets: # made on first start by `secrets`
   logins: # auth profiles (saved logins, encrypted), shared by every controller
   profile-1:
   profile-2:
+  profile-3:
   controller-1:
   controller-2:
+  controller-3:
   handoff-1: # a file on its way into an upload, put there by remuse (pair 1)
   handoff-2:
+  handoff-3:

@@ -11,10 +11,23 @@ export const browserStatus: Record<BrowserStatus, { label: string; color: string
   waiting: { label: "Waiting for you", color: "var(--fill-orange)" },
   needs_you: { label: "Waiting for you", color: "var(--fill-orange)" },
   paused: { label: "Paused", color: "var(--fill-orange)" },
+  idle: { label: "Ready", color: "var(--icon-secondary)" },
   completed: { label: "Completed", color: "var(--fill-green)" },
   failed: { label: "Failed", color: "var(--fill-red)" },
   stopped: { label: "Stopped", color: "var(--icon-secondary)" },
 };
+
+/**
+ * How a browser reads: its status, but between jobs how the last one went
+ * (Done, Couldn't finish, or Ready when it has had none), and Closed once its
+ * browser is gone.
+ */
+export function browserLook(b: Browser): { label: string; color: string } {
+  if (b.status === "idle" && !b.live) return { label: "Closed", color: "var(--icon-secondary)" };
+  if (b.status === "idle" && b.outcome === "completed") return { label: "Done", color: "var(--fill-green)" };
+  if (b.status === "idle" && b.outcome === "failed") return { label: "Couldn't finish", color: "var(--fill-red)" };
+  return browserStatus[b.status];
+}
 
 /** Muse shows the task banner only while a run is in flight. */
 export const bannerActive = (b: Browser) =>
@@ -68,11 +81,12 @@ export const hue = (id: string) => [...id].reduce((h, c) => (h * 31 + c.charCode
 export const browsers = (state: State) => state.entities.filter((e): e is Browser => e.kind === "browser");
 
 /** Runs whose browser is still there: the viewer's tabs (closed tabs aside). */
-export const viewerTabs = (state: State, closedTabs: readonly string[]) => browsers(state).filter((b) => b.live && !closedTabs.includes(b.id));
+/** The browsers open now, one tab each (a closed one is only a card in the chat). */
+export const viewerTabs = (state: State) => browsers(state).filter((b) => b.live);
 
 /** The run the viewer shows: the chosen one while it is a tab, else the newest tab; none when there is no browser. */
-export const viewerRun = (state: State, viewer: { browserId: string | null; closedTabs: readonly string[] }) => {
-  const tabs = viewerTabs(state, viewer.closedTabs);
+export const viewerRun = (state: State, viewer: { browserId: string | null }) => {
+  const tabs = viewerTabs(state);
   return tabs.find((b) => b.id === viewer.browserId) ?? tabs.at(-1) ?? null;
 };
 

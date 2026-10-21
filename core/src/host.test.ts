@@ -16,6 +16,7 @@ function capture() {
     },
     interrupt: () => {},
     browse: () => {},
+    job: () => {},
     task: () => {},
     browser: () => {},
     approval: () => {},

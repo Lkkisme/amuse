@@ -60,7 +60,10 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
   const { session } = link;
   const chats = useChats(session);
   // the look this device was left in
-  const [ui, setUi] = useState<Ui>(() => ({ ...initialUi, theme: storedTheme() }));
+  const [ui, setUi] = useState<Ui>(() => ({
+    ...initialUi,
+    theme: storedTheme(),
+  }));
   const {
     state: conversation,
     older,
@@ -142,12 +145,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           patch((u) => ({
             ...u,
             museOpen: false,
-            viewer: {
-              browserId,
-              closedTabs: (u.viewer?.closedTabs ?? []).filter(
-                (t) => t !== browserId,
-              ),
-            },
+            viewer: { browserId },
           }));
         // only a docked Muse panel's avatar has somewhere to travel; otherwise the viewer just slides in
         // (a transition would lift the avatar over the viewer, then drop it at the end)
@@ -159,25 +157,47 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         patch((u) =>
           u.viewer ? { ...u, viewer: { ...u.viewer, browserId } } : u,
         ),
-      closeTab: (browserId) =>
+      // closing a tab closes its browser; the viewer moves to another open one, or goes
+      closeTab: (browserId) => {
+        call("browser.control", { id: browserId, action: "stop" });
         patch((u) => {
           if (!u.viewer) return u;
-          const closedTabs = [...u.viewer.closedTabs, browserId];
-          const last = viewerTabs(conversation, closedTabs).at(-1);
+          const last = viewerTabs(conversation)
+            .filter((b) => b.id !== browserId)
+            .at(-1);
           if (!last) return { ...u, viewer: null };
           return {
             ...u,
             viewer: {
               browserId:
                 u.viewer.browserId === browserId ? last.id : u.viewer.browserId,
-              closedTabs,
             },
           };
-        }),
+        });
+      },
+      newBrowser: () =>
+        void session
+          .call("browser.open", {
+            chat: chatRef.current,
+            url: "https://www.google.com/",
+          })
+          .then(
+            ({ id }) =>
+              patch((u) => ({
+                ...u,
+                museOpen: false,
+                viewer: { browserId: id },
+              })),
+            (error: unknown) =>
+              patch((u) => ({
+                ...u,
+                notice: error instanceof Error ? error.message : String(error),
+              })),
+          ),
       control: (id, action) => call("browser.control", { id, action }),
       // best effort and quiet: a desktop that keeps its shape still works
-      fit: (id, { width, height }) =>
-        void session.call("browser.fit", { id, width, height }).catch(() => {}),
+      fit: (id, view) =>
+        void session.call("browser.fit", { id, view }).catch(() => {}),
       stopTask: (id) => call("task.stop", { id }),
       openTaskDetail: (taskDetail) => patch((u) => ({ ...u, taskDetail })),
       setChats: (chatsOpen) => patch((u) => ({ ...u, chatsOpen })),

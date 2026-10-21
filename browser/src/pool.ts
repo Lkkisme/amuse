@@ -48,8 +48,11 @@ export interface PageView {
 
 /** What the browser agent and the API need from browsers, per run. */
 export interface Browsers {
-  /** Lease a browser and open `url`; waits while the pool is busy; rejects if `signal` aborts first. */
-  open(run: string, url: string, signal?: AbortSignal): Promise<void>;
+  /**
+   * Lease a browser and open `url`; waits while the pool is busy (rejects if `signal` aborts first),
+   * or, with `wait: false`, rejects at once with PoolFull.
+   */
+  open(run: string, url: string, signal?: AbortSignal, options?: { wait?: boolean }): Promise<void>;
   look(run: string): Promise<PageView>;
   step(run: string, step: Step): Promise<void>;
   screenshot(run: string): Promise<Uint8Array | null>;
@@ -64,6 +67,15 @@ export interface Browsers {
   upload(run: string, ref: string, file: FileData): Promise<void>;
   /** What the run's pages have downloaded since the last time this was asked. */
   downloads(run: string): Promise<FileData[]>;
+  /** Whether the run's window is still open: false once the user has closed it (in the browser itself). Unsure counts as open. */
+  stillOpen(run: string): Promise<boolean>;
+}
+
+/** Every browser there is is in use. */
+export class PoolFull extends Error {
+  constructor(size: number) {
+    super(`All ${size} browsers are in use; close one first.`);
+  }
 }
 
 export class StaleRef extends Error {
@@ -155,7 +167,8 @@ export function browserPool(
       // these nodes are ours alone: sessions still live there were left by an earlier process
       await Promise.all(nodes.map(async (n) => Promise.all((await n.controller.live()).map((s) => n.controller.delete(s).catch(() => {})))));
     },
-    async open(id, url, signal) {
+    async open(id, url, signal, { wait = true } = {}) {
+      if (!wait && free.length === 0) throw new PoolFull(nodes.length);
       const node = await lease(signal);
       try {
         // the last user may have left the desktop in their screen's shape; a run starts at the standard size
@@ -239,6 +252,12 @@ export function browserPool(
       } finally {
         await rm(folder, { recursive: true, force: true });
       }
+    },
+    async stillOpen(id) {
+      const r = runs.get(id);
+      if (!r) return false;
+      // only a window seen to have no tabs is closed; a controller that does not answer is not taken for that
+      return (await r.node.controller.tabs(r.session).catch(() => 1)) > 0;
     },
     async downloads(id) {
       const r = run(id);

@@ -9,11 +9,11 @@
 import { Monitor, PanelRightClose, X } from "lucide-react";
 import type { State } from "@remuse/protocol";
 import type { Actions } from "../ui.ts";
-import { browserStatus, pillBrowser } from "../view.ts";
+import { browserLook, pillBrowser } from "../view.ts";
 
 export function BrowserButton({ conversation, open, actions }: { conversation: State; open: boolean; actions: Actions }) {
   const run = pillBrowser(conversation);
-  const meta = run && !open ? browserStatus[run.status] : null;
+  const meta = run && !open ? browserLook(run) : null;
   const waiting = run?.status === "waiting" || run?.status === "needs_you";
   const icon = "absolute transition-all duration-200 ease-out";
 

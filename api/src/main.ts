@@ -63,7 +63,7 @@ const system = [
   "Do quick things yourself: a fact to look up, a page to read, something to fetch from a connected app, a file to sort. Hand work off only when: it is long and self-contained (`start_task`, so the chat goes on), several independent pieces can go at once (a task each), a website must be operated (`browse`: only a browser task drives a browser), or it should run later or regularly (`schedule`). Do not hand off what you can answer at once.",
   "Each turn you get the conversation so far: the newest part in full, older parts in brief. If you need something older or cut short, search it with `recall`.",
   "To look something up, use `web_search` and `web_read`: quick, no browser. Start a browser task only when something on a site has to be done (log in, fill a form, click through).",
-  "When a request needs a website, start a browser task with `browse` and tell the user it is running; it continues in the background and they can watch or take over. The browser agent sees nothing but what you give it: put the user's whole ask in `instructions`, including every limit they set, and give it in `files` only the workspace files it must upload (it is asked each time). What it downloads lands in downloads/; send what the user wants with `send_file`.",
+  "When a request needs a website, start a browser task with `browse` and tell the user it is running; it continues in the background and they can watch or take over. A browser stays open between jobs with its own agent, which remembers what happened in it: for more on the same site (or in a browser the user opened, \"Your browser\"), give the job to that open, idle browser (`browser`) rather than opening another. The browser agent sees nothing but what you give it: put the user's whole ask in `instructions`, including every limit they set, and give it in `files` only the workspace files it must upload (it is asked each time). What it downloads lands in downloads/; send what the user wants with `send_file`.",
   "When a request needs one of the user's apps (mail, calendar, sheets, ...), ask with `request_connection` instead of guessing.",
   "You have a workspace of files you share with the user. What they send lands in user/ (pictures and videos in user/media_library/) and shows in the conversation as [attached: name (type, size) at path]; what the browser downloads lands in downloads/; the rest is yours to organize. You see the images of the message you are answering; look at any file with `read_file`, and keep things in order with `list_files`, `write_file`, `move_file` and `delete_file`. To give the user a file, send it with `send_file`.",
   "Never claim a background task has finished unless you were told so. Never say you will do something and stop: what you are going to do, you do now with your tools, in this turn; your reply ends the turn.",
@@ -131,7 +131,9 @@ const real = (model: string, browserModel: string): Ports => ({
         browse: (browser, io) => {
           if (io.act({ kind: "browserEnded", id: browser.id, status: "failed", result: "No browser is configured on this server." }).ok)
             io.report(`[browser task "${browser.title}" failed] No browser is configured on this server.`);
+          io.act({ kind: "released", id: browser.id });
         },
+        job: () => {},
         browser: () => {},
         fit: () => {},
       }),

@@ -75,7 +75,7 @@ test("chat.stop cuts the reply mid-stream and nothing arrives afterwards", async
   assert.ok(view().entities.every((e) => e.kind !== "reply" || !e.streaming));
 });
 
-test("takeover and hand back: needs_you → paused → working → completed", async () => {
+test("takeover and hand back: needs_you → paused → working → idle (done, the browser still open)", async () => {
   const { host, advance, view } = await setup();
   const status = () => view().entities.flatMap((e) => (e.kind === "browser" && e.id === "b-seed3" ? [e.status] : []))[0];
   assert.equal(status(), "needs_you");
@@ -85,7 +85,7 @@ test("takeover and hand back: needs_you → paused → working → completed", a
   assert.equal(status(), "working");
   assert.deepEqual(view().activity, { kind: "working", label: "Re-observing page" });
   advance(10_000);
-  assert.equal(status(), "completed");
+  assert.equal(status(), "idle");
 });
 
 test("an illegal command rejects and records nothing", async () => {
@@ -110,7 +110,7 @@ test("the agent acts through the rules: a URL in the prompt starts a browser run
   assert.ok(run(), "the browser run started");
   advance(10_000);
   const done = run();
-  assert.ok(done?.kind === "browser" && done.status === "completed");
+  assert.ok(done?.kind === "browser" && done.status === "idle" && done.outcome === "completed" && done.live, "done, and the browser stays open");
 });
 
 test("an agent's ask becomes a pending approval; resolving it answers the waiting agent", async () => {

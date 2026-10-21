@@ -10,7 +10,7 @@ import { CalendarClock, CircleCheck, Clock, Fingerprint, Globe, List, ListTodo, 
 import type { Entity, State } from "@remuse/protocol";
 import { museAvatar, travels } from "../transition.ts";
 import type { Actions } from "../ui.ts";
-import { browserStatus, host, taskStatus, time } from "../view.ts";
+import { browserLook, host, taskStatus, time } from "../view.ts";
 import { repeats, scheduleState } from "../schedules.ts";
 
 export type MuseMode = "docked" | "floating";
@@ -32,7 +32,7 @@ function done(entity: Entity): Done | null {
     case "reply":
       return null;
     case "browser":
-      return { id: entity.id, title: entity.title, sub: `${browserStatus[entity.status].label} · ${host(entity.url)}`, time: at, done: entity.status === "completed", icon: Globe };
+      return { id: entity.id, title: entity.title, sub: `${browserLook(entity).label} · ${host(entity.url)}`, time: at, done: entity.status === "completed", icon: Globe };
     case "task": {
       const steps = entity.steps.filter((s) => s.done).length;
       return { id: entity.id, title: entity.title, sub: `${taskStatus[entity.status].label} · ${steps} of ${entity.steps.length} steps`, time: at, done: entity.status === "completed", icon: ListTodo };

@@ -46,7 +46,7 @@ export const envelopes: Envelope[] = [
     event: {
       kind: "upserted",
       index: 5,
-      entity: { kind: "browser", id: "b1", at, title: "Log in", url: "https://portal.example.edu/login", status: "paused", instructions: "Log in to the trip portal; stop at the dashboard", result: null, step: null, live: true, files: [] },
+      entity: { kind: "browser", id: "b1", at, title: "Log in", url: "https://portal.example.edu/login", status: "paused", instructions: "Log in to the trip portal; stop at the dashboard", result: null, step: null, live: true, outcome: null, files: [] },
     },
   },
   {
@@ -54,7 +54,7 @@ export const envelopes: Envelope[] = [
     event: {
       kind: "upserted",
       index: 5,
-      entity: { kind: "browser", id: "b1", at, title: "Log in", url: "https://portal.example.edu/login", status: "stopped", instructions: "Log in to the trip portal; stop at the dashboard", result: null, step: null, live: false, files: [] },
+      entity: { kind: "browser", id: "b1", at, title: "Log in", url: "https://portal.example.edu/login", status: "stopped", instructions: "Log in to the trip portal; stop at the dashboard", result: null, step: null, live: false, outcome: null, files: [] },
     },
   },
   {
@@ -120,7 +120,9 @@ export const calls: Call[] = [
   { method: "connection.begin", params: { id: "c1" } },
   { method: "connection.dismiss", params: { id: "c1" } },
   { method: "browser.control", params: { id: "b1", action: "handBack" } },
-  { method: "browser.fit", params: { id: "b1", width: 390, height: 560 } },
+  { method: "browser.fit", params: { id: "b1", view: { width: 390, height: 560 } } },
+  { method: "browser.fit", params: { id: "b1", view: null } },
+  { method: "browser.open", params: { chat: "main", url: "https://www.google.com/" } },
   { method: "task.stop", params: { id: "t1" } },
   { method: "schedules.list", params: {} },
   { method: "schedule.control", params: { id: "s1", action: "pause" } },
