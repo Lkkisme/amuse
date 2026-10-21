@@ -169,3 +169,34 @@ test("a key pasted as an env file line gives its value", async () => {
   await keys.answer(first.login, "COMPOSIO_API_KEY=ak_composio_5678");
   assert.equal(keys.appKey("composio"), "ak_composio_5678");
 });
+
+test("each role's model thinks as much as chosen, within what the model takes; another model keeps the nearest level", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "amuse-keys-"));
+  const keys = piKeys({ keys: fileCredentials(join(dir, "keys.json")), choicePath: join(dir, "models.json") });
+  for (const provider of ["fireworks", "openrouter"]) {
+    const first = await keys.login(provider);
+    if (first.kind !== "prompt") return assert.fail("expected a prompt");
+    await keys.answer(first.login, "secret_key_1234");
+  }
+  const { models } = await keys.list();
+  const thinker = models.find((m) => m.thinking.includes("off") && m.thinking.includes("high"));
+  const plain = models.find((m) => m.thinking.length === 1 && m.thinking[0] === "off");
+  const always = models.find((m) => m.images && !m.thinking.includes("off"));
+  assert.ok(thinker && plain && always, "models that think, that do not, and that always do");
+
+  await assert.rejects(keys.think("chat", "high"), /Choose a model first/);
+  await keys.choose("chat", thinker.id);
+  assert.equal(keys.thinking("chat"), "off");
+  await keys.think("chat", "high");
+  assert.equal(keys.thinking("chat"), "high");
+  assert.deepEqual((await keys.list()).thinking, { chat: "high", browser: "off" });
+
+  await keys.choose("chat", plain.id);
+  assert.equal(keys.thinking("chat"), "off", "a model that does not think");
+  await assert.rejects(keys.think("chat", "high"), /does not take/);
+
+  // a model that cannot be off thinks at the nearest level it takes, and says so
+  await keys.choose("browser", always.id);
+  const shown = (await keys.list()).thinking.browser;
+  assert.ok(always.thinking.includes(shown), `${shown} is one of ${always.thinking.join(",")}`);
+});

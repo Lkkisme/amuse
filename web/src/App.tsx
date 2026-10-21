@@ -18,7 +18,8 @@ import { viewerTabs } from "./view.ts";
 import { transition } from "./transition.ts";
 import { close, useBack } from "./back.ts";
 
-const VIEWER_WIDTH = "amuse.viewerWidth";
+/** the width the user dragged the viewer to (only that is kept; the default follows the window) */
+const VIEWER_WIDTH = "amuse.viewerDragged";
 /** The viewer is at least 420px; the chat keeps at least 360px beside the 56px rail. */
 const clampViewer = (width: number) =>
   Math.round(Math.max(420, Math.min(width, innerWidth - 56 - 360)));
@@ -111,10 +112,13 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
 
   // desktop: how wide the browser viewer is (its left edge is dragged), kept on this device
   const [viewerWidth, setViewerWidth] = useState(() =>
-    clampViewer(Number(localStorage.getItem(VIEWER_WIDTH)) || innerWidth - 482),
+    // first time: at most two thirds of the window, the chat keeping the rest
+    clampViewer(
+      Number(localStorage.getItem(VIEWER_WIDTH)) ||
+        Math.min(innerWidth - 482, (innerWidth * 2) / 3),
+    ),
   );
   useEffect(() => {
-    localStorage.setItem(VIEWER_WIDTH, String(viewerWidth));
     document.documentElement.style.setProperty(
       "--viewer-width",
       `${viewerWidth}px`,
@@ -408,7 +412,11 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           viewer={ui.viewer}
           live={where.kind === "server" ? where.live : null}
           thumb={where.kind === "server" ? where.thumb : null}
-          onResize={(edge) => setViewerWidth(clampViewer(innerWidth - edge))}
+          onResize={(edge) => {
+            const width = clampViewer(innerWidth - edge);
+            localStorage.setItem(VIEWER_WIDTH, String(width));
+            setViewerWidth(width);
+          }}
           actions={actions}
         />
       </div>

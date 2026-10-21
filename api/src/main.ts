@@ -173,7 +173,7 @@ const none = async <T>(read: () => Promise<T[]>): Promise<T[]> => {
   }
 };
 const ports: Ports = {
-  ...piAgent({ model, auth, system, rules, files, apps, search: apps.search, appsSetup: () => (keys.appKey("composio") ? null : composioGuide) }),
+  ...piAgent({ model, thinking: () => keys.thinking("chat"), auth, system, rules, files, apps, search: apps.search, appsSetup: () => (keys.appKey("composio") ? null : composioGuide) }),
   ...piScheduleRunner({
     model,
     auth,
@@ -195,7 +195,7 @@ const ports: Ports = {
   files,
   keys,
   ...(browsers
-    ? piBrowserAgent({ model: browserModel, auth }, browsers, rules, files)
+    ? piBrowserAgent({ model: browserModel, thinking: () => keys.thinking("browser"), auth }, browsers, rules, files)
     : {
         browse: (browser, io) => {
           if (

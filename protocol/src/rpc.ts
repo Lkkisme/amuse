@@ -9,7 +9,7 @@ import { Account, App, KindRule, Permission, Site, SiteRule, ToolKind } from "./
 import { Attachment, Id, Resolution, Schedule, TimeZone } from "./entities.ts";
 import { Envelope, Index, Page, Seq, State } from "./events.ts";
 import { Chat, Push } from "./chats.ts";
-import { KeyTest, KeysState, LoginStep, ModelRef, ModelRole } from "./keys.ts";
+import { KeyTest, KeysState, LoginStep, ModelRef, ModelRole, ThinkingLevel } from "./keys.ts";
 
 const call = <M extends string, P extends z.ZodObject>(method: M, params: P) =>
   z.object({ method: z.literal(method), params });
@@ -83,6 +83,8 @@ export const Call = z.discriminatedUnion("method", [
   call("keys.logout", z.object({ provider: z.string().min(1).max(100) })),
   /** Choose the model Muse chats with, or the one that works in the browser (it must see pictures). */
   call("models.choose", z.object({ role: ModelRole, model: ModelRef })),
+  /** How much the chat's or the browser's model thinks (one of the levels its model takes). */
+  call("models.think", z.object({ role: ModelRole, level: ThinkingLevel })),
 ]);
 
 export type Call = z.infer<typeof Call>;
@@ -128,6 +130,7 @@ export const results = {
   "keys.test": KeyTest,
   "keys.logout": done,
   "models.choose": done,
+  "models.think": done,
 } satisfies Record<Method, z.ZodType>;
 
 export type Params = { [C in Call as C["method"]]: C["params"] };
@@ -171,6 +174,7 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "keys.test": (raw) => results["keys.test"].parse(raw),
   "keys.logout": (raw) => results["keys.logout"].parse(raw),
   "models.choose": (raw) => results["models.choose"].parse(raw),
+  "models.think": (raw) => results["models.think"].parse(raw),
 };
 
 /** What a server implements: one function per method. */

@@ -24,12 +24,18 @@ export type KeyProvider = z.infer<typeof KeyProvider>;
 /** "provider/model-id", the way a model is chosen */
 export const ModelRef = z.string().min(3).max(300);
 
+/** How much a model thinks before it answers (Pi's levels; a model takes only some). */
+export const ThinkingLevel = z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+export type ThinkingLevel = z.infer<typeof ThinkingLevel>;
+
 export const ModelOption = z.object({
   id: ModelRef,
   name: z.string(),
   provider: z.string(),
   /** it sees pictures (the browser's model must) */
   images: z.boolean(),
+  /** the thinking levels it takes (only "off" for a model that does not think) */
+  thinking: z.array(ThinkingLevel),
 });
 export type ModelOption = z.infer<typeof ModelOption>;
 
@@ -70,5 +76,7 @@ export const KeysState = z.object({
   models: z.array(ModelOption),
   chat: ModelRef.nullable(),
   browser: ModelRef.nullable(),
+  /** how much each thinks */
+  thinking: z.object({ chat: ThinkingLevel, browser: ThinkingLevel }),
 });
 export type KeysState = z.infer<typeof KeysState>;

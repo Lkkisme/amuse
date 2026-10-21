@@ -17,7 +17,8 @@ import {
   createAgentSession,
   createExtensionRuntime,
 } from "@earendil-works/pi-coding-agent";
-import type { CredentialStore } from "@earendil-works/pi-ai";
+import { type CredentialStore, clampThinkingLevel } from "@earendil-works/pi-ai";
+import type { ThinkingLevel } from "@amuse/protocol";
 import { type KeyFile, environmentCredentials, readOnlyCredentials } from "./credentials.ts";
 
 /**
@@ -33,6 +34,8 @@ export class NoModel extends Error {}
 export interface PiModelConfig {
   /** "provider/model-id" as chosen now (the id may contain slashes: openrouter/z-ai/glm-5.3-flash); null: none yet */
   model: () => string | null;
+  /** how much it thinks, as chosen now (clamped to what the model takes); off when not given */
+  thinking?: () => ThinkingLevel;
   /** read once into memory, never logged */
   auth: PiAuth;
   modelsPath?: string;
@@ -129,7 +132,7 @@ export async function openSession(cfg: PiModelConfig, system: string, tools: Too
     agentDir: cwd,
     modelRuntime: models,
     model,
-    thinkingLevel: "off",
+    thinkingLevel: clampThinkingLevel(model, cfg.thinking?.() ?? "off"),
     sessionManager: SessionManager.inMemory(cwd),
     settingsManager: SettingsManager.inMemory({
       compaction: { enabled: true },

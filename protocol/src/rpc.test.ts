@@ -29,13 +29,14 @@ const handlers: Handlers = {
   "apps.permit": async () => null,
   "sites.rules": async () => ({ rules: [] }),
   "sites.permit": async () => null,
-  "keys.list": async () => ({ providers: [], models: [], chat: null, browser: null }),
+  "keys.list": async () => ({ providers: [], models: [], chat: null, browser: null, thinking: { chat: "off", browser: "off" } }),
   "keys.login": async () => ({ kind: "done" }),
   "keys.answer": async () => ({ kind: "done" }),
   "keys.cancel": async () => null,
   "keys.test": async () => ({ ok: true, detail: "GLM 5.3 Flash answered." }),
   "keys.logout": async () => null,
   "models.choose": async () => null,
+  "models.think": async () => null,
 };
 
 test("a framed request parses into a typed call and dispatches to its handler", async () => {

@@ -9,9 +9,9 @@
  * go through other apps' client ids, so they are left out.
  */
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import type { AuthEvent, AuthInteraction, AuthPrompt } from "@earendil-works/pi-ai";
+import { type AuthEvent, type AuthInteraction, type AuthPrompt, clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { type Keys, Rejected, newId } from "@amuse/core";
-import type { KeyProvider, LoginNote, LoginPrompt, LoginStep, ModelOption, ModelRole } from "@amuse/protocol";
+import { type KeyProvider, type LoginNote, type LoginPrompt, type LoginStep, type ModelOption, type ModelRole, ThinkingLevel } from "@amuse/protocol";
 import { z } from "zod";
 import { type KeyFile, fileCredentials, readOnlyCredentials } from "./credentials.ts";
 import { redact } from "./redact.ts";
@@ -35,6 +35,8 @@ const TEST_TIMEOUT_MS = 30_000;
 export interface PiKeys extends Keys {
   /** The model chosen for `role`, as "provider/model-id"; null: none yet. */
   model(role: ModelRole): string | null;
+  /** How much `role`'s model thinks. */
+  thinking(role: ModelRole): ThinkingLevel;
   /** An app key (by its id), when set up. */
   appKey(id: string): string | null;
   /** Called after any key is set up or forgotten. */
@@ -44,6 +46,7 @@ export interface PiKeys extends Keys {
 const Choice = z.object({
   chat: z.string().nullable(),
   browser: z.string().nullable(),
+  thinking: z.object({ chat: ThinkingLevel, browser: ThinkingLevel }).default({ chat: "off", browser: "off" }),
 });
 type Choice = z.infer<typeof Choice>;
 
@@ -133,7 +136,7 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
     auth: { kind: "keys", keys },
     ...(modelsPath ? { modelsPath } : {}),
   };
-  let choice: Choice = existsSync(choicePath) ? Choice.parse(JSON.parse(readFileSync(choicePath, "utf8"))) : { chat: null, browser: null };
+  let choice: Choice = existsSync(choicePath) ? Choice.parse(JSON.parse(readFileSync(choicePath, "utf8"))) : { chat: null, browser: null, thinking: { chat: "off", browser: "off" } };
   const choose = (next: Choice) => {
     writeFileSync(`${choicePath}.tmp`, JSON.stringify(next, null, 2), {
       mode: 0o600,
@@ -166,7 +169,15 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
       name: m.name,
       provider: m.provider,
       images: m.input.includes("image"),
+      thinking: getSupportedThinkingLevels(m),
     }));
+  };
+
+  /** The level `role`'s model thinks at: the one chosen, or the nearest it takes (some cannot be off). */
+  const inEffect = async (role: ModelRole): Promise<ThinkingLevel> => {
+    const spec = choice[role] ? parseModel(choice[role]) : undefined;
+    const model = spec && (await runtime(cfg)).getModel(spec.provider, spec.id);
+    return model ? clampThinkingLevel(model, choice.thinking[role]) : choice.thinking[role];
   };
 
   /** Run a sign-in to its first step; later steps come with each answer. */
@@ -227,6 +238,7 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
 
   return {
     model: (role) => choice[role],
+    thinking: (role) => choice.thinking[role],
     appKey: (id) => appKeys.get(id) ?? null,
     onChange: (listener) => void listeners.push(listener),
 
@@ -261,6 +273,7 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
         models: await available(),
         chat: choice.chat,
         browser: choice.browser,
+        thinking: { chat: await inEffect("chat"), browser: await inEffect("browser") },
       };
     },
 
@@ -344,7 +357,7 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
       await loadAppKeys();
       // a model of a provider without a key can no longer be used
       const keep = (ref: string | null) => (ref !== null && parseModel(ref)?.provider === provider ? null : ref);
-      choose({ chat: keep(choice.chat), browser: keep(choice.browser) });
+      choose({ ...choice, chat: keep(choice.chat), browser: keep(choice.browser) });
       changed();
     },
 
@@ -352,7 +365,19 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
       const option = (await available()).find((m) => m.id === model);
       if (!option) throw new Rejected({ kind: "unsound", reason: `${model} is not offered by a provider set up with a key.` });
       if (role === "browser" && !option.images) throw new Rejected({ kind: "unsound", reason: `${option.name} does not see pictures, which the browser needs.` });
-      choose({ ...choice, [role]: model });
+      // the thinking level goes as near as the new model takes
+      const spec = parseModel(model);
+      const picked = spec && (await runtime(cfg)).getModel(spec.provider, spec.id);
+      const level = picked ? clampThinkingLevel(picked, choice.thinking[role]) : "off";
+      choose({ ...choice, [role]: model, thinking: { ...choice.thinking, [role]: level } });
+    },
+
+    async think(role, level) {
+      const chosen = choice[role];
+      if (chosen === null) throw new Rejected({ kind: "unsound", reason: "Choose a model first." });
+      const option = (await available()).find((m) => m.id === chosen);
+      if (!option?.thinking.includes(level)) throw new Rejected({ kind: "unsound", reason: `${option?.name ?? chosen} does not take the thinking level ${level}.` });
+      choose({ ...choice, thinking: { ...choice.thinking, [role]: level } });
     },
   };
 }
@@ -410,6 +435,7 @@ export async function adoptEnvironment({
     const choice: Choice = {
       chat,
       browser: env["AMUSE_PI_BROWSER_MODEL"]?.trim() || chat,
+      thinking: { chat: "off", browser: "off" },
     };
     writeFileSync(choicePath, JSON.stringify(choice, null, 2), { mode: 0o600 });
   }

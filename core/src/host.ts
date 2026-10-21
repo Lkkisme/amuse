@@ -14,6 +14,7 @@ import {
   type KeyTest,
   type LoginStep,
   type ModelRole,
+  type ThinkingLevel,
   type ToolKind,
   type Browser,
   type Chat,
@@ -242,17 +243,22 @@ export interface Keys {
   test(provider: string): Promise<KeyTest>;
   logout(provider: string): Promise<void>;
   choose(role: ModelRole, model: string): Promise<void>;
+  /** How much a role's model thinks. */
+  think(role: ModelRole, level: ThinkingLevel): Promise<void>;
 }
 
 /** No keys: where none are kept (the demo, tests); the demo's agent needs none. */
 export const noKeys: Keys = {
-  list: async () => ({ providers: [], models: [], chat: null, browser: null }),
+  list: async () => ({ providers: [], models: [], chat: null, browser: null, thinking: { chat: "off", browser: "off" } }),
   login: async () => ({ kind: "failed", reason: "No keys are kept here." }),
   answer: async () => ({ kind: "failed", reason: "No keys are kept here." }),
   cancel: async () => {},
   test: async () => ({ ok: false, detail: "No keys are kept here." }),
   logout: async () => {},
   choose: async () => {
+    throw new Error("No models are chosen here.");
+  },
+  think: async () => {
     throw new Error("No models are chosen here.");
   },
 };
@@ -730,6 +736,10 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     },
     "models.choose": async ({ role, model }) => {
       await ports.keys.choose(role, model);
+      return null;
+    },
+    "models.think": async ({ role, level }) => {
+      await ports.keys.think(role, level);
       return null;
     },
   };

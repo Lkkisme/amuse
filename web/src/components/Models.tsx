@@ -12,6 +12,7 @@ import type {
   KeysState,
   ModelRole,
   Session,
+  ThinkingLevel,
 } from "@amuse/protocol";
 import { KeyLine, KeyLogin, type TestState, useKeyTests } from "./KeyLogin";
 
@@ -48,6 +49,10 @@ export function Models({
   const choose = (role: ModelRole, model: string) => {
     setError(null);
     session.call("models.choose", { role, model }).then(load, fail);
+  };
+  const think = (role: ModelRole, level: ThinkingLevel) => {
+    setError(null);
+    session.call("models.think", { role, level }).then(load, fail);
   };
   const forget = (provider: KeyProvider) => {
     setError(null);
@@ -132,11 +137,25 @@ export function Models({
               options={models}
               onChange={(m) => choose("chat", m)}
             />
+            <ThinkingPicker
+              title="Chat"
+              levels={models.find((m) => m.id === state.chat)?.thinking ?? []}
+              value={state.thinking.chat}
+              onChange={(level) => think("chat", level)}
+            />
             <ModelPicker
               title="Browser"
               value={state.browser}
               options={models.filter((m) => m.images)}
               onChange={(m) => choose("browser", m)}
+            />
+            <ThinkingPicker
+              title="Browser"
+              levels={
+                models.find((m) => m.id === state.browser)?.thinking ?? []
+              }
+              value={state.thinking.browser}
+              onChange={(level) => think("browser", level)}
             />
           </div>
           <p className={label} style={{ color: "var(--text-secondary)" }}>
@@ -331,6 +350,54 @@ function ProviderPage({
       </ul>
       {children}
     </div>
+  );
+}
+
+const levelName: Record<ThinkingLevel, string> = {
+  off: "Off",
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra high",
+  max: "Max",
+};
+
+/** How much a role's model thinks; only for a model that can (it takes more than "off"). */
+function ThinkingPicker({
+  title,
+  levels,
+  value,
+  onChange,
+}: {
+  title: string;
+  levels: ThinkingLevel[];
+  value: ThinkingLevel;
+  onChange: (level: ThinkingLevel) => void;
+}) {
+  if (levels.length < 2) return null;
+  return (
+    <label className="flex items-center gap-3 py-2.5 pl-4">
+      <span className="text-[15px]" style={{ color: "var(--text-secondary)" }}>
+        Thinking
+      </span>
+      <select
+        aria-label={`${title} thinking`}
+        className="min-w-0 flex-1 bg-transparent text-right text-[15px] outline-none"
+        style={{ color: "var(--text-secondary)" }}
+        value={value}
+        onChange={(e) => {
+          const level = levels.find((l) => l === e.target.value);
+          if (level) onChange(level);
+        }}
+      >
+        {levels.map((level) => (
+          <option key={level} value={level}>
+            {levelName[level]}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
