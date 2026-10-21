@@ -12,12 +12,14 @@ import { images, workspaceTools } from "./attachments.ts";
 import { memoryBrief, memoryReadTools, memoryWriteTools } from "./memory.ts";
 import { type Skill, allSkills, catalog, skillTools } from "./skills.ts";
 import type { Needs } from "@amuse/protocol";
+import type { SandboxClient } from "@amuse/sandbox";
 import { redact } from "./redact.ts";
 import { type PiModelConfig, type PiSession, openSession, secretsOf } from "./session.ts";
 import { statusOf } from "./status.ts";
 import { relayTools } from "./runs.ts";
 import { taskTools } from "./tasks.ts";
 import { scheduleTools } from "./schedules.ts";
+import { sandboxTools } from "./sandbox.ts";
 import { type Apps, appTools, chatTools, tools } from "./tools.ts";
 import { type Search, webTools } from "./web.ts";
 
@@ -31,6 +33,8 @@ export interface PiConfig extends PiModelConfig {
   search?: Search;
   /** Muse's workspace: the files it and the user share. */
   files?: Workspace;
+  /** Its own machine to run commands in (the chat agent and its helpers; not the browser agent); without one, no such tools. */
+  sandbox?: SandboxClient;
   /** While apps are not set up: how the user sets them up (null once they are). */
   appsSetup?: () => string | null;
   /** The skills that ship with Amuse (the user's own are read from skills/ in the workspace). */
@@ -83,6 +87,10 @@ const toolLabels: Record<string, string> = {
   move_file: "Moving a file",
   delete_file: "Deleting a file",
   send_file: "Sending you a file",
+  run_command: "Running a command",
+  start_service: "Starting a service",
+  service_logs: "Checking a service",
+  stop_service: "Stopping a service",
   schedule: "Scheduling",
   start_task: "Handing off a task",
   cancel_schedule: "Cancelling a schedule",
@@ -141,6 +149,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
         ...webTools(io, cfg.rules, cfg.search),
         ...(cfg.apps ? appTools(io, cfg.apps) : []),
         ...(cfg.files ? workspaceTools(io, cfg.files) : []),
+        ...(cfg.sandbox ? sandboxTools(cfg.sandbox) : []),
       ]);
       lane.session = session;
       const pi = session.session;
