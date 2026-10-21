@@ -7,7 +7,9 @@ import type { SettingsData } from "./demo/settings.ts";
 
 export type SettingsSection = "general" | "connectors" | "permissions" | "schedules" | "secure-store";
 
-export type Theme = "light" | "dark";
+import type { Theme } from "./theme.ts";
+
+export type { Theme };
 
 export interface Ui {
   theme: Theme;
@@ -29,7 +31,7 @@ export interface Ui {
 }
 
 export const initialUi: Ui = {
-  theme: "light",
+  theme: "system",
   chat: MAIN,
   chatsOpen: false,
   museOpen: false,

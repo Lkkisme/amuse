@@ -8,6 +8,14 @@
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
     <title>remuse</title>
+    <!-- the look before the first paint (theme.ts keeps it after): the user's pick, else the system's -->
+    <script>
+      (function () {
+        var kept = localStorage.getItem("remuse.theme");
+        var dark = kept === "dark" || (kept !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.className = dark ? "dark" : "light";
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

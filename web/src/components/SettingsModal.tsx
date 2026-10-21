@@ -21,6 +21,7 @@ import {
 import type { SettingsData } from "../demo/settings.ts";
 import type { Session } from "@remuse/protocol";
 import type { Actions, SettingsSection, Theme, Ui } from "../ui.ts";
+import { THEMES } from "../theme.ts";
 import { usePresence } from "./usePresence";
 import { Connectors } from "./Connectors";
 import { SitePermissions } from "./SitePermissions";
@@ -136,6 +137,8 @@ function SecureStoreSection({ data, actions }: { data: SettingsData; actions: Ac
 
 /* ---------------- General ---------------- */
 
+const themeName: Record<Theme, string> = { system: "Match system", light: "Light", dark: "Dark" };
+
 function GeneralSection({ theme, actions }: { theme: Theme; actions: Actions }) {
   return (
     <div className="flex-1 overflow-y-auto p-5">
@@ -143,23 +146,20 @@ function GeneralSection({ theme, actions }: { theme: Theme; actions: Actions }) 
         Appearance
       </p>
       <div className="overflow-hidden rounded-xl" style={{ background: "var(--fill-secondary)" }}>
-        {(["light", "dark"] as const).map((t, i) => (
+        {THEMES.map((t, i) => (
           <button
             key={t}
             className="flex w-full items-center justify-between px-4 py-3 text-left"
             style={{ borderTop: i === 0 ? undefined : "1px solid var(--fill-divider)" }}
             onClick={() => actions.setTheme(t)}
           >
-            <span className="text-[14px] capitalize" style={{ color: "var(--text-primary)" }}>
-              {t}
+            <span className="text-[14px]" style={{ color: "var(--text-primary)" }}>
+              {themeName[t]}
             </span>
             {theme === t && <Check size={18} style={{ color: "var(--text-primary)" }} />}
           </button>
         ))}
       </div>
-      <p className="mt-4 text-[13px]" style={{ color: "var(--text-secondary)" }}>
-        remuse is running on a local demo session.
-      </p>
     </div>
   );
 }

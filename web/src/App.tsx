@@ -11,6 +11,7 @@ import { MAIN, type Method, type Params, type Session } from "@remuse/protocol";
 import { seedSettings } from "./demo/settings.ts";
 import { type Connection, connection } from "./connection.ts";
 import { useChats, useConversation } from "./session.ts";
+import { applyTheme, storedTheme } from "./theme.ts";
 import { Files, serverFiles } from "./files.ts";
 import { Unlock } from "./components/Unlock";
 import { type Actions, type Ui, initialUi } from "./ui.ts";
@@ -59,7 +60,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
   const [link, setLink] = useState(() => openSession(where));
   const { session } = link;
   const chats = useChats(session);
-  const [ui, setUi] = useState<Ui>(initialUi);
+  // the look this device was left in
+  const [ui, setUi] = useState<Ui>(() => ({ ...initialUi, theme: storedTheme() }));
   const {
     state: conversation,
     older,
@@ -82,10 +84,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
   museOpen.current = ui.museOpen;
   const [settings, setSettings] = useState(seedSettings);
 
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", ui.theme === "dark");
-    document.documentElement.classList.toggle("light", ui.theme === "light");
-  }, [ui.theme]);
+  useEffect(() => applyTheme(ui.theme), [ui.theme]);
 
   // desktop: how wide the browser viewer is (its left edge is dragged), kept on this device
   const [viewerWidth, setViewerWidth] = useState(() =>
