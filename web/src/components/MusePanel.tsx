@@ -100,9 +100,10 @@ function done(entity: Entity): Done | null {
 
 const frame: Record<MuseMode, string> = {
   // a page of its own on a phone; on the right from md up
-  // from md, a rounded panel 8px in from the window's edges, like the sidebar
+  // from md, a rounded panel 8px in from the window's edges, like the sidebar; above the chat's fades
+  // (the composer's), so they do not cut its shadow
   docked:
-    "fixed inset-0 z-50 bg-[var(--bg-primary)] md:relative md:z-auto md:my-2 md:mr-2 md:w-[360px] md:shrink-0 md:rounded-[24px] md:bg-[var(--panel)] md:shadow-[var(--shadow-panel)]",
+    "fixed inset-0 z-50 bg-[var(--bg-primary)] md:relative md:z-[25] md:my-2 md:mr-2 md:w-[360px] md:shrink-0 md:rounded-[24px] md:bg-[var(--panel)] md:shadow-[var(--shadow-panel)]",
   // over the chat while the browser is on the right (lg up): within what the chat has, beside a docked
   // sidebar (8px clear of it, of the window's edges and of the viewer)
   floating:
