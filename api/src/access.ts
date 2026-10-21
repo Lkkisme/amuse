@@ -38,18 +38,11 @@ export interface Access {
 }
 
 const derive = (password: string, salt: Buffer) =>
-  new Promise<Buffer>((resolve, reject) =>
-    scrypt(password.normalize("NFC"), salt, 64, COST, (error, key) =>
-      error ? reject(error) : resolve(key),
-    ),
-  );
-const digest = (session: string) =>
-  createHash("sha256").update(session).digest("hex");
+  new Promise<Buffer>((resolve, reject) => scrypt(password.normalize("NFC"), salt, 64, COST, (error, key) => (error ? reject(error) : resolve(key))));
+const digest = (session: string) => createHash("sha256").update(session).digest("hex");
 
 export function fileAccess(path: string): Access {
-  let stored: Stored | null = existsSync(path)
-    ? Stored.parse(JSON.parse(readFileSync(path, "utf8")))
-    : null;
+  let stored: Stored | null = existsSync(path) ? Stored.parse(JSON.parse(readFileSync(path, "utf8"))) : null;
   const save = (next: Stored) => {
     writeFileSync(`${path}.tmp`, JSON.stringify(next), { mode: 0o600 });
     renameSync(`${path}.tmp`, path);
@@ -64,10 +57,7 @@ export function fileAccess(path: string): Access {
   };
   const matches = async (password: string) => {
     if (!stored) return false;
-    const key = await derive(
-      password,
-      Buffer.from(stored.password.salt, "hex"),
-    );
+    const key = await derive(password, Buffer.from(stored.password.salt, "hex"));
     return timingSafeEqual(key, Buffer.from(stored.password.hash, "hex"));
   };
   const open = (keep: string[]) => {
@@ -80,10 +70,7 @@ export function fileAccess(path: string): Access {
     return session;
   };
   const acceptable = (password: string) => {
-    if ([...password].length < MIN_PASSWORD)
-      throw new PasswordRejected(
-        `The password needs at least ${MIN_PASSWORD} characters.`,
-      );
+    if ([...password].length < MIN_PASSWORD) throw new PasswordRejected(`The password needs at least ${MIN_PASSWORD} characters.`);
   };
 
   return {
@@ -100,8 +87,7 @@ export function fileAccess(path: string): Access {
       if (!stored || !(await matches(password))) return null;
       return open(stored.sessions);
     },
-    valid: (session) =>
-      stored !== null && stored.sessions.includes(digest(session)),
+    valid: (session) => stored !== null && stored.sessions.includes(digest(session)),
     logout(session) {
       if (stored)
         save({

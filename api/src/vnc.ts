@@ -8,25 +8,14 @@
  * Handshake assumed: RFB 3.8 with security type None (the nodes set no VNC password).
  */
 
-type Phase =
-  | { kind: "version" }
-  | { kind: "security" }
-  | { kind: "init" }
-  | { kind: "messages" };
+type Phase = { kind: "version" } | { kind: "security" } | { kind: "init" } | { kind: "messages" };
 
 /** Bytes a client message of `type` occupies, given what has arrived; null until the length is known. */
 function messageLength(type: number, b: Uint8Array): number | null | "unknown" {
   const byte = (at: number) => b[at] ?? 0; // only read after the length check below
   const u8 = (at: number) => (b.length > at ? byte(at) : null);
-  const u16 = (at: number) =>
-    b.length >= at + 2 ? (byte(at) << 8) | byte(at + 1) : null;
-  const s32 = (at: number) =>
-    b.length >= at + 4
-      ? (byte(at) << 24) |
-        (byte(at + 1) << 16) |
-        (byte(at + 2) << 8) |
-        byte(at + 3)
-      : null;
+  const u16 = (at: number) => (b.length >= at + 2 ? (byte(at) << 8) | byte(at + 1) : null);
+  const s32 = (at: number) => (b.length >= at + 4 ? (byte(at) << 24) | (byte(at + 1) << 16) | (byte(at + 2) << 8) | byte(at + 3) : null);
   switch (type) {
     case 0: // SetPixelFormat
       return 20;
@@ -101,12 +90,7 @@ export function vncGate(): Gate {
         if (rest.length < size) break;
         if (keep) out.push(rest.subarray(0, size));
         at += size;
-        phase =
-          phase.kind === "version"
-            ? { kind: "security" }
-            : phase.kind === "security"
-              ? { kind: "init" }
-              : { kind: "messages" };
+        phase = phase.kind === "version" ? { kind: "security" } : phase.kind === "security" ? { kind: "init" } : { kind: "messages" };
       }
       pending = joined.slice(at);
       const total = out.reduce((n, part) => n + part.length, 0);

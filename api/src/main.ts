@@ -18,29 +18,13 @@
 import { dirname, join } from "node:path";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import {
-  NoComposioKey,
-  composioApps,
-  composioConnector,
-  composioDirectory,
-  keyedComposio,
-} from "@remuse/composio";
+import { NoComposioKey, composioApps, composioConnector, composioDirectory, keyedComposio } from "@remuse/composio";
 import { fileChats } from "./journal.ts";
 import { workspace } from "./workspace.ts";
 import { browserPool, controller } from "@remuse/browser";
 import { type Ports, createHost, memoryRules, realTimers } from "@remuse/core";
 import type { Entity } from "@remuse/protocol";
-import {
-  type PiAuth,
-  adoptEnvironment,
-  fileCredentials,
-  piAgent,
-  piBrowserAgent,
-  piKeys,
-  piScheduleRunner,
-  piTaskRunner,
-  untrustedRule,
-} from "@remuse/pi";
+import { type PiAuth, adoptEnvironment, fileCredentials, piAgent, piBrowserAgent, piKeys, piScheduleRunner, piTaskRunner, untrustedRule } from "@remuse/pi";
 import { fileAccess } from "./access.ts";
 import { listen } from "./server.ts";
 import { fileRules } from "./rules.ts";
@@ -50,9 +34,7 @@ const host = process.env["REMUSE_HOST"] ?? "127.0.0.1";
 
 /** where everything is kept: beside the journal (or, with none, somewhere that goes with this run) */
 const journalFile = process.env["REMUSE_JOURNAL"];
-const dataDir = journalFile
-  ? dirname(journalFile)
-  : mkdtempSync(join(tmpdir(), "remuse-data-"));
+const dataDir = journalFile ? dirname(journalFile) : mkdtempSync(join(tmpdir(), "remuse-data-"));
 const access = fileAccess(join(dataDir, "access.json"));
 
 /** The user's keys and models, set up in the app; what the environment held before is taken over once. */
@@ -63,17 +45,12 @@ const adopted = await adoptEnvironment({
   keysPath,
   choicePath,
   apps: {
-    composio: keyFile
-      ? readFileSync(keyFile, "utf8").trim()
-      : process.env["REMUSE_COMPOSIO_KEY"],
+    composio: keyFile ? readFileSync(keyFile, "utf8").trim() : process.env["REMUSE_COMPOSIO_KEY"],
   },
   env: process.env,
   ...(process.env["REMUSE_PI_AUTH"] ? { authFile: process.env["REMUSE_PI_AUTH"] } : {}),
 });
-if (adopted.length > 0)
-  console.log(
-    `Keys taken over from the environment: ${adopted.join(", ")}. Set them in the app from now on.`,
-  );
+if (adopted.length > 0) console.log(`Keys taken over from the environment: ${adopted.join(", ")}. Set them in the app from now on.`);
 const credentials = fileCredentials(keysPath);
 const keys = piKeys({
   keys: credentials,
@@ -117,9 +94,7 @@ const system = [
 const composioClient = keyedComposio(() => keys.appKey("composio"));
 const composioUser = "owner";
 /** what the agent may do with apps (core/policy.ts): kept beside the journal, or in memory without one */
-const rules = journalFile
-  ? fileRules(join(dataDir, "rules.json"))
-  : memoryRules();
+const rules = journalFile ? fileRules(join(dataDir, "rules.json")) : memoryRules();
 // Muse's workspace, and the index of sent files beside it
 const files = workspace(join(dataDir, "workspace"), join(dataDir, "sent.json"));
 const publicUrl = process.env["REMUSE_PUBLIC_URL"];
@@ -128,8 +103,7 @@ const connector = composioConnector(composioClient, {
   timers: realTimers,
   ...(publicUrl
     ? {
-        callbackUrl: (key: string) =>
-          `${new URL("/connected", publicUrl)}?key=${key}`,
+        callbackUrl: (key: string) => `${new URL("/connected", publicUrl)}?key=${key}`,
       }
     : {}),
 });
@@ -153,9 +127,7 @@ const nodes = (process.env["REMUSE_BROWSERS"] ?? "")
         name,
         controller: controller(api, browserToken),
         vnc: vnc.toString(),
-        ...(handoff
-          ? { handoff: { local: handoff, remote: "/data/uploads" } }
-          : {}),
+        ...(handoff ? { handoff: { local: handoff, remote: "/data/uploads" } } : {}),
       },
     ];
   });
@@ -215,9 +187,7 @@ const ports: Ports = {
               result: "No browser is configured on this server.",
             }).ok
           )
-            io.report(
-              `[browser task "${browser.title}" failed] No browser is configured on this server.`,
-            );
+            io.report(`[browser task "${browser.title}" failed] No browser is configured on this server.`);
           io.act({ kind: "released", id: browser.id });
         },
         job: () => {},
@@ -236,9 +206,7 @@ const ports: Ports = {
 
 const journalPath = process.env["REMUSE_JOURNAL"];
 // side chats beside the main chat's log
-const store = journalPath
-  ? { store: fileChats(dirname(journalPath), journalPath) }
-  : {};
+const store = journalPath ? { store: fileChats(dirname(journalPath), journalPath) } : {};
 const session = createHost(ports, store);
 
 // the live channel asks which runs the user holds, in any chat: followed here from the events like any client
@@ -249,8 +217,7 @@ const follow = (entity: Entity) => {
   else held.delete(entity.id);
 };
 session.subscribe((update) => {
-  if (update.kind === "event" && update.envelope.event.kind === "upserted")
-    follow(update.envelope.event.entity);
+  if (update.kind === "event" && update.envelope.event.kind === "upserted") follow(update.envelope.event.entity);
 });
 for (const { id } of (await session.call("chats.list", {})).chats) {
   const synced = await session.call("session.sync", { chat: id, since: null });
@@ -269,13 +236,9 @@ await listen({
   port,
   host,
 });
-for (const signal of ["SIGINT", "SIGTERM"] as const)
-  process.once(signal, () => process.exit(0));
+for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => process.exit(0));
 // the way in: the first visit sets the master password
-if (!access.ready())
-  console.log(
-    `remuse is ready. Open ${publicUrl ?? `http://${host}:${port}`} and set the master password.`,
-  );
+if (!access.ready()) console.log(`remuse is ready. Open ${publicUrl ?? `http://${host}:${port}`} and set the master password.`);
 console.log(
   `remuse api on ws://${host}:${port}/rpc (model: ${model() ?? "none chosen"}, browser model: ${browserModel() ?? "none chosen"}, apps: ${keys.appKey("composio") ? "composio" : "no key"}, browsers: ${nodes.length ? nodes.map((n) => n.name).join(",") : "none"})`,
 );

@@ -18,21 +18,14 @@ import {
   createExtensionRuntime,
 } from "@earendil-works/pi-coding-agent";
 import type { CredentialStore } from "@earendil-works/pi-ai";
-import {
-  type KeyFile,
-  environmentCredentials,
-  readOnlyCredentials,
-} from "./credentials.ts";
+import { type KeyFile, environmentCredentials, readOnlyCredentials } from "./credentials.ts";
 
 /**
  * Where the model's credentials come from: the user's keys (set up in the app),
  * a Pi auth file (per provider), or the environment, where Pi reads each
  * provider's standard variable.
  */
-export type PiAuth =
-  | { kind: "keys"; keys: KeyFile }
-  | { kind: "file"; path: string }
-  | { kind: "environment" };
+export type PiAuth = { kind: "keys"; keys: KeyFile } | { kind: "file"; path: string } | { kind: "environment" };
 
 /** No model is chosen (or its provider has no key): said to the user as it is. */
 export class NoModel extends Error {}
@@ -46,10 +39,7 @@ export interface PiModelConfig {
 }
 
 /** API keys in the environment, by their standard names (…_API_KEY). */
-const environmentKeys = () =>
-  Object.entries(process.env).flatMap(([name, value]) =>
-    name.endsWith("_API_KEY") && value ? [value] : [],
-  );
+const environmentKeys = () => Object.entries(process.env).flatMap(([name, value]) => (name.endsWith("_API_KEY") && value ? [value] : []));
 
 /** What error messages must never show: the credentials, and where they live. */
 export const secretsOf = (cfg: PiModelConfig): (string | undefined)[] => [
@@ -59,9 +49,7 @@ export const secretsOf = (cfg: PiModelConfig): (string | undefined)[] => [
   cfg.modelsPath,
 ];
 
-export function parseModel(
-  spec: string,
-): { provider: string; id: string } | undefined {
+export function parseModel(spec: string): { provider: string; id: string } | undefined {
   const slash = spec.indexOf("/");
   const provider = spec.slice(0, slash).trim();
   const id = spec.slice(slash + 1).trim();
@@ -93,9 +81,7 @@ const runtimes = new Map<string, Promise<ModelRuntime>>();
 const keyRuntimes = new WeakMap<KeyFile, Promise<ModelRuntime>>();
 
 /** The model runtime for `cfg`'s credentials (made once; a failed setup is retried next time). */
-export function runtime(
-  cfg: Pick<PiModelConfig, "auth" | "modelsPath">,
-): Promise<ModelRuntime> {
+export function runtime(cfg: Pick<PiModelConfig, "auth" | "modelsPath">): Promise<ModelRuntime> {
   const { auth } = cfg;
   const create = (credentials: CredentialStore) =>
     ModelRuntime.create({
@@ -115,11 +101,7 @@ export function runtime(
   const key = `${auth.kind === "file" ? `file:${auth.path}` : "environment"}\0${cfg.modelsPath ?? ""}`;
   let made = runtimes.get(key);
   if (!made) {
-    made = create(
-      auth.kind === "file"
-        ? readOnlyCredentials(auth.path)
-        : environmentCredentials,
-    );
+    made = create(auth.kind === "file" ? readOnlyCredentials(auth.path) : environmentCredentials);
     made.catch(() => runtimes.delete(key));
     runtimes.set(key, made);
   }
@@ -132,19 +114,11 @@ export interface PiSession {
   close(): void;
 }
 
-export async function openSession(
-  cfg: PiModelConfig,
-  system: string,
-  tools: ToolDefinition[],
-): Promise<PiSession> {
+export async function openSession(cfg: PiModelConfig, system: string, tools: ToolDefinition[]): Promise<PiSession> {
   const chosen = cfg.model();
-  if (chosen === null)
-    throw new NoModel(
-      "No model is set up yet: add a provider's key and choose a model in Settings.",
-    );
+  if (chosen === null) throw new NoModel("No model is set up yet: add a provider's key and choose a model in Settings.");
   const spec = parseModel(chosen);
-  if (!spec)
-    throw new Error(`Invalid model "${chosen}"; use "provider/model-id".`);
+  if (!spec) throw new Error(`Invalid model "${chosen}"; use "provider/model-id".`);
   const models = await runtime(cfg);
   const model = models.getModel(spec.provider, spec.id);
   if (!model) throw new Error(`Model "${chosen}" is not available.`);

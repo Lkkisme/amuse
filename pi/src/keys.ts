@@ -9,20 +9,9 @@
  * go through other apps' client ids, so they are left out.
  */
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import type {
-  AuthEvent,
-  AuthInteraction,
-  AuthPrompt,
-} from "@earendil-works/pi-ai";
+import type { AuthEvent, AuthInteraction, AuthPrompt } from "@earendil-works/pi-ai";
 import { type Keys, newId } from "@remuse/core";
-import type {
-  KeyProvider,
-  LoginNote,
-  LoginPrompt,
-  LoginStep,
-  ModelOption,
-  ModelRole,
-} from "@remuse/protocol";
+import type { KeyProvider, LoginNote, LoginPrompt, LoginStep, ModelOption, ModelRole } from "@remuse/protocol";
 import { z } from "zod";
 import { type KeyFile, fileCredentials, readOnlyCredentials } from "./credentials.ts";
 import { redact } from "./redact.ts";
@@ -54,16 +43,10 @@ type Choice = z.infer<typeof Choice>;
 /** How long a sign-in may wait for its next answer. */
 const LOGIN_TIMEOUT_MS = 10 * 60_000;
 
-const hint = (key: string | undefined) =>
-  key && key.length >= 8 ? `…${key.slice(-4)}` : null;
+const hint = (key: string | undefined) => (key && key.length >= 8 ? `…${key.slice(-4)}` : null);
 
 function promptOf(prompt: AuthPrompt): LoginPrompt | null {
-  if (
-    prompt.type !== "text" &&
-    prompt.type !== "secret" &&
-    prompt.type !== "select"
-  )
-    return null;
+  if (prompt.type !== "text" && prompt.type !== "secret" && prompt.type !== "select") return null;
   return {
     type: prompt.type,
     message: prompt.message,
@@ -105,24 +88,12 @@ interface Flow {
  * `keys` holds the keys; `choicePath` the models chosen; `apps` the keys that
  * are not a model provider's.
  */
-export function piKeys({
-  keys,
-  choicePath,
-  apps = [],
-  modelsPath,
-}: {
-  keys: KeyFile;
-  choicePath: string;
-  apps?: AppKey[];
-  modelsPath?: string;
-}): PiKeys {
+export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyFile; choicePath: string; apps?: AppKey[]; modelsPath?: string }): PiKeys {
   const cfg: Pick<PiModelConfig, "auth" | "modelsPath"> = {
     auth: { kind: "keys", keys },
     ...(modelsPath ? { modelsPath } : {}),
   };
-  let choice: Choice = existsSync(choicePath)
-    ? Choice.parse(JSON.parse(readFileSync(choicePath, "utf8")))
-    : { chat: null, browser: null };
+  let choice: Choice = existsSync(choicePath) ? Choice.parse(JSON.parse(readFileSync(choicePath, "utf8"))) : { chat: null, browser: null };
   const choose = (next: Choice) => {
     writeFileSync(`${choicePath}.tmp`, JSON.stringify(next, null, 2), {
       mode: 0o600,
@@ -137,25 +108,19 @@ export function piKeys({
   const loadAppKeys = async () => {
     for (const app of apps) {
       const credential = await keys.read(app.id);
-      if (credential?.type === "api_key" && credential.key)
-        appKeys.set(app.id, credential.key);
+      if (credential?.type === "api_key" && credential.key) appKeys.set(app.id, credential.key);
       else appKeys.delete(app.id);
     }
   };
   const loaded = loadAppKeys();
 
   /** Providers Pi can take an API key for. */
-  const providers = async () =>
-    (await runtime(cfg))
-      .getProviders()
-      .filter((p) => p.auth.apiKey?.login !== undefined);
+  const providers = async () => (await runtime(cfg)).getProviders().filter((p) => p.auth.apiKey?.login !== undefined);
 
   /** The models of the providers set up here (not ones whose key happens to be in the environment). */
   const available = async (): Promise<ModelOption[]> => {
     const set = new Set((await keys.list()).map((c) => c.providerId));
-    const models = (await (await runtime(cfg)).getAvailable()).filter((m) =>
-      set.has(m.provider),
-    );
+    const models = (await (await runtime(cfg)).getAvailable()).filter((m) => set.has(m.provider));
     return models.map((m) => ({
       id: `${m.provider}/${m.id}`,
       name: m.name,
@@ -165,9 +130,7 @@ export function piKeys({
   };
 
   /** Run a sign-in to its first step; later steps come with each answer. */
-  const begin = (
-    run: (interaction: AuthInteraction) => Promise<unknown>,
-  ): Promise<LoginStep> => {
+  const begin = (run: (interaction: AuthInteraction) => Promise<unknown>): Promise<LoginStep> => {
     const id = newId("l");
     let wake: (step: LoginStep) => void = () => {};
     const next = () => new Promise<LoginStep>((resolve) => (wake = resolve));
@@ -185,12 +148,7 @@ export function piKeys({
       prompt: (prompt) =>
         new Promise<string>((resolve, reject) => {
           const shown = promptOf(prompt);
-          if (!shown)
-            return reject(
-              new Error(
-                "This provider asks for a kind of sign-in the app does not offer.",
-              ),
-            );
+          if (!shown) return reject(new Error("This provider asks for a kind of sign-in the app does not offer."));
           flow.pending = { resolve, reject };
           // whoever waits now hears this prompt; the next step is waited for anew
           const now = wake;
@@ -217,12 +175,7 @@ export function piKeys({
         (error: unknown) =>
           wake({
             kind: "failed",
-            reason: flow.abort.signal.aborted
-              ? "The sign-in was stopped."
-              : redact(
-                  error instanceof Error ? error.message : String(error),
-                  keys.secrets(),
-                ),
+            reason: flow.abort.signal.aborted ? "The sign-in was stopped." : redact(error instanceof Error ? error.message : String(error), keys.secrets()),
           }),
       )
       .finally(() => {
@@ -280,9 +233,7 @@ export function piKeys({
             message: `Get a key at ${app.link.label}.`,
             links: [{ url: app.link.url, label: app.link.label }],
           });
-          const key = (
-            await interaction.prompt({ type: "secret", message: app.message })
-          ).trim();
+          const key = (await interaction.prompt({ type: "secret", message: app.message })).trim();
           if (!key) throw new Error("No key was given.");
           await keys.modify(app.id, async () => ({ type: "api_key", key }));
           await loadAppKeys();
@@ -293,9 +244,7 @@ export function piKeys({
           reason: `There is no provider "${provider}" to set up with a key.`,
         };
       const models = await runtime(cfg);
-      return begin((interaction) =>
-        models.login(provider, "api_key", interaction),
-      );
+      return begin((interaction) => models.login(provider, "api_key", interaction));
     },
 
     async answer(login, value) {
@@ -320,22 +269,15 @@ export function piKeys({
       await keys.delete(provider);
       await loadAppKeys();
       // a model of a provider without a key can no longer be used
-      const keep = (ref: string | null) =>
-        ref !== null && parseModel(ref)?.provider === provider ? null : ref;
+      const keep = (ref: string | null) => (ref !== null && parseModel(ref)?.provider === provider ? null : ref);
       choose({ chat: keep(choice.chat), browser: keep(choice.browser) });
       changed();
     },
 
     async choose(role, model) {
       const option = (await available()).find((m) => m.id === model);
-      if (!option)
-        throw new Error(
-          `${model} is not offered by a provider set up with a key.`,
-        );
-      if (role === "browser" && !option.images)
-        throw new Error(
-          `${option.name} does not see pictures, which the browser needs.`,
-        );
+      if (!option) throw new Error(`${model} is not offered by a provider set up with a key.`);
+      if (role === "browser" && !option.images) throw new Error(`${option.name} does not see pictures, which the browser needs.`);
       choose({ ...choice, [role]: model });
     },
   };
@@ -368,8 +310,7 @@ export async function adoptEnvironment({
   const models = await runtime({ auth: { kind: "keys", keys } });
   for (const provider of models.getProviders()) {
     if (provider.auth.apiKey?.login === undefined) continue;
-    const key =
-      env[`${provider.id.toUpperCase().replaceAll("-", "_")}_API_KEY`]?.trim();
+    const key = env[`${provider.id.toUpperCase().replaceAll("-", "_")}_API_KEY`]?.trim();
     if (!key) continue;
     await keys.modify(provider.id, async () => ({ type: "api_key", key }));
     adopted.push(provider.id);

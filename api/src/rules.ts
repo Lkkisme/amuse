@@ -5,33 +5,16 @@
  * half of either. A file that does not parse stops the start rather than
  * being taken for no rules.
  */
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import {
-  type AllRules,
-  type Rules,
-  noRules,
-  setRule,
-  setSiteRule,
-} from "@remuse/core";
+import { type AllRules, type Rules, noRules, setRule, setSiteRule } from "@remuse/core";
 import { Permission, Site, ToolKind } from "@remuse/protocol";
 import { z } from "zod";
 
-const File = z.object({
-  apps: z.record(z.string(), z.partialRecord(ToolKind, Permission)),
-  sites: z.record(Site, Permission),
-});
+const File = z.object({ apps: z.record(z.string(), z.partialRecord(ToolKind, Permission)), sites: z.record(Site, Permission) });
 
 export function fileRules(path: string): Rules {
-  let all: AllRules = existsSync(path)
-    ? File.parse(JSON.parse(readFileSync(path, "utf8")))
-    : noRules;
+  let all: AllRules = existsSync(path) ? File.parse(JSON.parse(readFileSync(path, "utf8"))) : noRules;
   const save = (next: AllRules) => {
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     const temporary = `${path}.next`;
@@ -41,10 +24,8 @@ export function fileRules(path: string): Rules {
   };
   return {
     of: async (app) => ({ ...all.apps[app] }),
-    set: async (app, kind, permission) =>
-      save({ ...all, apps: setRule(all.apps, app, kind, permission) }),
+    set: async (app, kind, permission) => save({ ...all, apps: setRule(all.apps, app, kind, permission) }),
     sites: async () => ({ ...all.sites }),
-    setSite: async (site, permission) =>
-      save({ ...all, sites: setSiteRule(all.sites, site, permission) }),
+    setSite: async (site, permission) => save({ ...all, sites: setSiteRule(all.sites, site, permission) }),
   };
 }

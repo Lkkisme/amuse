@@ -46,31 +46,19 @@ const post = (path: string, body: unknown) =>
 /** Why the server said no, in its words (or a plain one). */
 async function reason(response: Response): Promise<string> {
   const said: unknown = await response.json().catch(() => null);
-  if (
-    typeof said === "object" &&
-    said !== null &&
-    "reason" in said &&
-    typeof said.reason === "string"
-  )
-    return said.reason;
-  return response.status === 401
-    ? "That is not the password."
-    : "Something went wrong. Try again.";
+  if (typeof said === "object" && said !== null && "reason" in said && typeof said.reason === "string") return said.reason;
+  return response.status === 401 ? "That is not the password." : "Something went wrong. Try again.";
 }
 
 export async function connection(): Promise<Connection> {
   const explicit = import.meta.env["VITE_REMUSE_URL"];
   if (typeof explicit === "string" && explicit) return server(explicit);
-  if (import.meta.env["VITE_REMUSE_MODE"] !== "same-origin")
-    return { kind: "demo" };
+  if (import.meta.env["VITE_REMUSE_MODE"] !== "same-origin") return { kind: "demo" };
 
   const unlocked = await fetch("/unlock").catch(() => null);
   if (unlocked?.status !== 204) {
     const said: unknown = await unlocked?.json().catch(() => null);
-    const ready =
-      typeof said === "object" && said !== null && "ready" in said
-        ? said.ready !== false
-        : true;
+    const ready = typeof said === "object" && said !== null && "ready" in said ? said.ready !== false : true;
     return { kind: "locked", ready };
   }
   const rpc = new URL("/rpc", location.href);
@@ -79,13 +67,8 @@ export async function connection(): Promise<Connection> {
 }
 
 /** Open this browser with the password (`setup`: set it, the first time); reloads when in, else why not. */
-export async function enter(
-  password: string,
-  setup: boolean,
-): Promise<string | null> {
-  const response = await post(setup ? "/setup" : "/unlock", { password }).catch(
-    () => null,
-  );
+export async function enter(password: string, setup: boolean): Promise<string | null> {
+  const response = await post(setup ? "/setup" : "/unlock", { password }).catch(() => null);
   if (!response) return "The server cannot be reached.";
   if (!response.ok) return reason(response);
   location.replace(location.pathname + location.search);
@@ -93,10 +76,7 @@ export async function enter(
 }
 
 /** Change the password; every other device has to enter the new one. Null when done, else why not. */
-export async function changePassword(
-  current: string,
-  next: string,
-): Promise<string | null> {
+export async function changePassword(current: string, next: string): Promise<string | null> {
   const response = await post("/password", { current, next }).catch(() => null);
   if (!response) return "The server cannot be reached.";
   return response.ok ? null : reason(response);

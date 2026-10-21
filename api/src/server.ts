@@ -8,11 +8,7 @@
  * from this origin; anything else is refused.
  */
 import { createReadStream, statSync } from "node:fs";
-import {
-  type IncomingMessage,
-  type ServerResponse,
-  createServer,
-} from "node:http";
+import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
 import type { Session } from "@remuse/protocol";
 import { WebSocketServer } from "ws";
 import { z } from "zod";
@@ -81,22 +77,11 @@ export interface Listening {
   close(): Promise<void>;
 }
 
-export function listen({
-  session,
-  live,
-  files: uploads,
-  web,
-  returned,
-  access,
-  port,
-  host,
-}: Options): Promise<Listening> {
+export function listen({ session, live, files: uploads, web, returned, access, port, host }: Options): Promise<Listening> {
   const route = (url: URL): Target | null => {
     if (url.pathname === "/rpc") return { kind: "rpc" };
     const id = url.searchParams.get("id");
-    return url.pathname === "/live" && live && id
-      ? { kind: "live", id, live }
-      : null;
+    return url.pathname === "/live" && live && id ? { kind: "live", id, live } : null;
   };
   const files = web ? staticFiles(web) : null;
   /** a request with no session carries "", which is never one */
@@ -104,11 +89,7 @@ export function listen({
   /** A page of this origin (or no page: a script); a page elsewhere may not. */
   const ours = (req: IncomingMessage) => {
     const origin = req.headers.origin;
-    return (
-      origin === undefined ||
-      origin === `http://${req.headers.host}` ||
-      origin === `https://${req.headers.host}`
-    );
+    return origin === undefined || origin === `http://${req.headers.host}` || origin === `https://${req.headers.host}`;
   };
 
   /** Wrong passwords lately, by client address. */
@@ -122,8 +103,7 @@ export function listen({
   };
 
   const cookie = (req: IncomingMessage, session: string | null) => {
-    const secure =
-      req.headers["x-forwarded-proto"] === "https" ? "; Secure" : "";
+    const secure = req.headers["x-forwarded-proto"] === "https" ? "; Secure" : "";
     return session === null
       ? `${cookieName}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secure}`
       : `${cookieName}=${encodeURIComponent(session)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000${secure}`;
@@ -153,15 +133,9 @@ export function listen({
    */
   const way = async (req: IncomingMessage, url: URL, res: ServerResponse) => {
     if (url.pathname === "/unlock" && req.method === "GET")
-      return allowed(req)
-        ? void res.writeHead(204, { "cache-control": "no-store" }).end()
-        : json(res, 401, { ready: access.ready() });
+      return allowed(req) ? void res.writeHead(204, { "cache-control": "no-store" }).end() : json(res, 401, { ready: access.ready() });
     if (req.method !== "POST") return void res.writeHead(405).end();
-    if (
-      !ours(req) ||
-      !String(req.headers["content-type"] ?? "").startsWith("application/json")
-    )
-      return void res.writeHead(403).end();
+    if (!ours(req) || !String(req.headers["content-type"] ?? "").startsWith("application/json")) return void res.writeHead(403).end();
     if (url.pathname === "/lock") {
       const session = presented(req);
       if (session !== null) access.logout(session);
@@ -190,31 +164,23 @@ export function listen({
           tried.miss();
           return json(res, 401, { reason: "That is not the password." });
         }
-        return void res
-          .writeHead(204, { "set-cookie": cookie(req, session) })
-          .end();
+        return void res.writeHead(204, { "set-cookie": cookie(req, session) }).end();
       }
       if (url.pathname === "/password") {
         if (!allowed(req)) return void res.writeHead(401).end();
         const given = Change.safeParse(await body(req));
         if (!given.success) return void res.writeHead(400).end();
-        const session = await access.change(
-          given.data.current,
-          given.data.next,
-        );
+        const session = await access.change(given.data.current, given.data.next);
         if (session === null) {
           tried.miss();
           return json(res, 401, {
             reason: "That is not the current password.",
           });
         }
-        return void res
-          .writeHead(204, { "set-cookie": cookie(req, session) })
-          .end();
+        return void res.writeHead(204, { "set-cookie": cookie(req, session) }).end();
       }
     } catch (error) {
-      if (error instanceof PasswordRejected)
-        return json(res, 400, { reason: error.message });
+      if (error instanceof PasswordRejected) return json(res, 400, { reason: error.message });
       throw error;
     }
     return void res.writeHead(404).end();
@@ -240,8 +206,7 @@ export function listen({
    * whatever is opened on its own.
    */
   const file = async (req: IncomingMessage, url: URL, res: ServerResponse) => {
-    if (!uploads || !allowed(req))
-      return void res.writeHead(uploads ? 401 : 404).end();
+    if (!uploads || !allowed(req)) return void res.writeHead(uploads ? 401 : 404).end();
     if (url.pathname === "/files" && req.method === "POST") {
       const name = decoded(String(req.headers["x-file-name"] ?? "")) ?? "";
       const type =
@@ -250,14 +215,9 @@ export function listen({
           ?.trim() ?? "";
       const saved = await uploads.save(name, type, req);
       if (!saved) return void res.writeHead(413).end();
-      return void res
-        .writeHead(201, { "content-type": "application/json" })
-        .end(JSON.stringify(saved));
+      return void res.writeHead(201, { "content-type": "application/json" }).end(JSON.stringify(saved));
     }
-    const found =
-      req.method === "GET"
-        ? uploads.find(url.pathname.slice("/files/".length))
-        : null;
+    const found = req.method === "GET" ? uploads.find(url.pathname.slice("/files/".length)) : null;
     if (!found) return void res.writeHead(404).end();
     const { attachment, file: path } = found;
     const size = statSync(path).size; // as it is now (Muse may have rewritten it)
@@ -273,15 +233,9 @@ export function listen({
     // a video seeks by asking for a range of it
     const range = req.headers.range?.match(/^bytes=(\d*)-(\d*)$/);
     if (range && size > 0) {
-      const start = range[1]
-        ? Number(range[1])
-        : Math.max(0, size - Number(range[2]));
-      const end =
-        range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
-      if (start > end || start >= size)
-        return void res
-          .writeHead(416, { "content-range": `bytes */${size}` })
-          .end();
+      const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
+      const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
+      if (start > end || start >= size) return void res.writeHead(416, { "content-range": `bytes */${size}` }).end();
       res.writeHead(206, {
         ...headers,
         "content-range": `bytes ${start}-${end}/${size}`,
@@ -296,9 +250,7 @@ export function listen({
   const back = async (url: URL, res: ServerResponse) => {
     const key = url.searchParams.get("key");
     const connected = key && returned ? await returned(key) : false;
-    const message = connected
-      ? "Connected — you can close this tab and go back to Muse."
-      : "Thanks — you can close this tab and go back to Muse.";
+    const message = connected ? "Connected — you can close this tab and go back to Muse." : "Thanks — you can close this tab and go back to Muse.";
     res.writeHead(200, {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
@@ -309,9 +261,7 @@ export function listen({
   };
   const http = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://local");
-    const handled = ["/setup", "/unlock", "/lock", "/password"].includes(
-      url.pathname,
-    )
+    const handled = ["/setup", "/unlock", "/lock", "/password"].includes(url.pathname)
       ? way(req, url, res)
       : url.pathname === "/thumb"
         ? thumb(req, url, res)
@@ -341,11 +291,7 @@ export function listen({
     wss.handleUpgrade(req, socket, head, (ws) => {
       if (target.kind === "live") return attach(ws, target.id, target.live);
       const peer = serve(session, (frame) => ws.send(frame));
-      ws.on(
-        "message",
-        (data, binary) =>
-          void (binary ? undefined : peer.receive(data.toString())),
-      );
+      ws.on("message", (data, binary) => void (binary ? undefined : peer.receive(data.toString())));
       ws.on("close", peer.close);
     });
   });
@@ -365,8 +311,7 @@ export function listen({
       http.off("error", reject);
       const address = http.address();
       resolve({
-        port:
-          address !== null && typeof address === "object" ? address.port : port,
+        port: address !== null && typeof address === "object" ? address.port : port,
         close,
       });
     });

@@ -49,14 +49,8 @@ test("a provider's key is set up through its own prompts, kept owner-only, and s
     connected: true,
     hint: "…1234",
   });
-  assert.ok(
-    !JSON.stringify(listed).includes("fw_secret_key_1234"),
-    "the key never comes back",
-  );
-  assert.ok(
-    listed.models.length > 0 &&
-      listed.models.every((m) => m.provider === "fireworks"),
-  );
+  assert.ok(!JSON.stringify(listed).includes("fw_secret_key_1234"), "the key never comes back");
+  assert.ok(listed.models.length > 0 && listed.models.every((m) => m.provider === "fireworks"));
   assert.equal(statSync(path).mode & 0o777, 0o600);
 
   // a sign-in answered once is over
@@ -84,10 +78,7 @@ test("models are chosen among those offered; the browser's must see pictures; fo
   assert.equal(keys.model("chat"), null);
   assert.equal(keys.model("browser"), null);
   const after = await keys.list();
-  assert.equal(
-    after.providers.find((p) => p.id === "fireworks")?.connected,
-    false,
-  );
+  assert.equal(after.providers.find((p) => p.id === "fireworks")?.connected, false);
   assert.deepEqual(after.models, []);
 });
 
@@ -110,9 +101,7 @@ test("an app's key is asked for with where to get it, and read back by the serve
   });
   await again.list();
   assert.equal(again.appKey("composio"), "ak_composio_5678");
-  assert.ok(
-    readFileSync(join(dir, "keys.json"), "utf8").includes("ak_composio_5678"),
-  );
+  assert.ok(readFileSync(join(dir, "keys.json"), "utf8").includes("ak_composio_5678"));
 });
 
 test("a sign-in can be stopped, and an unknown provider is refused", async () => {
@@ -121,9 +110,6 @@ test("a sign-in can be stopped, and an unknown provider is refused", async () =>
   if (first.kind !== "prompt") return assert.fail("expected a prompt");
   await keys.cancel(first.login);
   assert.equal((await keys.answer(first.login, "late")).kind, "failed");
-  assert.equal(
-    (await keys.list()).providers.find((p) => p.id === "fireworks")?.connected,
-    false,
-  );
+  assert.equal((await keys.list()).providers.find((p) => p.id === "fireworks")?.connected, false);
   assert.equal((await keys.login("no-such-provider")).kind, "failed");
 });

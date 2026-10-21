@@ -34,15 +34,11 @@ export function readOnlyCredentials(path: string): CredentialStore {
     try {
       raw = JSON.parse(readFileSync(path, "utf8"));
     } catch (error) {
-      const code =
-        error instanceof Error && "code" in error
-          ? String(error.code)
-          : "invalid JSON";
+      const code = error instanceof Error && "code" in error ? String(error.code) : "invalid JSON";
       throw new Error(`The Pi auth file could not be read (${code})`);
     }
     const parsed = AuthFile.safeParse(raw);
-    if (!parsed.success)
-      throw new Error("The Pi auth file does not hold Pi credentials");
+    if (!parsed.success) throw new Error("The Pi auth file does not hold Pi credentials");
     data = parsed.data;
     return data;
   };
@@ -90,8 +86,7 @@ export function fileCredentials(path: string): KeyFile {
   let data: Record<string, Credential> = {};
   if (existsSync(path)) {
     const parsed = AuthFile.safeParse(JSON.parse(readFileSync(path, "utf8")));
-    if (!parsed.success)
-      throw new Error("The keys file does not hold credentials");
+    if (!parsed.success) throw new Error("The keys file does not hold credentials");
     data = parsed.data;
   }
   let queue: Promise<unknown> = Promise.resolve();
@@ -129,9 +124,7 @@ export function fileCredentials(path: string): KeyFile {
     secrets: () =>
       Object.values(data).flatMap((credential) =>
         credential.type === "api_key"
-          ? [credential.key, ...Object.values(credential.env ?? {})].filter(
-              (v) => v !== undefined,
-            )
+          ? [credential.key, ...Object.values(credential.env ?? {})].filter((v) => v !== undefined)
           : [credential.access, credential.refresh],
       ),
   };

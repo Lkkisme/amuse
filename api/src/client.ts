@@ -34,8 +34,7 @@ export function connect(url: string): Session & { close(): void } {
   const deliver = (chat: string, envelope: Envelope) => {
     if (envelope.seq <= (lastSeq.get(chat) ?? 0)) return;
     lastSeq.set(chat, envelope.seq);
-    for (const listener of listeners)
-      listener({ kind: "event", chat, envelope });
+    for (const listener of listeners) listener({ kind: "event", chat, envelope });
   };
   /** The server could not replay what we missed: start over from its state. */
   const reset = (chat: string, state: State) => {
@@ -56,11 +55,7 @@ export function connect(url: string): Session & { close(): void } {
       if (resumed) {
         void call("chats.list", {}).then((r) => chats(r.chats));
         for (const [chat, since] of lastSeq)
-          void call("session.sync", { chat, since }).then((r) =>
-            r.kind === "events"
-              ? r.events.forEach((e) => deliver(chat, e))
-              : reset(chat, r.state),
-          );
+          void call("session.sync", { chat, since }).then((r) => (r.kind === "events" ? r.events.forEach((e) => deliver(chat, e)) : reset(chat, r.state)));
       }
     };
     ws.onmessage = ({ data }) => {
@@ -69,13 +64,10 @@ export function connect(url: string): Session & { close(): void } {
       const note = Notification.safeParse(raw);
       if (note.success) {
         const push = note.data.params;
-        return push.kind === "event"
-          ? deliver(push.chat, push.envelope)
-          : chats(push.chats);
+        return push.kind === "event" ? deliver(push.chat, push.envelope) : chats(push.chats);
       }
       const response = Response.parse(raw);
-      const entry =
-        typeof response.id === "number" ? pending.get(response.id) : undefined;
+      const entry = typeof response.id === "number" ? pending.get(response.id) : undefined;
       if (!entry || typeof response.id !== "number") return;
       pending.delete(response.id);
       if ("error" in response) entry.fail(new Error(response.error.message));
@@ -83,17 +75,13 @@ export function connect(url: string): Session & { close(): void } {
     };
     ws.onclose = () => {
       socket = null;
-      for (const entry of pending.values())
-        entry.fail(new Error("disconnected"));
+      for (const entry of pending.values()) entry.fail(new Error("disconnected"));
       pending.clear();
       if (!closed) setTimeout(open, Math.min(10_000, 500 * 2 ** retry++));
     };
   };
 
-  function call<M extends Method>(
-    method: M,
-    params: Params[M],
-  ): Promise<Results[M]> {
+  function call<M extends Method>(method: M, params: Params[M]): Promise<Results[M]> {
     const id = ++nextId;
     const frame = JSON.stringify({ jsonrpc: "2.0", id, method, params });
     return new Promise<Results[M]>((resolve, reject) => {
@@ -101,14 +89,9 @@ export function connect(url: string): Session & { close(): void } {
         settle: (raw) => {
           // a snapshot the caller fetched is where we now stand, so a later reconnect catches up from there;
           // returned events move us forward only as they are delivered
-          if (
-            method === "session.sync" &&
-            "chat" in params &&
-            typeof params.chat === "string"
-          ) {
+          if (method === "session.sync" && "chat" in params && typeof params.chat === "string") {
             const synced = parseResult["session.sync"](raw);
-            if (synced.kind === "snapshot")
-              lastSeq.set(params.chat, synced.state.seq);
+            if (synced.kind === "snapshot") lastSeq.set(params.chat, synced.state.seq);
           }
           resolve(parseResult[method](raw));
         },
