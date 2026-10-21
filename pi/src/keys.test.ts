@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileCredentials } from "./credentials.ts";
-import { piKeys, plainly } from "./keys.ts";
+import { bare, piKeys, plainly } from "./keys.ts";
 
 const composio = {
   id: "composio",
@@ -151,4 +151,21 @@ test("a provider's error reads plainly", () => {
   assert.equal(plainly('{"error":"Invalid token"}'), "Invalid token");
   assert.equal(plainly("fetch failed"), "fetch failed");
   assert.equal(plainly("500 {not json"), "500 {not json");
+});
+
+test("a key pasted as an env file line gives its value", async () => {
+  assert.equal(bare("COMPOSIO_API_KEY=ak_abc123"), "ak_abc123");
+  assert.equal(bare('  export FIREWORKS_API_KEY="fw_abc" \n'), "fw_abc");
+  assert.equal(bare("OPENROUTER_API_KEY = 'sk-or-1'"), "sk-or-1");
+  assert.equal(bare(" ak_plain "), "ak_plain");
+  assert.equal(bare("sk-with=equals"), "sk-with=equals");
+  assert.equal(bare("abcDEF123=="), "abcDEF123==");
+  assert.equal(bare("KEY="), "KEY=");
+
+  const dir = mkdtempSync(join(tmpdir(), "remuse-keys-"));
+  const keys = piKeys({ keys: fileCredentials(join(dir, "keys.json")), choicePath: join(dir, "models.json"), apps: [composio] });
+  const first = await keys.login("composio");
+  if (first.kind !== "prompt") return assert.fail("expected a prompt");
+  await keys.answer(first.login, "COMPOSIO_API_KEY=ak_composio_5678");
+  assert.equal(keys.appKey("composio"), "ak_composio_5678");
 });

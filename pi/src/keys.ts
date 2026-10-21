@@ -102,6 +102,19 @@ export function plainly(error: string): string {
   return said ? (before ? `${before} · ${said}` : said) : error;
 }
 
+/**
+ * A value as pasted, without what it was copied with: a line from an env
+ * file (`COMPOSIO_API_KEY=ak_…`, `export X="…"`) gives its value; spaces
+ * around it go.
+ */
+export function bare(value: string): string {
+  // an env variable's name is upper case; a key's own "=" (base64's padding) is not one
+  const line = value.trim().match(/^(?:export\s+)?[A-Z_][A-Z0-9_]*\s*=\s*(\S.*)$/s);
+  const given = (line?.[1] ?? value).trim();
+  const quoted = given.match(/^(["'])(.*)\1$/s);
+  return (quoted?.[2] ?? given).trim();
+}
+
 /** A sign-in in progress: what it waits for, and how to hear its next step. */
 interface Flow {
   abort: AbortController;
@@ -282,7 +295,7 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
           reason: "This sign-in is over; start it again.",
         };
       const step = flow.step;
-      flow.pending.resolve(value);
+      flow.pending.resolve(bare(value));
       flow.pending = null;
       return step;
     },
