@@ -105,7 +105,7 @@ export const Call = z.discriminatedUnion("method", [
   call("models.voice", z.object({ provider: z.string().min(1).max(100).nullable() })),
   /** Set up (or, null, remove) a speech server the user runs themselves; `key` only if it wants one. */
   call("models.localVoice", z.object({ service: LocalVoice.extend({ key: z.string().max(8192).nullable() }).nullable() })),
-  /** Wipe the sandbox's home folder back to a fresh one and stop what runs in it; the workspace is kept. */
+  /** Stop what runs in the sandbox and wipe its home folder; the workspace is kept, and system-wide installs stay until the container is recreated. */
   call("sandbox.reset", z.object({})),
 ]);
 

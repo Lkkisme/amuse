@@ -161,7 +161,7 @@ export interface Ports {
 
 /** The sandbox Amuse works in, as the user sees it: it can be wiped. */
 export interface Sandbox {
-  /** Stop what runs in the sandbox and wipe its home folder back to a fresh one; the workspace is kept. Rejects, in words, when it cannot. */
+  /** Stop what runs in the sandbox and wipe its home folder; the workspace is kept, and system-wide installs stay until the container is recreated. Rejects, in words, when it cannot. */
   reset(): Promise<void>;
 }
 
