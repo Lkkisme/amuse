@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Entity, type Envelope, type Reply, type State, apply, empty, prepend, recent } from "./index.ts";
-import { Envelope as EnvelopeSchema, State as StateSchema } from "./index.ts";
+import { Entity as EntitySchema, Envelope as EnvelopeSchema, State as StateSchema } from "./index.ts";
 
 const at = "2026-10-20T08:24:00Z";
 const reply = (text: string, streaming: boolean): Reply => ({ kind: "reply", id: "r1", at, text, streaming, attachments: [] });
@@ -126,4 +126,15 @@ test("a page goes in front only when it is the part just before, at the same seq
   assert.deepEqual(prepend(window, page), recent(whole, 6));
   assert.equal(prepend(window, { ...page, seq: whole.seq - 1 }), null);
   assert.equal(prepend(window, { ...page, earlier: 3, entities: whole.entities.slice(3, 6) }), null);
+});
+
+test("an approval from before rules could refuse one replays as an ordinary one", () => {
+  const old = { kind: "approval", id: "a1", at: "2026-10-20T08:00:00Z", action: "Visit", target: "bank.com", detail: "x", remember: true, status: "denied", expires: "2026-10-20T08:30:00Z" };
+  const replayed = EntitySchema.parse(old);
+  assert.ok(replayed.kind === "approval");
+  assert.equal(replayed.byRule, false);
+  assert.equal(replayed.always, false);
+  assert.equal(replayed.app, null);
+  const refused = EntitySchema.parse({ ...old, byRule: true });
+  assert.ok(refused.kind === "approval" && refused.byRule);
 });

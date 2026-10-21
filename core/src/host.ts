@@ -64,7 +64,7 @@ import { deadline, localTime, userZone } from "./schedule.ts";
 import { addGoal, goalLog, listGoals, readGoal, updateGoal } from "./goals.ts";
 import { BEAT_MS, beatNote, inFlight } from "./heartbeat.ts";
 import { type Timers, realTimers } from "./timers.ts";
-import type { Rules } from "./policy.ts";
+import { type Rules, browserActions, defaultBrowser } from "./policy.ts";
 import { type Budget, type Where, agentContext, budget, mentions, recall } from "./context.ts";
 
 /**
@@ -457,6 +457,7 @@ function subjectOf(action: AgentAction): string | null {
     case "browse":
     case "task":
     case "ask":
+    case "refuse":
     case "schedule":
     case "revisePreset": // set up in the main chat, where this is asked
     case "askSecret":
@@ -906,13 +907,21 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
       return null;
     },
     "apps.permissions": async ({ app }) => ({ rules: await ports.apps.permissions(app) }),
+    "browser.rules": async () => {
+      const chosen = await ports.rules.browser();
+      return { rules: browserActions.map((action) => ({ action, permission: chosen[action] ?? defaultBrowser[action], chosen: chosen[action] !== undefined })) };
+    },
+    "browser.permit": async ({ action, permission }) => {
+      await ports.rules.setBrowser(action, permission);
+      return null;
+    },
     "sites.rules": async () => ({
       rules: Object.entries(await ports.rules.sites())
-        .map(([site, permission]) => ({ site, permission }))
+        .map(([site, entry]) => ({ site, never: entry.never, actions: entry.actions }))
         .sort((a, b) => a.site.localeCompare(b.site)),
     }),
-    "sites.permit": async ({ site, permission }) => {
-      await ports.rules.setSite(site, permission);
+    "sites.permit": async ({ site, rule }) => {
+      await ports.rules.setSite(site, rule);
       return null;
     },
     "apps.permit": async ({ app, kind, permission }) => {

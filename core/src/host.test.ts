@@ -503,4 +503,56 @@ test("a credential the user gives goes to the sandbox alone: not the chat, its r
   await host.call("secret.answer", { id: declined.id, value: null });
   assert.equal(given.length, 1, "nothing goes to the sandbox when declined");
   assert.match(notes[1] ?? "", /declined/);
+
+test("the browser's rules are listed with their defaults and what the user chose, and a site's exceptions are kept as a whole", async () => {
+  const { ports } = capture();
+  const host = createHost(ports);
+  assert.deepEqual((await host.call("browser.rules", {})).rules, [
+    { action: "visit", permission: "ask", chosen: false },
+    { action: "submit", permission: "ask", chosen: false },
+    { action: "download", permission: "allow", chosen: false },
+    { action: "upload", permission: "ask", chosen: false },
+  ]);
+  await host.call("browser.permit", { action: "submit", permission: "deny" });
+  await host.call("browser.permit", { action: "download", permission: "ask" });
+  assert.deepEqual(
+    (await host.call("browser.rules", {})).rules.map((r) => `${r.action} ${r.permission}${r.chosen ? "*" : ""}`),
+    ["visit ask", "submit deny*", "download ask*", "upload ask"],
+  );
+  await host.call("browser.permit", { action: "submit", permission: null });
+  assert.deepEqual((await host.call("browser.rules", {})).rules[1], { action: "submit", permission: "ask", chosen: false });
+
+  await host.call("sites.permit", { site: "bank.com", rule: { never: true, actions: {} } });
+  await host.call("sites.permit", { site: "a5.ucsd.edu", rule: { never: false, actions: { visit: "allow", submit: "allow" } } });
+  assert.deepEqual((await host.call("sites.rules", {})).rules, [
+    { site: "a5.ucsd.edu", never: false, actions: { visit: "allow", submit: "allow" } },
+    { site: "bank.com", never: true, actions: {} },
+  ]);
+  await host.call("sites.permit", { site: "bank.com", rule: null });
+  await host.call("sites.permit", { site: "a5.ucsd.edu", rule: { never: false, actions: {} } });
+  assert.deepEqual((await host.call("sites.rules", {})).rules, [], "a site with nothing set is none");
+});
+
+test("a refusal by the user's rule is an approval that ends denied, marked as the rule's; it is listed with the others and cannot be answered", async () => {
+  const time = manualTime("2026-10-20T08:00:00Z");
+  const { ports, io } = capture();
+  const host = createHost(ports, { clock: time.clock, timers: time.timers });
+  await host.call("chat.send", { chat: "main", text: "mail them", timezone: "UTC", attachments: [] });
+  const agent = io();
+  assert.ok(agent);
+  const refused = agent.act({ kind: "refuse", action: "Email x@y.z", target: "me@a.com", detail: "Your rule for Gmail (Write permissions: Deny)", app: "gmail" });
+  assert.ok(refused.ok);
+  const asked = agent.act({ kind: "ask", action: "Visit", target: "news.example", detail: "to read", remember: true });
+  assert.ok(asked.ok);
+  const { approvals } = await host.call("approvals.list", {});
+  const record = approvals.find((a) => a.approval.id === refused.id)?.approval;
+  assert.deepEqual(record && { status: record.status, byRule: record.byRule, remember: record.remember, app: record.app, target: record.target }, {
+    status: "denied",
+    byRule: true,
+    remember: false,
+    app: "gmail",
+    target: "me@a.com",
+  });
+  assert.equal(approvals.find((a) => a.approval.id === asked.id)?.approval.byRule, false);
+  await assert.rejects(host.call("approval.resolve", { id: refused.id, resolution: "allow_once" }), /cannot resolve from denied/);
 });

@@ -344,6 +344,7 @@ export function seed(): Entity[] {
       expires: minutesAgo(-30),
       app: "gmail",
       always: false,
+      byRule: false,
     },
     {
       kind: "browser",

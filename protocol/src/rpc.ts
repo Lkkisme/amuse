@@ -5,7 +5,7 @@
  * Live browser pixels are not JSON-RPC; they stream on their own channel.
  */
 import { z } from "zod";
-import { Account, App, KindRule, Permission, Site, SiteRule, ToolKind } from "./apps.ts";
+import { Account, App, BrowserAction, BrowserRule, KindRule, Permission, Site, SiteEntry, SiteRule, ToolKind } from "./apps.ts";
 import { Approval, Attachment, Id, Resolution, Schedule, SecretDestination, TimeZone } from "./entities.ts";
 import { Envelope, Index, Page, Seq, State } from "./events.ts";
 import { Chat, Push } from "./chats.ts";
@@ -72,10 +72,17 @@ export const Call = z.discriminatedUnion("method", [
   call("apps.permissions", z.object({ app: Id })),
   /** Set what the agent may do with an app's tools of one kind; null: back to the default. */
   call("apps.permit", z.object({ app: Id, kind: ToolKind, permission: Permission.nullable() })),
-  /** The sites the user has set a rule for (every other site: ask). */
+  /** The browser's rules by kind of action: visit, submit, download, upload. */
+  call("browser.rules", z.object({})),
+  /** Set what the browser may do for a kind of action, everywhere; null: back to the default. Uploads are asked about or denied, never allowed. */
+  call(
+    "browser.permit",
+    z.object({ action: BrowserAction, permission: Permission.nullable() }).refine((p) => !(p.action === "upload" && p.permission === "allow"), "Uploads are always asked about: they can be asked or denied."),
+  ),
+  /** The sites the user has set exceptions for (a site with none follows the browser's rules). */
   call("sites.rules", z.object({})),
-  /** Set what the browser agent may do on a site; null: back to the default (ask). */
-  call("sites.permit", z.object({ site: Site, permission: Permission.nullable() })),
+  /** Set a site's exceptions (it and its subdomains): never visited, and actions set for it; null: none (the site follows the browser's rules). */
+  call("sites.permit", z.object({ site: Site, rule: SiteEntry.nullable() })),
   /** The sites the browsers keep logins for (from the user's own sign-ins), with how many cookies. */
   call("logins.list", z.object({})),
   /** Sign the browsers out of a site: its kept logins go, from every open browser too. */
@@ -160,6 +167,8 @@ export const results = {
   "apps.disconnect": done,
   "apps.permissions": z.object({ rules: z.array(KindRule) }),
   "apps.permit": done,
+  "browser.rules": z.object({ rules: z.array(BrowserRule) }),
+  "browser.permit": done,
   "sites.rules": z.object({ rules: z.array(SiteRule) }),
   "sites.permit": done,
   "logins.list": z.object({ sites: z.array(z.object({ site: z.string(), cookies: z.int() })) }),
@@ -220,6 +229,8 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "apps.disconnect": (raw) => results["apps.disconnect"].parse(raw),
   "apps.permissions": (raw) => results["apps.permissions"].parse(raw),
   "apps.permit": (raw) => results["apps.permit"].parse(raw),
+  "browser.rules": (raw) => results["browser.rules"].parse(raw),
+  "browser.permit": (raw) => results["browser.permit"].parse(raw),
   "sites.rules": (raw) => results["sites.rules"].parse(raw),
   "sites.permit": (raw) => results["sites.permit"].parse(raw),
   "logins.list": (raw) => results["logins.list"].parse(raw),

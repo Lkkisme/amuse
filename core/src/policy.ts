@@ -5,9 +5,13 @@
  * else from its name. Reads are allowed by default; changes and destructive
  * tools are asked about each time. The user may set each kind otherwise, per
  * app (allow, ask, deny), as Muse does ("Change GitHub repository content:
- * Ask"); a denied tool the agent does not even see.
+ * Ask"). Deny is a hard no: the tool is still listed, marked as denied, so the
+ * agent can say why, but calling it is refused without a card.
+ *
+ * The browser's rules are by kind of action (visit, submit, download, upload),
+ * with exceptions per site; see below.
  */
-import type { Permission, ToolKind } from "@amuse/protocol";
+import type { BrowserAction, Permission, SiteActions, SiteEntry, ToolKind } from "@amuse/protocol";
 
 const readVerbs = new Set(["GET", "LIST", "FETCH", "SEARCH", "FIND", "READ", "QUERY", "LOOKUP", "VIEW", "DESCRIBE", "COUNT", "EXPORT", "DOWNLOAD"]);
 const writeWords = new Set([
@@ -45,7 +49,15 @@ export type AppRules = Partial<Record<ToolKind, Permission>>;
 /** What the agent may do with a tool of `kind`: what the user chose, else the default. */
 export const permissionOf = (kind: ToolKind, rules: AppRules): Permission => rules[kind] ?? defaultPermission(kind);
 
-/* ---------- sites ---------- */
+/* ---------- the browser, by kind of action, with exceptions per site ---------- */
+
+export const browserActions: readonly BrowserAction[] = ["visit", "submit", "download", "upload"];
+
+/** Where nothing is chosen: ask before visiting and before steps that commit the user, keep downloads, ask before uploading. */
+export const defaultBrowser: Readonly<Record<BrowserAction, Permission>> = { visit: "ask", submit: "ask", download: "allow", upload: "ask" };
+
+/** A permission as it holds for an action: a user's file is never uploaded without asking. */
+const settled = (action: BrowserAction, permission: Permission): Permission => (action === "upload" && permission === "allow" ? "ask" : permission);
 
 /** A URL's site: its host, lower-case, without "www."; null for what is not a web address. */
 export function siteOf(url: string): string | null {
@@ -54,55 +66,129 @@ export function siteOf(url: string): string | null {
   return /^https?:$/.test(protocol) && hostname ? hostname.toLowerCase().replace(/^www\./, "") : null;
 }
 
-/**
- * What the agents may do at a URL: the user's rule for its site or the nearest
- * parent ("bank.com" covers "login.bank.com").
- *   allow     visit it, and act there without asking
- *   ask       visit it; ask before any step that commits the user
- *   deny      never go there, and do not ask
- *   unlisted  no rule: not visited until the user allows it (asked each time,
- *             or for good: "always" makes it `ask`)
- * Amuse's own sandbox (`http://sandbox:<port>`, what it serves there) is its
- * own: always allowed.
- */
-export type SiteAccess = Permission | "unlisted";
-
-/** The sandbox's name on the network its browsers share with it (compose.yaml). */
+/** The sandbox's name on the network its browsers share with it (compose.yaml): Amuse's own, always open to them. */
 export const SANDBOX_SITE = "sandbox";
 
-export function siteAccess(rules: Readonly<Record<string, Permission>>, url: string): SiteAccess {
-  const site = siteOf(url);
-  if (!site) return "deny"; // not a web page: nothing to do there
-  if (site === SANDBOX_SITE) return "allow";
+/** A site and its parents, nearest first ("login.bank.com" → login.bank.com, bank.com). */
+const lineage = (site: string): string[] => {
   const labels = site.split(".");
-  for (let i = 0; i < labels.length; i++) {
-    const rule = rules[labels.slice(i).join(".")];
-    if (rule) return rule;
-  }
-  return "unlisted";
+  return labels.map((_, i) => labels.slice(i).join("."));
+};
+
+/** What the user chose for the browser: for every kind of action, and exceptions per site. */
+export interface BrowserRules {
+  actions: Readonly<SiteActions>;
+  sites: Readonly<Record<string, SiteEntry>>;
 }
 
-/** The rule an answer to "may I visit?" leaves when meant for good: visiting allowed (acting still asked), or never. */
-export const visitRule = (approved: boolean): Permission => (approved ? "ask" : "deny");
+/** Where a decision came from, for telling the user (and the agent) which rule it was. */
+export type RuleSource = { kind: "never"; site: string } | { kind: "site"; site: string } | { kind: "global" } | { kind: "default" } | { kind: "unreachable" };
 
-/** The user's choices, per app and per site (the store is the server's: a file beside the journal). */
+/**
+ * What the browser (or web_read) may do at a URL, for an action. Amuse's own
+ * sandbox is always open (uploading still asked, as everywhere). Otherwise, in order:
+ *   1. a site, or a parent of it, set to never be visited: no, for every action;
+ *   2. the nearest site (itself, then its parents) that sets this action;
+ *   3. the user's setting for the action;
+ *   4. the default.
+ * Something that is not a web page is no (there is nothing to do there).
+ */
+export function decideBrowser(rules: BrowserRules, url: string, action: BrowserAction): { permission: Permission; source: RuleSource } {
+  const site = siteOf(url);
+  if (!site) return { permission: "deny", source: { kind: "unreachable" } };
+  if (site === SANDBOX_SITE) return { permission: settled(action, "allow"), source: { kind: "default" } };
+  const chain = lineage(site);
+  for (const name of chain) {
+    const entry = rules.sites[name];
+    if (entry && (entry.never || entry.actions.visit === "deny")) return { permission: "deny", source: { kind: "never", site: name } };
+  }
+  for (const name of chain) {
+    const set = rules.sites[name]?.actions[action];
+    if (set) return { permission: settled(action, set), source: { kind: "site", site: name } };
+  }
+  const chosen = rules.actions[action];
+  return chosen ? { permission: settled(action, chosen), source: { kind: "global" } } : { permission: defaultBrowser[action], source: { kind: "default" } };
+}
+
+/** What the browser may do at a URL, for an action (see decideBrowser). */
+export const browserPermission = (rules: BrowserRules, url: string, action: BrowserAction): Permission => decideBrowser(rules, url, action).permission;
+
+/** The rule that said no, in words: "your rule for bank.com: never visit it". */
+export function ruleSaid(source: RuleSource, action: BrowserAction): string {
+  const what = { visit: "visiting websites", submit: "submitting forms", download: "downloading files", upload: "uploading files" }[action];
+  switch (source.kind) {
+    case "never":
+      return `your rule for ${source.site} (never visit it)`;
+    case "site":
+      return `your rule for ${source.site} (${what}: Deny)`;
+    case "unreachable":
+      return "it is not a web page";
+    default:
+      return `your setting for ${what} (Deny)`;
+  }
+}
+
+/** Where the user can change the rule that said no. */
+export function ruleWhere(source: RuleSource): string {
+  return source.kind === "never" || source.kind === "site" ? `Settings › Permissions › ${source.site}` : "Settings › Permissions › Browser";
+}
+
+/** The rule an answer to a card leaves when meant for good: that action allowed for the site, or (for a visit) never; else denied for that action. */
+export const siteRuleFor = (action: BrowserAction, approved: boolean): { action: BrowserAction | "never"; permission: Permission } =>
+  approved ? { action, permission: "allow" } : action === "visit" ? { action: "never", permission: "deny" } : { action, permission: "deny" };
+
+/** A site's exceptions after one action is set (null: back to the site following the browser's rules); denying a visit is never; a site with nothing left has no entry. */
+export function withSiteAction(entry: SiteEntry | undefined, action: BrowserAction | "never", permission: Permission | null): SiteEntry | null {
+  const actions: SiteActions = { ...entry?.actions };
+  let never = entry?.never ?? false;
+  if (action === "never") never = permission === "deny";
+  else if (action === "visit" && permission === "deny") never = true;
+  else if (permission === null) delete actions[action];
+  else actions[action] = settled(action, permission);
+  // visiting is not otherwise set for a site that is never visited
+  if (never) delete actions.visit;
+  return never || Object.keys(actions).length > 0 ? { never, actions } : null;
+}
+
+/** The user's choices, per app and for the browser (the store is the server's: a file beside the journal). */
 export interface Rules {
   of(app: string): Promise<AppRules>;
   /** null: back to the default. */
   set(app: string, kind: ToolKind, permission: Permission | null): Promise<void>;
-  sites(): Promise<Readonly<Record<string, Permission>>>;
-  /** null: back to the default (ask). */
-  setSite(site: string, permission: Permission | null): Promise<void>;
+  /** What the user chose for each kind of browser action (a kind not there has its default). */
+  browser(): Promise<Readonly<SiteActions>>;
+  /** null: back to the default. */
+  setBrowser(action: BrowserAction, permission: Permission | null): Promise<void>;
+  /** The exceptions per site. */
+  sites(): Promise<Readonly<Record<string, SiteEntry>>>;
+  /** A site's exceptions as a whole; null: none. */
+  setSite(site: string, entry: SiteEntry | null): Promise<void>;
+  /** One action for a site (or "never"), as an answer for good on a card; null: back to following the browser's rules. */
+  setSiteAction(site: string, action: BrowserAction | "never", permission: Permission | null): Promise<void>;
 }
 
-/** Everything the rules hold, as one plain value (what the file store writes). */
-export type AllRules = { apps: Record<string, AppRules>; sites: Record<string, Permission> };
-export const noRules: AllRules = { apps: {}, sites: {} };
+/** What the browser's rules are now. */
+export const browserRulesOf = async (rules: Rules): Promise<BrowserRules> => ({ actions: await rules.browser(), sites: await rules.sites() });
 
-export function setSiteRule(all: Readonly<Record<string, Permission>>, site: string, permission: Permission | null): Record<string, Permission> {
+/** Everything the rules hold, as one plain value (what the file store writes). */
+export type AllRules = { apps: Record<string, AppRules>; browser: SiteActions; sites: Record<string, SiteEntry> };
+export const noRules: AllRules = { apps: {}, browser: {}, sites: {} };
+
+export function setSiteEntry(all: Readonly<Record<string, SiteEntry>>, site: string, entry: SiteEntry | null): Record<string, SiteEntry> {
   const next = { ...all };
-  if (permission === null) delete next[site];
-  else next[site] = permission;
+  if (entry === null || (!entry.never && Object.keys(entry.actions).length === 0)) delete next[site];
+  else next[site] = entry;
+  return next;
+}
+
+/** The rules after one action of a site is set. */
+export const setSiteAction = (all: Readonly<Record<string, SiteEntry>>, site: string, action: BrowserAction | "never", permission: Permission | null) =>
+  setSiteEntry(all, site, withSiteAction(all[site], action, permission));
+
+export function setBrowserAction(all: Readonly<SiteActions>, action: BrowserAction, permission: Permission | null): SiteActions {
+  const next: SiteActions = { ...all };
+  if (permission === null) delete next[action];
+  else next[action] = settled(action, permission);
   return next;
 }
 
@@ -122,9 +208,16 @@ export function memoryRules(): Rules {
     async set(app, kind, permission) {
       all = { ...all, apps: setRule(all.apps, app, kind, permission) };
     },
+    browser: async () => ({ ...all.browser }),
+    async setBrowser(action, permission) {
+      all = { ...all, browser: setBrowserAction(all.browser, action, permission) };
+    },
     sites: async () => ({ ...all.sites }),
-    async setSite(site, permission) {
-      all = { ...all, sites: setSiteRule(all.sites, site, permission) };
+    async setSite(site, entry) {
+      all = { ...all, sites: setSiteEntry(all.sites, site, entry) };
+    },
+    async setSiteAction(site, action, permission) {
+      all = { ...all, sites: setSiteAction(all.sites, site, action, permission) };
     },
   };
 }

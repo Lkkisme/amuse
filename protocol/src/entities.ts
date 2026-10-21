@@ -92,6 +92,8 @@ export const Approval = z.object({
   app: z.string().nullable().default(null),
   /** the answer was for good (it became a rule) */
   always: z.boolean().default(false),
+  /** refused by the user's rule, not asked and not answered: it never was a card (it ends denied, and is only a record) */
+  byRule: z.boolean().default(false),
 });
 
 /** The agent asking the user to connect an app (provider: e.g. "gmail"). */

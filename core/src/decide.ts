@@ -28,8 +28,8 @@ import type {
 } from "@amuse/protocol";
 import { APPROVAL_TTL_MS, GRACE_MS, MAX_SCHEDULES, check, later, nextRun, standing } from "./schedule.ts";
 
-/** Calls that do not touch the conversation: reading it, the app directory (Ports.apps), the keys (Ports.keys), the sandbox (Ports.sandbox) and the goals (in the workspace). */
-export type Query = Extract<Call, { method: "session.sync" | "session.history" | "schedules.list" | `chats.${string}` | `apps.${string}` | `sites.${string}` | `keys.${string}` | `models.${string}` | `approvals.${string}` | `logins.${string}` | `sandbox.${string}` | `goals.${string}` | `skills.${string}` | `secret.${string}` | `secrets.${string}` }>;
+/** Calls that do not touch the conversation: reading it, the app directory (Ports.apps), the keys (Ports.keys), the sandbox (Ports.sandbox), the browser's rules and the goals (in the workspace). */
+export type Query = Extract<Call, { method: "session.sync" | "session.history" | "schedules.list" | `chats.${string}` | `apps.${string}` | `sites.${string}` | `keys.${string}` | `models.${string}` | `approvals.${string}` | `logins.${string}` | `sandbox.${string}` | "browser.rules" | "browser.permit" | `goals.${string}` | `skills.${string}` | `secret.${string}` | `secrets.${string}` }>;
 /** Client calls that change the conversation. */
 export type Command = Exclude<Call, Query>;
 type CommandMethod = Command["method"];
@@ -93,6 +93,8 @@ export type AgentAction =
   | { kind: "browse"; title: string; url: string; instructions: string; files: string[] }
   /** Ask the user to approve a consequential step before taking it; `remember`: the answer may become a rule. */
   | { kind: "ask"; action: string; target: string; detail: string; remember: boolean; app?: string | null }
+  /** Record that the user's own rule refused a step, without asking: an approval that ends denied by the rule (their Approvals list shows it). */
+  | { kind: "refuse"; action: string; target: string; detail: string; app?: string | null }
   /** A browser run's progress, from the agent driving it. */
   | { kind: "browserStatus"; id: string; status: BrowserProgress }
   /** What the agent driving a run is doing right now (null: nothing in particular). */
@@ -361,7 +363,11 @@ const agentRules: AgentRules = {
   ask: (_, { action, target, detail, remember, app = null }, ctx) => {
     const id = ctx.id("a");
     const expires = later(ctx.now, APPROVAL_TTL_MS);
-    return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, remember, status: "pending", expires, app, always: false })], [], { id });
+    return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, remember, status: "pending", expires, app, always: false, byRule: false })], [], { id });
+  },
+  refuse: (_, { action, target, detail, app = null }, ctx) => {
+    const id = ctx.id("a");
+    return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, remember: false, status: "denied", expires: ctx.now, app, always: false, byRule: true })], [], { id });
   },
   schedule: (state, { title, instructions, when, needs = null, preset = false, goal = null }, ctx) => {
     if (standing(state).length >= MAX_SCHEDULES) return reject({ kind: "unsound", reason: `there are already ${MAX_SCHEDULES} schedules; cancel one first` });
