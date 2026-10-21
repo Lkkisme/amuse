@@ -80,6 +80,44 @@ export function AppsKey({
           Muse reaches your mail, calendar and other apps through Composio, with
           your own Composio API key.
         </p>
+        {/* where the key is, per Composio's docs */}
+        <ol
+          className="mt-5 w-full max-w-[320px] space-y-2.5 rounded-[18px] px-4 py-3.5 text-left text-[14px]"
+          style={{
+            background: "var(--fill-secondary)",
+            color: "var(--text-primary)",
+          }}
+        >
+          {[
+            <>
+              Sign in or sign up at{" "}
+              <a
+                href="https://composio.dev/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline"
+                style={{ color: "var(--fill-blue)" }}
+              >
+                composio.dev
+              </a>
+            </>,
+            <>Open Settings › Project Settings</>,
+            <>Under API Keys, copy the key (it starts with ak_)</>,
+          ].map((step, i) => (
+            <li key={i} className="flex gap-3">
+              <span
+                className="flex size-5 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold"
+                style={{
+                  background: "var(--fill-primary)",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                {i + 1}
+              </span>
+              <span>{step}</span>
+            </li>
+          ))}
+        </ol>
         {key && (
           <button
             className="mt-5 h-11 rounded-full px-5 text-[15px] font-semibold text-white"

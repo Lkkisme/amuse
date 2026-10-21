@@ -252,10 +252,21 @@ export function composio(apiKey: string, http: typeof fetch = fetch): Composio {
   };
 }
 
-/** No Composio key is set up: said to the user as it is. */
+/**
+ * How the user sets apps up, for the agent to walk them through (in its own
+ * words, in theirs): it needs their own Composio API key. Per Composio's docs:
+ * Settings › Project Settings › API Keys on composio.dev.
+ */
+export const composioGuide = [
+  "Apps are not set up yet: connecting them (mail, calendar, sheets, ...) needs the user's own Composio API key. Composio is the service that connects apps for this assistant; the user's app logins stay with it.",
+  "Walk the user through it, a step at a time, in plain words: 1) sign in or sign up at composio.dev; 2) open Settings, then Project Settings; 3) under API Keys, copy the key (it starts with ak_); 4) here, open Settings, then Connectors, choose Add Composio key and paste it; the app tests it at once.",
+  "Once the key is added, try again. Never ask the user to paste the key into the chat: it goes only in Settings.",
+].join(" ");
+
+/** No Composio key is set up: the agent hears how the user sets one up. */
 export class NoComposioKey extends Error {
   constructor() {
-    super("Connecting apps needs a Composio key: add it in Settings.");
+    super(composioGuide);
   }
 }
 

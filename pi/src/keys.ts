@@ -22,6 +22,8 @@ export interface AppKey {
   id: string;
   name: string;
   message: string;
+  /** where the user finds the key, said with the link to it */
+  where: string;
   link: { url: string; label: string };
   /** One short request with `key`; throws when it does not work. */
   test?(key: string): Promise<void>;
@@ -255,7 +257,7 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
         return begin(async (interaction) => {
           interaction.notify({
             type: "info",
-            message: `Get a key at ${app.link.label}.`,
+            message: app.where,
             links: [{ url: app.link.url, label: app.link.label }],
           });
           const key = (await interaction.prompt({ type: "secret", message: app.message })).trim();

@@ -38,7 +38,7 @@ export const helperRules = [
 export function helperTools(cfg: PiConfig, run: RunHandle, hold: Hold): ToolDefinition[] {
   const io = () => run.io;
   return [
-    ...tools(io, cfg.rules, cfg.files, hold).filter((t) => t.name !== "request_connection"),
+    ...tools(io, cfg.rules, { files: cfg.files, hold }).filter((t) => t.name !== "request_connection"),
     ...webTools(io, cfg.rules, cfg.search, hold),
     ...(cfg.apps ? appTools(io, cfg.apps, hold) : []),
     ...(cfg.files ? workspaceTools(io, cfg.files, { send: false }) : []),

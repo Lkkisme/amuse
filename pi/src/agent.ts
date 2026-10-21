@@ -28,6 +28,8 @@ export interface PiConfig extends PiModelConfig {
   search?: Search;
   /** Muse's workspace: the files it and the user share. */
   files?: Workspace;
+  /** While apps are not set up: how the user sets them up (null once they are). */
+  appsSetup?: () => string | null;
 }
 
 const toolLabels: Record<string, string> = {
@@ -85,7 +87,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
       const language = scriptOf(agent.lastWords());
       const system = language ? `${cfg.system}\nThe user writes in ${language}: reply in ${language}.` : cfg.system;
       const session = await openSession(cfg, system, [
-        ...tools(io, cfg.rules, cfg.files),
+        ...tools(io, cfg.rules, { files: cfg.files, appsSetup: cfg.appsSetup }),
         ...chatTools(io),
         ...scheduleTools(io),
         ...taskTools(io),

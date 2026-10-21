@@ -10,9 +10,10 @@ const composio = {
   id: "composio",
   name: "Composio",
   message: "Enter your Composio API key",
+  where: "On composio.dev.",
   link: {
-    url: "https://platform.composio.dev/",
-    label: "platform.composio.dev",
+    url: "https://composio.dev/",
+    label: "composio.dev",
   },
 };
 

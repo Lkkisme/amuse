@@ -18,11 +18,11 @@
 import { dirname, join } from "node:path";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { NoComposioKey, composio, composioApps, composioConnector, composioDirectory, keyedComposio } from "@remuse/composio";
+import { NoComposioKey, composio, composioApps, composioGuide, composioConnector, composioDirectory, keyedComposio } from "@remuse/composio";
 import { fileChats } from "./journal.ts";
 import { workspace } from "./workspace.ts";
 import { browserPool, controller } from "@remuse/browser";
-import { type Ports, createHost, memoryRules, realTimers } from "@remuse/core";
+import { type Ports, Rejected, createHost, memoryRules, realTimers } from "@remuse/core";
 import type { Entity } from "@remuse/protocol";
 import { type PiAuth, adoptEnvironment, fileCredentials, piAgent, piBrowserAgent, piKeys, piScheduleRunner, piTaskRunner, untrustedRule } from "@remuse/pi";
 import { fileAccess } from "./access.ts";
@@ -59,11 +59,10 @@ const keys = piKeys({
     {
       id: "composio",
       name: "Composio",
-      message: "Enter your Composio API key (ak_…)",
-      link: {
-        url: "https://platform.composio.dev/",
-        label: "platform.composio.dev",
-      },
+      message: "Your Composio API key (starts with ak_)",
+      // per Composio's docs
+      where: "Sign in at composio.dev, open Settings › Project Settings, and copy the key under API Keys.",
+      link: { url: "https://composio.dev/", label: "Open composio.dev" },
       // a key that lists the user's accounts works
       test: async (key) => void (await composio(key).accounts(composioUser)),
     },
@@ -81,6 +80,7 @@ const system = [
   "To look something up, use `web_search` and `web_read`: quick, no browser. Start a browser task only when something on a site has to be done (log in, fill a form, click through).",
   'When a request needs a website, start a browser task with `browse` and tell the user it is running; it continues in the background and they can watch or take over. A browser stays open between jobs with its own agent, which remembers what happened in it: for more on the same site (or in a browser the user opened, "Your browser"), give the job to that open, idle browser (`browser`) rather than opening another. The browser agent sees nothing but what you give it: put the user\'s whole ask in `instructions`, including every limit they set, and give it in `files` only the workspace files it must upload (it is asked each time). What it downloads lands in downloads/; send what the user wants with `send_file`.',
   "When a request needs one of the user's apps (mail, calendar, sheets, ...), ask with `request_connection` instead of guessing.",
+  "Apps connect through Composio, with the user's own Composio API key, which they add in Settings › Connectors (they find it on composio.dev under Settings › Project Settings › API Keys). If apps are not set up yet, your app tools and `request_connection` say so: then walk the user through adding the key, a step at a time, in plain words. The key goes only in Settings, never in the chat.",
   "You have a workspace of files you share with the user. What they send lands in user/ (pictures and videos in user/media_library/) and shows in the conversation as [attached: name (type, size) at path]; what the browser downloads lands in downloads/; the rest is yours to organize. You see the images of the message you are answering; look at any file with `read_file`, and keep things in order with `list_files`, `write_file`, `move_file` and `delete_file`. To give the user a file, send it with `send_file`.",
   "Never claim a background task has finished unless you were told so. Never say you will do something and stop: what you are going to do, you do now with your tools, in this turn; your reply ends the turn.",
   "Before you act for the user toward others or do what is hard to undo (send a message or an email, post publicly, delete data), make sure they want it. The specific thing they asked for in their message is their confirmation: do not ask again. Their OK covers only that action and that content; if either changes, show them again. Buying is the exception: even when they say buy, go through the checkout for them to review before paying.",
@@ -156,7 +156,7 @@ const none = async <T>(read: () => Promise<T[]>): Promise<T[]> => {
   }
 };
 const ports: Ports = {
-  ...piAgent({ model, auth, system, rules, files, apps, search: apps.search }),
+  ...piAgent({ model, auth, system, rules, files, apps, search: apps.search, appsSetup: () => (keys.appKey("composio") ? null : composioGuide) }),
   ...piScheduleRunner({
     model,
     auth,
@@ -198,7 +198,11 @@ const ports: Ports = {
       }),
   rules,
   approval: () => {}, // waiting agents get the verdict through AgentIO.decision
-  connect: connector.connect,
+  // a card from before the key was removed: the user hears where to add one
+  connect: async (connection, io) => {
+    if (!keys.appKey("composio")) throw new Rejected({ kind: "unsound", reason: "Apps are not set up yet: add a Composio key in Settings › Connectors." });
+    return connector.connect(connection, io);
+  },
   apps: {
     ...directory,
     accounts: () => none(directory.accounts),

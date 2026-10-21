@@ -15,8 +15,16 @@ import type { Hold } from "./runs.ts";
 
 const text = (value: string) => ({ content: [{ type: "text" as const, text: value }], details: null });
 
-/** Tools bound to the agent IO of the run in progress; `files`: the workspace, where browser tasks may be given files to upload. */
-export function tools(io: () => AgentIO, rules: Rules, files?: Workspace, hold?: Hold): ToolDefinition[] {
+/**
+ * Tools bound to the agent IO of the run in progress. `files`: the workspace, where browser tasks
+ * may be given files to upload; `hold`: how a helper waits on approvals; `appsSetup`: while apps
+ * are not set up, how the user sets them up (null once they are).
+ */
+export function tools(
+  io: () => AgentIO,
+  rules: Rules,
+  { files, hold, appsSetup }: { files?: Workspace | undefined; hold?: Hold; appsSetup?: (() => string | null) | undefined } = {},
+): ToolDefinition[] {
   return [
     defineTool({
       name: "recall",
@@ -104,6 +112,9 @@ export function tools(io: () => AgentIO, rules: Rules, files?: Workspace, hold?:
         title: Type.String({ description: "App name as the user knows it, e.g. 'Google Sheets'" }),
       }),
       async execute(_, { provider, title }) {
+        // no card that could not connect: the user sets apps up first
+        const setup = appsSetup?.();
+        if (setup) return text(`No card was shown. ${setup}`);
         const result = io().act({ kind: "connect", provider, title });
         return text(result.ok ? `Asked the user to connect ${title}. Continue once they have.` : `Could not ask: ${describe(result.rejection)}.`);
       },
