@@ -52,7 +52,11 @@ export default function App() {
   const [where, setWhere] = useState<Connection | null>(null);
   useEffect(() => void connection().then(setWhere), []);
   if (!where) return null;
-  return where.kind === "locked" ? <Unlock ready={where.ready} /> : <Chat where={where} />;
+  return where.kind === "locked" ? (
+    <Unlock ready={where.ready} />
+  ) : (
+    <Chat where={where} />
+  );
 }
 
 function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
@@ -74,15 +78,24 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
     () => (where.kind === "server" ? serverFiles(where.rpc) : null),
     [where],
   );
-  // on a server with no chat model chosen yet, the chat says where to choose one (asked again as settings close)
+  // on a server, what is not set up yet (asked again as settings close): with no chat model, the chat
+  // says where to choose one; with no apps' key, a Connect card opens the settings where it goes
   const [needsModel, setNeedsModel] = useState(false);
+  const [needsAppsKey, setNeedsAppsKey] = useState(false);
   useEffect(() => {
     if (where.kind !== "server" || ui.settings.open) return;
     session.call("keys.list", {}).then(
-      (keys) => setNeedsModel(keys.chat === null),
+      (keys) => {
+        setNeedsModel(keys.chat === null);
+        setNeedsAppsKey(
+          keys.providers.some((p) => p.use === "apps" && !p.connected),
+        );
+      },
       () => {},
     );
   }, [session, where.kind, ui.settings.open]);
+  const needsAppsKeyRef = useRef(needsAppsKey);
+  needsAppsKeyRef.current = needsAppsKey;
   /** the chat on screen, for actions made once (sending goes where the user is now) */
   const chatRef = useRef(ui.chat);
   chatRef.current = ui.chat;
@@ -133,6 +146,18 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         call("approval.resolve", { id, resolution }),
       openExplainer: (explainer) => patch((u) => ({ ...u, explainer })),
       connect: (id) => {
+        // apps are not set up yet: the card leads to where their key goes
+        if (needsAppsKeyRef.current)
+          return patch((u) => ({
+            ...u,
+            explainer: null,
+            settings: {
+              open: true,
+              section: "connectors",
+              app: null,
+              provider: null,
+            },
+          }));
         patch((u) => ({ ...u, explainer: null }));
         // open the tab now, inside the click, so mobile browsers do not block it; point it at the link once known
         const tab = window.open("about:blank", "_blank");

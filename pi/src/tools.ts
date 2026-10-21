@@ -112,10 +112,11 @@ export function tools(
         title: Type.String({ description: "App name as the user knows it, e.g. 'Google Sheets'" }),
       }),
       async execute(_, { provider, title }) {
-        // no card that could not connect: the user sets apps up first
-        const setup = appsSetup?.();
-        if (setup) return text(`No card was shown. ${setup}`);
         const result = io().act({ kind: "connect", provider, title });
+        // before apps are set up, the card leads to the settings where their key goes
+        const setup = appsSetup?.();
+        if (result.ok && setup)
+          return text(`Showed a Connect card for ${title}. Apps are not set up yet, so tapping it opens the settings where the Composio key goes; once the key is in, the same card connects ${title}. ${setup}`);
         return text(result.ok ? `Asked the user to connect ${title}. Continue once they have.` : `Could not ask: ${describe(result.rejection)}.`);
       },
     }),
