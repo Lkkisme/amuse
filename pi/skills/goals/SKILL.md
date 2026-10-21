@@ -30,7 +30,7 @@ Those schedules show on the goal's page; they rest (their runs are skipped) whil
   - `muted: true` while the user muted it.
 - `log.md`: `# Log`, then one note each day it moved, oldest first, appended at the end: `## YYYY-MM-DD · <Progress|Research|...>` and a few lines under it. Links go in the note they came up in.
 
-The user sees the goals in the Amuse panel (Goals), each on a page of its own: the document, its schedules, the log. They can add, mute, finish and reopen goals there.
+The user sees the goals in the sidebar (Goals), each on a page of its own: the document, its schedules, the log. They can add, mute, finish and reopen goals there.
 
 **Adding.** When the user says they want to work toward something (or agrees when you ask whether to keep it as a goal), write its GOAL.md as above, with today's day, and say so in a short line. Do not make a goal of something they mentioned in passing. Offer the schedules that would serve it, and set them up only if they want them.
 

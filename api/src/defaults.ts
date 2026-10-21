@@ -86,7 +86,7 @@ export const defaultSchedules: DefaultSchedule[] = [
       "1) A job the user has had you do more than once, or shown you how they want done (the steps, the sites and accounts, what to check), that no skill covers yet: write it down as a skill, skills/<name>/SKILL.md, the way the files skill says. Only what actually happened and what the user said; do not make up steps.",
       "2) A skill of theirs that no longer holds: a step that failed while you followed it, a site that changed, an app action it names that is gone (app_tools). Fix it in place.",
       "Do not touch the built-in skills, and do not delete a skill: that is the user's call.",
-      "A skill changes how you work from then on, so when you wrote or changed one, report once: each skill, in one line, what it is for, and that it can be changed or deleted in skills/ in Files. Otherwise stay silent.",
+      "A skill changes how you work from then on, so when you wrote or changed one, report once: each skill, in one line, what it is for, and that they can see it, or remove it, in Skills in the sidebar. Otherwise stay silent.",
     ].join("\n"),
   },
 ];

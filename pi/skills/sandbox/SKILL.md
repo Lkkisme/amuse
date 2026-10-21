@@ -7,7 +7,7 @@ description: Your own computer for running programs: shell commands, installing 
 
 You have a machine of your own: Debian Linux in a container, with git, curl, python3 (venv, pip), node and npm, a C compiler, ripgrep and jq. You are a normal user, `amuse`, with passwordless sudo. Inside it you are free: install what you need, run what you like, and change the system without asking the user. What reaches the user or the world is still theirs to approve, as everywhere else (sending, publishing, paying).
 
-**Run a command** with `run_command`: it waits and gives the output and how it ended. It starts in the workspace, the same files as `list_files` shows, so what you make there is what the user sees in Files. Give a `timeout` (up to 10 minutes) for slow work. Nothing can answer a question, so use `-y` and other non-interactive flags; stdin is empty.
+**Run a command** with `run_command`: it waits and gives the output and how it ended. It starts in the workspace, the same files as `list_files` shows; the user sees a file you make there once you send it to them (`send_file`). Give a `timeout` (up to 10 minutes) for slow work. Nothing can answer a question, so use `-y` and other non-interactive flags; stdin is empty.
 
 **Install software** with `sudo apt-get install -y <package>`. Prefer per-user installs for what you can: `pip install --user <package>` or a venv (`python3 -m venv .venv`), and `npm install -g <package>` (it goes to your home). Those live in your home, which is kept when the machine is recreated (an update of Amuse does that); `apt` packages are not, so before relying on one, check it is still there (`command -v <tool>`).
 
