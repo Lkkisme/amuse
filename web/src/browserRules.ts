@@ -1,5 +1,10 @@
 /** The browser's kinds of action as Settings › Permissions names them (see core/policy.ts for what they mean). */
-import type { BrowserAction, Permission, SiteActions } from "@amuse/protocol";
+import type {
+  BrowserAction,
+  Permission,
+  SiteActions,
+  SiteEntry,
+} from "@amuse/protocol";
 
 export const ACTIONS: {
   id: BrowserAction;
@@ -56,3 +61,18 @@ export const summary = (rule: {
         const set = rule.actions[a.id];
         return set ? [`${a.short}: ${permissionName[set]}`] : [];
       }).join(" · ");
+
+/**
+ * What adding a website that may have exceptions already leaves: its Never stays (adding cannot lift it), and each action set now
+ * replaces the one it had; the others stay as they were. Nothing set before is lost.
+ */
+export function mergedEntry(
+  existing: SiteEntry | null,
+  added: SiteEntry,
+): SiteEntry {
+  const never = (existing?.never ?? false) || added.never;
+  const actions: SiteActions = never
+    ? {}
+    : { ...existing?.actions, ...added.actions };
+  return { never, actions };
+}

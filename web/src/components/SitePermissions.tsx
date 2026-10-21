@@ -19,7 +19,7 @@ import {
   type SiteEntry,
   type SiteRule,
 } from "@amuse/protocol";
-import { ACTIONS, summary } from "../browserRules.ts";
+import { ACTIONS, mergedEntry, summary } from "../browserRules.ts";
 import { ActionSelect, PermissionSelect } from "./PermissionSelect";
 import { Sheet } from "./Sheet";
 
@@ -170,7 +170,11 @@ export function SitePermissions({
     if (!site) return setError(`“${draft}” is not a website address.`);
     if (!fresh)
       return setError("Choose Never visit, or set at least one action.");
-    void permit(site, fresh);
+    // a website that has exceptions already keeps them (a Never above all): what is set here is added to them
+    void permit(
+      site,
+      mergedEntry(rules?.find((r) => r.site === site) ?? null, fresh),
+    );
     cancel();
   };
   const open = rules?.find((r) => r.site === editing) ?? null;

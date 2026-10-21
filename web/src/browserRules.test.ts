@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ACTIONS, summary } from "./browserRules.ts";
+import type { SiteActions } from "@amuse/protocol";
+import { ACTIONS, mergedEntry, summary } from "./browserRules.ts";
 
 test("a website's exceptions are summed up in a line: Never, or each action set, in the order the browser lists them", () => {
   assert.equal(summary({ never: true, actions: {} }), "Never");
@@ -31,4 +32,33 @@ test("the four actions are listed, and an upload cannot be allowed", () => {
   ]);
   for (const a of ACTIONS.filter((a) => a.id !== "upload"))
     assert.deepEqual(a.options, ["allow", "ask", "deny"]);
+});
+
+test("adding a website that has exceptions keeps them: a Never stays, what is set now replaces only the same action", () => {
+  const entry = (actions: SiteActions, never = false) => ({ never, actions });
+  assert.deepEqual(
+    mergedEntry(null, entry({ submit: "allow" })),
+    entry({ submit: "allow" }),
+  );
+  assert.deepEqual(
+    mergedEntry(entry({}, true), entry({ submit: "allow" })),
+    entry({}, true),
+    "a migrated Never is not dropped",
+  );
+  assert.deepEqual(
+    mergedEntry(
+      entry({ download: "deny", submit: "ask" }),
+      entry({ submit: "allow" }),
+    ),
+    entry({ download: "deny", submit: "allow" }),
+  );
+  assert.deepEqual(
+    mergedEntry(entry({ submit: "ask" }), entry({}, true)),
+    entry({}, true),
+    "adding a Never makes it never",
+  );
+  assert.deepEqual(
+    mergedEntry(entry({ visit: "allow" }), entry({})),
+    entry({ visit: "allow" }),
+  );
 });
