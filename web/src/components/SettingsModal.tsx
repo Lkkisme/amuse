@@ -1,8 +1,9 @@
 /**
- * Settings modal (surfaces 7, 8, 9, 10): left nav + section pane — General,
- * Connectors (the server's app directory: Connectors.tsx), Permissions (global
- * defaults + per-site Allow/Ask/Deny) and Secure store (credential list +
- * add-credential form). Modeled on the reference settings sheet.
+ * Settings (surfaces 7, 9, 10): a page on a phone, a modal with a nav column on
+ * a desktop — General, Connectors (the server's app directory: Connectors.tsx),
+ * Permissions (per-site Allow/Ask/Deny) and Schedules. Modeled on the reference
+ * settings sheet. (Muse's secure store is left out: the browser keeps logins
+ * from the user's own sign-ins instead.)
  */
 import { useEffect, useState } from "react";
 import {
@@ -11,14 +12,12 @@ import {
   Check,
   Globe,
   LayoutGrid,
-  Lock,
   Plus,
   Settings as SettingsIcon,
   Shield,
   X,
   CalendarClock,
 } from "lucide-react";
-import type { SettingsData } from "../demo/settings.ts";
 import type { Session } from "@remuse/protocol";
 import type { Actions, SettingsSection, Theme, Ui } from "../ui.ts";
 import { THEMES } from "../theme.ts";
@@ -33,138 +32,9 @@ const NAV: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
   { id: "connectors", label: "Connectors", icon: <LayoutGrid size={18} /> },
   { id: "permissions", label: "Permissions", icon: <Shield size={18} /> },
   { id: "schedules", label: "Schedules", icon: <CalendarClock size={18} /> },
-  { id: "secure-store", label: "Secure store", icon: <Lock size={18} /> },
 ];
 
-/* ---------------- Secure store ---------------- */
-
-function SecureStoreSection({
-  data,
-  actions,
-  adding,
-  onAdded,
-}: {
-  data: SettingsData;
-  actions: Actions;
-  adding: boolean;
-  onAdded: () => void;
-}) {
-  const [domain, setDomain] = useState("");
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-
-  const submit = () => {
-    if (!domain.trim()) return;
-    actions.addCredential(domain.trim(), username.trim() || "—");
-    setDomain("");
-    setUsername("");
-    setPassword("");
-    onAdded();
-  };
-
-  return (
-    <div className="flex-1 overflow-y-auto px-5 pb-6 sm:px-6">
-      <p className="text-[14px]" style={{ color: "var(--text-secondary)" }}>
-        Securely store passwords for your agent to use.
-      </p>
-
-      {adding && (
-        <div
-          className="anim-fade-in mt-4 space-y-2.5 rounded-[18px] p-4"
-          style={{ background: "var(--fill-secondary)" }}
-        >
-          {[
-            {
-              label: "Website / domain",
-              value: domain,
-              set: setDomain,
-              type: "text",
-            },
-            {
-              label: "Username",
-              value: username,
-              set: setUsername,
-              type: "text",
-            },
-            {
-              label: "Password",
-              value: password,
-              set: setPassword,
-              type: "password",
-            },
-          ].map((f, i) => (
-            <label key={f.label} className="block">
-              <span
-                className="mb-1 block text-[12px]"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                {f.label}
-              </span>
-              <input
-                type={f.type}
-                autoFocus={i === 0}
-                className="w-full rounded-[10px] border-0 px-3 py-2 text-[15px] outline-none"
-                style={{
-                  background: "var(--field)",
-                  color: "var(--text-primary)",
-                }}
-                value={f.value}
-                onChange={(e) => f.set(e.target.value)}
-              />
-            </label>
-          ))}
-          <button
-            className="h-10 w-full rounded-full text-[15px] font-semibold text-white"
-            style={{ background: "var(--fill-blue)" }}
-            onClick={submit}
-          >
-            Save
-          </button>
-        </div>
-      )}
-
-      <p
-        className="mb-2 mt-6 px-1 text-[13px] font-medium"
-        style={{ color: "var(--text-secondary)" }}
-      >
-        Logins
-      </p>
-      <div
-        className="overflow-hidden rounded-[18px] px-4"
-        style={{ background: "var(--fill-secondary)" }}
-      >
-        {data.credentials.length === 0 && (
-          <p
-            className="py-3.5 text-[15px]"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            None yet. Add one with +.
-          </p>
-        )}
-        {data.credentials.map((c, i) => (
-          <div
-            key={c.id}
-            className="flex items-center gap-3 py-3.5"
-            style={{
-              borderTop: i === 0 ? undefined : "1px solid var(--fill-divider)",
-            }}
-          >
-            <span
-              className="min-w-0 flex-1 truncate text-[16px]"
-              style={{ color: "var(--text-primary)" }}
-            >
-              {c.domain}
-            </span>
-            <ChevronRight
-              size={16}
-              style={{ color: "var(--icon-secondary)" }}
-            />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+/* ---------------- General ---------------- */
 
 const themeName: Record<Theme, string> = { system: "Match system", light: "Light", dark: "Dark" };
 
@@ -217,13 +87,11 @@ function GeneralSection({
 export function SettingsModal({
   ui,
   theme,
-  data,
   session,
   actions,
 }: {
   ui: Ui["settings"];
   theme: Theme;
-  data: SettingsData;
   /** the server, for the parts of settings that are its (connectors) */
   session: Session;
   actions: Actions;
@@ -243,12 +111,7 @@ export function SettingsModal({
     : ui.app
       ? ui.app.name
       : (NAV.find((n) => n.id === section)?.label ?? "");
-  const adds =
-    !ui.app && (shown === "permissions" || shown === "secure-store")
-      ? shown === "permissions"
-        ? "Add a website"
-        : "Add a login"
-      : null;
+  const adds = !ui.app && shown === "permissions" ? "Add a website" : null;
   const add = adds && (
     <button
       aria-label={adds}
@@ -389,14 +252,6 @@ export function SettingsModal({
             />
           )}
           {shown === "schedules" && <Schedules session={session} />}
-          {shown === "secure-store" && (
-            <SecureStoreSection
-              data={data}
-              actions={actions}
-              adding={adding}
-              onAdded={() => setAdding(false)}
-            />
-          )}
           {shown === "general" && (
             <GeneralSection theme={theme} actions={actions} />
           )}

@@ -3,9 +3,8 @@
  * the conversation (session.ts); this never duplicates it, only ids into it.
  */
 import { type App, type Attachment, MAIN } from "@remuse/protocol";
-import type { SettingsData } from "./demo/settings.ts";
 
-export type SettingsSection = "general" | "connectors" | "permissions" | "schedules" | "secure-store";
+export type SettingsSection = "general" | "connectors" | "permissions" | "schedules";
 
 import type { Theme } from "./theme.ts";
 
@@ -74,9 +73,7 @@ export interface Actions {
   /** Settings › Connectors: an app's page, or back to the list (null) */
   openApp(app: App | null): void;
   closeSettings(): void;
-  addCredential(domain: string, username: string): void;
   setTheme(theme: Theme): void;
   reset(): void;
 }
 
-export type { SettingsData };

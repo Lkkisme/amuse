@@ -8,7 +8,6 @@ import { connect } from "@remuse/api/client";
 import { createHost, realTimers } from "@remuse/core";
 import { demoPorts, seed } from "@remuse/demo";
 import { MAIN, type Method, type Params, type Session } from "@remuse/protocol";
-import { seedSettings } from "./demo/settings.ts";
 import { type Connection, connection } from "./connection.ts";
 import { useChats, useConversation } from "./session.ts";
 import { applyTheme, storedTheme } from "./theme.ts";
@@ -82,7 +81,6 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
   }, [chats, ui.chat]);
   const museOpen = useRef(ui.museOpen);
   museOpen.current = ui.museOpen;
-  const [settings, setSettings] = useState(seedSettings);
 
   useEffect(() => applyTheme(ui.theme), [ui.theme]);
 
@@ -214,20 +212,11 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         patch((u) => ({ ...u, settings: { ...u.settings, app } })),
       closeSettings: () =>
         patch((u) => ({ ...u, settings: { ...u.settings, open: false } })),
-      addCredential: (domain, username) =>
-        setSettings((s) => ({
-          ...s,
-          credentials: [
-            ...s.credentials,
-            { id: `cred${s.credentials.length + 1}`, domain, username },
-          ],
-        })),
       setTheme: (theme) => patch((u) => ({ ...u, theme })),
       reset: () => {
         link.close();
         setLink(openSession(where));
         setUi((u) => ({ ...initialUi, theme: u.theme }));
-        setSettings(seedSettings());
       },
     };
   }, [session, link, conversation]);
@@ -316,7 +305,6 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         <SettingsModal
           ui={ui.settings}
           theme={ui.theme}
-          data={settings}
           session={session}
           actions={actions}
         />
