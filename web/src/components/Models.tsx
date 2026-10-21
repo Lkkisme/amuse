@@ -170,7 +170,12 @@ export function Models({
       )}
 
       <p className={label} style={{ color: "var(--text-secondary)" }}>
-        {mine.length > 0 ? "Add a provider" : "Choose a provider to start"}
+        {/* until the list is in, nothing is said about what is set up */}
+        {state === null
+          ? "Providers"
+          : mine.length > 0
+            ? "Add a provider"
+            : "Choose a provider to start"}
       </p>
       <label
         className="mb-2 flex items-center gap-2 rounded-full px-4 py-2.5"
