@@ -343,6 +343,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           conversation={conversation}
           viewer={ui.viewer}
           live={where.kind === "server" ? where.live : null}
+          thumb={where.kind === "server" ? where.thumb : null}
           onResize={(edge) => setViewerWidth(clampViewer(innerWidth - edge))}
           actions={actions}
         />

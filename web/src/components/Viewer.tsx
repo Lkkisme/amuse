@@ -8,7 +8,8 @@
  *   paused                  "You're in control" · host           Stop + Done (hand back)
  *   completed               title · "Completed · host"           Take control
  *   failed/stopped          title · "<status> · host"
- * Below it, one tab per run whose browser is still there (check icon when completed), then
+ * Below it, one rounded tab per run whose browser is still there (check icon when completed;
+ * on a phone they fold into a count that opens them as cards), then
  * the live browser (or, in the demo, a fake Chrome window). A run whose browser is gone is
  * only a card in the chat; with none left, the viewer says so.
  */
@@ -25,6 +26,7 @@ import {
   RotateCw,
   X,
 } from "lucide-react";
+import { useState } from "react";
 import type { Browser, State } from "@remuse/protocol";
 import type { Actions, Ui } from "../ui.ts";
 import {
@@ -36,6 +38,7 @@ import {
   viewerRun,
   viewerTabs,
 } from "../view.ts";
+import { PagePreview } from "./cards";
 import { LiveView } from "./LiveView";
 import { useLastValue, usePresence } from "./usePresence";
 
@@ -43,6 +46,7 @@ export function Viewer({
   conversation,
   viewer: open,
   live,
+  thumb,
   onResize,
   actions,
 }: {
@@ -50,12 +54,16 @@ export function Viewer({
   viewer: Ui["viewer"];
   /** live view URL for a run, when a server with real browsers is attached */
   live: ((id: string) => string) | null;
+  /** a screenshot URL for a run, likewise */
+  thumb: ((id: string) => string) | null;
   /** desktop: the user drags the left edge; this gets where the edge is (client x) */
   onResize: (edge: number) => void;
   actions: Actions;
 }) {
   const { mounted, closing, onAnimationEnd } = usePresence(open !== null);
   const viewer = useLastValue(open);
+  // phone: every browser open, as cards over the viewer
+  const [overview, setOverview] = useState(false);
   if (!mounted || !viewer) return null;
   const browser = viewerRun(conversation, viewer);
   const tabs = viewerTabs(conversation);
@@ -72,8 +80,22 @@ export function Viewer({
       <ResizeEdge onResize={onResize} />
       {browser ? (
         <>
-          <ViewerHeader browser={browser} actions={actions} />
+          <ViewerHeader
+            browser={browser}
+            count={tabs.length}
+            onOverview={() => setOverview(true)}
+            actions={actions}
+          />
           <RunTabs tabs={tabs} activeId={browser.id} actions={actions} />
+          {overview && (
+            <Overview
+              tabs={tabs}
+              activeId={browser.id}
+              thumb={thumb}
+              onClose={() => setOverview(false)}
+              actions={actions}
+            />
+          )}
           {live ? (
             <LivePage
               key={browser.id}
@@ -151,9 +173,14 @@ function ResizeEdge({ onResize }: { onResize: (edge: number) => void }) {
 
 function ViewerHeader({
   browser,
+  count,
+  onOverview,
   actions,
 }: {
   browser: Browser;
+  /** how many browsers are open */
+  count: number;
+  onOverview: () => void;
   actions: Actions;
 }) {
   const user = browser.status === "paused";
@@ -187,6 +214,22 @@ function ViewerHeader({
         </p>
       </div>
 
+      {/* phone: the tabs fold into their count */}
+      <button
+        aria-label={`${count} browsers open`}
+        className="hover-fade flex size-9 shrink-0 items-center justify-center lg:hidden"
+        onClick={onOverview}
+      >
+        <span
+          className="flex size-[22px] items-center justify-center rounded-[6px] text-[12px] font-semibold tabular-nums"
+          style={{
+            border: "2px solid var(--icon-primary)",
+            color: "var(--icon-primary)",
+          }}
+        >
+          {count}
+        </span>
+      </button>
       {stoppable(browser) && (
         <button
           aria-label="Stop"
@@ -225,7 +268,13 @@ function ViewerHeader({
   );
 }
 
-/** One tab per browser run open in the viewer. */
+const tabIcon = (tab: Browser) =>
+  tab.status === "completed" ||
+  (tab.status === "idle" && tab.outcome === "completed")
+    ? CircleCheck
+    : Globe;
+
+/** Desktop: one rounded button per browser open, and one for a new browser. */
 function RunTabs({
   tabs,
   activeId,
@@ -236,17 +285,10 @@ function RunTabs({
   actions: Actions;
 }) {
   return (
-    <div
-      className="flex items-end gap-1 overflow-x-auto px-2 pt-2"
-      style={{ background: "var(--bg-secondary)" }}
-    >
+    <div className="hidden items-center gap-1.5 overflow-x-auto px-3 pb-2 [scrollbar-width:none] lg:flex">
       {tabs.map((tab) => {
         const selected = tab.id === activeId;
-        const Icon =
-          tab.status === "completed" ||
-          (tab.status === "idle" && tab.outcome === "completed")
-            ? CircleCheck
-            : Globe;
+        const Icon = tabIcon(tab);
         return (
           <div
             key={tab.id}
@@ -256,10 +298,13 @@ function RunTabs({
                     el?.scrollIntoView({ block: "nearest", inline: "nearest" })
                 : undefined
             }
-            className="flex h-10 w-[190px] shrink-0 items-center gap-2 rounded-t-[10px] pl-3 pr-1.5 text-[13px]"
+            className="flex h-9 w-[190px] shrink-0 items-center gap-2 rounded-[10px] pl-3 pr-1.5 text-[13px]"
             style={{
-              background: selected ? "var(--segment-selected)" : "transparent",
+              background: selected
+                ? "var(--segment-selected)"
+                : "var(--fill-secondary)",
               color: selected ? "var(--text-primary)" : "var(--text-secondary)",
+              boxShadow: selected ? "var(--shadow-float)" : undefined,
             }}
           >
             <button
@@ -282,12 +327,124 @@ function RunTabs({
       {/* a browser of the user's own, theirs from the start (it counts against the browsers there are) */}
       <button
         aria-label="New browser"
-        className="hover-fade mb-1 flex size-8 shrink-0 items-center justify-center self-center rounded-full"
+        className="hover-fade flex size-9 shrink-0 items-center justify-center rounded-[10px]"
         style={{ color: "var(--icon-secondary)" }}
         onClick={actions.newBrowser}
       >
         <Plus size={16} />
       </button>
+    </div>
+  );
+}
+
+/**
+ * Phone: every browser open as a card with its page, over the viewer; one
+ * picked is shown, and the last, empty card opens a new browser.
+ */
+function Overview({
+  tabs,
+  activeId,
+  thumb,
+  onClose,
+  actions,
+}: {
+  tabs: Browser[];
+  activeId: string;
+  thumb: ((id: string) => string) | null;
+  onClose: () => void;
+  actions: Actions;
+}) {
+  return (
+    <div
+      className="anim-fade-in fixed inset-0 z-10 flex flex-col lg:hidden"
+      style={{ background: "var(--bg-primary)" }}
+    >
+      <header className="flex items-center gap-2 py-2 pl-4 pr-3">
+        <p
+          className="flex-1 text-[15px] font-semibold"
+          style={{ color: "var(--text-primary)" }}
+        >
+          Browsers
+        </p>
+        <button
+          className="hover-fade h-9 rounded-full px-3 text-[15px] font-medium"
+          style={{ color: "var(--fill-blue)" }}
+          onClick={onClose}
+        >
+          Done
+        </button>
+        {/* the corner is the browser button's */}
+        <span className="size-11 shrink-0" />
+      </header>
+      <div className="grid flex-1 auto-rows-min grid-cols-2 gap-3 overflow-y-auto px-4 pb-6 pt-2 [scrollbar-width:none]">
+        {tabs.map((tab) => {
+          const selected = tab.id === activeId;
+          const Icon = tabIcon(tab);
+          return (
+            <div key={tab.id} className="anim-popover-in flex flex-col gap-1.5">
+              <div
+                className="relative aspect-[3/4] overflow-hidden rounded-[14px]"
+                style={{
+                  background: "var(--fill-secondary)",
+                  boxShadow: "var(--shadow-float)",
+                  outline: selected
+                    ? "2.5px solid var(--fill-blue)"
+                    : undefined,
+                  outlineOffset: 2,
+                }}
+              >
+                <button
+                  aria-label={`Show the browser at ${host(tab.url)}`}
+                  className="absolute inset-0"
+                  onClick={() => {
+                    actions.selectTab(tab.id);
+                    onClose();
+                  }}
+                >
+                  <PagePreview id={tab.id} thumb={thumb} live />
+                </button>
+                <button
+                  aria-label={`Close the browser at ${host(tab.url)}`}
+                  className="absolute right-1.5 top-1.5 flex size-7 items-center justify-center rounded-full"
+                  style={{ background: "rgba(0,0,0,0.55)", color: "#fff" }}
+                  onClick={() => actions.closeTab(tab.id)}
+                >
+                  <X size={14} strokeWidth={2.5} />
+                </button>
+              </div>
+              <p
+                className="flex min-w-0 items-center justify-center gap-1.5 px-1 text-[13px]"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                <Icon size={12} className="shrink-0" />
+                <span className="truncate">{host(tab.url)}</span>
+              </p>
+            </div>
+          );
+        })}
+        <div className="anim-popover-in flex flex-col gap-1.5">
+          <button
+            aria-label="New browser"
+            className="hover-fade flex aspect-[3/4] items-center justify-center rounded-[14px]"
+            style={{
+              background: "var(--fill-secondary)",
+              color: "var(--icon-secondary)",
+            }}
+            onClick={() => {
+              actions.newBrowser();
+              onClose();
+            }}
+          >
+            <Plus size={28} />
+          </button>
+          <p
+            className="text-center text-[13px]"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            New browser
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
