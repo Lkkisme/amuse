@@ -165,7 +165,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           const last = viewerTabs(conversation)
             .filter((b) => b.id !== browserId)
             .at(-1);
-          if (!last) return { ...u, viewer: null };
+          // the last one closed: the viewer stays, saying none is open
+          if (!last) return { ...u, viewer: { browserId: null } };
           return {
             ...u,
             viewer: {
