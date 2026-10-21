@@ -1,5 +1,5 @@
 /**
- * The Amuse panel's Goals: what the user is working toward (core goals.ts),
+ * The sidebar's Goals: what the user is working toward (core goals.ts),
  * each with its latest note, Amuse's from the night or from the chat. Add one
  * with +; a tap opens its page (GoalPage.tsx). Done ones stay below.
  */

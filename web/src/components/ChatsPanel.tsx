@@ -1,15 +1,16 @@
 /**
- * The sidebar: the user's things, on the left. Page entries at the top
- * (Goals, Settings; nav.ts), then the chats: search, the main chat, side
- * chats (+ opens one), most recently used first; a side chat's row renames
- * or deletes it. Goals opens inside it: the list, then a goal's page.
+ * The sidebar: the user's things, on the left. The pages at the top (Chats,
+ * Goals, Settings; nav.ts), and under them the page shown: the chats (search,
+ * the main chat, side chats (+ opens one), most recently used first; a side
+ * chat's row renames or deletes it), or the goals (the list, then a goal's
+ * page over it).
  *   docked  beside the chat while there is room (☰ collapses it)
  *   drawer  over the chat from the left (☰ opens and closes it): the phone's
  *           drawer; on a desktop without room to dock it, a floating window
  *           like the Muse panel's
  */
 import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, MessageCircle, MoreHorizontal, Plus, Search } from "lucide-react";
+import { MessageCircle, MoreHorizontal, Plus, Search } from "lucide-react";
 import { type Chat, MAIN, type Session } from "@amuse/protocol";
 import type { Actions, LeftSection } from "../ui.ts";
 import { NAV_PAGES } from "./nav";
@@ -77,42 +78,17 @@ export function DrawerSidebar({ open, ...props }: SidebarProps & { open: boolean
 }
 
 function SidebarContent({ chats, current, left, goal, session, actions }: SidebarProps) {
-  if (left === "goals")
-    return (
-      <>
-        <button
-          className="hover-fade mt-2 flex h-9 w-fit shrink-0 items-center gap-1 rounded-full pl-1 pr-3 text-[15px] font-medium"
-          style={{ color: "var(--text-secondary)" }}
-          onClick={() => actions.openLeft(null)}
-        >
-          <ChevronLeft size={20} />
-          Chats
-        </button>
-        <div className="-mx-3 flex min-h-0 flex-1 flex-col">
-          <Goals session={session} onOpen={(id) => actions.openGoal(id)} />
-        </div>
-        {goal !== null && <GoalPage key={goal} session={session} id={goal} onBack={() => actions.openGoal(null)} />}
-      </>
-    );
-  return <ChatList chats={chats} current={current} left={left} actions={actions} />;
-}
-
-function ChatList({ chats, current, left, actions }: { chats: Chat[]; current: string; left: LeftSection | null; actions: Actions }) {
-  const [query, setQuery] = useState("");
-  const q = query.trim().toLowerCase();
-  const main = chats.find((c) => c.id === MAIN);
-  const sides = chats.filter((c) => c.id !== MAIN && (!q || named(c).toLowerCase().includes(q)));
   return (
     <>
-      {/* the pages, Settings last */}
-      <nav className="mt-3 grid grid-cols-3 gap-1" aria-label="Pages">
-        {NAV_PAGES.map(({ icon: Icon, label, section, open }) => (
+      <nav className="mt-3 grid shrink-0 grid-cols-3 gap-1" aria-label="Pages">
+        {NAV_PAGES.map(({ icon: Icon, label, shown, open }) => (
           <button
             key={label}
+            aria-current={shown(left) ? "page" : undefined}
             className="hover-fade flex flex-col items-center gap-1 rounded-xl py-2.5 text-[12px] font-medium"
             style={{
-              background: section !== null && section === left ? "var(--fill-secondary)" : "transparent",
-              color: section !== null && section === left ? "var(--text-primary)" : "var(--text-secondary)",
+              background: shown(left) ? "var(--fill-secondary)" : "transparent",
+              color: shown(left) ? "var(--text-primary)" : "var(--text-secondary)",
             }}
             onClick={() => open(actions)}
           >
@@ -121,7 +97,27 @@ function ChatList({ chats, current, left, actions }: { chats: Chat[]; current: s
           </button>
         ))}
       </nav>
+      {left === "goals" ? (
+        <>
+          <div className="-mx-3 flex min-h-0 flex-1 flex-col">
+            <Goals session={session} onOpen={(id) => actions.openGoal(id)} />
+          </div>
+          {goal !== null && <GoalPage key={goal} session={session} id={goal} onBack={() => actions.openGoal(null)} />}
+        </>
+      ) : (
+        <ChatList chats={chats} current={current} actions={actions} />
+      )}
+    </>
+  );
+}
 
+function ChatList({ chats, current, actions }: { chats: Chat[]; current: string; actions: Actions }) {
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+  const main = chats.find((c) => c.id === MAIN);
+  const sides = chats.filter((c) => c.id !== MAIN && (!q || named(c).toLowerCase().includes(q)));
+  return (
+    <>
       {/* search sits on the list it filters */}
       <div className="mt-3 flex h-10 shrink-0 items-center gap-2 rounded-full px-3" style={{ background: "var(--fill-secondary)", color: "var(--text-tertiary)" }}>
         <Search size={16} />
