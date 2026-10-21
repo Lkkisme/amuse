@@ -42,15 +42,27 @@ interface SidebarProps {
   actions: Actions;
 }
 
-/** Beside the chat, while there is room. */
-export function DockedSidebar(props: SidebarProps) {
+/** Beside the chat, while there is room: it opens and closes by its width, the chat giving way as it goes. */
+export function DockedSidebar({ open, ...props }: SidebarProps & { open: boolean }) {
   return (
     <aside
-      className="relative hidden h-full shrink-0 flex-col border-r p-3 md:flex"
-      style={{ width: SIDEBAR_WIDTH, background: "var(--chat-background)", borderColor: "var(--fill-divider)" }}
+      className="relative hidden h-full shrink-0 overflow-hidden md:block"
+      style={{
+        width: open ? SIDEBAR_WIDTH : 0,
+        // hidden (out of the tab order) once it has closed, shown at once as it opens
+        visibility: open ? "visible" : "hidden",
+        transition: `width 0.24s cubic-bezier(0.2, 0, 0, 1), visibility 0s linear ${open ? "0s" : "0.24s"}`,
+        background: "var(--chat-background)",
+        borderRight: open ? "1px solid var(--fill-divider)" : "none",
+      }}
       aria-label="Sidebar"
     >
-      <SidebarContent {...props} />
+      {/* the content keeps its width while the sidebar's grows or shrinks */}
+      <div className="relative flex h-full flex-col p-3" style={{ width: SIDEBAR_WIDTH }}>
+        {/* room for the ☰ button, which stays at the window's top left */}
+        <div className="h-11 shrink-0" />
+        <SidebarContent {...props} />
+      </div>
     </aside>
   );
 }

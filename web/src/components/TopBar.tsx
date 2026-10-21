@@ -82,7 +82,8 @@ export function MenuButton({ open, onToggle }: { open: boolean; onToggle: () => 
     <button
       aria-label={open ? "Close menu" : "Open menu"}
       aria-expanded={open}
-      className="hover-fade absolute left-3 top-2 z-[45] flex size-11 items-center justify-center rounded-full"
+      // fixed to the window, not the chat: docked sidebar or not, it is in the same place to tap again
+      className="hover-fade fixed left-3 top-2 z-[45] flex size-11 items-center justify-center rounded-full"
       style={{ background: "var(--fill-primary)", color: "var(--text-primary)", boxShadow: "var(--shadow-float)" }}
       onClick={onToggle}
     >

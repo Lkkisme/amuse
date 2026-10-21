@@ -416,16 +416,16 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         className="flex h-full"
         style={{ background: "var(--chat-background)" }}
       >
-        {docked && (
-          <DockedSidebar
-            chats={chats}
-            current={ui.chat}
-            left={ui.left}
-            goal={ui.goal}
-            session={session}
-            actions={actions}
-          />
-        )}
+        {/* on a desktop, closing (by ☰, or giving way) as it opens: by its width */}
+        <DockedSidebar
+          open={docked}
+          chats={chats}
+          current={ui.chat}
+          left={ui.left}
+          goal={ui.goal}
+          session={session}
+          actions={actions}
+        />
         {/* with the viewer open on desktop, the chat keeps what the viewer leaves */}
         <div
           className={`relative flex min-w-0 flex-1 flex-col ${ui.viewer ? "lg:mr-[var(--viewer-width)]" : ""}`}
