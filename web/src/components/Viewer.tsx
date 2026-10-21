@@ -76,7 +76,7 @@ export function Viewer({
     <div
       onAnimationEnd={onAnimationEnd}
       // a page of its own on a phone; from lg, a rounded panel 8px in from the window's edges, like the sidebar
-      className={`${closing ? "anim-pane-to-right pointer-events-none" : "anim-pane-from-right"} fixed inset-0 z-50 flex flex-col bg-[var(--bg-primary)] lg:inset-y-2 lg:left-auto lg:right-2 lg:w-[var(--viewer-width)] lg:overflow-hidden lg:rounded-[24px] lg:bg-[var(--panel)] lg:shadow-[var(--shadow-panel)]`}
+      className={`${closing ? "anim-panel-out-right pointer-events-none" : "anim-panel-in-right"} fixed inset-0 z-50 flex flex-col bg-[var(--bg-primary)] lg:inset-y-2 lg:left-auto lg:right-2 lg:w-[var(--viewer-width)] lg:overflow-hidden lg:rounded-[24px] lg:bg-[var(--panel)] lg:shadow-[var(--shadow-panel)]`}
     >
       <ResizeEdge onResize={onResize} />
       {browser ? (

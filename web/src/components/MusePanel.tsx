@@ -9,7 +9,8 @@
  * Docked on the right; while the browser has the right, a floating window
  * over the chat instead; on a phone, a page of its own.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { usePresence } from "./usePresence";
 import { CalendarClock, CircleCheck, Clock, Globe, List, ListTodo, Plug, ShieldCheck, X } from "lucide-react";
 import type { Approval, Chat, Entity, Schedule, Session, State } from "@amuse/protocol";
 import { AppLogo } from "./AppLogo";
@@ -103,7 +104,7 @@ const frame: Record<MuseMode, string> = {
   // from md, a rounded panel 8px in from the window's edges, like the sidebar; above the chat's fades
   // (the composer's), so they do not cut its shadow
   docked:
-    "fixed inset-0 z-50 bg-[var(--bg-primary)] md:relative md:z-[25] md:my-2 md:mr-2 md:w-[360px] md:shrink-0 md:rounded-[24px] md:bg-[var(--panel)] md:shadow-[var(--shadow-panel)]",
+    "fixed inset-0 z-50 bg-[var(--bg-primary)] md:inset-y-2 md:left-auto md:right-2 md:z-[25] md:w-[360px] md:rounded-[24px] md:bg-[var(--panel)] md:shadow-[var(--shadow-panel)]",
   // over the chat while the browser is on the right (lg up): within what the chat has, beside a docked
   // sidebar (8px clear of it, of the window's edges and of the viewer)
   floating:
@@ -117,22 +118,36 @@ const TABS: { id: Tab; label: string; icon: typeof Globe }[] = [
   { id: "upcoming", label: "Upcoming", icon: Clock },
 ];
 
-export function MusePanel({ conversation, session, mode, actions }: { conversation: State; session: Session; mode: MuseMode; actions: Actions }) {
+export function MusePanel({ open, conversation, session, mode: asked, actions }: { open: boolean; conversation: State; session: Session; mode: MuseMode; actions: Actions }) {
+  const { mounted, closing, onAnimationEnd } = usePresence(open);
+  // closing, it leaves the way it was (docked, it slides out right even as the browser takes its place)
+  const kept = useRef(asked);
+  if (!closing) kept.current = asked;
+  const mode = kept.current;
   const working = conversation.activity !== null;
   const list = conversation.entities.flatMap((e) => done(e) ?? []).reverse();
   const [tab, setTab] = useState<Tab>("activity");
+
+  // where it travels (a phone), the transition takes it away at once
+  if (!mounted || (closing && travels())) return null;
+  const motion = travels() ? "" : mode === "docked" ? (closing ? "anim-panel-out-right" : "anim-panel-in-right") : closing ? "anim-popover-out" : "anim-popover-in";
 
   return (
     <>
       {/* floating, it dims the chat (not the browser beside it); a tap there closes it */}
       {mode === "floating" && (
-        <div className="anim-fade-in fixed inset-y-0 left-0 z-[54] bg-black/30" style={{ right: "var(--viewer-room)" }} onClick={() => actions.setMuse(false)} />
+        <div
+          className={`${closing ? "anim-fade-out" : "anim-fade-in"} fixed inset-y-0 left-0 z-[54] bg-black/30`}
+          style={{ right: "var(--viewer-room)" }}
+          onClick={() => actions.setMuse(false)}
+        />
       )}
       <aside
         aria-label="Amuse"
-        // where the avatar travels in, the panel comes in with it, in the same transition (index.css); a panel
-        // sliding on its own would move the avatar's landing place under it
-        className={`${frame[mode]} ${travels() ? "" : mode === "docked" ? "anim-pane-from-right" : "anim-popover-in"} flex flex-col overflow-hidden`}
+        onAnimationEnd={onAnimationEnd}
+        // on a phone, where the avatar travels in, the panel comes in with it, in the same transition (index.css); elsewhere
+        // it slides in whole, pushing the chat aside as the sidebar and the browser do
+        className={`${frame[mode]} ${motion} ${closing ? "pointer-events-none" : ""} flex flex-col overflow-hidden`}
         style={{
           viewTransitionName: `muse-panel-${mode}`,
           ...(mode === "floating" ? { boxShadow: "var(--shadow-sheet)" } : {}),

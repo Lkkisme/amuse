@@ -161,7 +161,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
   const right =
     ui.viewer && width >= 1024
       ? viewerWidth + 8
-      : ui.museOpen && !ui.viewer
+      : ui.museOpen && !ui.viewer && width >= 768
         ? 368
         : 0;
   /** room to dock the sidebar and leave the chat enough (md up) */
@@ -436,7 +436,13 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         />
         {/* with the viewer open on desktop, the chat keeps what the viewer leaves */}
         <div
-          className={`relative flex min-w-0 flex-1 flex-col ${ui.viewer ? "lg:mr-[calc(var(--viewer-width)+8px)]" : ""}`}
+          className="relative flex min-w-0 flex-1 flex-col"
+          // the right side's panel (the Amuse panel, or the browser) pushes the chat aside on the same curve as the
+          // sidebar on the left
+          style={{
+            marginRight: width >= 768 ? right : 0,
+            transition: "margin-right 0.24s cubic-bezier(0.2, 0, 0, 1)",
+          }}
         >
           <ChatFeed
             conversation={conversation}
@@ -501,14 +507,13 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           />
         </div>
 
-        {ui.museOpen && (
-          <MusePanel
-            conversation={conversation}
-            session={session}
-            mode={ui.viewer ? "floating" : "docked"}
-            actions={actions}
-          />
-        )}
+        <MusePanel
+          open={ui.museOpen}
+          conversation={conversation}
+          session={session}
+          mode={ui.viewer ? "floating" : "docked"}
+          actions={actions}
+        />
         <DrawerSidebar
           open={ui.chatsOpen && !docked}
           chats={chats}
