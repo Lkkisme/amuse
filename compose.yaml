@@ -2,7 +2,8 @@
 # set the password; models, keys and apps are set up in the app. The browser pool's secrets are
 # made on first start and kept in volumes. .env (optional) says where it listens.
 # Published on 127.0.0.1 unless AMUSE_PUBLISH_HOST says otherwise (e.g. your Tailscale IP).
-# The sandbox is a machine of Amuse's own (see README): its own network, shared with amuse alone, and no secrets.
+# The sandbox is a machine of Amuse's own (see README): its own network, shared with amuse alone, no secrets, and the
+# public internet is all it can reach.
 name: amuse # whatever the folder is called
 include:
   - compose.browsers.yaml
@@ -11,7 +12,7 @@ x-sandbox-image: &sandbox-image
   build:
     context: .
     dockerfile: sandbox/Dockerfile
-  image: amuse-sandbox:local
+  image: ${AMUSE_SANDBOX_IMAGE:-amuse-sandbox:local}
 
 services:
   amuse:
@@ -48,18 +49,21 @@ services:
 
   # Amuse's own machine. Its daemon (port 7070, as root) runs every command as the normal user `amuse` (uid 1000,
   # with passwordless sudo); the only way in is the `sandbox` network, shared with amuse and nothing else.
-  # It reaches the internet (this network is not internal) and holds none of amuse's secrets: no env_file, no
-  # /secrets, no Docker socket, not privileged, and only the capabilities sudo, apt and the daemon need. Only the
-  # workspace of amuse-data is mounted, not the rest of it, and what the agent reads as its own context (memory/,
-  # skills/) and what the user sent (user/) are read-only there: Amuse edits those with its own tools.
-  # sudo needs its setuid, so no-new-privileges is not set. Its disk use counts against the data volume.
-  # Limits can be changed in .env. A reset in Settings wipes its home folder; system-wide installs and /etc stay
-  # until the container is recreated: `docker compose up -d --force-recreate sandbox`.
+  # It reaches the public internet and nothing private (see sandbox-net) and holds none of amuse's secrets: no
+  # env_file, no /secrets, no Docker socket, not privileged, and only the capabilities sudo, apt and the daemon need
+  # (not NET_ADMIN: not even root here can change the network rules). Only the workspace of amuse-data is mounted,
+  # and what the agent reads as its own context (memory/, skills/) and what the user sent (user/) are read-only:
+  # Amuse edits those with its own tools. sudo needs its setuid, so no-new-privileges is not set. Its disk use
+  # counts against the data volume. Limits can be changed in .env. A reset in Settings wipes its home folder;
+  # system-wide installs and /etc stay until the container is recreated.
+  # It lives in sandbox-net's network namespace: to restart or recreate either, do both, so that it joins the
+  # namespace that exists: `docker compose up -d --force-recreate sandbox-net sandbox`. (Changing sandbox-net, or
+  # `docker compose restart sandbox-net`, restarts the sandbox with it.)
   sandbox:
     <<: *sandbox-image
     restart: unless-stopped
     init: true
-    networks: [sandbox]
+    network_mode: "service:sandbox-net"
     cpus: ${AMUSE_SANDBOX_CPUS:-2}
     mem_limit: ${AMUSE_SANDBOX_MEMORY:-4g}
     memswap_limit: ${AMUSE_SANDBOX_MEMORY:-4g}
@@ -71,6 +75,8 @@ services:
     cap_add: [SETUID, SETGID, CHOWN, DAC_OVERRIDE, FOWNER, FSETID, SETFCAP, KILL, AUDIT_WRITE, NET_BIND_SERVICE, SYS_CHROOT]
     depends_on:
       sandbox-init: { condition: service_completed_successfully }
+      # only once its network rules are in place; and when it is restarted or recreated, so is this
+      sandbox-net: { condition: service_healthy, restart: true }
     volumes:
       - sandbox-home:/home/amuse
       - type: volume
@@ -98,6 +104,35 @@ services:
       timeout: 5s
       retries: 6
       start_period: 5s
+
+  # The sandbox's network. It holds the namespace the sandbox lives in, and is the only one there with NET_ADMIN: it
+  # puts the egress rules in (the public internet only: new connections to the host, the LAN, Tailscale and other
+  # private addresses, and this network, are refused; replies, and anything the server opens to the sandbox, pass),
+  # checks them, and idles. Healthy means the rules are in; the sandbox starts after that. The server reaches the
+  # sandbox's daemon by the name `sandbox`, which is this container's address on the network.
+  sandbox-net:
+    <<: *sandbox-image
+    restart: unless-stopped
+    init: true
+    user: "0"
+    read_only: true
+    networks:
+      sandbox:
+        aliases: [sandbox]
+    environment:
+      AMUSE_SANDBOX_SUBNET: ${AMUSE_SANDBOX_SUBNET:-10.231.250.0/24}
+    command: [node, /opt/amuse/sandbox/src/net.ts]
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    pids_limit: 64
+    healthcheck:
+      test: [CMD, node, /opt/amuse/sandbox/src/net.ts, check]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # first start only, before the sandbox: the folders amuse-data shares with it must exist to be mounted,
   # and amuse (uid 1000) must own the volume, whichever of them is created first
