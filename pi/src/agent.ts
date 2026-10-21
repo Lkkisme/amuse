@@ -80,9 +80,6 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
     emit({ kind: "activity", activity: { kind: "responding", label: null } });
     /** what the model is writing in its current message */
     let said = "";
-    /** whether this turn did anything (a tool), and whether it is the check after one that did not */
-    let acted = false;
-    let checking = false;
     try {
       // the user's language, said where the model weighs it most: the system prompt of this turn
       const language = scriptOf(agent.lastWords());
@@ -105,7 +102,6 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
         if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
           said += event.assistantMessageEvent.delta;
         } else if (event.type === "tool_execution_start") {
-          acted = true;
           // the line under the avatar says what the agent is doing, Muse-style
           emit({ kind: "activity", activity: { kind: "working", label: statusOf(event.args) ?? toolLabels[event.toolName] ?? "Working" } });
         } else if (event.type === "tool_execution_end") {
@@ -117,8 +113,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
           const text = said.trim();
           said = "";
           if (stopReason === "error") failure = event.message.errorMessage ?? "The model run failed";
-          // the check's "nothing pending" is not for the user
-          else if (text && stopReason !== "toolUse" && stopReason !== "aborted" && !(checking && text.includes(NOTHING_PENDING)))
+          else if (text && stopReason !== "toolUse" && stopReason !== "aborted")
             emit({ kind: "upserted", entity: { kind: "reply", id: newId("r"), at: new Date().toISOString(), text, streaming: false, attachments: [] } });
         }
       });
@@ -126,11 +121,6 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
         // the images the user just sent are seen with their message
         const shown = turn.kind === "message" && cfg.files ? await images(cfg.files, turn.attachments) : [];
         await pi.prompt(brief(agent, turn), { expandPromptTemplates: false, ...(shown.length > 0 ? { images: shown } : {}) });
-        // a turn that ended without doing anything may have only said what it would do: it is woken once to check
-        if (turn.kind === "message" && !acted && failure === undefined && live()) {
-          checking = true;
-          await pi.prompt(check, { expandPromptTemplates: false });
-        }
       } finally {
         unsubscribe();
       }
@@ -195,10 +185,6 @@ export function scriptOf(text: string): Language | null {
 type Language = "Chinese" | "Japanese" | "Korean";
 /** Characters only that language's script has (Japanese kana; Korean hangul; Chinese, then, han). */
 const scripts: Record<Language, RegExp> = { Japanese: /[\u3040-\u30ff]/, Korean: /[\uac00-\ud7af]/, Chinese: /[\u4e00-\u9fff]/ };
-
-/** What the check after a turn that used no tool answers when nothing is left undone. */
-export const NOTHING_PENDING = "NOTHING_PENDING";
-const check = `(Not from the user.) Your turn ended without using any tool. If you told the user you would do something, or their message asks for work you have not started, do it now with your tools, then reply as usual. If nothing is left undone (it was only talk, or you answered fully), reply with exactly ${NOTHING_PENDING} and nothing else.`;
 
 /** The turn as the model gets it: the conversation, now on the user's clock, then what to do. */
 function brief(agent: AgentIO, turn: Turn): string {
