@@ -160,3 +160,76 @@ test("an approval nobody answers times out, as a no to whoever waits on it", asy
   await assert.rejects(host.call("approval.resolve", { id: asked.id, resolution: "allow_once" }), /cannot resolve from timed_out/);
   assert.equal(time.waiting(), 0, "nothing left to wait for");
 });
+
+/** A host with one browser run in flight, and the agent's IO. */
+async function withRun() {
+  const { ports, io, runs } = capture();
+  const time = manualTime("2026-10-20T08:00:00Z");
+  const host = createHost(ports, { clock: time.clock, timers: time.timers });
+  await host.call("chat.send", { text: "check the tides", timezone: "UTC" });
+  const agent = io();
+  assert.ok(agent);
+  const run = agent.act({ kind: "browse", title: "Tides", url: "https://tides.example/", instructions: "Read today's tides" });
+  assert.ok(run.ok);
+  const entity = async (id: string) => (await host.call("session.history", { before: 1000, limit: 200 })).entities.find((e) => e.id === id);
+  return { host, agent, run: run.id, time, runs, entity };
+}
+
+test("Muse tells a run in flight something more: it is recorded, and the run hears it; a run that ended hears nothing", async () => {
+  const { host, agent, run, entity } = await withRun();
+  const heard: string[] = [];
+  const stop = agent.listen(run, (m) => heard.push(m.kind === "instruction" ? m.text : "stop"));
+  const told = agent.act({ kind: "instruct", run, text: "Also check tomorrow" });
+  assert.ok(told.ok);
+  assert.deepEqual(heard, ["Also check tomorrow"]);
+  assert.equal((await entity(told.id))?.kind, "instruction");
+  stop();
+  await host.call("browser.control", { id: run, action: "stop" });
+  assert.deepEqual(agent.act({ kind: "instruct", run, text: "and the day after" }), { ok: false, rejection: { kind: "notRunning", id: run } });
+});
+
+test("a run's question waits for Muse's answer; the run waits for the user meanwhile; one answer only", async () => {
+  const { agent, run, entity } = await withRun();
+  const asked = agent.act({ kind: "question", run, text: "Which beach?" });
+  assert.ok(asked.ok);
+  const browser = await entity(run);
+  assert.equal(browser?.kind === "browser" && browser.status, "waiting");
+  const answer = agent.answer(asked.id);
+  assert.ok(agent.act({ kind: "answer", id: asked.id, text: "Ocean Beach" }).ok);
+  assert.deepEqual(await answer, { kind: "answered", text: "Ocean Beach" });
+  assert.deepEqual(await agent.answer(asked.id), { kind: "answered", text: "Ocean Beach" }, "asked again after the fact");
+  assert.deepEqual(agent.act({ kind: "answer", id: asked.id, text: "Baker Beach" }), { ok: false, rejection: { kind: "invalid", action: "answer", from: "answered" } });
+});
+
+test("a question nobody answers times out; one whose run ends is closed", async () => {
+  const { agent, run, time } = await withRun();
+  const late = agent.act({ kind: "question", run, text: "Which beach?" });
+  assert.ok(late.ok);
+  const waiting = agent.answer(late.id);
+  time.advance(30 * 60_000);
+  assert.deepEqual(await waiting, { kind: "timed_out" });
+  const left = agent.act({ kind: "question", run, text: "Morning or evening?" });
+  assert.ok(left.ok);
+  const unanswered = agent.answer(left.id);
+  agent.act({ kind: "browserEnded", id: run, status: "completed", result: "Low tide at 9" });
+  assert.deepEqual(await unanswered, { kind: "closed" });
+});
+
+test("Muse stops a run in flight, but not one the user holds; a schedule's run hears the stop", async () => {
+  const { host, agent, run, entity, time, runs } = await withRun();
+  await host.call("browser.control", { id: run, action: "take" });
+  assert.deepEqual(agent.act({ kind: "stopRun", run }), { ok: false, rejection: { kind: "invalid", action: "stopRun", from: "paused" } });
+  await host.call("browser.control", { id: run, action: "handBack" });
+  assert.ok(agent.act({ kind: "stopRun", run }).ok);
+  const browser = await entity(run);
+  assert.equal(browser?.kind === "browser" && browser.status, "stopped");
+
+  const made = agent.act({ kind: "schedule", title: "Hourly", instructions: "Look at the mail", when: { kind: "repeat", cron: "0 * * * *", timezone: "UTC" } });
+  assert.ok(made.ok);
+  time.advance(60 * 60_000);
+  assert.equal(runs.length, 1);
+  const heard: string[] = [];
+  agent.listen(made.id, (m) => heard.push(m.kind));
+  assert.ok(agent.act({ kind: "stopRun", run: made.id }).ok);
+  assert.deepEqual(heard, ["stop"]);
+});

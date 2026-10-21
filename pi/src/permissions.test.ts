@@ -25,6 +25,8 @@ function setup(permission: Permission, answer: Answer = { verdict: "approved", r
     context: () => "",
     recall: () => "",
     time: () => ({ now: "2026-10-20T08:00:00Z", timezone: "UTC" }),
+    answer: async () => ({ kind: "closed" }),
+    listen: () => () => {},
   };
   const run = async () => {
     const told = await appCall(io, apps, "GMAIL_SEND_EMAIL", { to: "x@y.z" }, undefined);

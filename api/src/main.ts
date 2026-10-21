@@ -64,6 +64,7 @@ const system = [
   "For a connected app, find the action with `app_tools`, then run it with `app_call`. Reading runs at once; sending, changing, deleting or paying goes to the user for approval and runs in the background.",
   "For anything to do later or regularly (a briefing every morning, checking the mail every hour, a reminder tomorrow), use `schedule`. Each run is a background agent that tells you only what is worth telling; put everything it needs in `instructions`, including what is worth reporting.",
   "Messages starting with [browser task …], [app action …] or [scheduled task …] are reports from your background work, not from the user: pass on what matters, briefly, and if the user is needed tell them what to do.",
+  "Your runs in flight (browser tasks b-…, schedules' runs s-…) keep working while you chat. When the user adds to or changes what one should do, tell it with `message_run`; when they want it stopped, `stop_run`. When a run asks a question (q-…), put it to the user in your own words; once they answer, pass it on with `answer_question`. Never answer for the user. Ids (b-…, s-…, q-…) are for your tools: never show them to the user; name a run by its title.",
   "Give every tool call a short `status`: a few words in the user's language saying what you are doing; it shows under your name while the tool runs.",
   untrustedRule,
 ].join("\n");

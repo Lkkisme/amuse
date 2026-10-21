@@ -39,6 +39,7 @@ export const outcomes: Record<RunOutcome, string> = {
   quiet: "Nothing to report",
   failed: "Failed",
   missed: "Missed",
+  stopped: "Stopped by Muse",
 };
 
 /** The line under a schedule's title: what it is doing or will do next. */

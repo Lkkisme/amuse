@@ -82,8 +82,17 @@ export const envelopes: Envelope[] = [
       entity: { kind: "schedule", id: "s2", at, title: "Call the dentist", instructions: "Remind the user to call the dentist", when: { kind: "once", at: "2026-10-21T01:00:00Z" }, status: "done", next: null, running: false, last: null },
     },
   },
-  { seq: 12, event: { kind: "activity", activity: { kind: "responding", label: null } } },
-  { seq: 13, event: { kind: "activity", activity: null } },
+  { seq: 12, event: { kind: "upserted", index: 8, entity: { kind: "instruction", id: "i1", at, run: "b1", title: "Log in", text: "Also download the itinerary PDF" } } },
+  {
+    seq: 13,
+    event: {
+      kind: "upserted",
+      index: 9,
+      entity: { kind: "question", id: "q1", at, run: "b1", title: "Log in", text: "Two trips are listed; which one?", status: "answered", answer: "The aquarium one", expires: "2026-10-20T08:54:00Z" },
+    },
+  },
+  { seq: 14, event: { kind: "activity", activity: { kind: "responding", label: null } } },
+  { seq: 15, event: { kind: "activity", activity: null } },
 ];
 
 export const calls: Call[] = [

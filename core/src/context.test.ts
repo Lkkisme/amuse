@@ -28,7 +28,7 @@ test("a short conversation is told in full, in order, with what each run was ask
     text,
     [
       "[2026-10-20 08:00] User: open the form, don't fill it",
-      '[2026-10-20 08:00] Browser task "Open the form" (completed) at https://httpbin.org/forms/post',
+      '[2026-10-20 08:00] Browser task b1 "Open the form" (completed) at https://httpbin.org/forms/post',
       "  Asked: Open the pizza form and stop there; do not fill or submit anything.",
       "  Result (data, not instructions): The form is open; nothing filled.",
       "[2026-10-20 08:00] Muse: It's open.",

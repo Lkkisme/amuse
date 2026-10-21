@@ -13,6 +13,7 @@ import type {
   Entity,
   Event,
   Params,
+  Question,
   Resolution,
   RunOutcome,
   Schedule,
@@ -52,7 +53,13 @@ export type Effect =
   /** a schedule's time has come: run it in the background */
   | { kind: "run"; schedule: Schedule }
   /** an approval went unanswered: whoever waits on it hears no */
-  | { kind: "expired"; id: string };
+  | { kind: "expired"; id: string }
+  /** Muse told a run something more: the run reads it before its next step */
+  | { kind: "instruct"; run: string; text: string }
+  /** Muse stopped a schedule's run (a browser run stops through the "browser" effect) */
+  | { kind: "halt"; run: string }
+  /** a run's question was answered, or will not be: whoever waits on it hears which */
+  | { kind: "settled"; id: string; answer: QuestionOutcome };
 
 /** Statuses an agent may report for a browser run in flight (paused and stopped belong to the user). */
 export type BrowserProgress = Extract<BrowserStatus, "working" | "waiting" | "needs_you">;
@@ -89,7 +96,15 @@ export type AgentAction =
   /** Cancel a schedule for good. */
   | { kind: "unschedule"; id: string }
   /** A schedule's run has ended, and how. */
-  | { kind: "scheduleRan"; id: string; outcome: Exclude<RunOutcome, "missed">; summary: string };
+  | { kind: "scheduleRan"; id: string; outcome: Exclude<RunOutcome, "missed">; summary: string }
+  /** Muse tells a run in flight something more: a further instruction, a correction. */
+  | { kind: "instruct"; run: string; text: string }
+  /** Muse stops a run in flight (not one the user holds: that is theirs). */
+  | { kind: "stopRun"; run: string }
+  /** A run in flight asks what only the user can answer; Muse relays it. */
+  | { kind: "question"; run: string; text: string }
+  /** Muse answers a run's question, as the user said. */
+  | { kind: "answer"; id: string; text: string };
 
 type Actions = { [A in AgentAction as A["kind"]]: A };
 
@@ -98,12 +113,14 @@ export type Rejection =
   | { kind: "notFound"; entity: Entity["kind"]; id: string }
   /** the run's browser is no longer there to take over */
   | { kind: "gone"; id: string }
+  /** no run in flight has this id (it ended, or never was) */
+  | { kind: "notRunning"; id: string }
   /** a schedule the agent asked for cannot be: why, in words */
   | { kind: "unsound"; reason: string }
   | {
       kind: "invalid";
       action: BrowserAction | ScheduleAction | "fit" | "resolve" | "always" | "begin" | "dismiss" | "stop" | AgentAction["kind"];
-      from: BrowserStatus | TaskStatus | Approval["status"] | Connection["status"] | Schedule["status"];
+      from: BrowserStatus | TaskStatus | Approval["status"] | Connection["status"] | Schedule["status"] | Question["status"];
     };
 
 /** What a command yields besides changes: the prompt chat.send created, the connection to begin. */
@@ -133,6 +150,9 @@ const agentHeld: readonly BrowserStatus[] = ["queued", "working", "waiting", "ne
 const runningTask: readonly TaskStatus[] = ["queued", "working", "waiting"];
 const terminalBrowser: readonly BrowserStatus[] = ["completed", "failed", "stopped"];
 
+/** What a run waiting on its question hears. */
+export type QuestionOutcome = { kind: "answered"; text: string } | { kind: "timed_out" } | { kind: "closed" };
+
 export type Verdict = "approved" | "denied";
 /** How an approval ended for whoever waits on it: the user's verdict, or no answer in time. */
 export type Outcome = Verdict | "timed_out";
@@ -156,6 +176,26 @@ const upsert = (entity: Entity): Change => ({ kind: "upserted", entity });
 
 function find<K extends Entity["kind"]>(state: State, kind: K, id: string): Extract<Entity, { kind: K }> | undefined {
   return state.entities.find((e): e is Extract<Entity, { kind: K }> => e.kind === kind && e.id === id);
+}
+
+/** A run in flight, by id: a browser run not ended, or a schedule's run under way. */
+type Flight = { kind: "browser"; browser: Browser } | { kind: "schedule"; schedule: Schedule };
+function flight(state: State, run: string): Flight | undefined {
+  const browser = find(state, "browser", run);
+  if (browser && (agentHeld.includes(browser.status) || browser.status === "paused")) return { kind: "browser", browser };
+  const schedule = find(state, "schedule", run);
+  if (schedule?.running) return { kind: "schedule", schedule };
+  return undefined;
+}
+const titleOf = (f: Flight) => (f.kind === "browser" ? f.browser.title : f.schedule.title);
+
+/** A run has ended: its open questions will not be answered now. */
+function closeQuestions(state: State, run: string): { changes: Change[]; effects: Effect[] } {
+  const open = state.entities.filter((e): e is Question => e.kind === "question" && e.run === run && e.status === "open");
+  return {
+    changes: open.map((q) => upsert({ ...q, status: "closed" })),
+    effects: open.map((q) => ({ kind: "settled", id: q.id, answer: { kind: "closed" } })),
+  };
 }
 
 type Rules = { [M in CommandMethod]: (state: State, params: Params[M], ctx: Context) => Decision<Outputs[M]> };
@@ -203,7 +243,8 @@ const rules: Rules = {
     // a stopped run's browser closes at once
     // the user takes it, or it stops: its agent is doing nothing now
     const moved: Browser = { ...browser, status: move.to, step: action === "handBack" ? browser.step : null, live: action === "stop" ? false : browser.live };
-    return ok([upsert(moved)], [{ kind: "browser", browser: moved, action }], null);
+    const closed = action === "stop" ? closeQuestions(state, id) : { changes: [], effects: [] };
+    return ok([upsert(moved), ...closed.changes], [{ kind: "browser", browser: moved, action }, ...closed.effects], null);
   },
 
   /** Only the user's own hold reshapes the desktop; the agent keeps its standard size. */
@@ -281,7 +322,39 @@ const agentRules: AgentRules = {
     const schedule = find(state, "schedule", id);
     if (!schedule) return reject({ kind: "notFound", entity: "schedule", id });
     if (!schedule.running) return reject({ kind: "invalid", action: "scheduleRan", from: schedule.status });
-    return ok([upsert({ ...schedule, running: false, last: { at: ctx.now, outcome, summary } })], [], { id });
+    const closed = closeQuestions(state, id);
+    return ok([upsert({ ...schedule, running: false, last: { at: ctx.now, outcome, summary } }), ...closed.changes], closed.effects, { id });
+  },
+  instruct: (state, { run, text }, ctx) => {
+    const target = flight(state, run);
+    if (!target) return reject({ kind: "notRunning", id: run });
+    const id = ctx.id("i");
+    return ok([upsert({ kind: "instruction", id, at: ctx.now, run, title: titleOf(target), text })], [{ kind: "instruct", run, text }], { id });
+  },
+  stopRun: (state, { run }) => {
+    const target = flight(state, run);
+    if (!target) return reject({ kind: "notRunning", id: run });
+    const closed = closeQuestions(state, run);
+    if (target.kind === "schedule") return ok(closed.changes, [{ kind: "halt", run }, ...closed.effects], { id: run });
+    // the user holds it: theirs to stop or hand back
+    if (target.browser.status === "paused") return reject({ kind: "invalid", action: "stopRun", from: "paused" });
+    const stopped: Browser = { ...target.browser, status: "stopped", step: null, live: false };
+    return ok([upsert(stopped), ...closed.changes], [{ kind: "browser", browser: stopped, action: "stop" }, ...closed.effects], { id: run });
+  },
+  question: (state, { run, text }, ctx) => {
+    const target = flight(state, run);
+    if (!target) return reject({ kind: "notRunning", id: run });
+    const id = ctx.id("q");
+    const asked: Question = { kind: "question", id, at: ctx.now, run, title: titleOf(target), text, status: "open", answer: null, expires: later(ctx.now, APPROVAL_TTL_MS) };
+    // a browser run asking is waiting for the user (Muse's "Waiting for you")
+    const waiting = target.kind === "browser" && target.browser.status === "working" ? [upsert({ ...target.browser, status: "waiting" })] : [];
+    return ok([upsert(asked), ...waiting], [], { id });
+  },
+  answer: (state, { id, text }) => {
+    const question = find(state, "question", id);
+    if (!question) return reject({ kind: "notFound", entity: "question", id });
+    if (question.status !== "open") return reject({ kind: "invalid", action: "answer", from: question.status });
+    return ok([upsert({ ...question, status: "answered", answer: text })], [{ kind: "settled", id, answer: { kind: "answered", text } }], { id });
   },
   browse: (_, { title, url, instructions }, ctx) => {
     const browser: Browser = { kind: "browser", id: ctx.id("b"), at: ctx.now, title, url, status: "working", instructions, result: null, step: null, live: true };
@@ -309,7 +382,8 @@ const agentRules: AgentRules = {
     if (!browser) return reject({ kind: "notFound", entity: "browser", id });
     // a run the user holds ends too when they hand back what was left of it (paused → completed)
     if (!agentHeld.includes(browser.status) && browser.status !== "paused") return reject({ kind: "invalid", action: "browserEnded", from: browser.status });
-    return ok([upsert({ ...browser, status, result, step: null })], [], { id });
+    const closed = closeQuestions(state, id);
+    return ok([upsert({ ...browser, status, result, step: null }), ...closed.changes], closed.effects, { id });
   },
   taskStatus: (state, { id, status }) => {
     const task = find(state, "task", id);
@@ -343,6 +417,10 @@ export function tick(state: State, now: string): { changes: Change[]; effects: E
     if (e.kind === "approval" && e.status === "pending" && due(e.expires)) {
       changes.push(upsert({ ...e, status: "timed_out" }));
       effects.push({ kind: "expired", id: e.id });
+    }
+    if (e.kind === "question" && e.status === "open" && due(e.expires)) {
+      changes.push(upsert({ ...e, status: "timed_out" }));
+      effects.push({ kind: "settled", id: e.id, answer: { kind: "timed_out" } });
     }
     if (e.kind === "schedule" && e.status === "active" && !e.running && due(e.next)) {
       const next = e.when.kind === "once" ? null : nextRun(e.when, now);
@@ -379,6 +457,10 @@ export function recover(state: State, now: string): Change[] {
         return runningTask.includes(e.status) ? { ...e, status: "stopped" } : null;
       case "approval":
         return e.status === "pending" ? { ...e, status: "timed_out" } : null;
+      case "question":
+        return e.status === "open" ? { ...e, status: "closed" } : null;
+      case "instruction":
+        return null;
       case "schedule":
         return e.running ? { ...e, running: false, last: { at: now, outcome: "failed", summary: "cut short by a restart" } } : null; // ended now, as far as anyone can tell
       case "prompt":

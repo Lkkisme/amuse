@@ -96,11 +96,16 @@ export function localTime(instant: string, timezone: string): string {
   return `${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")}`;
 }
 
-/** The earliest instant something is due: a schedule's run or an approval's timeout. */
+/** The earliest instant something is due: a schedule's run, an approval's or a question's timeout. */
 export function deadline(state: State): string | null {
   let soonest: string | null = null;
   for (const e of state.entities) {
-    const due = e.kind === "schedule" && e.status === "active" && !e.running ? e.next : e.kind === "approval" && e.status === "pending" ? e.expires : null;
+    const due =
+      e.kind === "schedule" && e.status === "active" && !e.running
+        ? e.next
+        : (e.kind === "approval" && e.status === "pending") || (e.kind === "question" && e.status === "open")
+          ? e.expires
+          : null;
     if (due !== null && (soonest === null || Date.parse(due) < Date.parse(soonest))) soonest = due;
   }
   return soonest;

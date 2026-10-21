@@ -35,6 +35,7 @@ import {
   type Effect,
   type Rejection,
   type Answer,
+  type QuestionOutcome,
   decide,
   decideAgent,
   place,
@@ -78,7 +79,14 @@ export interface AgentIO {
   report(note: string): void;
   /** Now, and the user's time zone (their device's when they last wrote). */
   time(): { now: string; timezone: string };
+  /** Resolves when Muse answers question `id` (from a `question` action), it times out, or its run ends. */
+  answer(id: string): Promise<QuestionOutcome>;
+  /** What Muse tells run `run` while it is in flight (instructions; a stop for a schedule's run). Returns unsubscribe. */
+  listen(run: string, listener: (message: RunMessage) => void): () => void;
 }
+
+/** What a run in flight hears from Muse. */
+export type RunMessage = { kind: "instruction"; text: string } | { kind: "stop" };
 
 /** The outside world. Every port gets the same AgentIO. */
 export interface Ports {
@@ -131,6 +139,8 @@ export function describe(rejection: Rejection): string {
       return `the browser of ${rejection.id} is gone`;
     case "unsound":
       return rejection.reason;
+    case "notRunning":
+      return `no run ${rejection.id} is in flight (it ended, or never was)`;
     case "invalid":
       return `cannot ${rejection.action} from ${rejection.from}`;
   }
@@ -218,6 +228,10 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     waiting.get(id)?.forEach((resolve) => resolve(outcome));
     waiting.delete(id);
   };
+  /** Runs waiting on their questions, and runs listening for Muse. */
+  const asking = new Map<string, ((outcome: QuestionOutcome) => void)[]>();
+  const listening = new Map<string, Set<(message: RunMessage) => void>>();
+  const tell = (run: string, message: RunMessage) => listening.get(run)?.forEach((listener) => listener(message));
 
   const agent: AgentIO = {
     emit: commit,
@@ -230,6 +244,21 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     context: () => agentContext(state),
     recall: (query) => recall(state, query),
     time: () => ({ now: clock.now(), timezone: userZone(state) }),
+    answer(id) {
+      const question = state.entities.find((e) => e.kind === "question" && e.id === id);
+      if (question?.kind === "question" && question.status !== "open")
+        return Promise.resolve(question.status === "answered" ? { kind: "answered", text: question.answer ?? "" } : { kind: question.status });
+      return new Promise((resolve) => asking.set(id, [...(asking.get(id) ?? []), resolve]));
+    },
+    listen(run, listener) {
+      const set = listening.get(run) ?? new Set();
+      set.add(listener);
+      listening.set(run, set);
+      return () => {
+        set.delete(listener);
+        if (set.size === 0) listening.delete(run);
+      };
+    },
     act(action) {
       const decision = decideAgent(state, action.kind, action, context());
       if (!decision.ok) return decision;
@@ -260,6 +289,14 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
         return ports.schedule(effect.schedule, agent);
       case "expired":
         return settle(effect.id, { verdict: "timed_out", remember: false });
+      case "instruct":
+        return tell(effect.run, { kind: "instruction", text: effect.text });
+      case "halt":
+        return tell(effect.run, { kind: "stop" });
+      case "settled":
+        asking.get(effect.id)?.forEach((resolve) => resolve(effect.answer));
+        asking.delete(effect.id);
+        return;
     }
   }
 

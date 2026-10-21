@@ -10,6 +10,7 @@ import { type AgentIO, type Ports, type Rules, type Turn, localTime, newId } fro
 import { redact } from "./redact.ts";
 import { type PiModelConfig, type PiSession, openSession, secretsOf } from "./session.ts";
 import { statusOf } from "./status.ts";
+import { relayTools } from "./runs.ts";
 import { scheduleTools } from "./schedules.ts";
 import { type Apps, appTools, tools } from "./tools.ts";
 import { type Search, webTools } from "./web.ts";
@@ -31,6 +32,9 @@ const toolLabels: Record<string, string> = {
   app_call: "Using your apps",
   schedule: "Scheduling",
   cancel_schedule: "Cancelling a schedule",
+  message_run: "Telling a background task",
+  answer_question: "Passing on your answer",
+  stop_run: "Stopping a background task",
 };
 
 /** prompt + interrupt on Pi. Prompts run one after another; interrupt aborts the current one. */
@@ -55,12 +59,15 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt"> {
     current = agent;
     emit({ kind: "activity", activity: { kind: "responding", label: null } });
     let reply: { id: string; at: string; text: string } | undefined;
+    /** what came before the reply's first visible character */
+    let lead = "";
     const finish = () => {
-      if (reply) emit({ kind: "upserted", entity: { kind: "reply", ...reply, streaming: false } });
+      if (reply) emit({ kind: "upserted", entity: { kind: "reply", ...reply, text: reply.text.trimEnd(), streaming: false } });
       reply = undefined;
+      lead = "";
     };
     try {
-      session = await openSession(cfg, cfg.system, [...tools(io, cfg.rules), ...scheduleTools(io), ...webTools(cfg.rules, cfg.search), ...(cfg.apps ? appTools(io, cfg.apps) : [])]);
+      session = await openSession(cfg, cfg.system, [...tools(io, cfg.rules), ...scheduleTools(io), ...relayTools(io), ...webTools(cfg.rules, cfg.search), ...(cfg.apps ? appTools(io, cfg.apps) : [])]);
       const pi = session.session;
       if (!live()) return;
       let failure: string | undefined;
@@ -69,7 +76,11 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt"> {
           const delta = event.assistantMessageEvent.delta;
           if (!delta) return;
           if (!reply) {
-            reply = { id: newId("r"), at: new Date().toISOString(), text: delta };
+            // a model may write a line break or two before calling a tool: that is not a reply
+            lead += delta;
+            if (!lead.trim()) return;
+            reply = { id: newId("r"), at: new Date().toISOString(), text: lead.trimStart() };
+            lead = "";
             emit({ kind: "upserted", entity: { kind: "reply", ...reply, streaming: true } });
           } else {
             reply.text += delta;

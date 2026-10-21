@@ -5,12 +5,12 @@
  * timestamps ('8:27 AM') centered between message groups, and the three-dot
  * hatch-dot-pulse thinking indicator in a small gray bubble.
  */
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ChevronDown, Copy, Share } from "lucide-react";
 import type { Entity, Prompt, Reply, State } from "@remuse/protocol";
 import type { Actions } from "../ui.ts";
 import { thinking, time } from "../view.ts";
-import { ApprovalCard, BrowserCard, ConnectionCard, ScheduleCard, TaskCard } from "./cards";
+import { ApprovalCard, BrowserCard, ConnectionCard, InstructionCard, QuestionCard, ScheduleCard, TaskCard } from "./cards";
 import { RichText } from "./markdown";
 import { type Place, type Side, corners } from "./shape.ts";
 
@@ -46,6 +46,10 @@ function EntityView({ entity, place, thumb, actions, onMenu }: { entity: Entity;
       return <BrowserCard browser={entity} thumb={thumb} place={place} actions={actions} />;
     case "schedule":
       return <ScheduleCard schedule={entity} place={place} actions={actions} />;
+    case "instruction":
+      return <InstructionCard instruction={entity} place={place} />;
+    case "question":
+      return <QuestionCard question={entity} place={place} />;
   }
 }
 
@@ -221,9 +225,10 @@ interface Props {
 }
 
 export function ChatFeed({ conversation, older, release, thumb, actions }: Props) {
-  const feed = conversation.entities;
+  // a reply that ended with nothing to read (a model's stray line breaks before a tool call) is not shown
+  const feed = useMemo(() => conversation.entities.filter((e) => e.kind !== "reply" || e.streaming || e.text.trim() !== ""), [conversation.entities]);
   /** messages in the whole feed: what "new" is counted against, so pages fetched back are not new */
-  const total = conversation.earlier + feed.length;
+  const total = conversation.earlier + conversation.entities.length;
   /** the message whose long-press menu is open (touch) */
   const [menu, setMenu] = useState<Menu | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);

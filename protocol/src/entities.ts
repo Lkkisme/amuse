@@ -105,10 +105,10 @@ export const When = z.discriminatedUnion("kind", [
 
 /**
  * How a schedule's run went: reported (it told the conversation something),
- * quiet (nothing worth saying), failed, or missed (remuse was not running
+ * quiet (nothing worth saying), failed, stopped (by Muse), or missed (remuse was not running
  * then, and it was too late to catch up).
  */
-export const RunOutcome = z.enum(["reported", "quiet", "failed", "missed"]);
+export const RunOutcome = z.enum(["reported", "quiet", "failed", "missed", "stopped"]);
 
 /**
  * Work the agent set up to run later or regularly (a daily briefing, an
@@ -135,7 +135,42 @@ export const Schedule = z.object({
   last: z.object({ at: Instant, outcome: RunOutcome, summary: z.string() }).nullable(),
 });
 
-export const Entity = z.discriminatedUnion("kind", [Prompt, Reply, Task, Approval, Connection, Browser, Schedule]);
+/**
+ * Muse telling one of its background runs (a browser task, a schedule's run)
+ * something more while it works: a further instruction, a correction. The run
+ * reads it before its next step. `run` is the browser's or the schedule's id.
+ */
+export const Instruction = z.object({
+  kind: z.literal("instruction"),
+  id: Id,
+  at: Instant,
+  run: Id,
+  /** the run's title, as the user knows it */
+  title: z.string(),
+  text: z.string(),
+});
+
+/**
+ * A background run asking something only the user can answer; Muse relays it
+ * and answers it by its id. The run waits for the answer until `expires`.
+ *   open       waiting for the answer
+ *   answered   `answer` holds it
+ *   timed_out  nobody answered in time; the run went on without
+ *   closed     the run ended before an answer came
+ */
+export const Question = z.object({
+  kind: z.literal("question"),
+  id: Id,
+  at: Instant,
+  run: Id,
+  title: z.string(),
+  text: z.string(),
+  status: z.enum(["open", "answered", "timed_out", "closed"]),
+  answer: z.string().nullable(),
+  expires: Instant,
+});
+
+export const Entity = z.discriminatedUnion("kind", [Prompt, Reply, Task, Approval, Connection, Browser, Schedule, Instruction, Question]);
 
 /**
  * What the agent is doing, shown under its name. `label` overrides the
@@ -155,6 +190,8 @@ export type Approval = z.infer<typeof Approval>;
 export type Connection = z.infer<typeof Connection>;
 export type Browser = z.infer<typeof Browser>;
 export type Schedule = z.infer<typeof Schedule>;
+export type Instruction = z.infer<typeof Instruction>;
+export type Question = z.infer<typeof Question>;
 export type When = z.infer<typeof When>;
 export type RunOutcome = z.infer<typeof RunOutcome>;
 export type BrowserStatus = z.infer<typeof BrowserStatus>;
