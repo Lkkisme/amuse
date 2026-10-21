@@ -15,6 +15,16 @@ export interface NavPage {
 }
 
 export const NAV_PAGES: NavPage[] = [
-  { icon: MessageCircle, label: "Chats", shown: (left) => left === null, open: (actions) => actions.openLeft(null) },
-  { icon: Target, label: "Goals", shown: (left) => left === "goals", open: (actions) => actions.openLeft("goals") },
+  {
+    icon: MessageCircle,
+    label: "Chats",
+    shown: (left) => left === null,
+    open: (actions) => actions.openLeft(null),
+  },
+  {
+    icon: Target,
+    label: "Goals",
+    shown: (left) => left === "goals",
+    open: (actions) => actions.openLeft("goals"),
+  },
 ];
