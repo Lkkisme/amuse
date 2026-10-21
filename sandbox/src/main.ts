@@ -10,6 +10,7 @@
 import { join } from "node:path";
 import { PORT } from "./protocol.ts";
 import { serve } from "./daemon.ts";
+import { watchNetwork } from "./watch.ts";
 
 const home = process.env["AMUSE_SANDBOX_HOME"] ?? "/home/amuse";
 const server = await serve({
@@ -24,3 +25,10 @@ const server = await serve({
 // docker stop reaches the daemon through the container's init: end cleanly, commands with it
 for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => void server.close().then(() => process.exit(0)));
 console.log(`amuse sandbox daemon on :${server.port}`);
+// in the container, the network belongs to sandbox-net: if it goes, so does this one's interface; end, to be restarted into the new one
+if (process.env["AMUSE_SANDBOX_CONTAINER"] === "1") {
+  watchNetwork(() => {
+    console.error("the sandbox's network is gone: ending, to be restarted into the new one");
+    void server.close().then(() => process.exit(1));
+  });
+}
