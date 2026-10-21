@@ -31,12 +31,12 @@ function ago(iso: string, now = Date.now()): string {
 
 const named = (chat: Chat) => (chat.id === MAIN ? "Main chat" : chat.title || "New chat");
 
-/** The sidebar's width: the chats', or wider for a page that reads better so (a goal's research). */
-export const sidebarWidth = (left: LeftSection | null) => (left === "goals" ? 380 : 300);
+/** The sidebar's width, the same whatever page it shows. */
+export const SIDEBAR_WIDTH = 320;
 /** The sidebar is a panel this far in from the window's edges. */
 export const SIDEBAR_INSET = 8;
 /** what the sidebar takes of the window when docked */
-export const sidebarRoom = (left: LeftSection | null) => sidebarWidth(left) + SIDEBAR_INSET;
+export const SIDEBAR_ROOM = SIDEBAR_WIDTH + SIDEBAR_INSET;
 
 /** The panel, docked or floating: the same shape in the same place, set off by its colour and shadow (a deeper one over the dimmed chat). */
 const panel = { background: "var(--panel)", boxShadow: "var(--shadow-panel)" };
@@ -53,7 +53,7 @@ interface SidebarProps {
 
 /** Beside the chat, while there is room: a rounded panel that slides in and out whole, the chat giving way as it goes. */
 export function DockedSidebar({ open, ...props }: SidebarProps & { open: boolean }) {
-  const width = sidebarWidth(props.left);
+  const width = SIDEBAR_WIDTH;
   return (
     <aside
       className="relative hidden h-full shrink-0 md:block"
@@ -102,7 +102,7 @@ export function DrawerSidebar({ open, ...props }: SidebarProps & { open: boolean
       <aside
         onAnimationEnd={onAnimationEnd}
         className={`${closing ? "anim-pane-to-left pointer-events-none" : "anim-pane-from-left"} relative flex h-full max-w-[85vw] flex-col bg-[var(--chat-background)] p-3 md:rounded-[24px] md:bg-[var(--panel)]`}
-        style={{ width: sidebarWidth(props.left), boxShadow: "var(--shadow-drawer)", transition: `width ${ease}` }}
+        style={{ width: SIDEBAR_WIDTH, boxShadow: "var(--shadow-drawer)", transition: `width ${ease}` }}
         aria-label="Sidebar"
       >
         {/* room for the ☰ button (TopBar's MenuButton), which stays put above the panel */}
