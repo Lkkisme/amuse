@@ -57,7 +57,8 @@ leaves it, and deleting or overwriting the files you sent, still needs your word
   Amuse server turns away every request from the sandbox's network, and the browsers cannot reach it.
 - Three folders of the workspace are read-only there: `memory/` and `skills/`, which Amuse reads as its
   own context and instructions, and `user/`, what you sent. Amuse edits memory and skills with its own
-  tools, not from a shell; to work on a file you sent, it makes a copy elsewhere.
+  tools, not from a shell; to work on a file you sent, it makes a copy elsewhere. The three folders always exist and cannot be removed or renamed, only emptied; a file
+  moved into one is copied (the sandbox may still hold the original open), not renamed.
 - Limits: 2 CPUs, 4 GB of memory and 1024 processes; change them in `.env` with
   `AMUSE_SANDBOX_CPUS`, `AMUSE_SANDBOX_MEMORY` and `AMUSE_SANDBOX_PIDS`. There is no disk limit
   (Docker has none on most setups): what the sandbox writes fills the disk Docker lives on, its home

@@ -101,7 +101,7 @@ export function sandboxTools(sandbox: SandboxClient): ToolDefinition[] {
       name: "start_service",
       label: "Start a service",
       description:
-        "Start a command that keeps running on your own machine (a dev server, a watcher, a database) and return at once; look at what it prints with service_logs and stop it with stop_service. It runs until stopped or the machine restarts. Same machine, same rules as run_command (never put secrets in it).",
+        "Start a command that keeps running on your own machine (a dev server, a watcher, a database) and return at once; look at what it prints with service_logs and stop it with stop_service. It runs until stopped or the machine restarts. Run the server in the foreground (no `&`, no daemon flag): a command that forks into the background and exits counts as ended. Same machine, same rules as run_command (never put secrets in it).",
       parameters: Type.Object({
         status,
         name: Type.String({ description: "A short name for it, like dev-server; no two running services share one" }),
