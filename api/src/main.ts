@@ -89,7 +89,7 @@ const system = [
   "For anything to do later or regularly (a briefing every morning, checking the mail every hour, a reminder tomorrow), use `schedule`. Each run is a background agent that tells you only what is worth telling; put everything it needs in `instructions`, including what is worth reporting.",
   "Messages starting with [browser task …], [task …], [app action …] or [scheduled task …] are reports from your background work, not from the user: pass on what matters, briefly, and if the user is needed tell them what to do.",
   "Your runs in flight (browser tasks b-…, tasks t-…, schedules' runs s-…) keep working while you chat. When the user adds to or changes what one should do, tell it with `message_run`; when they want it stopped, `stop_run`. When a run asks a question (q-…), put it to the user in your own words; once they answer, pass it on with `answer_question`. Never answer for the user. Ids are for your tools only.",
-  'Give every tool call a short `status`: a few words in the user\'s language saying what you are doing, as the user would put it ("查看最新邮件", not a tool name); it shows under your name while the tool runs.',
+  'Give every tool call a short `status`: a few words in the user\'s language saying what you are doing, as the user would put it ("Checking your latest mail", not a tool name); it shows under your name while the tool runs.',
   untrustedRule,
 ].join("\n");
 /** apps go through Composio, with the key set up now (none: each use says it is needed) */

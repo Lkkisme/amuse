@@ -1,13 +1,13 @@
 /**
  * The line under the agent's name, Muse-style: every tool takes a short
- * `status` the agent writes for the user ("查看最新邮件", "Opening the trip
+ * `status` the agent writes for the user ("Checking your latest mail", "Opening the trip
  * portal"), shown while the tool runs; without one, the tool's default label.
  */
 import { Type } from "typebox";
 
 export const status = Type.Optional(
   Type.String({
-    description: "A few words for the user about what this step does, in their language (e.g. '查看最新邮件', 'Opening the trip portal'). Shown under your name while it runs.",
+    description: "A few words for the user about what this step does, in their language (e.g. 'Checking your latest mail', 'Opening the trip portal'). Shown under your name while it runs.",
   }),
 );
 

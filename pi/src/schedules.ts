@@ -41,7 +41,7 @@ export function scheduleTools(io: () => AgentIO): ToolDefinition[] {
         "Times are the user's own (their time zone unless `timezone` says otherwise). Your schedules appear in the conversation; `recall` \"Schedule\" finds older ones.",
       parameters: Type.Object({
         status,
-        title: Type.String({ description: "Short name the user will see, in their language, e.g. '每日早报'" }),
+        title: Type.String({ description: "Short name the user will see, in their language, e.g. 'Morning briefing'" }),
         instructions: Type.String({
           description:
             "Everything a run must know, in full: what to do, what is worth telling the user and what is not (e.g. 'report only mail that needs an answer today'), and every limit the user set.",

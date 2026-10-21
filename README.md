@@ -8,6 +8,7 @@ run with Docker Compose.
   <img src="docs/screenshots/chat-phone.png" width="260" alt="Muse asks before visiting a site">
   <img src="docs/screenshots/browser-phone.png" width="260" alt="The browser Muse works in, live on a phone">
 </p>
+<img src="docs/screenshots/browser-desktop.png" width="720" alt="Muse working in the browser beside the chat, on a desktop">
 
 ## Start
 
