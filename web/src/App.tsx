@@ -160,7 +160,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
   // the right side's share: the browser (docked from lg), or a docked Muse panel
   const right =
     ui.viewer && width >= 1024
-      ? viewerWidth
+      ? viewerWidth + 8
       : ui.museOpen && !ui.viewer
         ? 368
         : 0;
@@ -176,7 +176,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
     // the browser's share of the window, when it is docked there: what floats over the chat dims all but it
     document.documentElement.style.setProperty(
       "--viewer-room",
-      `${ui.viewer && width >= 1024 ? viewerWidth : 0}px`,
+      `${ui.viewer && width >= 1024 ? viewerWidth + 8 : 0}px`,
     );
   }, [ui.viewer, width, viewerWidth]);
   useEffect(() => {
@@ -436,7 +436,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         />
         {/* with the viewer open on desktop, the chat keeps what the viewer leaves */}
         <div
-          className={`relative flex min-w-0 flex-1 flex-col ${ui.viewer ? "lg:mr-[var(--viewer-width)]" : ""}`}
+          className={`relative flex min-w-0 flex-1 flex-col ${ui.viewer ? "lg:mr-[calc(var(--viewer-width)+8px)]" : ""}`}
         >
           <ChatFeed
             conversation={conversation}
@@ -541,7 +541,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           live={where.kind === "server" ? where.live : null}
           thumb={where.kind === "server" ? where.thumb : null}
           onResize={(edge) => {
-            const width = clampViewer(innerWidth - edge);
+            const width = clampViewer(innerWidth - 8 - edge);
             localStorage.setItem(VIEWER_WIDTH, String(width));
             setViewerWidth(width);
           }}

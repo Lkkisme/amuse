@@ -101,11 +101,12 @@ function done(entity: Entity): Done | null {
 const frame: Record<MuseMode, string> = {
   // a page of its own on a phone; on the right from md up
   // from md, a rounded panel 8px in from the window's edges, like the sidebar
-  docked: "fixed inset-0 z-50 md:relative md:z-auto md:my-2 md:mr-2 md:w-[360px] md:shrink-0 md:rounded-[24px] md:border",
+  docked:
+    "fixed inset-0 z-50 bg-[var(--bg-primary)] md:relative md:z-auto md:my-2 md:mr-2 md:w-[360px] md:shrink-0 md:rounded-[24px] md:bg-[var(--panel)] md:shadow-[var(--shadow-panel)]",
   // over the chat while the browser is on the right (lg up): within what the chat has, beside a docked
   // sidebar (8px clear of it, of the window's edges and of the viewer)
   floating:
-    "fixed bottom-2 left-[calc(var(--sidebar-width)+8px)] top-2 z-[55] w-[min(440px,calc(100vw-var(--viewer-width)-var(--sidebar-width)-16px))] rounded-[24px]",
+    "fixed bottom-2 left-[calc(var(--sidebar-width)+8px)] top-2 z-[55] w-[min(440px,calc(100vw-var(--viewer-width)-var(--sidebar-width)-24px))] rounded-[24px] bg-[var(--panel)]",
 };
 
 type Tab = "activity" | "approvals" | "upcoming";
@@ -133,8 +134,6 @@ export function MusePanel({ conversation, session, mode, actions }: { conversati
         className={`${frame[mode]} ${travels() ? "" : mode === "docked" ? "anim-pane-from-right" : "anim-popover-in"} flex flex-col overflow-hidden`}
         style={{
           viewTransitionName: `muse-panel-${mode}`,
-          background: "var(--bg-primary)",
-          borderColor: "var(--fill-divider)",
           ...(mode === "floating" ? { boxShadow: "var(--shadow-sheet)" } : {}),
         }}
       >

@@ -38,8 +38,8 @@ export const SIDEBAR_INSET = 8;
 /** what the sidebar takes of the window when docked */
 export const sidebarRoom = (left: LeftSection | null) => sidebarWidth(left) + SIDEBAR_INSET;
 
-/** The panel, docked or floating: the same shape in the same place (the floating one has a shadow over the dimmed chat). */
-const panel = { background: "var(--bg-primary)", border: "1px solid var(--fill-divider)" };
+/** The panel, docked or floating: the same shape in the same place, set off by its colour and shadow (a deeper one over the dimmed chat). */
+const panel = { background: "var(--panel)", boxShadow: "var(--shadow-panel)" };
 const ease = "0.24s cubic-bezier(0.2, 0, 0, 1)";
 
 interface SidebarProps {
@@ -51,12 +51,12 @@ interface SidebarProps {
   actions: Actions;
 }
 
-/** Beside the chat, while there is room: a rounded panel that opens and closes by its width, the chat giving way as it goes. */
+/** Beside the chat, while there is room: a rounded panel that slides in and out whole, the chat giving way as it goes. */
 export function DockedSidebar({ open, ...props }: SidebarProps & { open: boolean }) {
   const width = sidebarWidth(props.left);
   return (
     <aside
-      className="relative hidden h-full shrink-0 overflow-hidden md:block"
+      className="relative hidden h-full shrink-0 md:block"
       style={{
         width: open ? width + SIDEBAR_INSET : 0,
         // hidden (out of the tab order) once it has closed, shown at once as it opens
@@ -65,10 +65,18 @@ export function DockedSidebar({ open, ...props }: SidebarProps & { open: boolean
       }}
       aria-label="Sidebar"
     >
-      {/* the panel keeps its width while the room for it grows or shrinks */}
+      {/* the room for it grows or shrinks; the panel itself moves in and out in one piece */}
       <div
-        className="absolute flex flex-col overflow-hidden rounded-[24px] p-3"
-        style={{ ...panel, top: SIDEBAR_INSET, bottom: SIDEBAR_INSET, left: SIDEBAR_INSET, width, transition: `width ${ease}` }}
+        className="absolute z-[41] flex flex-col overflow-hidden rounded-[24px] p-3"
+        style={{
+          ...panel,
+          top: SIDEBAR_INSET,
+          bottom: SIDEBAR_INSET,
+          left: SIDEBAR_INSET,
+          width,
+          transform: open ? "none" : `translateX(calc(-100% - ${2 * SIDEBAR_INSET}px))`,
+          transition: `width ${ease}, transform ${ease}`,
+        }}
       >
         {/* room for the ☰ button, which stays at the window's top left */}
         <div className="h-11 shrink-0" />
@@ -93,7 +101,7 @@ export function DrawerSidebar({ open, ...props }: SidebarProps & { open: boolean
       />
       <aside
         onAnimationEnd={onAnimationEnd}
-        className={`${closing ? "anim-pane-to-left pointer-events-none" : "anim-pane-from-left"} relative flex h-full max-w-[85vw] flex-col bg-[var(--chat-background)] p-3 md:rounded-[24px] md:border md:border-[var(--fill-divider)] md:bg-[var(--bg-primary)]`}
+        className={`${closing ? "anim-pane-to-left pointer-events-none" : "anim-pane-from-left"} relative flex h-full max-w-[85vw] flex-col bg-[var(--chat-background)] p-3 md:rounded-[24px] md:bg-[var(--panel)]`}
         style={{ width: sidebarWidth(props.left), boxShadow: "var(--shadow-drawer)", transition: `width ${ease}` }}
         aria-label="Sidebar"
       >

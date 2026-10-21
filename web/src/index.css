@@ -361,6 +361,9 @@ body {
   --chat-agent-text: #111112;
   --chat-agent-bubble: #f3f4f5;
   --chat-background: #fcfcfc;
+  /* the sidebar and the Amuse panel: lifted off the chat by colour and shadow, no outline */
+  --panel: #ffffff;
+  --shadow-panel: 0 4px 24px rgba(0, 0, 0, 0.07);
 }
 .dark {
   color-scheme: dark;
@@ -372,6 +375,8 @@ body {
   --chat-agent-text: #ffffff;
   --chat-agent-bubble: #252628;
   --chat-background: #181819;
+  --panel: #1f2022;
+  --shadow-panel: 0 4px 24px rgba(0, 0, 0, 0.36);
 }
 
 /* Muse-style scroll dissolve: the content itself fades out under the floating
