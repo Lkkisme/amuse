@@ -192,7 +192,12 @@ export function Models({
         />
       </label>
       <ul className={group} style={{ background: "var(--fill-secondary)" }}>
-        {state === null && <li className="skeleton my-3 h-6 rounded" />}
+        {state === null &&
+          [0, 1, 2, 3, 4].map((i) => (
+            <li key={i} className="py-3">
+              <div className="skeleton h-5 w-2/5 rounded" />
+            </li>
+          ))}
         {state && others.length === 0 && (
           <li
             className="py-3.5 text-[15px]"

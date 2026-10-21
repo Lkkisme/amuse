@@ -55,11 +55,18 @@ export function AppsKey({
     return <Connectors session={session} viewing={viewing} onView={onView} />;
   if (key === undefined)
     return (
-      <div className="flex-1">
-        {error && (
-          <p className="px-6 text-[13px]" style={{ color: "var(--fill-red)" }}>
+      <div className="flex-1 px-5 sm:px-6">
+        {error ? (
+          <p className="text-[13px]" style={{ color: "var(--fill-red)" }}>
             {error}
           </p>
+        ) : (
+          // loading: the shape of the page to come
+          <div aria-label="Loading" className="space-y-3">
+            <div className="skeleton h-10 rounded-full" />
+            <div className="skeleton h-9 rounded-full" />
+            <div className="skeleton h-64 rounded-[18px]" />
+          </div>
         )}
       </div>
     );
