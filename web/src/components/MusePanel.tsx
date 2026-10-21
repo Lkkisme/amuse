@@ -45,6 +45,8 @@ function done(entity: Entity): Done | null {
       return { id: entity.id, title: `Connect ${entity.title}`, sub: entity.status === "connected" ? "Connected" : "Waiting for you to connect", time: at, done: entity.status === "connected", icon: Plug };    case "instruction":
     case "question":
       return null; // between the agents, not shown to the user
+    case "failure":
+      return null; // a notice in the chat, not something Muse did
     case "schedule":
       return { id: entity.id, title: entity.title, sub: `${repeats(entity.when)} · ${scheduleState(entity)}`, time: at, done: entity.status === "done", icon: CalendarClock };
   }

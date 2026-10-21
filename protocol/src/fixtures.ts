@@ -93,8 +93,16 @@ export const envelopes: Envelope[] = [
       entity: { kind: "question", id: "q1", at, run: "b1", title: "Log in", text: "Two trips are listed; which one?", status: "answered", answer: "The aquarium one", expires: "2026-10-20T08:54:00Z" },
     },
   },
-  { seq: 14, event: { kind: "activity", activity: { kind: "responding", label: null } } },
-  { seq: 15, event: { kind: "activity", activity: null } },
+  {
+    seq: 14,
+    event: {
+      kind: "upserted",
+      index: 10,
+      entity: { kind: "failure", id: "x1", at, reason: "refused", detail: "Provider finish_reason: content_filter", turn: { kind: "note", text: "[task finished] …" }, status: "open" },
+    },
+  },
+  { seq: 15, event: { kind: "activity", activity: { kind: "responding", label: null } } },
+  { seq: 16, event: { kind: "activity", activity: null } },
 ];
 
 export const calls: Call[] = [
@@ -103,6 +111,7 @@ export const calls: Call[] = [
   { method: "session.history", params: { chat: "main", before: 40, limit: 20 } },
   { method: "chat.send", params: { chat: "main", text: "hi", timezone: "Asia/Shanghai", attachments: [] } },
   { method: "chat.stop", params: { chat: "main" } },
+  { method: "chat.retry", params: { id: "x1" } },
   { method: "chats.list", params: {} },
   { method: "chats.create", params: {} },
   { method: "chats.rename", params: { id: "c-1", title: "Trip planning" } },

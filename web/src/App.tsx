@@ -119,6 +119,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           attachments,
         }),
       stop: () => call("chat.stop", { chat: chatRef.current }),
+      retry: (id) => call("chat.retry", { id }),
       resolveApproval: (id, resolution) =>
         call("approval.resolve", { id, resolution }),
       openExplainer: (explainer) => patch((u) => ({ ...u, explainer })),

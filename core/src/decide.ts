@@ -13,6 +13,7 @@ import type {
   Connection,
   Entity,
   Event,
+  Failure,
   Params,
   Question,
   Resolution,
@@ -44,6 +45,8 @@ export function place(state: State, change: Change): Event {
 /** Work for the ports once the changes are recorded. */
 export type Effect =
   | { kind: "prompt"; text: string; attachments: Attachment[] }
+  /** wake the chat's agent again with a note it could not answer before */
+  | { kind: "note"; text: string }
   | { kind: "interrupt" }
   /** `browser` is the run as it stands after the move */
   | { kind: "browser"; browser: Browser; action: BrowserAction }
@@ -137,8 +140,8 @@ export type Rejection =
   | { kind: "unsound"; reason: string }
   | {
       kind: "invalid";
-      action: BrowserAction | ScheduleAction | "fit" | "resolve" | "always" | "begin" | "dismiss" | "stop" | AgentAction["kind"];
-      from: BrowserStatus | TaskStatus | Approval["status"] | Connection["status"] | Schedule["status"] | Question["status"];
+      action: BrowserAction | ScheduleAction | "fit" | "resolve" | "always" | "begin" | "dismiss" | "stop" | "retry" | AgentAction["kind"];
+      from: BrowserStatus | TaskStatus | Approval["status"] | Connection["status"] | Schedule["status"] | Question["status"] | Failure["status"];
     };
 
 /** What a command yields besides changes: the prompt chat.send created, the connection to begin. */
@@ -224,6 +227,18 @@ const rules: Rules = {
   "chat.send": (_, { text, timezone, attachments }, ctx) => {
     const id = ctx.id("p");
     return ok([upsert({ kind: "prompt", id, at: ctx.now, text, timezone, attachments })], [{ kind: "prompt", text, attachments }], { id });
+  },
+
+  "chat.retry": (state, { id }) => {
+    const failure = find(state, "failure", id);
+    if (!failure) return reject({ kind: "notFound", entity: "failure", id });
+    if (failure.status !== "open") return reject({ kind: "invalid", action: "retry", from: failure.status });
+    const tried = upsert({ ...failure, status: "retried" });
+    if (failure.turn.kind === "note") return ok([tried], [{ kind: "note", text: failure.turn.text }], null);
+    // the user's latest message, as they sent it
+    const last = state.entities.findLast((e): e is Extract<Entity, { kind: "prompt" }> => e.kind === "prompt");
+    if (!last) return reject({ kind: "notFound", entity: "prompt", id });
+    return ok([tried], [{ kind: "prompt", text: last.text, attachments: last.attachments }], null);
   },
 
   "chat.stop": (state) => {
@@ -504,6 +519,7 @@ export function recover(state: State, now: string): Change[] {
       case "question":
         return e.status === "open" ? { ...e, status: "closed" } : null;
       case "instruction":
+      case "failure":
         return null;
       case "schedule":
         return e.running ? { ...e, running: false, last: { at: now, outcome: "failed", summary: "cut short by a restart" } } : null; // ended now, as far as anyone can tell

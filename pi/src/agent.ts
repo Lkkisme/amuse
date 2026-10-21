@@ -127,12 +127,20 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
       if (failure !== undefined) throw new Error(failure);
     } catch (error) {
       if (!live()) return;
-      const message = redact(error instanceof Error ? error.message : String(error), secretsOf(cfg));
-      // a provider's content filter is not a fault here: say what happened
-      const text = /content_filter/i.test(message)
-        ? "The model's provider would not answer this (its content filter stopped the reply). What the background work found is kept on its card."
-        : `Something went wrong: ${message}`;
-      emit({ kind: "upserted", entity: { kind: "reply", id: newId("r"), at: new Date().toISOString(), text, streaming: false, attachments: [] } });
+      const detail = redact(error instanceof Error ? error.message : String(error), secretsOf(cfg));
+      // not something Muse said: a failure of its own kind, with the turn kept to try again
+      emit({
+        kind: "upserted",
+        entity: {
+          kind: "failure",
+          id: newId("x"),
+          at: new Date().toISOString(),
+          reason: /content_filter|content filter|safety/i.test(detail) ? "refused" : "failed",
+          detail,
+          turn: turn.kind === "message" ? { kind: "message" } : { kind: "note", text: turn.text },
+          status: "open",
+        },
+      });
     } finally {
       lane.session?.close();
       lane.session = undefined;

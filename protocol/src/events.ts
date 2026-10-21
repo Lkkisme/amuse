@@ -90,6 +90,7 @@ export function unsettled(entity: Entity): boolean {
     case "question":
       return entity.status === "open";
     case "instruction":
+    case "failure":
       return false;
     case "prompt":
     case "connection":

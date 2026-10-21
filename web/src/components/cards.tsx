@@ -3,7 +3,7 @@
  * Props are protocol entities; behavior goes through Actions.
  */
 import { CalendarClock, Check, ChevronRight, CircleAlert, CircleCheck, Globe, ListTodo, ShieldCheck } from "lucide-react";
-import type { Approval, Browser, Connection, Schedule, Task } from "@remuse/protocol";
+import type { Approval, Browser, Connection, Failure, Schedule, Task } from "@remuse/protocol";
 import { repeats, scheduleState } from "../schedules.ts";
 import type { Actions } from "../ui.ts";
 import { type Place, alone, corners } from "./shape.ts";
@@ -188,6 +188,53 @@ export function ConnectionCard({ connection, place = alone, actions }: { connect
         {connection.status === "connected" && <Check size={15} />}
         {label}
       </button>
+    </div>
+  );
+}
+
+/* ---------- Failure ---------- */
+
+const failed: Record<Failure["reason"], string> = {
+  refused: "The model's provider refused this reply (its content filter).",
+  failed: "The model's service had a problem.",
+};
+
+/** Muse could not reply: a notice of its own (not Muse's words), with the provider's words and a way to try again. */
+export function FailureCard({ failure, place = alone, actions }: { failure: Failure; place?: Place; actions: Actions }) {
+  return (
+    <div {...shell(place, "w-full max-w-[340px] px-4 py-3", 18)} role="status">
+      <div className="flex items-start gap-2.5">
+        <CircleAlert size={18} className="mt-0.5 shrink-0" style={{ color: "var(--fill-orange)" }} />
+        <div className="min-w-0 flex-1">
+          <p className="text-[14px] font-semibold" style={{ color: "var(--text-primary)" }}>
+            Muse couldn't reply
+          </p>
+          <p className="mt-0.5 text-[13px] leading-snug" style={{ color: "var(--text-secondary)" }}>
+            {failed[failure.reason]}
+          </p>
+          <details className="mt-1">
+            <summary className="cursor-pointer text-[12px]" style={{ color: "var(--text-tertiary)" }}>
+              Details
+            </summary>
+            <p className="mt-1 break-words text-[12px]" style={{ color: "var(--text-secondary)" }}>
+              {failure.detail}
+            </p>
+          </details>
+        </div>
+      </div>
+      {failure.status === "open" ? (
+        <button
+          className="hover-fade mt-2.5 h-8 w-full rounded-full text-[14px] font-medium"
+          style={{ background: "var(--fill-card-button)", color: "var(--text-primary)" }}
+          onClick={() => actions.retry(failure.id)}
+        >
+          Try again
+        </button>
+      ) : (
+        <p className="mt-2 text-[12px]" style={{ color: "var(--text-tertiary)" }}>
+          Tried again
+        </p>
+      )}
     </div>
   );
 }

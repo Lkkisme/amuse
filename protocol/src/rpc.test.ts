@@ -7,6 +7,7 @@ const handlers: Handlers = {
   "session.history": async () => ({ seq: 0, earlier: 0, entities: [] }),
   "chat.send": async ({ text }) => ({ id: `p:${text}` }),
   "chat.stop": async () => null,
+  "chat.retry": async () => null,
   "chats.list": async () => ({ chats: [] }),
   "chats.create": async () => ({ id: "c-1", title: "", at: "2026-10-20T08:00:00Z", updated: "2026-10-20T08:00:00Z" }),
   "chats.rename": async () => null,

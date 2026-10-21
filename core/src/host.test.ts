@@ -337,3 +337,21 @@ test("a task: handed to a helper, its plan kept, told more while it works, asked
   assert.deepEqual(stopped, [other.id]);
   assert.deepEqual(agent.act({ kind: "taskEnded", id: other.id, status: "completed", result: "late" }), { ok: false, rejection: { kind: "invalid", action: "taskEnded", from: "stopped" } });
 });
+
+test("a turn Muse could not reply to is tried again once: the user's message as sent, or the note it was on", async () => {
+  const turns: Turn[] = [];
+  const { ports } = capture();
+  const host = createHost({ ...ports, prompt: (turn, io) => void (turns.push(turn), (last = io)) });
+  let last: AgentIO | undefined;
+  await host.call("chat.send", { chat: "main", text: "summarize my mail", timezone: "UTC", attachments: [] });
+  assert.ok(last);
+  last.emit({ kind: "upserted", entity: { kind: "failure", id: "x1", at: "2026-10-20T08:00:00Z", reason: "refused", detail: "content_filter", turn: { kind: "message" }, status: "open" } });
+  last.emit({ kind: "upserted", entity: { kind: "failure", id: "x2", at: "2026-10-20T08:00:00Z", reason: "failed", detail: "502", turn: { kind: "note", text: "[task done] found 3 offers" }, status: "open" } });
+  await host.call("chat.retry", { id: "x1" });
+  await host.call("chat.retry", { id: "x2" });
+  assert.deepEqual(turns.slice(1), [
+    { kind: "message", text: "summarize my mail", attachments: [] },
+    { kind: "note", text: "[task done] found 3 offers" },
+  ]);
+  await assert.rejects(host.call("chat.retry", { id: "x1" }), /cannot retry from retried/);
+});

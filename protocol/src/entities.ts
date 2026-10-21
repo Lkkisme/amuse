@@ -200,7 +200,24 @@ export const Question = z.object({
   expires: Instant,
 });
 
-export const Entity = z.discriminatedUnion("kind", [Prompt, Reply, Task, Approval, Connection, Browser, Schedule, Instruction, Question]);
+/**
+ * Muse could not reply: its model's provider refused (a content filter) or
+ * failed. Not something Muse said, so not shown as its message; the turn it
+ * was on is kept, to try again (status: open, until it is tried again).
+ */
+export const Failure = z.object({
+  kind: z.literal("failure"),
+  id: Id,
+  at: Instant,
+  reason: z.enum(["refused", "failed"]),
+  /** the provider's own words, for the curious */
+  detail: z.string(),
+  /** what Muse was answering: the user's latest message, or a note from its background work */
+  turn: z.discriminatedUnion("kind", [z.object({ kind: z.literal("message") }), z.object({ kind: z.literal("note"), text: z.string() })]),
+  status: z.enum(["open", "retried"]),
+});
+
+export const Entity = z.discriminatedUnion("kind", [Prompt, Reply, Task, Approval, Connection, Browser, Schedule, Instruction, Question, Failure]);
 
 /**
  * What the agent is doing, shown under its name. `label` overrides the
@@ -223,6 +240,7 @@ export type Browser = z.infer<typeof Browser>;
 export type Schedule = z.infer<typeof Schedule>;
 export type Instruction = z.infer<typeof Instruction>;
 export type Question = z.infer<typeof Question>;
+export type Failure = z.infer<typeof Failure>;
 export type When = z.infer<typeof When>;
 export type RunOutcome = z.infer<typeof RunOutcome>;
 export type BrowserStatus = z.infer<typeof BrowserStatus>;

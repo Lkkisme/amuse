@@ -17,6 +17,7 @@ import {
   type Connection,
   type Entity,
   type Envelope,
+  type Failure,
   type Handlers,
   type Params,
   type Reply,
@@ -58,7 +59,7 @@ import { type Budget, type Where, agentContext, budget, mentions, recall } from 
  * What ports may record directly: what the agent says (its replies, streamed)
  * and what it is doing (the activity line). Everything else is an action.
  */
-export type Say = { kind: "upserted"; entity: Reply } | Extract<Change, { kind: "appended" | "activity" }>;
+export type Say = { kind: "upserted"; entity: Reply | Failure } | Extract<Change, { kind: "appended" | "activity" }>;
 export type Emit = (say: Say) => void;
 
 /** Ids that stay unique across restarts and processes (a journal outlives any counter). */
@@ -511,6 +512,8 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     switch (effect.kind) {
       case "prompt":
         return ports.prompt({ kind: "message", text: effect.text, attachments: effect.attachments }, agent);
+      case "note":
+        return ports.prompt({ kind: "note", text: effect.text }, agent);
       case "interrupt":
         return ports.interrupt(agent);
       case "browser":
@@ -623,6 +626,7 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
       return sent;
     },
     "chat.stop": async (params) => command(roomOf(params.chat), "chat.stop", params),
+    "chat.retry": async (params) => about(params.id, "chat.retry", params),
     "chats.list": async () => ({ chats: ordered() }),
     "chats.create": async () => {
       const at = clock.now();

@@ -27,6 +27,8 @@ export const Call = z.discriminatedUnion("method", [
   ),
   /** Stop the agent's current reply in a chat. */
   call("chat.stop", z.object({ chat: Id })),
+  /** Try again the turn Muse could not reply to (a Failure, by id). */
+  call("chat.retry", z.object({ id: Id })),
   /** The chats there are: the main chat first, then side chats, most recently used first. */
   call("chats.list", z.object({})),
   /** Open a side chat; it is named after its first message. */
@@ -78,6 +80,7 @@ export const results = {
   "session.history": Page,
   "chat.send": z.object({ id: Id }),
   "chat.stop": done,
+  "chat.retry": done,
   "chats.list": z.object({ chats: z.array(Chat) }),
   "chats.create": Chat,
   "chats.rename": done,
@@ -112,6 +115,7 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "session.history": (raw) => results["session.history"].parse(raw),
   "chat.send": (raw) => results["chat.send"].parse(raw),
   "chat.stop": (raw) => results["chat.stop"].parse(raw),
+  "chat.retry": (raw) => results["chat.retry"].parse(raw),
   "chats.list": (raw) => results["chats.list"].parse(raw),
   "chats.create": (raw) => results["chats.create"].parse(raw),
   "chats.rename": (raw) => results["chats.rename"].parse(raw),

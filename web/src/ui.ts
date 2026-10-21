@@ -45,6 +45,8 @@ export interface Actions {
   /** say something in the chat on screen, with any files already uploaded */
   send(text: string, attachments: Attachment[]): void;
   stop(): void;
+  /** try again a turn Muse could not reply to */
+  retry(failure: string): void;
   resolveApproval(id: string, resolution: "allow_once" | "allow_always" | "deny"): void;
   openExplainer(connectionId: string | null): void;
   connect(connectionId: string): void;

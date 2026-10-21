@@ -28,6 +28,7 @@ import {
   ApprovalCard,
   BrowserCard,
   ConnectionCard,
+  FailureCard,
   ScheduleCard,
   TaskCard,
 } from "./cards";
@@ -66,13 +67,18 @@ function shown(entity: Entity): boolean {
     case "question":
       return false;
     case "reply":
-      return entity.streaming || entity.text.trim() !== "" || entity.attachments.length > 0;
+      return (
+        entity.streaming ||
+        entity.text.trim() !== "" ||
+        entity.attachments.length > 0
+      );
     case "prompt":
     case "task":
     case "approval":
     case "connection":
     case "browser":
     case "schedule":
+    case "failure":
       return true;
   }
 }
@@ -114,6 +120,8 @@ function EntityView({
       );
     case "schedule":
       return <ScheduleCard schedule={entity} place={place} actions={actions} />;
+    case "failure":
+      return <FailureCard failure={entity} place={place} actions={actions} />;
     case "instruction":
     case "question":
       return null; // between the agents (see `shown`)
