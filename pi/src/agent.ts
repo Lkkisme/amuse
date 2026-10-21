@@ -35,12 +35,14 @@ export interface PiConfig extends PiModelConfig {
   appsSetup?: () => string | null;
   /** The skills that ship with Amuse (the user's own are read from skills/ in the workspace). */
   skills?: Skill[];
-  /** Schedules every instance starts with (memory upkeep, reflection), set up once, on the user's clock, when they first write. */
+  /** Schedules every instance starts with (memory upkeep, reflection), each set up once, on the user's clock, when they write. */
   defaults?: Defaults;
 }
 
 /** A schedule every instance starts with; after that it is the user's like any other. */
 export interface DefaultSchedule {
+  /** which default it is, for good (the title may change) */
+  key: string;
   title: string;
   instructions: string;
   /** on the user's clock */
@@ -50,18 +52,21 @@ export interface DefaultSchedule {
 
 export interface Defaults {
   schedules: DefaultSchedule[];
-  /** whether they were set up already (once only: the user may have changed or cancelled them since) */
-  done(): boolean;
-  markDone(): void;
+  /** the keys of those set up already (each once only: the user may have changed or cancelled it since) */
+  setUp(): string[];
+  markSetUp(keys: string[]): void;
 }
 
-/** Set the default schedules up once, in the main chat, on the user's clock (their time zone is known once they write). */
+/** Set up, in the main chat, the default schedules not set up yet (one added in a later version too), on the user's clock (known once they write). */
 function setUpDefaults(defaults: Defaults | undefined, agent: AgentIO): void {
-  if (!defaults || defaults.done() || !agent.chats().find((c) => c.id === agent.chat)?.main) return;
+  if (!defaults || !agent.chats().find((c) => c.id === agent.chat)?.main) return;
+  const done = defaults.setUp();
+  const due = defaults.schedules.filter((d) => !done.includes(d.key));
+  if (due.length === 0) return;
   const { timezone } = agent.time();
-  for (const d of defaults.schedules)
+  for (const d of due)
     agent.act({ kind: "schedule", title: d.title, instructions: d.instructions, when: { kind: "repeat", cron: d.cron, timezone }, needs: d.needs, preset: true });
-  defaults.markDone();
+  defaults.markSetUp([...done, ...due.map((d) => d.key)]);
 }
 
 /** Development: every tool call and what came back, on the server's console (they may hold the user's data: never on in production). */
