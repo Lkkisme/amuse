@@ -8,7 +8,14 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, MoreHorizontal, Search } from "lucide-react";
-import type { Account, App, KindRule, Permission, Session, ToolKind } from "@remuse/protocol";
+import type {
+  Account,
+  App,
+  KindRule,
+  Permission,
+  Session,
+  ToolKind,
+} from "@remuse/protocol";
 import { AppLogo } from "./AppLogo";
 import { PermissionSelect } from "./PermissionSelect";
 
@@ -19,7 +26,15 @@ const TABS: Tab[] = ["available", "connected"];
 const TYPING_MS = 250;
 
 /** `viewing`: the app whose page is open (the settings' own state, so a phone's back button can leave it). */
-export function Connectors({ session, viewing, onView }: { session: Session; viewing: App | null; onView: (app: App | null) => void }) {
+export function Connectors({
+  session,
+  viewing,
+  onView,
+}: {
+  session: Session;
+  viewing: App | null;
+  onView: (app: App | null) => void;
+}) {
   const [tab, setTab] = useState<Tab>("available");
   const [query, setQuery] = useState("");
   const [found, setFound] = useState<{
@@ -151,15 +166,9 @@ export function Connectors({ session, viewing, onView }: { session: Session; vie
   );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col px-5 pt-4 sm:px-6">
-      <h2
-        className="text-[20px] font-semibold"
-        style={{ color: "var(--text-primary)" }}
-      >
-        Connectors
-      </h2>
+    <div className="flex min-h-0 flex-1 flex-col px-5 sm:px-6">
       <label
-        className="mt-4 flex h-10 shrink-0 items-center gap-2 rounded-full px-3"
+        className="flex h-10 shrink-0 items-center gap-2 rounded-full px-3"
         style={{ background: "var(--fill-secondary)" }}
       >
         <Search size={16} style={{ color: "var(--icon-secondary)" }} />
@@ -182,7 +191,7 @@ export function Connectors({ session, viewing, onView }: { session: Session; vie
             style={
               tab === t
                 ? {
-                    background: "var(--fill-primary)",
+                    background: "var(--segment-selected)",
                     color: "var(--text-primary)",
                     boxShadow: "var(--shadow-float)",
                   }
@@ -255,9 +264,19 @@ function AppPage({
   /** the account whose options are open */
   const [options, setOptions] = useState<string | null>(null);
   const [rules, setRules] = useState<KindRule[] | null>(null);
-  const load = useCallback(() => session.call("apps.permissions", { app: app.id }).then(({ rules }) => setRules(rules), () => setRules([])), [session, app.id]);
+  const load = useCallback(
+    () =>
+      session.call("apps.permissions", { app: app.id }).then(
+        ({ rules }) => setRules(rules),
+        () => setRules([]),
+      ),
+    [session, app.id],
+  );
   useEffect(() => void load(), [load]);
-  const permit = (kind: ToolKind, permission: Permission | null) => void session.call("apps.permit", { app: app.id, kind, permission }).then(load, load);
+  const permit = (kind: ToolKind, permission: Permission | null) =>
+    void session
+      .call("apps.permit", { app: app.id, kind, permission })
+      .then(load, load);
   return (
     // a block, not a flex column: a flex column would squeeze its rows to fit instead of scrolling them
     <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6 pt-3 sm:px-6">
@@ -407,15 +426,24 @@ function AppPage({
         <>
           {rules.map((rule) => (
             <section key={rule.kind}>
-              <p className="mb-1.5 mt-5 px-4 text-[13px] font-medium" style={{ color: "var(--text-secondary)" }}>
+              <p
+                className="mb-1.5 mt-5 px-4 text-[13px] font-medium"
+                style={{ color: "var(--text-secondary)" }}
+              >
                 {kindTitle[rule.kind]}
               </p>
               <Group>
                 <li className="flex items-center gap-3 py-3">
-                  <span className="min-w-0 flex-1 text-[15px]" style={{ color: "var(--text-primary)" }}>
+                  <span
+                    className="min-w-0 flex-1 text-[15px]"
+                    style={{ color: "var(--text-primary)" }}
+                  >
                     {kindLine[rule.kind](app.name)}
                   </span>
-                  <PermissionSelect value={rule.permission} onChange={(p) => permit(rule.kind, p)} />
+                  <PermissionSelect
+                    value={rule.permission}
+                    onChange={(p) => permit(rule.kind, p)}
+                  />
                 </li>
               </Group>
             </section>
@@ -424,7 +452,11 @@ function AppPage({
             <button
               className="hover-fade ml-auto mt-3 block px-4 text-[14px]"
               style={{ color: "var(--fill-red)" }}
-              onClick={() => rules.filter((r) => r.chosen).forEach((r) => permit(r.kind, null))}
+              onClick={() =>
+                rules
+                  .filter((r) => r.chosen)
+                  .forEach((r) => permit(r.kind, null))
+              }
             >
               Reset to defaults
             </button>
@@ -435,7 +467,11 @@ function AppPage({
   );
 }
 
-const kindTitle: Record<ToolKind, string> = { read: "Read permissions", write: "Write permissions", destructive: "Delete permissions" };
+const kindTitle: Record<ToolKind, string> = {
+  read: "Read permissions",
+  write: "Write permissions",
+  destructive: "Delete permissions",
+};
 const kindLine: Record<ToolKind, (app: string) => string> = {
   read: (app) => `Read ${app} content`,
   write: (app) => `Change ${app} content`,

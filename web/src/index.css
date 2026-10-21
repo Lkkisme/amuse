@@ -352,6 +352,10 @@ body {
    --chat-background seen inline on muse.ai is a conversation theme, not the default). */
 .light {
   color-scheme: light;
+  /* the chosen part of a segmented control, on its --fill-secondary track */
+  --segment-selected: #ffffff;
+  /* a text field on a --fill-secondary card */
+  --field: #ffffff;
   --chat-user-text: #111112;
   --chat-user-bubble: #b8dbfe;
   --chat-agent-text: #111112;
@@ -360,6 +364,9 @@ body {
 }
 .dark {
   color-scheme: dark;
+  /* lighter than the track: --fill-primary is the track's own colour in dark mode */
+  --segment-selected: #4a4c4f;
+  --field: #3a3c3f;
   --chat-user-text: #ffffff;
   --chat-user-bubble: #0074e8;
   --chat-agent-text: #ffffff;

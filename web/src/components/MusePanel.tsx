@@ -121,7 +121,7 @@ export function MusePanel({ conversation, mode, actions }: { conversation: State
           <span
             key={i}
             className="flex items-center justify-center rounded-full"
-            style={i === 0 ? { background: "var(--fill-card-button)", color: "var(--icon-primary)", boxShadow: "var(--shadow-float)" } : { color: "var(--icon-secondary)" }}
+            style={i === 0 ? { background: "var(--segment-selected)", color: "var(--icon-primary)", boxShadow: "var(--shadow-float)" } : { color: "var(--icon-secondary)" }}
           >
             <Icon size={16} />
           </span>

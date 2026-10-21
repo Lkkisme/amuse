@@ -43,7 +43,7 @@ export function ChatsPanel({ open, chats, current, actions }: { open: boolean; c
         aria-label="Menu"
       >
         {/* room for the ☰ button (TopBar's MenuButton), which stays put above the drawer */}
-        <div className="h-10 shrink-0" />
+        <div className="h-11 shrink-0" />
 
         {/* pages: the rail is hidden below md, so the drawer carries them, Settings last */}
         <nav className="mt-3 grid grid-cols-3 gap-1 md:hidden" aria-label="Pages">

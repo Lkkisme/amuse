@@ -18,7 +18,7 @@ export function TopBar({ conversation, museOpen, actions }: { conversation: Stat
       className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between px-3 py-2"
     >
       {/* spacer: the menu button lives outside the header (MenuButton) so it can sit above the drawer */}
-      <span className="size-10" />
+      <span className="size-11" />
 
       {/* The avatar and its badge take the clicks that land on them (the bar around them lets them through).
           Muse avatar bubble, drawn over the top of its name badge (Muse: 52px avatar, badge tucked 4px under).
@@ -81,13 +81,13 @@ export function MenuButton({ open, actions }: { open: boolean; actions: Actions 
     <button
       aria-label={open ? "Close menu" : "Open menu"}
       aria-expanded={open}
-      className="hover-fade absolute left-3 top-2 z-[45] flex size-10 items-center justify-center rounded-full"
+      className="hover-fade absolute left-3 top-2 z-[45] flex size-11 items-center justify-center rounded-full"
       style={{ background: "var(--fill-primary)", color: "var(--text-primary)", boxShadow: "var(--shadow-float)" }}
       onClick={() => actions.setChats(!open)}
     >
-      <Menu size={18} className={icon} style={{ opacity: open ? 0 : 1, transform: open ? "rotate(90deg) scale(0.6)" : "none" }} />
+      <Menu size={20} className={icon} style={{ opacity: open ? 0 : 1, transform: open ? "rotate(90deg) scale(0.6)" : "none" }} />
       <PanelLeftClose
-        size={18}
+        size={20}
         className={icon}
         style={{ opacity: open ? 1 : 0, transform: open ? "none" : "rotate(-90deg) scale(0.6)" }}
       />

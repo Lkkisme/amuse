@@ -65,7 +65,7 @@ function NoBrowser() {
   return (
     <>
       <header className="flex justify-end pr-3 pt-2">
-        <span className="size-10" />
+        <span className="size-11" />
       </header>
       <div className="flex flex-1 flex-col items-center justify-center gap-2 px-8 text-center">
         <Globe size={28} style={{ color: "var(--icon-secondary)" }} />
@@ -148,7 +148,7 @@ function ViewerHeader({ browser, actions }: { browser: Browser; actions: Actions
         </button>
       )}
       {/* the corner is the browser button's (it stays put and collapses the viewer) */}
-      <span className="size-10 shrink-0" />
+      <span className="size-11 shrink-0" />
     </header>
   );
 }

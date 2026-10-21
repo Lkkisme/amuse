@@ -22,14 +22,14 @@ export function BrowserButton({ conversation, open, actions }: { conversation: S
       aria-label={open ? "Close browser" : meta ? `Browser: ${meta.label}` : "Browser"}
       aria-expanded={open}
       // open, it is held to the window's corner (the viewer's), where it already is unless a docked Muse panel was beside it
-      className={`${open ? "fixed z-[60]" : "absolute z-30"} right-3 top-2 flex size-10 items-center justify-center rounded-full`}
+      className={`${open ? "fixed z-[60]" : "absolute z-30"} right-3 top-2 flex size-11 items-center justify-center rounded-full`}
       style={{ background: "var(--fill-primary)", color: meta?.color ?? "var(--icon-primary)", boxShadow: "var(--shadow-float)" }}
       onClick={() => (open ? actions.closeViewer() : actions.openViewer(run?.id ?? null))}
     >
-      <Monitor size={18} className={icon} style={{ opacity: open ? 0 : 1, transform: open ? "rotate(90deg) scale(0.6)" : "none" }} />
+      <Monitor size={20} className={icon} style={{ opacity: open ? 0 : 1, transform: open ? "rotate(90deg) scale(0.6)" : "none" }} />
       {/* the viewer is a side panel from lg up (collapse it), a full screen below (close it) */}
-      <PanelRightClose size={18} className={`${icon} hidden lg:block`} style={{ opacity: open ? 1 : 0, transform: open ? "none" : "rotate(-90deg) scale(0.6)" }} />
-      <X size={19} className={`${icon} lg:hidden`} style={{ opacity: open ? 1 : 0, transform: open ? "none" : "rotate(-90deg) scale(0.6)" }} />
+      <PanelRightClose size={20} className={`${icon} hidden lg:block`} style={{ opacity: open ? 1 : 0, transform: open ? "none" : "rotate(-90deg) scale(0.6)" }} />
+      <X size={20} className={`${icon} lg:hidden`} style={{ opacity: open ? 1 : 0, transform: open ? "none" : "rotate(-90deg) scale(0.6)" }} />
       {meta &&
         (waiting ? (
           <span

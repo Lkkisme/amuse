@@ -24,9 +24,18 @@ const asSite = (input: string): string | null => {
   return site && Site.safeParse(site).success ? site : null;
 };
 
-export function SitePermissions({ session }: { session: Session }) {
+export function SitePermissions({
+  session,
+  adding,
+  onAdded,
+}: {
+  session: Session;
+  adding: boolean;
+  onAdded: () => void;
+}) {
   const [rules, setRules] = useState<SiteRule[] | null>(null);
   const [draft, setDraft] = useState("");
+  const [permission, setPermission] = useState<Permission>("ask");
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(
@@ -38,10 +47,10 @@ export function SitePermissions({ session }: { session: Session }) {
     [session],
   );
   useEffect(() => void load(), [load]);
-  const permit = (site: string, permission: Permission | null) => {
+  const permit = (site: string, next: Permission | null) => {
     setError(null);
     session
-      .call("sites.permit", { site, permission })
+      .call("sites.permit", { site, permission: next })
       .then(load, (e: unknown) =>
         setError(e instanceof Error ? e.message : String(e)),
       );
@@ -49,81 +58,58 @@ export function SitePermissions({ session }: { session: Session }) {
   const add = () => {
     const site = asSite(draft);
     if (!site) return setError(`“${draft}” is not a website address.`);
-    permit(site, "ask"); // added to be visited without asking first; the list sets any other rule
+    permit(site, permission);
     setDraft("");
+    setPermission("ask");
+    onAdded();
   };
 
   return (
-    <div className="flex-1 overflow-y-auto px-5 pb-6 pt-4 sm:px-6">
-      <h2
-        className="text-[20px] font-semibold"
-        style={{ color: "var(--text-primary)" }}
-      >
-        Websites
-      </h2>
+    <div className="flex-1 overflow-y-auto px-5 pb-6 sm:px-6">
       <p
-        className="mt-1 text-[13px] leading-snug"
+        className="text-[13px] leading-snug"
         style={{ color: "var(--text-secondary)" }}
       >
-        Muse asks before visiting a website that is not listed here. Ask lets
-        it go there, and it still asks before anything that commits you
-        (buying, sending, submitting); Allow lets it act there without asking;
-        Deny keeps it off the site and stops it asking. A rule covers the
-        site's subdomains too.
+        Muse asks before visiting a website that is not listed here. Ask lets it
+        go there, and it still asks before anything that commits you (buying,
+        sending, submitting); Allow lets it act there without asking; Deny keeps
+        it off the site and stops it asking. A rule covers the site's subdomains
+        too.
       </p>
 
-      {rules && rules.length > 0 && (
-        <ul
-          className="mt-4 divide-y divide-[var(--fill-divider)] rounded-[18px] px-4"
+      {/* the bar's + opens this */}
+      {adding && (
+        <div
+          className="anim-fade-in mt-4 space-y-2.5 rounded-[18px] p-4"
           style={{ background: "var(--fill-secondary)" }}
         >
-          {rules?.map((rule) => (
-            <li key={rule.site} className="flex items-center gap-3 py-2.5">
-              <Globe size={16} style={{ color: "var(--icon-secondary)" }} />
-              <span
-                className="min-w-0 flex-1 truncate text-[15px]"
-                style={{ color: "var(--text-primary)" }}
-              >
-                {rule.site}
-              </span>
-              <PermissionSelect
-                value={rule.permission}
-                onChange={(p) => permit(rule.site, p)}
-              />
-              <button
-                aria-label={`Remove the rule for ${rule.site}`}
-                className="hover-fade rounded-full p-1"
-                style={{ color: "var(--icon-secondary)" }}
-                onClick={() => permit(rule.site, null)}
-              >
-                <X size={16} />
-              </button>
-            </li>
-          ))}
-        </ul>
+          <div
+            className="flex items-center gap-2 rounded-[10px] px-3"
+            style={{ background: "var(--field)" }}
+          >
+            <Globe size={16} style={{ color: "var(--icon-secondary)" }} />
+            <input
+              autoFocus
+              aria-label="Website"
+              className="min-w-0 flex-1 bg-transparent py-2 text-[15px] outline-none"
+              style={{ color: "var(--text-primary)" }}
+              placeholder="news.ycombinator.com"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && draft.trim() && add()}
+            />
+            <PermissionSelect value={permission} onChange={setPermission} />
+          </div>
+          <button
+            disabled={!draft.trim()}
+            className="h-10 w-full rounded-full text-[15px] font-semibold text-white disabled:opacity-40"
+            style={{ background: "var(--fill-blue)" }}
+            onClick={add}
+          >
+            Add
+          </button>
+        </div>
       )}
-      {/* a site added may be visited; its row in the list sets any other rule */}
-      <div
-        className="mt-3 flex h-11 items-center gap-2 rounded-full pl-4 pr-1.5"
-        style={{ background: "var(--fill-secondary)" }}
-      >
-        <input
-          className="min-w-0 flex-1 bg-transparent text-[15px] outline-none"
-          style={{ color: "var(--text-primary)" }}
-          placeholder="Add a website, like news.ycombinator.com"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && draft.trim() && add()}
-        />
-        <button
-          disabled={!draft.trim()}
-          className="h-8 shrink-0 rounded-full px-4 text-[14px] font-medium text-white disabled:opacity-40"
-          style={{ background: "var(--fill-blue)" }}
-          onClick={add}
-        >
-          Add
-        </button>
-      </div>
       {error && (
         <p
           role="alert"
@@ -133,6 +119,48 @@ export function SitePermissions({ session }: { session: Session }) {
           {error}
         </p>
       )}
+
+      <p
+        className="mb-2 mt-6 px-1 text-[13px] font-medium"
+        style={{ color: "var(--text-secondary)" }}
+      >
+        Websites
+      </p>
+      <ul
+        className="divide-y divide-[var(--fill-divider)] rounded-[18px] px-4"
+        style={{ background: "var(--fill-secondary)" }}
+      >
+        {rules?.length === 0 && (
+          <li
+            className="py-3.5 text-[15px]"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            None yet. Add one with +.
+          </li>
+        )}
+        {rules?.map((rule) => (
+          <li key={rule.site} className="flex items-center gap-3 py-2.5">
+            <span
+              className="min-w-0 flex-1 truncate text-[16px]"
+              style={{ color: "var(--text-primary)" }}
+            >
+              {rule.site}
+            </span>
+            <PermissionSelect
+              value={rule.permission}
+              onChange={(p) => permit(rule.site, p)}
+            />
+            <button
+              aria-label={`Remove the rule for ${rule.site}`}
+              className="hover-fade rounded-full p-1"
+              style={{ color: "var(--icon-secondary)" }}
+              onClick={() => permit(rule.site, null)}
+            >
+              <X size={16} />
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
