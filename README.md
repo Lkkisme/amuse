@@ -55,9 +55,10 @@ leaves it, and deleting or overwriting the files you sent, still needs your word
 - It reaches the internet, and nothing of yours: no keys or password, no Docker socket, not
   privileged, only the capabilities sudo and apt need, and only the workspace of Amuse's data. The
   Amuse server turns away every request from the sandbox's network, and the browsers cannot reach it.
-- Three folders of the workspace are read-only there: `memory/` and `skills/`, which Amuse reads as its
-  own context and instructions, and `user/`, what you sent. Amuse edits memory and skills with its own
-  tools, not from a shell; to work on a file you sent, it makes a copy elsewhere. The three folders always exist and cannot be removed or renamed, only emptied; a file
+- Two folders of the workspace are read-only there: `memory/`, which Amuse reads as its own context, and
+  `user/`, what you sent. Amuse edits its memory with its own tools, not from a shell; to work on a file
+  you sent, it makes a copy elsewhere. `skills/` is writable and is also `~/.agents/skills`, so
+  `npx skills add -g …` installs straight into Amuse's skills; Amuse tells you about each new or changed one. The three folders always exist and cannot be removed or renamed, only emptied; a file
   moved into one is copied (the sandbox may still hold the original open), not renamed.
 - Limits: 2 CPUs, 4 GB of memory and 1024 processes; change them in `.env` with
   `AMUSE_SANDBOX_CPUS`, `AMUSE_SANDBOX_MEMORY` and `AMUSE_SANDBOX_PIDS`. There is no disk limit

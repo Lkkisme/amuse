@@ -68,12 +68,34 @@ export interface Defaults {
 function setUpDefaults(defaults: Defaults | undefined, agent: AgentIO): void {
   if (!defaults || !agent.chats().find((c) => c.id === agent.chat)?.main) return;
   const done = defaults.setUp();
+  // the ones set up already follow this version's wording (a title the user cannot change finds them)
+  for (const d of defaults.schedules) if (done.includes(d.key)) agent.act({ kind: "revisePreset", title: d.title, instructions: d.instructions });
   const due = defaults.schedules.filter((d) => !done.includes(d.key));
   if (due.length === 0) return;
   const { timezone } = agent.time();
   for (const d of due)
     agent.act({ kind: "schedule", title: d.title, instructions: d.instructions, when: { kind: "repeat", cron: d.cron, timezone }, needs: d.needs, preset: true });
   defaults.markSetUp([...done, ...due.map((d) => d.key)]);
+}
+
+/**
+ * The user's skills now, against `before` (null: the first look, which tells nothing): what to tell the
+ * agent about the new and changed ones, and what it has seen now.
+ */
+export function skillsSince(before: Map<string, string> | null, every: Skill[]): { seen: Map<string, string>; news: string } {
+  const mine = every.filter((s) => s.from !== "built in");
+  const seen = new Map(mine.map((s) => [s.name, `${s.description}\n${s.body}`]));
+  if (before === null) return { seen, news: "" };
+  const lines = mine.filter((s) => before.get(s.name) !== seen.get(s.name)).map((s) => `- ${s.name} (${before.has(s.name) ? "changed" : "new"}): ${s.description}`);
+  const news =
+    lines.length === 0
+      ? ""
+      : [
+          "Skills new or changed since your last turn (installed in your sandbox, or written there or by you):",
+          ...lines,
+          "They change how you work, so tell the user in a short line each what it is for, and that they can remove it in Skills in the sidebar, unless you already told them.",
+        ].join("\n");
+  return { seen, news };
 }
 
 /** Development: every tool call and what came back, on the server's console (they may hold the user's data: never on in production). */
@@ -116,6 +138,13 @@ interface Lane {
  */
 export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "title"> {
   const lanes = new Map<string, Lane>();
+  // the user's skills as the agent last saw them, by name: what is new or changed since gets told (null: not looked yet)
+  let skillsSeen: Map<string, string> | null = null;
+  const skillNews = (every: Skill[]): string => {
+    const { seen, news } = skillsSince(skillsSeen, every);
+    skillsSeen = seen;
+    return news;
+  };
   const laneOf = (chat: string): Lane => {
     const lane = lanes.get(chat) ?? { queue: Promise.resolve(), session: undefined, epoch: 0 };
     lanes.set(chat, lane);
@@ -137,7 +166,9 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
       // the user's language, said where the model weighs it most: the system prompt of this turn
       const language = scriptOf(agent.lastWords());
       // the skills there are now (the user may have added one), a line each
-      const skills = catalog(await allSkills(cfg.skills ?? [], cfg.files));
+      const every = await allSkills(cfg.skills ?? [], cfg.files);
+      const skills = catalog(every);
+      const news = turn.kind === "message" ? skillNews(every) : "";
       const system = [cfg.system, skills, language ? `The user writes in ${language}: reply in ${language}.` : ""].filter(Boolean).join("\n\n");
       if (turn.kind === "message") setUpDefaults(cfg.defaults, agent);
       const session = await openSession(cfg, system, [
@@ -183,7 +214,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
       try {
         // the images the user just sent are seen with their message
         const shown = turn.kind === "message" && cfg.files ? await images(cfg.files, turn.attachments) : [];
-        const remembered = cfg.files ? await memoryBrief(cfg.files).catch(() => "") : "";
+        const remembered = [cfg.files ? await memoryBrief(cfg.files).catch(() => "") : "", news].filter(Boolean).join("\n\n");
         await pi.prompt(brief(agent, turn, remembered), { expandPromptTemplates: false, ...(shown.length > 0 ? { images: shown } : {}) });
       } finally {
         unsubscribe();

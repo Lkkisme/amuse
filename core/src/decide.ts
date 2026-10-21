@@ -115,6 +115,8 @@ export type AgentAction =
   | { kind: "schedule"; title: string; instructions: string; when: When; needs?: Needs | null; preset?: boolean; goal?: string | null }
   /** Cancel a schedule for good. */
   | { kind: "unschedule"; id: string }
+  /** One every instance starts with takes its instructions as this version of Amuse words them (they ship with it, like the built-in skills). */
+  | { kind: "revisePreset"; title: string; instructions: string }
   /** A schedule's run has ended, and how. */
   /** `skipped`: its condition (`needs`) held it back; it does not count as a run */
   | { kind: "scheduleRan"; id: string; outcome: Exclude<RunOutcome, "missed"> | "skipped"; summary: string }
@@ -362,6 +364,12 @@ const agentRules: AgentRules = {
     if (!sound.ok) return reject({ kind: "unsound", reason: sound.reason });
     const id = ctx.id("s");
     return ok([upsert({ kind: "schedule", id, at: ctx.now, title, instructions, when, status: "active", next: sound.next, running: false, last: null, needs, preset, goal })], [], { id });
+  },
+  revisePreset: (state, { title, instructions }) => {
+    const preset = state.entities.find((e): e is Schedule => e.kind === "schedule" && e.preset && e.title === title && (e.status === "active" || e.status === "paused"));
+    // cancelled by the user, or as this version has it already: nothing to do
+    if (!preset || preset.instructions === instructions) return ok([], [], { id: preset?.id ?? "" });
+    return ok([upsert({ ...preset, instructions })], [], { id: preset.id });
   },
   unschedule: (state, { id }) => {
     const schedule = find(state, "schedule", id);

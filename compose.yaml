@@ -50,8 +50,8 @@ services:
   # with passwordless sudo); the only way in is the `sandbox` network, shared with amuse and nothing else.
   # It reaches the internet (this network is not internal) and holds none of amuse's secrets: no env_file, no
   # /secrets, no Docker socket, not privileged, and only the capabilities sudo, apt and the daemon need. Only the
-  # workspace of amuse-data is mounted, not the rest of it, and what the agent reads as its own context (memory/,
-  # skills/) and what the user sent (user/) are read-only there: Amuse edits those with its own tools.
+  # workspace of amuse-data is mounted, not the rest of it; its memory (memory/) and what the user sent (user/)
+  # are read-only there: Amuse edits its memory with its own tools. skills/ is writable (installers use it).
   # sudo needs its setuid, so no-new-privileges is not set. Its disk use counts against the data volume.
   # Limits can be changed in .env. A reset in Settings wipes its home folder; system-wide installs and /etc stay
   # until the container is recreated: `docker compose up -d --force-recreate sandbox`.
@@ -82,10 +82,11 @@ services:
         target: /home/amuse/workspace/memory
         read_only: true
         volume: { subpath: workspace/memory }
+      # skills/ is writable, and is also where skill installers put skills (`npx skills add -g` installs into
+      # ~/.agents/skills): what lands there Amuse uses, and tells the user about (pi/src/agent.ts)
       - type: volume
         source: amuse-data
-        target: /home/amuse/workspace/skills
-        read_only: true
+        target: /home/amuse/.agents/skills
         volume: { subpath: workspace/skills }
       - type: volume
         source: amuse-data

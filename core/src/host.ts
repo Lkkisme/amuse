@@ -438,6 +438,7 @@ function subjectOf(action: AgentAction): string | null {
     case "task":
     case "ask":
     case "schedule":
+    case "revisePreset": // set up in the main chat, where this is asked
       return null;
   }
 }

@@ -218,3 +218,38 @@ test("'always' is an answer only where a rule can hold it", () => {
   });
   assert.ok(decide(once, { method: "approval.resolve", params: { id: "a1", resolution: "allow_once" } }, ctx).ok);
 });
+
+test("a schedule every instance starts with takes this version's instructions; the user's own and a cancelled one stay as they are", () => {
+  const preset: Entity = {
+    kind: "schedule",
+    id: "s1",
+    at,
+    title: "Skill review",
+    instructions: "old wording",
+    when: { kind: "repeat", cron: "0 4 * * *", timezone: "UTC" },
+    status: "active",
+    next: "2026-10-21T04:00:00Z",
+    running: false,
+    last: null,
+    needs: "conversation",
+    preset: true,
+    goal: null,
+  };
+  const mine: Entity = { ...preset, id: "s2", title: "Skill review", preset: false, instructions: "mine" };
+  const revise = (state: State) => decideAgent(state, "revisePreset", { kind: "revisePreset", title: "Skill review", instructions: "new wording" }, ctx);
+
+  const revised = revise(stateOf(mine, preset));
+  assert.ok(revised.ok);
+  const after = record(stateOf(mine, preset), revised.changes);
+  const instructions = (id: string) => {
+    const found = after.entities.find((e) => e.id === id);
+    return found?.kind === "schedule" ? found.instructions : null;
+  };
+  assert.equal(instructions("s1"), "new wording");
+  assert.equal(instructions("s2"), "mine", "not the user's own of the same name");
+
+  const cancelled = revise(stateOf({ ...preset, status: "cancelled", next: null }));
+  assert.ok(cancelled.ok && cancelled.changes.length === 0, "a cancelled one stays cancelled, unchanged");
+  const same = decideAgent(stateOf(preset), "revisePreset", { kind: "revisePreset", title: "Skill review", instructions: "old wording" }, ctx);
+  assert.ok(same.ok && same.changes.length === 0, "nothing to record when it is the same");
+});
