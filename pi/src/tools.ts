@@ -205,7 +205,7 @@ export function appTools(io: () => AgentIO, apps: Apps, hold?: Hold): ToolDefini
           found
             .map(
               (t) =>
-                `- ${t.slug}${t.permission === "ask" ? " (asks the user first)" : ""}: ${clip(t.description, 300)}\n  args: ${clip(JSON.stringify(t.parameters), 700)}\n  required: ${t.required.join(", ") || "none"}`,
+                `- ${t.slug}${t.permission === "ask" ? " (asks the user first)" : t.permission === "deny" ? " (the user's rule says no to this kind: calling it asks them with a card, only do so when their request needs it)" : ""}: ${clip(t.description, 300)}\n  args: ${clip(JSON.stringify(t.parameters), 700)}\n  required: ${t.required.join(", ") || "none"}`,
             )
             .join("\n") + which,
         );
@@ -241,17 +241,18 @@ export async function appCall(io: AgentIO, apps: Apps, action: string, args: Rec
   const outcome = (r: Result) => untrusted(r.ok ? clip(JSON.stringify(r.data), 12_000) : `failed: ${r.error}`);
   // the user's rules, not the agent, decide what runs (core/policy.ts)
   const permission = await apps.permission(app, action);
-  if (permission === "deny") return `The user does not allow this kind of ${app} action. Do not try to do it another way; tell the user.`;
   if (permission === "allow") return outcome(await apps.call(action, args, account.id));
   // never hold the chat for an approval: ask, return, and finish in the background
   const label = action.replaceAll("_", " ").toLowerCase();
+  // a kind the user said no to is still theirs to allow, on the card: once, or from now on
+  const ruled = permission === "deny" ? `Your rule for ${app} says no to this kind of action. Allow it this time, or always?\n\n` : "";
   const approval = io.act({
     kind: "ask",
     action: label,
     // ...as which account
     target: account.label ? `${app} (${account.label})` : app,
     // the user approves exactly what will run: every argument (a huge one, e.g. an attachment, is cut and says so)
-    detail: clip(JSON.stringify(args, null, 2), 20_000),
+    detail: ruled + clip(JSON.stringify(args, null, 2), 20_000),
     remember: true, // an answer for always holds for the app's actions of this kind
   });
   if (!approval.ok) return `Could not ask for approval: ${describe(approval.rejection)}.`;

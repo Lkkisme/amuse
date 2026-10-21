@@ -42,11 +42,21 @@ function setup(permission: Permission, answer: Answer = { verdict: "approved", r
   return { run, runHeld, ran, remembered, asked, reports };
 }
 
-test("denied: nothing runs and nothing is asked", async () => {
-  const s = setup("deny");
-  assert.match(await s.run(), /does not allow/);
-  assert.deepEqual(s.ran, []);
-  assert.deepEqual(s.asked, []);
+test("denied by the user's rule: the card says so, and nothing runs unless they allow it there; 'always' changes the rule", async () => {
+  const declined = setup("deny", { verdict: "denied", remember: false });
+  assert.match(await declined.run(), /NOT done yet/);
+  const card = declined.asked[0];
+  assert.ok(card?.kind === "ask" && card.detail.startsWith("Your rule for gmail says no to this kind of action."));
+  assert.deepEqual(declined.ran, []);
+
+  const once = setup("deny", { verdict: "approved", remember: false });
+  await once.run();
+  assert.deepEqual(once.ran, ["GMAIL_SEND_EMAIL"]);
+  assert.deepEqual(once.remembered, [], "once leaves the rule as it is");
+
+  const always = setup("deny", { verdict: "approved", remember: true });
+  await always.run();
+  assert.deepEqual(always.remembered, [["GMAIL_SEND_EMAIL", "allow"]]);
 });
 
 test("allowed: it runs at once", async () => {

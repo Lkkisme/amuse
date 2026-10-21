@@ -1,7 +1,8 @@
 /**
  * The agent's connected apps on Composio, for one Composio user, under the
- * user's rules (core/policy.ts): a tool the user denied is never offered,
- * and each tool comes with what the agent may do with it.
+ * user's rules (core/policy.ts): each tool comes with what the agent may do
+ * with it. A tool the user denied is still listed as such: the agent knows it
+ * is there (not that there is nothing), and calling it asks the user.
  */
 import { type Rules, kindOf, kindByName, permissionOf } from "@amuse/core";
 import type { Permission, ToolKind } from "@amuse/protocol";
@@ -22,14 +23,13 @@ export function composioApps(client: Composio, userId: string, rules: Rules) {
     /** The app's accounts that work now. */
     accounts: async (app: string) =>
       (await client.accounts(userId, app)).filter((a) => a.status === "ACTIVE").map((a) => ({ id: a.id, label: a.label })),
-    /** Tools matching `query`, without the ones the user denied, each with what the agent may do with it. */
+    /** Tools matching `query`, each with what the agent may do with it. */
     async tools(app: string, query: string) {
       const [found, chosen] = await Promise.all([client.tools(app, query), rules.of(app)]);
       return found.flatMap((t) => {
         const k = kindOf(t.slug, t.tags);
         kinds.set(t.slug, k);
-        const permission = permissionOf(k, chosen);
-        return permission === "deny" ? [] : [{ ...t, permission }];
+        return [{ ...t, permission: permissionOf(k, chosen) }];
       });
     },
     permission: async (app: string, slug: string): Promise<Permission> => permissionOf(await kind(slug), await rules.of(app)),
