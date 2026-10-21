@@ -36,7 +36,11 @@ const NAV: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
 
 /* ---------------- General ---------------- */
 
-const themeName: Record<Theme, string> = { system: "Match system", light: "Light", dark: "Dark" };
+const themeName: Record<Theme, string> = {
+  system: "Match system",
+  light: "Light",
+  dark: "Dark",
+};
 
 function GeneralSection({
   theme,
@@ -88,12 +92,15 @@ export function SettingsModal({
   ui,
   theme,
   session,
+  demo,
   actions,
 }: {
   ui: Ui["settings"];
   theme: Theme;
   /** the server, for the parts of settings that are its (connectors) */
   session: Session;
+  /** the in-browser demo, which can be started over */
+  demo: boolean;
   actions: Actions;
 }) {
   const { mounted, closing, onAnimationEnd } = usePresence(ui.open);
@@ -112,6 +119,7 @@ export function SettingsModal({
       ? ui.app.name
       : (NAV.find((n) => n.id === section)?.label ?? "");
   const adds = !ui.app && shown === "permissions" ? "Add a website" : null;
+  // a phone's bar has the chat's round buttons; a desktop's has small labelled ones, the height of its close button
   const add = adds && (
     <button
       aria-label={adds}
@@ -121,6 +129,19 @@ export function SettingsModal({
       onClick={() => setAdding((a) => !a)}
     >
       <Plus size={barIcon} />
+    </button>
+  );
+  const addLabelled = adds && (
+    <button
+      aria-pressed={adding}
+      className="hover-fade flex h-8 shrink-0 items-center gap-1.5 rounded-full pl-2.5 pr-3.5 text-[14px] font-medium"
+      style={{
+        background: "var(--fill-secondary)",
+        color: "var(--text-primary)",
+      }}
+      onClick={() => setAdding((a) => !a)}
+    >
+      <Plus size={15} /> {adds}
     </button>
   );
   return (
@@ -203,13 +224,15 @@ export function SettingsModal({
               />
             </button>
           ))}
-          <button
-            className="mt-auto hidden items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15px] font-medium sm:flex"
-            style={{ color: "var(--text-secondary)" }}
-            onClick={() => actions.reset()}
-          >
-            Reset demo
-          </button>
+          {demo && (
+            <button
+              className="mt-auto hidden items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15px] font-medium sm:flex"
+              style={{ color: "var(--text-secondary)" }}
+              onClick={() => actions.reset()}
+            >
+              Reset demo
+            </button>
+          )}
         </nav>
 
         {/* the section */}
@@ -224,7 +247,7 @@ export function SettingsModal({
             >
               {ui.app ? "" : title}
             </p>
-            {add}
+            {addLabelled}
             <button
               aria-label="Close settings"
               className={round}

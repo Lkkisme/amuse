@@ -306,6 +306,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           ui={ui.settings}
           theme={ui.theme}
           session={session}
+          demo={where.kind === "demo"}
           actions={actions}
         />
         <ExplainerModal
