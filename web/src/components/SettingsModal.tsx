@@ -398,14 +398,11 @@ export function SettingsModal({
             {addLabelled}
             <button
               aria-label="Close settings"
-              className={round}
-              style={{
-                background: "var(--fill-secondary)",
-                color: "var(--icon-primary)",
-              }}
+              className={barButton}
+              style={barButtonLook}
               onClick={() => actions.closeSettings()}
             >
-              <X size={17} />
+              <X size={barIcon} />
             </button>
           </header>
           {shown === "connectors" && (

@@ -33,7 +33,9 @@ import { ChatFeed } from "./components/ChatFeed";
 import {
   DockedSidebar,
   DrawerSidebar,
+  SIDEBAR_INSET,
   SIDEBAR_ROOM,
+  SIDEBAR_WIDTH,
 } from "./components/ChatsPanel";
 import { Composer } from "./components/Composer";
 import { ExplainerModal } from "./components/ExplainerModal";
@@ -167,10 +169,25 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
   /** room to dock the sidebar and leave the chat enough (md up) */
   const fits = width >= 768 && width - right - SIDEBAR_ROOM >= CHAT_ROOM;
   const docked = ui.sidebar && fits;
+  /** the sidebar is out, docked or over the chat */
+  const sidebarOut = docked || ui.chatsOpen;
+  // ☰ sits in the sidebar's top right while it is out (4px in from its edge), else at the chat's top left
+  // (on a phone the sidebar is a page of its own: the screen's top right)
+  const drawerWidth = width >= 768 ? SIDEBAR_WIDTH : width;
+  const menuLeft = sidebarOut
+    ? (width >= 768 ? SIDEBAR_INSET : 0) + drawerWidth - 4 - 44
+    : 12;
   // once there is room to dock it, the sidebar is no longer a drawer over the chat
   useEffect(() => {
     if (docked) setUi((u) => (u.chatsOpen ? { ...u, chatsOpen: false } : u));
   }, [docked]);
+  useEffect(() => {
+    // what the right side takes of the window: the browser button keeps to the chat's corner beside it
+    document.documentElement.style.setProperty(
+      "--right-room",
+      `${width >= 768 ? right : 0}px`,
+    );
+  }, [width, right]);
   useEffect(() => {
     // the browser's share of the window, when it is docked there: what floats over the chat dims all but it
     document.documentElement.style.setProperty(
@@ -460,11 +477,16 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
             actions={actions}
           />
           <MenuButton
-            open={docked || ui.chatsOpen}
-            onToggle={() =>
-              fits
-                ? actions.setSidebar(!docked)
-                : actions.setChats(!ui.chatsOpen)
+            open={sidebarOut}
+            left={menuLeft}
+            onClick={() =>
+              docked
+                ? actions.setSidebar(false)
+                : ui.chatsOpen
+                  ? actions.setChats(false)
+                  : fits
+                    ? actions.setSidebar(true)
+                    : actions.setChats(true)
             }
           />
           <BrowserButton

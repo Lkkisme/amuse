@@ -6,9 +6,9 @@
  * chat's row renames or deletes it), or the goals (the list, then a goal's
  * page over it).
  *   docked  beside the chat while there is room (☰ collapses it)
- *   drawer  over the chat from the left (☰ opens and closes it): the phone's
- *           drawer; on a desktop without room to dock it, a floating window
- *           like the Muse panel's
+ *   drawer  over the chat from the left (☰ opens and closes it): a page of
+ *           its own on a phone; on a desktop without room to dock it, a
+ *           floating window like the Muse panel's
  */
 import { useEffect, useRef, useState } from "react";
 import { MessageCircle, MoreHorizontal, Plus, Search, Settings } from "lucide-react";
@@ -80,7 +80,7 @@ export function DockedSidebar({ open, ...props }: SidebarProps & { open: boolean
           transition: `width ${ease}, transform ${ease}`,
         }}
       >
-        {/* room for the ☰ button, which stays at the window's top left */}
+        {/* room for ☰, which moves into the top right while the sidebar is out (TopBar's MenuButton) */}
         <div className="h-11 shrink-0" />
         <SidebarContent {...props} />
       </div>
@@ -88,7 +88,7 @@ export function DockedSidebar({ open, ...props }: SidebarProps & { open: boolean
   );
 }
 
-/** Over the chat from the left: a phone's drawer, or, on a desktop without room to dock it, the same panel floating. */
+/** Over the chat from the left: a page of its own on a phone, or, on a desktop without room to dock it, the same panel floating. */
 export function DrawerSidebar({ open, ...props }: SidebarProps & { open: boolean }) {
   const { mounted, closing, onAnimationEnd } = usePresence(open);
   if (!mounted) return null;
@@ -103,11 +103,10 @@ export function DrawerSidebar({ open, ...props }: SidebarProps & { open: boolean
       />
       <aside
         onAnimationEnd={onAnimationEnd}
-        className={`${closing ? "anim-pane-to-left pointer-events-none" : "anim-pane-from-left"} relative flex h-full max-w-[85vw] flex-col bg-[var(--chat-background)] p-3 md:rounded-[24px] md:bg-[var(--panel)]`}
-        style={{ width: SIDEBAR_WIDTH, boxShadow: "var(--shadow-drawer)", transition: `width ${ease}` }}
+        className={`${closing ? "anim-pane-to-left pointer-events-none" : "anim-pane-from-left"} relative flex h-full w-full flex-col bg-[var(--chat-background)] p-3 md:w-[320px] md:rounded-[24px] md:bg-[var(--panel)] md:shadow-[var(--shadow-drawer)]`}
         aria-label="Sidebar"
       >
-        {/* room for the ☰ button (TopBar's MenuButton), which stays put above the panel */}
+        {/* room for ☰, which moves into the top right while the sidebar is out (TopBar's MenuButton) */}
         <div className="h-11 shrink-0" />
         <SidebarContent {...props} />
       </aside>
@@ -148,7 +147,13 @@ function SidebarContent({ chats, current, left, goal, skill, session, actions }:
             <Skills session={session} actions={actions} onOpen={(name, origin) => actions.openSkill({ name, origin })} />
           </div>
           {skill !== null && (
-            <SkillPage key={`${skill.origin}:${skill.name}`} session={session} name={skill.name} origin={skill.origin} onBack={() => actions.openSkill(null)} />
+            <SkillPage
+              key={`${skill.origin}:${skill.name}`}
+              session={session}
+              name={skill.name}
+              origin={skill.origin}
+              onBack={() => actions.openSkill(null)}
+            />
           )}
         </>
       ) : (

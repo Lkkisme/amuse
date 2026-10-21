@@ -75,24 +75,30 @@ function AvatarBadge({ line }: { line: AgentLine | null }) {
  * under the viewer's z-50) and morphs into a collapse icon while the drawer
  * is open, so one tap target opens and closes it.
  */
-/** ☰: docks or collapses the sidebar where there is room for it, else opens or closes it over the chat. */
-export function MenuButton({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+/**
+ * ☰, one button for the sidebar: away, it sits at the chat's top left (a round button); with the sidebar
+ * out, it moves into the sidebar's top right and becomes the way to put it away (App.tsx places it), on the
+ * same curve the sidebar moves on.
+ */
+export function MenuButton({ open, left, onClick }: { open: boolean; left: number; onClick: () => void }) {
   const icon = "absolute transition-all duration-200 ease-out";
+  const ease = "0.24s cubic-bezier(0.2, 0, 0, 1)";
   return (
     <button
-      aria-label={open ? "Close menu" : "Open menu"}
+      aria-label={open ? "Close sidebar" : "Open menu"}
       aria-expanded={open}
-      // fixed to the window, not the chat: docked sidebar or not, it is in the same place to tap again
-      className="hover-fade fixed left-3 top-3 z-[45] flex size-11 items-center justify-center rounded-full"
-      style={{ background: "var(--fill-primary)", color: "var(--text-primary)", boxShadow: "var(--shadow-float)" }}
-      onClick={onToggle}
+      className="hover-fade fixed top-3 z-[45] flex size-11 items-center justify-center rounded-full"
+      style={{
+        left,
+        background: open ? "transparent" : "var(--fill-primary)",
+        color: open ? "var(--icon-secondary)" : "var(--text-primary)",
+        boxShadow: open ? "none" : "var(--shadow-float)",
+        transition: `left ${ease}, background-color ${ease}, box-shadow ${ease}, color ${ease}`,
+      }}
+      onClick={onClick}
     >
       <Menu size={20} className={icon} style={{ opacity: open ? 0 : 1, transform: open ? "rotate(90deg) scale(0.6)" : "none" }} />
-      <PanelLeftClose
-        size={20}
-        className={icon}
-        style={{ opacity: open ? 1 : 0, transform: open ? "none" : "rotate(-90deg) scale(0.6)" }}
-      />
+      <PanelLeftClose size={20} className={icon} style={{ opacity: open ? 1 : 0, transform: open ? "none" : "rotate(-90deg) scale(0.6)" }} />
     </button>
   );
 }

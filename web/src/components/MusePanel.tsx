@@ -14,6 +14,7 @@ import { usePresence } from "./usePresence";
 import { CalendarClock, CircleCheck, Clock, Globe, List, ListTodo, Plug, ShieldCheck, X } from "lucide-react";
 import type { Approval, Chat, Entity, Schedule, Session, State } from "@amuse/protocol";
 import { AppLogo } from "./AppLogo";
+import { barButton, barButtonLook, barIcon } from "./bar";
 import { museAvatar, travels } from "../transition.ts";
 import type { Actions } from "../ui.ts";
 import { browserLook, host, providerLogo, taskStatus, time } from "../view.ts";
@@ -153,14 +154,14 @@ export function MusePanel({ open, conversation, session, mode: asked, actions }:
           ...(mode === "floating" ? { boxShadow: "var(--shadow-sheet)" } : {}),
         }}
       >
-        {/* 32px, 8px in: concentric with the panel's 24px corners */}
+        {/* the round button the bars have, 12px from the window's corner (4px in from the panel's, from md) */}
         <button
           aria-label="Close"
-          className="hover-fade absolute right-2 top-2 z-10 flex size-8 items-center justify-center rounded-full"
-          style={{ color: "var(--icon-secondary)" }}
+          className={`${barButton} absolute right-3 top-3 z-10 md:right-1 md:top-1`}
+          style={barButtonLook}
           onClick={() => actions.setMuse(false)}
         >
-          <X size={20} />
+          <X size={barIcon} />
         </button>
 
         <div className="flex flex-col items-center px-4 pt-12">

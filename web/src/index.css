@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+/* What the side panels take of the window, set by App.tsx as they move (none before it has run). */
+:root {
+  --right-room: 0px;
+  --viewer-room: 0px;
+  --sidebar-width: 0px;
+}
+
 /* Muse web design tokens — exact values, see docs/web-tokens.md for provenance. */
 .light {
   --bg-primary: #fcfcfc;

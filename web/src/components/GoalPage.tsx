@@ -58,30 +58,20 @@ export function GoalPage({
   const goal = shown?.goal;
   return (
     <div
-      // over the sidebar's list, under the ☰ button (which stays at the window's top left)
-      className="anim-pane-from-right absolute inset-x-0 bottom-0 top-14 z-20 flex flex-col"
+      // over the sidebar: the way back at the top left, in line with ☰ at the top right
+      className="anim-pane-from-right absolute inset-0 z-20 flex flex-col"
       style={{ background: "var(--panel)" }}
     >
-      <div className="flex h-14 shrink-0 items-center justify-between px-2">
+      <div className="mt-2 flex h-12 shrink-0 items-center px-3 pt-1 md:mt-0">
         <button
-          aria-label="Back"
-          className="hover-fade flex size-10 items-center justify-center rounded-full"
-          style={{ color: "var(--icon-primary)" }}
+          aria-label="Back to Goals"
+          className="hover-fade flex h-9 items-center gap-0.5 rounded-full pl-1 pr-3 text-[15px] font-medium"
+          style={{ color: "var(--text-secondary)" }}
           onClick={onBack}
         >
-          <ChevronLeft size={24} />
+          <ChevronLeft size={20} />
+          Goals
         </button>
-        {goal && (
-          <button
-            aria-label={goal.muted ? "Unmute" : "Mute"}
-            disabled={busy}
-            className="hover-fade flex size-10 items-center justify-center rounded-full disabled:opacity-40"
-            style={{ color: "var(--icon-primary)" }}
-            onClick={() => update({ muted: !goal.muted })}
-          >
-            {goal.muted ? <BellOff size={20} /> : <Bell size={20} />}
-          </button>
-        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-8">
@@ -98,12 +88,24 @@ export function GoalPage({
           !error && <div className="skeleton h-8 w-3/5 rounded-[10px]" />
         ) : (
           <>
-            <p
-              className="text-[24px] font-semibold leading-tight"
-              style={{ color: "var(--text-primary)" }}
-            >
-              {goal.title}
-            </p>
+            <div className="flex items-start gap-2">
+              <p
+                className="min-w-0 flex-1 text-[24px] font-semibold leading-tight"
+                style={{ color: "var(--text-primary)" }}
+              >
+                {goal.title}
+              </p>
+              <button
+                aria-label={goal.muted ? "Unmute" : "Mute"}
+                title={goal.muted ? "Unmute" : "Mute"}
+                disabled={busy}
+                className="hover-fade -mr-2 -mt-1 flex size-10 shrink-0 items-center justify-center rounded-full disabled:opacity-40"
+                style={{ color: "var(--icon-primary)" }}
+                onClick={() => update({ muted: !goal.muted })}
+              >
+                {goal.muted ? <BellOff size={20} /> : <Bell size={20} />}
+              </button>
+            </div>
             <p
               className="mt-1 text-[14px]"
               style={{ color: "var(--text-secondary)" }}
