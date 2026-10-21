@@ -326,7 +326,7 @@ function AppPage({
       {accounts.length === 0 ? (
         <button
           disabled={busy === app.id}
-          className="mx-auto mt-5 h-10 w-full max-w-[280px] rounded-full text-[15px] font-medium text-white disabled:opacity-50"
+          className="mx-auto mt-5 block h-10 w-full max-w-[280px] rounded-full text-[15px] font-medium text-white disabled:opacity-50"
           style={{ background: "var(--fill-blue)" }}
           onClick={onConnect}
         >

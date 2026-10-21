@@ -18,7 +18,7 @@
 import { dirname, join } from "node:path";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { NoComposioKey, composio, composioApps, composioGuide, composioConnector, composioDirectory, keyedComposio } from "@remuse/composio";
+import { ComposioError, NoComposioKey, composio, composioApps, composioGuide, composioConnector, composioDirectory, keyedComposio } from "@remuse/composio";
 import { fileChats } from "./journal.ts";
 import { workspace } from "./workspace.ts";
 import { browserPool, controller } from "@remuse/browser";
@@ -146,13 +146,30 @@ const directory = composioDirectory(composioClient, {
   rules,
   ...(publicUrl ? { callbackUrl: new URL("/connected", publicUrl).href } : {}),
 });
+/** What went wrong with Composio, as the user is told it (the app shows a rejection's words; anything else is an internal error). */
+const composioSaid = (error: unknown): unknown => {
+  if (error instanceof NoComposioKey) return new Rejected({ kind: "unsound", reason: "Apps are not set up yet: add a Composio key in Settings › Connectors." });
+  if (!(error instanceof ComposioError)) return error;
+  if (error.status === 401 || error.status === 403)
+    return new Rejected({ kind: "unsound", reason: "Composio did not accept the key: test or replace it in Settings › Connectors." });
+  return new Rejected({ kind: "unsound", reason: `Composio could not be reached just now${error.status ? ` (${error.status})` : ""}. Try again in a moment.` });
+};
+const said =
+  <A extends unknown[], R>(call: (...args: A) => Promise<R>) =>
+  async (...args: A): Promise<R> => {
+    try {
+      return await call(...args);
+    } catch (error) {
+      throw composioSaid(error);
+    }
+  };
 /** without a key, there is nothing connected (rather than an error) */
 const none = async <T>(read: () => Promise<T[]>): Promise<T[]> => {
   try {
     return await read();
   } catch (error) {
     if (error instanceof NoComposioKey) return [];
-    throw error;
+    throw composioSaid(error);
   }
 };
 const ports: Ports = {
@@ -199,12 +216,12 @@ const ports: Ports = {
   rules,
   approval: () => {}, // waiting agents get the verdict through AgentIO.decision
   // a card from before the key was removed: the user hears where to add one
-  connect: async (connection, io) => {
-    if (!keys.appKey("composio")) throw new Rejected({ kind: "unsound", reason: "Apps are not set up yet: add a Composio key in Settings › Connectors." });
-    return connector.connect(connection, io);
-  },
+  connect: said((connection, io) => connector.connect(connection, io)),
   apps: {
-    ...directory,
+    search: said(directory.search),
+    connect: said(directory.connect),
+    disconnect: said(directory.disconnect),
+    permit: said(directory.permit),
     accounts: () => none(directory.accounts),
     permissions: (app) => none(() => directory.permissions(app)),
   },

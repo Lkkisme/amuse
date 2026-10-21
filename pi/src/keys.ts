@@ -10,7 +10,7 @@
  */
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import type { AuthEvent, AuthInteraction, AuthPrompt } from "@earendil-works/pi-ai";
-import { type Keys, newId } from "@remuse/core";
+import { type Keys, Rejected, newId } from "@remuse/core";
 import type { KeyProvider, LoginNote, LoginPrompt, LoginStep, ModelOption, ModelRole } from "@remuse/protocol";
 import { z } from "zod";
 import { type KeyFile, fileCredentials, readOnlyCredentials } from "./credentials.ts";
@@ -350,8 +350,8 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
 
     async choose(role, model) {
       const option = (await available()).find((m) => m.id === model);
-      if (!option) throw new Error(`${model} is not offered by a provider set up with a key.`);
-      if (role === "browser" && !option.images) throw new Error(`${option.name} does not see pictures, which the browser needs.`);
+      if (!option) throw new Rejected({ kind: "unsound", reason: `${model} is not offered by a provider set up with a key.` });
+      if (role === "browser" && !option.images) throw new Rejected({ kind: "unsound", reason: `${option.name} does not see pictures, which the browser needs.` });
       choose({ ...choice, [role]: model });
     },
   };
