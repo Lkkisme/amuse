@@ -6,7 +6,7 @@
  * Docked on the right; while the browser has the right, a floating window
  * over the chat instead; on a phone, a page of its own.
  */
-import { CalendarClock, CircleCheck, Clock, Fingerprint, Globe, List, ListTodo, Pencil, Plug, ShieldCheck, X, Zap } from "lucide-react";
+import { CalendarClock, CircleCheck, Clock, Fingerprint, Globe, List, ListTodo, Plug, ShieldCheck, X } from "lucide-react";
 import type { Entity, State } from "@amuse/protocol";
 import { museAvatar, travels } from "../transition.ts";
 import type { Actions } from "../ui.ts";
@@ -90,29 +90,14 @@ export function MusePanel({ conversation, mode, actions }: { conversation: State
           >
             A
           </span>
-          <span
-            aria-hidden
-            className="absolute -bottom-0.5 -right-0.5 flex size-8 items-center justify-center rounded-full"
-            style={{ background: "var(--fill-primary)", color: "var(--icon-primary)", boxShadow: "var(--shadow-float)" }}
-          >
-            <Pencil size={14} />
-          </span>
         </span>
         <p className="mt-3 text-[22px] font-semibold" style={{ color: "var(--text-primary)" }}>
           Amuse
         </p>
-        {working ? (
-          <p className="activity-indicator-fade text-[15px]" style={{ color: "var(--text-secondary)" }}>
-            is working…
-          </p>
-        ) : (
-          <p className="flex items-center gap-1.5 text-[15px]" style={{ color: "var(--text-secondary)" }}>
-            <span className="flex size-4 items-center justify-center rounded-full" style={{ background: "var(--fill-green)", color: "#fff" }}>
-              <Zap size={10} fill="currentColor" strokeWidth={0} />
-            </span>
-            Connected
-          </p>
-        )}
+        {/* only what is true now: nothing is said while it rests */}
+        <p className={`text-[15px] ${working ? "activity-indicator-fade" : "invisible"}`} style={{ color: "var(--text-secondary)" }}>
+          is working…
+        </p>
       </div>
 
       {/* segmented control: activity is the one there is so far */}
