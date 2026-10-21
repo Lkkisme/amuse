@@ -32,7 +32,7 @@ amuse listens on `127.0.0.1:8080` only. To reach it from your phone over
 - listen on your Tailscale IP: in `.env`, `AMUSE_PUBLISH_HOST=100.x.y.z` and
   `AMUSE_PUBLIC_URL=http://100.x.y.z:8080` (plain http; Tailscale encrypts the link), or
 - serve it over https: `tailscale serve --bg 8080`, and `AMUSE_PUBLIC_URL=https://my-pc.my-tailnet.ts.net`.
-  Pasting from the phone's clipboard into the browser you take over needs https.
+  Pasting from the phone's clipboard into the browser you take over, and the mic, need https.
 
 Then `docker compose up -d`.
 

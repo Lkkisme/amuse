@@ -29,6 +29,8 @@ export interface Options {
   /** The user's browser is back from a connector's hosted page with a one-time key (GET /connected?key=…). */
   returned?: (key: string) => Promise<boolean>;
   access: Access;
+  /** Speech to text for the composer's mic (POST /transcribe); off when absent. The reason, in words, when it cannot. */
+  transcribe?: (audio: Uint8Array, type: string) => Promise<{ text: string } | { reason: string }>;
   port: number;
   host: string;
 }
@@ -57,6 +59,9 @@ const Password = z.string().min(1).max(1024);
 const SetUp = z.object({ password: Password });
 const Change = z.object({ current: Password, next: Password });
 
+/** The longest recording taken (the services take 25 MB). */
+const MAX_SPEECH = 25 * 1024 * 1024;
+
 /** Wrong passwords a client may try in a window before it has to wait. */
 const TRIES = 10;
 const TRY_WINDOW_MS = 15 * 60_000;
@@ -77,7 +82,7 @@ export interface Listening {
   close(): Promise<void>;
 }
 
-export function listen({ session, live, files: uploads, web, returned, access, port, host }: Options): Promise<Listening> {
+export function listen({ session, live, files: uploads, web, returned, access, transcribe, port, host }: Options): Promise<Listening> {
   const route = (url: URL): Target | null => {
     if (url.pathname === "/rpc") return { kind: "rpc" };
     const id = url.searchParams.get("id");
@@ -186,6 +191,24 @@ export function listen({ session, live, files: uploads, web, returned, access, p
     return void res.writeHead(404).end();
   };
 
+  /** POST /transcribe (the recording as the body, its type in Content-Type) → { text } or, when it cannot be, { reason }. */
+  const speech = async (req: IncomingMessage, res: ServerResponse) => {
+    if (!transcribe) return void res.writeHead(404).end();
+    if (req.method !== "POST" || !ours(req) || !allowed(req)) return void res.writeHead(req.method === "POST" ? 401 : 405).end();
+    const type = String(req.headers["content-type"] ?? "").split(";")[0]?.trim() ?? "";
+    if (!type.startsWith("audio/") && type !== "video/webm") return void res.writeHead(415).end();
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const chunk of req) {
+      const piece = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+      size += piece.length;
+      if (size > MAX_SPEECH) return void res.writeHead(413).end();
+      chunks.push(piece);
+    }
+    const said = await transcribe(new Uint8Array(Buffer.concat(chunks)), String(req.headers["content-type"] ?? ""));
+    json(res, "text" in said ? 200 : 400, said);
+  };
+
   /** GET /thumb?id=<run> → a screenshot of the run's page, for its card. */
   const thumb = async (req: IncomingMessage, url: URL, res: ServerResponse) => {
     const id = url.searchParams.get("id");
@@ -265,6 +288,8 @@ export function listen({ session, live, files: uploads, web, returned, access, p
       ? way(req, url, res)
       : url.pathname === "/thumb"
         ? thumb(req, url, res)
+        : url.pathname === "/transcribe"
+        ? speech(req, res)
         : url.pathname === "/files" || url.pathname.startsWith("/files/")
           ? file(req, url, res)
           : url.pathname === "/connected"

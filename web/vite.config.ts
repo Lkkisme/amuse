@@ -4,7 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 
 /** dev: the API this server stands in front of, so the app and its session cookie are one origin */
 const api = process.env["AMUSE_API"];
-const routes = ["/files", "/thumb", "/unlock", "/setup", "/lock", "/password", "/connected"];
+const routes = ["/files", "/thumb", "/transcribe", "/unlock", "/setup", "/lock", "/password", "/connected"];
 const proxy = api
   ? {
       ...Object.fromEntries(["/rpc", "/live"].map((path) => [path, { target: api, ws: true }])),

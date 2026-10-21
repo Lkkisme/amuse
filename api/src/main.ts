@@ -24,7 +24,7 @@ import { workspace } from "./workspace.ts";
 import { browserPool, controller } from "@amuse/browser";
 import { type Ports, Rejected, createHost, memoryRules, noLogins, realTimers } from "@amuse/core";
 import type { Entity } from "@amuse/protocol";
-import { type PiAuth, adoptEnvironment, builtInSkills, fileCredentials, piAgent, piBrowserAgent, piKeys, piScheduleRunner, piTaskRunner, untrustedRule } from "@amuse/pi";
+import { type PiAuth, VoiceUnavailable, adoptEnvironment, builtInSkills, transcriber, fileCredentials, piAgent, piBrowserAgent, piKeys, piScheduleRunner, piTaskRunner, untrustedRule } from "@amuse/pi";
 import { fileAccess } from "./access.ts";
 import { fileDefaults } from "./defaults.ts";
 import { listen } from "./server.ts";
@@ -168,6 +168,16 @@ const none = async <T>(read: () => Promise<T[]>): Promise<T[]> => {
 };
 /** the skills that ship with Amuse (pi/skills/); the user's own are read from the workspace each turn */
 const skills = builtInSkills();
+/** the composer's mic: speech to text with the user's own key (pi/src/voice.ts) */
+const toText = transcriber(credentials);
+const speech = async (audio: Uint8Array, type: string) => {
+  try {
+    return { text: await toText(audio, type) };
+  } catch (error) {
+    if (error instanceof VoiceUnavailable) return { reason: error.message };
+    throw error;
+  }
+};
 const ports: Ports = {
   ...piAgent({ model, thinking: () => keys.thinking("chat"), auth, system, rules, files, apps, search: apps.search, appsSetup: () => (keys.appKey("composio") ? null : composioGuide), skills, defaults: fileDefaults(join(dataDir, "defaults.json")) }),
   // scheduled work runs on the background model (the chat's when none is chosen)
@@ -259,6 +269,7 @@ await listen({
   ...(web ? { web } : {}),
   returned: connector.returned,
   access,
+  transcribe: speech,
   port,
   host,
 });

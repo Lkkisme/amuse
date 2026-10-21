@@ -15,3 +15,4 @@ export * from "./keys.ts";
 export * from "./credentials.ts";
 export * from "./memory.ts";
 export * from "./skills.ts";
+export * from "./voice.ts";
