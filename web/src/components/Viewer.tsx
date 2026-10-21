@@ -300,9 +300,7 @@ function RunTabs({
             }
             className="flex h-9 w-[190px] shrink-0 items-center gap-2 rounded-[10px] pl-3 pr-1.5 text-[13px]"
             style={{
-              background: selected
-                ? "var(--segment-selected)"
-                : "var(--fill-secondary)",
+              background: selected ? "var(--segment-selected)" : "transparent",
               color: selected ? "var(--text-primary)" : "var(--text-secondary)",
               boxShadow: selected ? "var(--shadow-float)" : undefined,
             }}
