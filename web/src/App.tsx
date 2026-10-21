@@ -144,7 +144,21 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
       retry: (id) => call("chat.retry", { id }),
       resolveApproval: (id, resolution) =>
         call("approval.resolve", { id, resolution }),
-      openExplainer: (explainer) => patch((u) => ({ ...u, explainer })),
+      // before apps are set up, a Connect card goes straight to where their key goes
+      openExplainer: (explainer) =>
+        patch((u) =>
+          explainer !== null && needsAppsKeyRef.current
+            ? {
+                ...u,
+                settings: {
+                  open: true,
+                  section: "connectors",
+                  app: null,
+                  provider: null,
+                },
+              }
+            : { ...u, explainer },
+        ),
       connect: (id) => {
         // apps are not set up yet: the card leads to where their key goes
         if (needsAppsKeyRef.current)

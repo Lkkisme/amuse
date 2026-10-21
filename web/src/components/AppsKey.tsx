@@ -77,8 +77,16 @@ export function AppsKey({
           className="mt-1 max-w-[300px] text-[14px]"
           style={{ color: "var(--text-secondary)" }}
         >
-          Muse reaches your mail, calendar and other apps through Composio, with
-          your own Composio API key.
+          Muse reaches Gmail, your calendar and many other apps through
+          Composio. Each app only lets in software it has approved; Composio is
+          approved by them, so you need not set up each app yourself.
+        </p>
+        <p
+          className="mt-2 max-w-[300px] text-[14px]"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          You use your own Composio account: the logins to your apps stay in it,
+          and you can take them back there at any time.
         </p>
         {/* where the key is, per Composio's docs */}
         <ol
