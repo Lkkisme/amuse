@@ -15,6 +15,7 @@ import type {
   ThinkingLevel,
 } from "@amuse/protocol";
 import { KeyLine, KeyLogin, type TestState, useKeyTests } from "./KeyLogin";
+import { Sheet } from "./Sheet";
 
 const label = "mb-2 mt-6 px-1 text-[13px] font-medium";
 const group = "divide-y divide-[var(--fill-divider)] rounded-[18px] px-4";
@@ -34,6 +35,7 @@ export function Models({
   const [setting, setSetting] = useState<KeyProvider | null>(null);
   const { tests, test, clear } = useKeyTests(session);
   const [query, setQuery] = useState("");
+  const [ownVoice, setOwnVoice] = useState(false);
 
   const load = useCallback(
     () =>
@@ -210,7 +212,7 @@ export function Models({
                 <option value="">
                   {state.voice.services.length > 0
                     ? "Automatic"
-                    : "Needs an OpenAI, Groq or Fireworks key"}
+                    : "Needs a key, or your own server"}
                 </option>
                 {state.voice.services.map((s) => (
                   <option key={s.provider} value={s.provider}>
@@ -219,13 +221,56 @@ export function Models({
                 ))}
               </select>
             </label>
+            <button
+              className="flex w-full items-center gap-3 py-2.5 text-left"
+              onClick={() => setOwnVoice(true)}
+            >
+              <span className="min-w-0 flex-1">
+                <span
+                  className="block text-[16px]"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  Your own server
+                </span>
+                <span
+                  className="block truncate text-[13px]"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  {state.voice.local
+                    ? `${state.voice.local.model} · ${state.voice.local.url}`
+                    : "Not set up"}
+                </span>
+              </span>
+              <ChevronRight
+                size={16}
+                style={{ color: "var(--icon-secondary)" }}
+              />
+            </button>
           </div>
+          <LocalVoiceSheet
+            open={ownVoice}
+            current={state.voice.local}
+            onClose={() => setOwnVoice(false)}
+            onSave={(service) => {
+              setError(null);
+              return session.call("models.localVoice", { service }).then(
+                () => {
+                  setOwnVoice(false);
+                  void load();
+                },
+                (e: unknown) => {
+                  throw e instanceof Error ? e : new Error(String(e));
+                },
+              );
+            }}
+          />
           <p
             className="mt-2 px-1 text-[13px] leading-snug"
             style={{ color: "var(--text-secondary)" }}
           >
             Turns what you say into the mic into text. Automatic uses the first
-            of OpenAI, Groq and Fireworks you have a key for.
+            of OpenAI, Groq and Fireworks you have a key for, then your own
+            server; with your own server, recordings stay on your machines.
           </p>
           <p className={label} style={{ color: "var(--text-secondary)" }}>
             Your providers
@@ -467,6 +512,137 @@ function ThinkingPicker({
         ))}
       </select>
     </label>
+  );
+}
+
+/**
+ * The user's own speech server: an OpenAI-style /audio/transcriptions (faster-whisper-server,
+ * whisper.cpp's server, LocalAI…), by its address, the model it serves, and a key if it wants one.
+ */
+function LocalVoiceSheet({
+  open,
+  current,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  current: { url: string; model: string } | null;
+  onClose: () => void;
+  onSave: (
+    service: { url: string; model: string; key: string | null } | null,
+  ) => Promise<void>;
+}) {
+  const [url, setUrl] = useState("");
+  const [model, setModel] = useState("");
+  const [key, setKey] = useState("");
+  const [problem, setProblem] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    setUrl(current?.url ?? "http://host.docker.internal:8000/v1");
+    setModel(current?.model ?? "");
+    setKey("");
+    setProblem(null);
+  }, [open, current]);
+  const save = (
+    service: { url: string; model: string; key: string | null } | null,
+  ) =>
+    onSave(service).catch((e: unknown) =>
+      setProblem(e instanceof Error ? e.message : String(e)),
+    );
+  const field = "w-full bg-transparent px-4 py-3.5 text-[16px] outline-none";
+  return (
+    <Sheet open={open} onClose={onClose} bare>
+      <div className="flex flex-col items-center px-6 pb-6 pt-5 text-center">
+        <p
+          className="text-[20px] font-semibold"
+          style={{ color: "var(--text-primary)" }}
+        >
+          Your own speech server
+        </p>
+        <p
+          className="mt-1 text-[14px]"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          Any server that turns speech into text the way OpenAI's does, like
+          faster-whisper-server or whisper.cpp. On this machine, its address
+          starts with host.docker.internal.
+        </p>
+        <div
+          className="mt-5 w-full divide-y divide-[var(--fill-divider)] overflow-hidden rounded-[18px] text-left"
+          style={{ background: "var(--field)" }}
+        >
+          <input
+            aria-label="Address"
+            className={field}
+            style={{ color: "var(--text-primary)" }}
+            placeholder="http://host.docker.internal:8000/v1"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+          />
+          <input
+            aria-label="Model"
+            className={field}
+            style={{ color: "var(--text-primary)" }}
+            placeholder="Model, e.g. Systran/faster-whisper-small"
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+          />
+          <input
+            aria-label="Key (if it needs one)"
+            type="password"
+            autoComplete="off"
+            className={field}
+            style={{ color: "var(--text-primary)" }}
+            placeholder={
+              current
+                ? "Key (leave empty to keep none)"
+                : "Key, if it needs one"
+            }
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+          />
+        </div>
+        {problem && (
+          <p
+            role="alert"
+            className="mt-2 text-[13px]"
+            style={{ color: "var(--fill-red)" }}
+          >
+            {problem}
+          </p>
+        )}
+        <button
+          disabled={!url.trim() || !model.trim()}
+          className="mt-6 h-12 w-full rounded-full text-[16px] font-semibold text-white disabled:opacity-40"
+          style={{ background: "var(--fill-blue)" }}
+          onClick={() =>
+            void save({
+              url: url.trim(),
+              model: model.trim(),
+              key: key.trim() || null,
+            })
+          }
+        >
+          Save
+        </button>
+        {current && (
+          <button
+            className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
+            style={{ color: "var(--fill-red)" }}
+            onClick={() => void save(null)}
+          >
+            Remove
+          </button>
+        )}
+        <button
+          className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
+          style={{ color: "var(--text-primary)" }}
+          onClick={onClose}
+        >
+          Cancel
+        </button>
+      </div>
+    </Sheet>
   );
 }
 

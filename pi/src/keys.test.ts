@@ -221,7 +221,7 @@ test("scheduled work runs on the chat's model until it has one of its own, and g
 
 test("the mic's speech service is chosen among those with a key; none chosen means the first of them", async () => {
   const { keys } = setup();
-  assert.deepEqual((await keys.list()).voice, { services: [], chosen: null });
+  assert.deepEqual((await keys.list()).voice, { services: [], chosen: null, local: null });
   for (const provider of ["fireworks", "groq"]) {
     const first = await keys.login(provider);
     if (first.kind !== "prompt") return assert.fail("expected a prompt");
@@ -248,4 +248,34 @@ test("a chosen speech service is the one used", async () => {
   await transcriber(store, () => "fireworks", http)(new Uint8Array([1]), "audio/webm");
   await transcriber(store, () => null, http)(new Uint8Array([1]), "audio/webm");
   assert.deepEqual(asked.map((u) => new URL(u).hostname), ["api.fireworks.ai", "api.groq.com"]);
+});
+
+test("the user's own speech server: set up, chosen, called without a key when it has none, and removed", async () => {
+  const { keys } = setup();
+  await assert.rejects(keys.voice("local"), /Set up your own speech server first/);
+  await assert.rejects(keys.localVoice({ url: "host:8000", model: "whisper", key: null }), /http/);
+  await keys.localVoice({ url: "http://host.docker.internal:8000/v1/", model: "Systran/faster-whisper-small", key: null });
+  const { voice } = await keys.list();
+  assert.deepEqual(voice.local, { url: "http://host.docker.internal:8000/v1/", model: "Systran/faster-whisper-small" });
+  assert.deepEqual(voice.services, [{ provider: "local", name: "Your own server (Systran/faster-whisper-small)" }]);
+  await keys.voice("local");
+  assert.equal(keys.voiceChoice(), "local");
+  await keys.localVoice(null);
+  assert.equal(keys.voiceChoice(), null, "removing the server lets go of the choice");
+  assert.equal(keys.localVoiceService(), null);
+});
+
+test("speech goes to the user's own server at its transcriptions endpoint, with its key only if it has one", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "amuse-keys-"));
+  const store = fileCredentials(join(dir, "keys.json"));
+  const asked: { url: string; auth: string | null }[] = [];
+  const http: typeof fetch = async (input, init) => (asked.push({ url: String(input), auth: new Headers(init?.headers).get("authorization") }), new Response(JSON.stringify({ text: "本地转写" })));
+  const own = () => ({ url: "http://host.docker.internal:8000/v1/", model: "Systran/faster-whisper-small" });
+  assert.equal(await transcriber(store, () => "local", http, own)(new Uint8Array([1]), "audio/webm"), "本地转写");
+  await store.modify("local-voice", async () => ({ type: "api_key", key: "local_secret" }));
+  await transcriber(store, () => null, http, own)(new Uint8Array([1]), "audio/webm");
+  assert.deepEqual(asked, [
+    { url: "http://host.docker.internal:8000/v1/audio/transcriptions", auth: null },
+    { url: "http://host.docker.internal:8000/v1/audio/transcriptions", auth: "Bearer local_secret" },
+  ]);
 });

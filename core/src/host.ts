@@ -15,6 +15,7 @@ import {
   type KeyTest,
   type LoginStep,
   type ModelRole,
+  type LocalVoice,
   type ThinkingLevel,
   type ToolKind,
   type Browser,
@@ -260,11 +261,13 @@ export interface Keys {
   think(role: ModelRole, level: ThinkingLevel): Promise<void>;
   /** Which speech service the mic uses (null: the first with a key). */
   voice(provider: string | null): Promise<void>;
+  /** Set up (or remove) the user's own speech server. */
+  localVoice(service: (LocalVoice & { key: string | null }) | null): Promise<void>;
 }
 
 /** No keys: where none are kept (the demo, tests); the demo's agent needs none. */
 export const noKeys: Keys = {
-  list: async () => ({ providers: [], models: [], chat: null, browser: null, background: null, thinking: { chat: "off", browser: "off", background: "off" }, voice: { services: [], chosen: null } }),
+  list: async () => ({ providers: [], models: [], chat: null, browser: null, background: null, thinking: { chat: "off", browser: "off", background: "off" }, voice: { services: [], chosen: null, local: null } }),
   login: async () => ({ kind: "failed", reason: "No keys are kept here." }),
   answer: async () => ({ kind: "failed", reason: "No keys are kept here." }),
   cancel: async () => {},
@@ -278,6 +281,9 @@ export const noKeys: Keys = {
   },
   voice: async () => {
     throw new Error("No speech service is chosen here.");
+  },
+  localVoice: async () => {
+    throw new Error("No speech service is set up here.");
   },
 };
 
@@ -819,6 +825,10 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     },
     "models.voice": async ({ provider }) => {
       await ports.keys.voice(provider);
+      return null;
+    },
+    "models.localVoice": async ({ service }) => {
+      await ports.keys.localVoice(service);
       return null;
     },
   };

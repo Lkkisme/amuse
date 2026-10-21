@@ -146,6 +146,7 @@ export const calls: Call[] = [
   { method: "keys.test", params: { provider: "fireworks" } },
   { method: "keys.logout", params: { provider: "fireworks" } },
   { method: "models.voice", params: { provider: "groq" } },
+  { method: "models.localVoice", params: { service: { url: "http://host.docker.internal:8000/v1", model: "Systran/faster-whisper-small", key: null } } },
   { method: "models.think", params: { role: "chat", level: "medium" } },
   { method: "models.choose", params: { role: "chat", model: "fireworks/accounts/fireworks/models/glm-5p3-flash" } },
 ];

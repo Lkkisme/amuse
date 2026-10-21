@@ -40,6 +40,8 @@ export interface PiKeys extends Keys {
   thinking(role: ModelRole): ThinkingLevel;
   /** The mic's speech service, as the user chose it (null: the first with a key). */
   voiceChoice(): string | null;
+  /** The user's own speech server, when set up. */
+  localVoiceService(): { url: string; model: string } | null;
   /** An app key (by its id), when set up. */
   appKey(id: string): string | null;
   /** Called after any key is set up or forgotten. */
@@ -51,13 +53,18 @@ const Choice = z.object({
   browser: z.string().nullable(),
   /** scheduled work's model; null: the chat's */
   background: z.string().nullable().default(null),
-  /** the mic's speech service (a provider); null: the first with a key */
+  /** the mic's speech service (a provider, or "local"); null: the first with a key */
   voice: z.string().nullable().default(null),
+  /** a speech server the user runs themselves (its key, if any, is kept with the keys as LOCAL_VOICE) */
+  localVoice: z.object({ url: z.string(), model: z.string() }).nullable().default(null),
   thinking: z
     .object({ chat: ThinkingLevel, browser: ThinkingLevel, background: ThinkingLevel.default("off") })
     .default({ chat: "off", browser: "off", background: "off" }),
 });
 type Choice = z.infer<typeof Choice>;
+
+/** Where the key of the user's own speech server is kept, among the keys. */
+export const LOCAL_VOICE = "local-voice";
 
 /** How long a sign-in may wait for its next answer. */
 const LOGIN_TIMEOUT_MS = 10 * 60_000;
@@ -145,7 +152,7 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
     auth: { kind: "keys", keys },
     ...(modelsPath ? { modelsPath } : {}),
   };
-  let choice: Choice = existsSync(choicePath) ? Choice.parse(JSON.parse(readFileSync(choicePath, "utf8"))) : { chat: null, browser: null, background: null, voice: null, thinking: { chat: "off", browser: "off", background: "off" } };
+  let choice: Choice = existsSync(choicePath) ? Choice.parse(JSON.parse(readFileSync(choicePath, "utf8"))) : { chat: null, browser: null, background: null, voice: null, localVoice: null, thinking: { chat: "off", browser: "off", background: "off" } };
   const choose = (next: Choice) => {
     writeFileSync(`${choicePath}.tmp`, JSON.stringify(next, null, 2), {
       mode: 0o600,
@@ -252,6 +259,7 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
     model: (role) => runs(role),
     thinking: (role) => choice.thinking[role],
     voiceChoice: () => choice.voice,
+    localVoiceService: () => choice.localVoice,
     appKey: (id) => appKeys.get(id) ?? null,
     onChange: (listener) => void listeners.push(listener),
 
@@ -288,7 +296,14 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
         browser: choice.browser,
         background: choice.background,
         thinking: { chat: await inEffect("chat"), browser: await inEffect("browser"), background: await inEffect("background") },
-        voice: { services: voiceServices.filter((v) => stored.has(v.provider)).map(({ provider, name }) => ({ provider, name })), chosen: choice.voice },
+        voice: {
+          services: [
+            ...voiceServices.filter((v) => stored.has(v.provider)).map(({ provider, name }) => ({ provider, name })),
+            ...(choice.localVoice ? [{ provider: "local", name: `Your own server (${choice.localVoice.model})` }] : []),
+          ],
+          chosen: choice.voice,
+          local: choice.localVoice,
+        },
       };
     },
 
@@ -392,10 +407,26 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
     },
 
     async voice(provider) {
+      if (provider === "local") {
+        if (!choice.localVoice) throw new Rejected({ kind: "unsound", reason: "Set up your own speech server first." });
+        return choose({ ...choice, voice: "local" });
+      }
       if (provider !== null && !voiceServices.some((v) => v.provider === provider))
         throw new Rejected({ kind: "unsound", reason: `${provider} does not turn speech into text here.` });
       if (provider !== null && !(await keys.read(provider))) throw new Rejected({ kind: "unsound", reason: `Add a key for ${provider} first.` });
       choose({ ...choice, voice: provider });
+    },
+
+    async localVoice(service) {
+      if (service === null) {
+        await keys.delete(LOCAL_VOICE);
+        return choose({ ...choice, localVoice: null, voice: choice.voice === "local" ? null : choice.voice });
+      }
+      if (!/^https?:\/\//.test(service.url)) throw new Rejected({ kind: "unsound", reason: "The server's address starts with http:// or https://." });
+      const key = service.key?.trim();
+      if (key) await keys.modify(LOCAL_VOICE, async () => ({ type: "api_key", key: bare(key) }));
+      else await keys.delete(LOCAL_VOICE);
+      choose({ ...choice, localVoice: { url: service.url.trim(), model: service.model.trim() } });
     },
 
     async think(role, level) {
@@ -463,6 +494,7 @@ export async function adoptEnvironment({
       browser: env["AMUSE_PI_BROWSER_MODEL"]?.trim() || chat,
       background: null,
       voice: null,
+      localVoice: null,
       thinking: { chat: "off", browser: "off", background: "off" },
     };
     writeFileSync(choicePath, JSON.stringify(choice, null, 2), { mode: 0o600 });

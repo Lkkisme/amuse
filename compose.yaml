@@ -20,6 +20,8 @@ services:
       AMUSE_BROWSERS: pool1|http://ab-controller-1:8000|http://ab-node-1:6080|/handoff/pool1,pool2|http://ab-controller-2:8000|http://ab-node-2:6080|/handoff/pool2,pool3|http://ab-controller-3:8000|http://ab-node-3:6080|/handoff/pool3
       AUTO_BROWSER_TOKEN_FILE: /secrets/auto-browser-token
     networks: [default, pair-1, pair-2, pair-3]
+    # services the user runs on this machine (a speech server, say) are at host.docker.internal
+    extra_hosts: ["host.docker.internal:host-gateway"]
     depends_on:
       ab-controller-1: { condition: service_healthy }
       ab-controller-2: { condition: service_healthy }

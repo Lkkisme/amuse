@@ -9,7 +9,7 @@ import { Account, App, KindRule, Permission, Site, SiteRule, ToolKind } from "./
 import { Approval, Attachment, Id, Resolution, Schedule, TimeZone } from "./entities.ts";
 import { Envelope, Index, Page, Seq, State } from "./events.ts";
 import { Chat, Push } from "./chats.ts";
-import { KeyTest, KeysState, LoginStep, ModelRef, ModelRole, ThinkingLevel } from "./keys.ts";
+import { KeyTest, KeysState, LocalVoice, LoginStep, ModelRef, ModelRole, ThinkingLevel } from "./keys.ts";
 
 const call = <M extends string, P extends z.ZodObject>(method: M, params: P) =>
   z.object({ method: z.literal(method), params });
@@ -94,6 +94,8 @@ export const Call = z.discriminatedUnion("method", [
   call("models.think", z.object({ role: ModelRole, level: ThinkingLevel })),
   /** Which speech service turns the mic into text (by provider); null: the first one with a key. */
   call("models.voice", z.object({ provider: z.string().min(1).max(100).nullable() })),
+  /** Set up (or, null, remove) a speech server the user runs themselves; `key` only if it wants one. */
+  call("models.localVoice", z.object({ service: LocalVoice.extend({ key: z.string().max(8192).nullable() }).nullable() })),
 ]);
 
 export type Call = z.infer<typeof Call>;
@@ -144,6 +146,7 @@ export const results = {
   "models.choose": done,
   "models.think": done,
   "models.voice": done,
+  "models.localVoice": done,
 } satisfies Record<Method, z.ZodType>;
 
 export type Params = { [C in Call as C["method"]]: C["params"] };
@@ -192,6 +195,7 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "models.choose": (raw) => results["models.choose"].parse(raw),
   "models.think": (raw) => results["models.think"].parse(raw),
   "models.voice": (raw) => results["models.voice"].parse(raw),
+  "models.localVoice": (raw) => results["models.localVoice"].parse(raw),
 };
 
 /** What a server implements: one function per method. */

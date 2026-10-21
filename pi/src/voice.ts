@@ -6,7 +6,7 @@
  * provider, and it reads the key from the user's keys like Pi does.
  */
 import type { KeyFile } from "./credentials.ts";
-import { plainly } from "./keys.ts";
+import { LOCAL_VOICE, plainly } from "./keys.ts";
 import { redact } from "./redact.ts";
 
 /** The speech-to-text services, in the order they are tried (by provider id, as in the keys). */
@@ -22,18 +22,35 @@ export class VoiceUnavailable extends Error {}
 /** The audio a recording gives (webm or ogg with opus, mp4 on Safari), as a file name a service takes. */
 const fileName = (type: string) => `speech.${type.includes("ogg") ? "ogg" : type.includes("mp4") || type.includes("aac") ? "m4a" : type.includes("wav") ? "wav" : "webm"}`;
 
-/** `choice`: the provider the user chose for speech (null: the first one with a key). */
-export function transcriber(keys: KeyFile, choice: () => string | null = () => null, http: typeof fetch = fetch) {
+/** A server's transcription endpoint from its base address (".../v1" or the endpoint itself). */
+export const transcriptionsAt = (url: string) => (/\/audio\/transcriptions\/?$/.test(url) ? url : `${url.replace(/\/+$/, "")}/audio/transcriptions`);
+
+/**
+ * `choice`: the provider the user chose for speech ("local": their own server; null: the first
+ * cloud one with a key, then their own). `local`: their own server, when set up.
+ */
+export function transcriber(
+  keys: KeyFile,
+  choice: () => string | null = () => null,
+  http: typeof fetch = fetch,
+  local: () => { url: string; model: string } | null = () => null,
+) {
   return async (audio: Uint8Array, type: string): Promise<string> => {
     const chosen = choice();
-    for (const service of voiceServices.filter((s) => chosen === null || s.provider === chosen)) {
+    const own = local();
+    const candidates = [
+      ...voiceServices.map((s) => ({ ...s, keyed: true })),
+      ...(own ? [{ provider: LOCAL_VOICE, name: "Your own server", url: transcriptionsAt(own.url), model: own.model, keyed: false }] : []),
+    ].filter((s) => chosen === null || s.provider === (chosen === "local" ? LOCAL_VOICE : chosen));
+    for (const service of candidates) {
       const credential = await keys.read(service.provider);
       const key = credential?.type === "api_key" ? credential.key : undefined;
-      if (!key) continue;
+      // a cloud service needs the user's key; their own server may take none
+      if (service.keyed && !key) continue;
       const form = new FormData();
       form.append("model", service.model);
       form.append("file", new Blob([new Uint8Array(audio)], { type: type || "audio/webm" }), fileName(type));
-      const response = await http(service.url, { method: "POST", headers: { authorization: `Bearer ${key}` }, body: form, signal: AbortSignal.timeout(60_000) }).catch(
+      const response = await http(service.url, { method: "POST", headers: key ? { authorization: `Bearer ${key}` } : {}, body: form, signal: AbortSignal.timeout(60_000) }).catch(
         (e: unknown) => {
           throw new VoiceUnavailable(`The speech service could not be reached: ${e instanceof Error ? e.message : String(e)}`);
         },
@@ -43,6 +60,6 @@ export function transcriber(keys: KeyFile, choice: () => string | null = () => n
       const text = typeof said === "object" && said !== null && "text" in said && typeof said.text === "string" ? said.text : "";
       return text.trim();
     }
-    throw new VoiceUnavailable("Voice needs a key for OpenAI, Groq or Fireworks: add one in Settings › Models.");
+    throw new VoiceUnavailable("Voice needs a key for OpenAI, Groq or Fireworks, or your own speech server: set one up in Settings › Models.");
   };
 }
