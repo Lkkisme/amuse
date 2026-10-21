@@ -57,7 +57,7 @@ test("illegal browser moves are rejected with where they came from", () => {
 });
 
 test("an approval resolves once; allow_* approves, deny_* denies", () => {
-  const pending = stateOf({ kind: "approval", id: "a1", at, action: "Send", target: "t", detail: "d", remember: true, status: "pending", expires: at });
+  const pending = stateOf({ kind: "approval", id: "a1", at, action: "Send", target: "t", detail: "d", remember: true, status: "pending", expires: at, app: null });
   const allow = decide(pending, { method: "approval.resolve", params: { id: "a1", resolution: "allow_always" } }, ctx);
   assert.ok(allow.ok && allow.changes[0]?.kind === "upserted" && allow.changes[0].entity.kind === "approval");
   assert.equal(allow.changes[0].entity.status, "approved");
@@ -211,7 +211,7 @@ test("a run's step is its agent's while it works; ending, stopping or the user t
 });
 
 test("'always' is an answer only where a rule can hold it", () => {
-  const once = stateOf({ kind: "approval", id: "a1", at, action: "Click Pay", target: "shop.example", detail: "d", remember: false, status: "pending", expires: at });
+  const once = stateOf({ kind: "approval", id: "a1", at, action: "Click Pay", target: "shop.example", detail: "d", remember: false, status: "pending", expires: at, app: null });
   assert.deepEqual(decide(once, { method: "approval.resolve", params: { id: "a1", resolution: "allow_always" } }, ctx), {
     ok: false,
     rejection: { kind: "invalid", action: "always", from: "pending" },

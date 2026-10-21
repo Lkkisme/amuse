@@ -492,6 +492,8 @@ function TimeDivider({ time }: { time: string }) {
 }
 
 /** px from the bottom past which the jump-to-bottom button shows */
+/** how long after the user's own touch a scroll counts as theirs (momentum runs on a while) */
+const USER_SCROLL_MS = 1500;
 const JUMP_BUTTON_DISTANCE = 240;
 /** px from the top within which older messages are fetched */
 const OLDER_DISTANCE = 600;
@@ -579,7 +581,10 @@ export function ChatFeed({
   /** the user's own hand on the scroll ends a glide: from then on, where they scroll counts */
   const handOn = () => {
     gliding.current = false;
+    handled.current = Date.now();
   };
+  /** when the user last touched the scroll (wheel, touch, keys, the scrollbar): a scroll long after is not theirs */
+  const handled = useRef(0);
 
   /** Where the first message held sat before older ones went in above it, to put it back there. */
   const anchor = useRef<{ id: string; top: number } | null>(null);
@@ -625,6 +630,15 @@ export function ChatFeed({
     const near = distance < 80;
     setFar(distance > JUMP_BUTTON_DISTANCE);
     if (gliding.current) return; // positions a glide passes through are not the user's
+    // a scroll the user did not make (the page laid out anew as cards arrived) does not unstick the view
+    if (
+      !near &&
+      stick.current &&
+      Date.now() - handled.current > USER_SCROLL_MS
+    ) {
+      el.scrollTop = el.scrollHeight;
+      return;
+    }
     stick.current = near;
     setAtBottom(near);
     if (near) {
@@ -670,9 +684,12 @@ export function ChatFeed({
         onScroll={onScroll}
         onWheel={handOn}
         onTouchStart={handOn}
+        onTouchMove={handOn}
         onKeyDown={handOn}
+        onPointerDown={handOn}
         className="h-full overflow-y-auto px-4 pt-16 pb-28 chat-scroll-fade"
-        style={{ background: "var(--chat-background)" }}
+        // no scroll anchoring: it moves the view when cards arrive above the end, and the view would think the user scrolled
+        style={{ background: "var(--chat-background)", overflowAnchor: "none" }}
       >
         <div ref={contentRef} className="mx-auto flex max-w-3xl flex-col gap-3">
           {feed.map((entity, i) => (

@@ -336,6 +336,7 @@ export function seed(): Entity[] {
       remember: true,
       status: "pending",
       expires: minutesAgo(-30),
+      app: "gmail",
     },
     {
       kind: "browser",

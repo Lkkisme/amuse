@@ -91,7 +91,7 @@ export type AgentAction =
   /** Hand a browser task to the browser port; it starts working at once. `instructions`: the user's ask in full; `files`: workspace files it may upload. */
   | { kind: "browse"; title: string; url: string; instructions: string; files: string[] }
   /** Ask the user to approve a consequential step before taking it; `remember`: the answer may become a rule. */
-  | { kind: "ask"; action: string; target: string; detail: string; remember: boolean }
+  | { kind: "ask"; action: string; target: string; detail: string; remember: boolean; app?: string | null }
   /** A browser run's progress, from the agent driving it. */
   | { kind: "browserStatus"; id: string; status: BrowserProgress }
   /** What the agent driving a run is doing right now (null: nothing in particular). */
@@ -351,10 +351,10 @@ const agentRules: AgentRules = {
     const id = ctx.id("c");
     return ok([upsert({ kind: "connection", id, at: ctx.now, provider, title, status: "pending" })], [], { id });
   },
-  ask: (_, { action, target, detail, remember }, ctx) => {
+  ask: (_, { action, target, detail, remember, app = null }, ctx) => {
     const id = ctx.id("a");
     const expires = later(ctx.now, APPROVAL_TTL_MS);
-    return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, remember, status: "pending", expires })], [], { id });
+    return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, remember, status: "pending", expires, app })], [], { id });
   },
   schedule: (state, { title, instructions, when, needs = null, preset = false }, ctx) => {
     if (standing(state).length >= MAX_SCHEDULES) return reject({ kind: "unsound", reason: `there are already ${MAX_SCHEDULES} schedules; cancel one first` });

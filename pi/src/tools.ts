@@ -304,6 +304,7 @@ export async function appCall(
     // the user approves exactly what will run (a huge argument, e.g. an attachment, is cut and says so)
     detail: ruled + [said.reason.trim(), clip(readable(args), 20_000)].filter(Boolean).join("\n\n"),
     remember: true, // an answer for always holds for the app's actions of this kind
+    app,
   });
   if (!approval.ok) return `Could not ask for approval: ${describe(approval.rejection)}.`;
   if (hold) {

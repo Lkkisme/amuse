@@ -174,15 +174,24 @@ export function ApprovalCard({
   return (
     <div {...shell(place, "w-full max-w-[340px] p-4")}>
       <div className="flex items-start gap-3">
-        <span
-          className="flex size-9 shrink-0 items-center justify-center rounded-[10px]"
-          style={{
-            background: "var(--fill-primary)",
-            color: "var(--icon-primary)",
-          }}
-        >
-          <ShieldCheck size={18} />
-        </span>
+        {/* an app's action shows the app, as its Connect card does */}
+        {approval.app ? (
+          <AppLogo
+            name={approval.app}
+            logo={providerLogo(approval.app)}
+            size={36}
+          />
+        ) : (
+          <span
+            className="flex size-9 shrink-0 items-center justify-center rounded-[10px]"
+            style={{
+              background: "var(--fill-primary)",
+              color: "var(--icon-primary)",
+            }}
+          >
+            <ShieldCheck size={18} />
+          </span>
+        )}
         <div className="min-w-0">
           <p
             className="text-[15px] font-semibold"

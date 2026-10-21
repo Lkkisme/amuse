@@ -67,7 +67,8 @@ export function scheduleTools(io: () => AgentIO): ToolDefinition[] {
         timezone: Type.Optional(Type.String({ description: "An IANA time zone, only if the user names one other than their own" })),
         needs: Type.Optional(
           Type.Union([Type.Literal("conversation"), Type.Literal("lull")], {
-            description: "Run only when worth it: 'conversation' if there was conversation since the last run; 'lull' once a conversation has gone quiet (at most every 4 hours)",
+            description:
+              "Only for upkeep that is pointless when nothing happened (keeping notes from conversations): 'conversation' runs only if there was conversation since the last run; 'lull' once a conversation has gone quiet (at most every 4 hours). Never for what the user wants at its time (a reminder, a briefing, a check of their mail): leave it out.",
           }),
         ),
       }),

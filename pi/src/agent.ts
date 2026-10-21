@@ -10,6 +10,7 @@
 import { type AgentIO, type Ports, type Rules, type Turn, type Workspace, nowIn, newId } from "@amuse/core";
 import { images, workspaceTools } from "./attachments.ts";
 import { memoryBrief, memoryReadTools, memoryWriteTools } from "./memory.ts";
+import { type Skill, allSkills, catalog, skillTools } from "./skills.ts";
 import type { Needs } from "@amuse/protocol";
 import { redact } from "./redact.ts";
 import { type PiModelConfig, type PiSession, openSession, secretsOf } from "./session.ts";
@@ -32,6 +33,8 @@ export interface PiConfig extends PiModelConfig {
   files?: Workspace;
   /** While apps are not set up: how the user sets them up (null once they are). */
   appsSetup?: () => string | null;
+  /** The skills that ship with Amuse (the user's own are read from skills/ in the workspace). */
+  skills?: Skill[];
   /** Schedules every instance starts with (memory upkeep, reflection), set up once, on the user's clock, when they first write. */
   defaults?: Defaults;
 }
@@ -60,6 +63,9 @@ function setUpDefaults(defaults: Defaults | undefined, agent: AgentIO): void {
     agent.act({ kind: "schedule", title: d.title, instructions: d.instructions, when: { kind: "repeat", cron: d.cron, timezone }, needs: d.needs, preset: true });
   defaults.markDone();
 }
+
+/** Development: every tool call and what came back, on the server's console (they may hold the user's data: never on in production). */
+const debugTools = process.env["AMUSE_DEBUG_TOOLS"] === "1";
 
 const toolLabels: Record<string, string> = {
   browse: "Starting a browser task",
@@ -114,12 +120,15 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
     try {
       // the user's language, said where the model weighs it most: the system prompt of this turn
       const language = scriptOf(agent.lastWords());
-      const system = language ? `${cfg.system}\nThe user writes in ${language}: reply in ${language}.` : cfg.system;
+      // the skills there are now (the user may have added one), a line each
+      const skills = catalog(await allSkills(cfg.skills ?? [], cfg.files));
+      const system = [cfg.system, skills, language ? `The user writes in ${language}: reply in ${language}.` : ""].filter(Boolean).join("\n\n");
       if (turn.kind === "message") setUpDefaults(cfg.defaults, agent);
       const session = await openSession(cfg, system, [
         // with memory, memory_search looks in the chats as recall did, and in memory/ too
         ...tools(io, cfg.rules, { files: cfg.files, appsSetup: cfg.appsSetup }).filter((t) => !(cfg.files && t.name === "recall")),
         ...(cfg.files ? [...memoryReadTools(io, cfg.files), ...memoryWriteTools(io, cfg.files)] : []),
+        ...skillTools(cfg.skills ?? [], cfg.files),
         ...chatTools(io),
         ...scheduleTools(io),
         ...taskTools(io),
@@ -136,9 +145,11 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
         if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
           said += event.assistantMessageEvent.delta;
         } else if (event.type === "tool_execution_start") {
+          if (debugTools) console.log(`[tool] ${event.toolName} ${JSON.stringify(event.args).slice(0, 600)}`);
           // the line under the avatar says what the agent is doing, Muse-style
           emit({ kind: "activity", activity: { kind: "working", label: statusOf(event.args) ?? toolLabels[event.toolName] ?? "Working" } });
         } else if (event.type === "tool_execution_end") {
+          if (debugTools) console.log(`[tool] ${event.toolName}${event.isError ? " (error)" : ""}: ${JSON.stringify(event.result).slice(0, 600)}`);
           emit({ kind: "activity", activity: { kind: "responding", label: null } });
         } else if (event.type === "message_end" && event.message.role === "assistant") {
           // only what the agent says once it is done is its reply; what it writes on the way to a tool

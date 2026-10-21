@@ -8,13 +8,8 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { DefaultSchedule, Defaults } from "@amuse/pi";
 
-/** How memory lines are kept, for every run that changes MEMORY.md. */
-const memoryRules =
-  "memory/MEMORY.md holds what is true now about the user, in three sections (## Facts, ## Preferences, ## Commitments): one short conclusion a line, each ending with its id in parentheses, like (m-1a2b3c) (a new id is m- and six hex characters). " +
-  "When something new changes an older line, replace that line in place; drop what is no longer true. Conclusions only, kept short. " +
-  "memory/USER.md holds who the user is (name, time zone, work, background): only the most stable things. " +
-  "For every change, add an entry to memory/journal/<today, YYYY-MM-DD>.md: a heading '## HH:MM · <id> remembered|replaced|dropped (<section>)', the line, 'Source: who said it, in which chat, in their words (a short quote)', and 'Replaces: <the old line>' when it does. " +
-  "Keep only what will matter later: not passing chatter, never secrets (passwords, keys, codes).";
+/** How memory is kept: the memory skill (pi/skills/memory) says it all. */
+const memoryRules = "Read the memory skill first (use_skill memory) and keep its conventions: ids, the journal entry with the source, newer replacing older.";
 
 export const defaultSchedules: DefaultSchedule[] = [
   {
