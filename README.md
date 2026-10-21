@@ -21,18 +21,23 @@ Open `http://localhost:8080`, set a password, and add an API key for a model pro
 Settings › Models (any provider [Pi](https://github.com/earendil-works/pi) supports). From there,
 Amuse walks you through the rest, such as connecting your apps.
 
-Run amuse where only you can reach it (your machine, your tailnet), and set the password right
-away: the first visit sets it.
+Run amuse where only you can reach it (your machine, a network or VPN you trust), and set the
+password right away: the first visit sets it.
 
 ## Other devices
 
-amuse listens on `127.0.0.1:8080` only. Keep it there, and reach it from your phone over
-[Tailscale](https://tailscale.com) by serving it over https: `tailscale serve --bg 8080`, and
-`AMUSE_PUBLIC_URL=https://my-pc.my-tailnet.ts.net`. Pasting from the phone's clipboard into the browser
-you take over, and the mic, need https.
+amuse listens on `127.0.0.1:8080` only. To reach it from your phone or another computer, keep it there
+and put in front of it whatever you already use: a reverse proxy (Caddy, nginx), a tunnel (frp,
+Cloudflare Tunnel), or [Tailscale](https://tailscale.com)'s `tailscale serve --bg 8080`. Then set
+`AMUSE_PUBLIC_URL` in `.env` to the address people use (`https://amuse.example.com`). Pasting from the
+phone's clipboard into the browser you take over, and the mic, need https.
 
-Listening on another address instead (`AMUSE_PUBLISH_HOST=100.x.y.z`, a LAN IP, `0.0.0.0`) also works,
-but then the sandbox can reach Amuse through the host (see Sandbox below).
+Or publish it on another address instead: `AMUSE_PUBLISH_HOST=192.168.0.10` (a LAN address; `0.0.0.0` for
+all of them) and `AMUSE_PUBLIC_URL=http://192.168.0.10:8080` in `.env`. That is plain http, so only on a
+network you trust.
+
+Either way is fine for the sandbox (below): it cannot reach the host, your network or your other devices
+however Amuse is published.
 
 Then `docker compose up -d`.
 
@@ -48,17 +53,41 @@ containers. The mic needs https (see above).
 
 Amuse has a computer of its own: a Debian 13 container where it runs commands, installs software
 (`sudo apt install …`, pip, npm) and runs programs and servers. It works there as a normal user
-with passwordless `sudo`, on files it shares with you: your workspace (what you see in Files) is
+with passwordless `sudo`, on files it shares with you: your workspace (the files Amuse keeps) is
 mounted in it. Commands are not approved one by one, because the container is the boundary; what
 leaves it, and deleting or overwriting the files you sent, still needs your word.
 
-- It reaches the internet, and nothing of yours: no keys or password, no Docker socket, not
-  privileged, only the capabilities sudo and apt need, and only the workspace of Amuse's data. The
-  Amuse server turns away every request from the sandbox's network, and the browsers cannot reach it.
+- It reaches the public internet, and nothing of yours. Connections from it to the host, your LAN,
+  Tailscale and other VPN peers, link-local addresses, the ranges proxy tools on the host (Clash, sing-box,
+  Surge) hand out as fake addresses (`198.18.0.0/15`) and any other private address are refused at once,
+  open ones as well as new; so is the sandbox's own network (the Amuse server is on it, and may open
+  connections to any port the sandbox listens on: replies to those are all that passes there). Whatever
+  else runs on your host, and however you publish Amuse, the sandbox cannot get to it. IPv6 is refused
+  altogether (`AMUSE_SANDBOX_IPV6=1` allows it, if the network has IPv6: untested; then the global IPv6
+  addresses of the host and your LAN look public to the rules and are not refused).
+  One thing the rules cannot know: if the host has a public IP address of its own, services listening on it
+  count as the public internet. Bind them to loopback or firewall them.
+- How that is kept. `sandbox-net`, a small container that owns the sandbox's network, puts the rules in,
+  and the sandbox shares that network without the capability to change them (not even as root). The sandbox
+  never runs before them as shipped: its daemon, the only thing that runs there (nothing starts by itself), starts
+  and listens on nothing until `sandbox-net` has put the rules in, checked them and written a ready mark on
+  a volume the sandbox can only read; it ends if the mark goes. Until the rules are in, everything but
+  loopback is refused. `docker compose up` also waits for `sandbox-net`'s health check, but that gates the
+  command only; Docker's own restarts (a reboot, a restart of the Docker service, a crash) ignore it, and
+  the mark is what covers them. If the rules cannot be put in, `sandbox-net` stays up, unhealthy, and says
+  why in its log (`docker compose logs sandbox-net`), and the sandbox waits. Root in the sandbox can change
+  its own programs, and those changes last until it is recreated: if you think it was tampered with,
+  `docker compose up -d --force-recreate sandbox-net sandbox`.
+- DNS goes through Docker's resolver, which asks the host's own DNS server (often your router): the sandbox
+  can look up the names of machines on your LAN, and nothing more; it cannot reach them.
+- It holds no keys or password, has no Docker socket, is not privileged, has only the capabilities sudo and
+  apt need, and sees only the workspace of Amuse's data. The Amuse server also turns away every request from
+  the sandbox's network, and the browsers cannot reach it.
 - Two folders of the workspace are read-only there: `memory/`, which Amuse reads as its own context, and
   `user/`, what you sent. Amuse edits its memory with its own tools, not from a shell; to work on a file
   you sent, it makes a copy elsewhere. `skills/` is writable and is also `~/.agents/skills`, so
-  `npx skills add -g …` installs straight into Amuse's skills; Amuse tells you about each new or changed one. The three folders always exist and cannot be removed or renamed, only emptied; a file
+  `npx skills add -g …` installs straight into Amuse's skills; Amuse tells you about each new or changed
+  one. The three folders always exist and cannot be removed or renamed, only emptied; a file
   moved into one is copied (the sandbox may still hold the original open), not renamed.
 - Limits: 2 CPUs, 4 GB of memory and 1024 processes; change them in `.env` with
   `AMUSE_SANDBOX_CPUS`, `AMUSE_SANDBOX_MEMORY` and `AMUSE_SANDBOX_PIDS`. There is no disk limit
@@ -73,22 +102,18 @@ leaves it, and deleting or overwriting the files you sent, still needs your word
   `docker compose up -d --force-recreate sandbox` (the server has no Docker socket to do it for you).
   Your workspace is kept either way.
 - The sandbox network has a fixed address range, `10.231.250.0/24`, which the server turns away from its
-  first request. If it clashes with a network you have, set `AMUSE_SANDBOX_SUBNET` in `.env` to another
-  free range and run `docker compose up -d`; compose gives the server the same value.
+  first request (`sandbox-net` refuses it too). If it clashes with a network you have, set
+  `AMUSE_SANDBOX_SUBNET` in `.env` to another free range and run `docker compose up -d`; compose gives the
+  server and `sandbox-net` the same value.
 - Turn it off: `AMUSE_SANDBOX_URL=` (empty) in `.env`, then `docker compose up -d`. Amuse then has no
-  sandbox tools, and the server still turns away the sandbox's network. The container stays, idle; to
-  drop it, remove the `sandbox` and `sandbox-init` services from `compose.yaml`.
-- The host's own addresses: the sandbox can reach them through its gateway, so anything listening on
-  all addresses or on a LAN or Tailscale IP is reachable from it (Docker's published ports pass even
-  ufw). Keep Amuse published on `127.0.0.1` (the default) and served by `tailscale serve`: the sandbox
-  cannot reach the host's loopback (checked on a live install). For other services on the host, two
-  firewall rules close it (adjust the range if you changed it; untested here, and lost at reboot unless
-  your firewall saves them):
-
-  ```sh
-  sudo iptables -I INPUT -s 10.231.250.0/24 -j DROP                                           # the host's own services
-  sudo iptables -I DOCKER-USER -s 10.231.250.0/24 -m conntrack --ctstate DNAT -j DROP         # ports Docker publishes
-  ```
+  sandbox tools, and the server still turns away the sandbox's network. The containers stay, idle; to
+  drop them, remove the `sandbox`, `sandbox-net` and `sandbox-init` services from `compose.yaml`.
+- `sandbox-net` and `sandbox` go together. `docker compose up -d` (also after an update) keeps them in step,
+  and `docker compose restart sandbox-net` restarts both. To recreate them: `docker compose up -d
+  --force-recreate sandbox-net sandbox`. If `sandbox-net` alone is restarted behind compose's back (a crash,
+  `docker restart`), the sandbox has no network until it is restarted; it ends itself within a few seconds
+  (the daemon watches for it), Docker brings it back into the new network, and it never has an open one in
+  between.
 
 ## Good to know
 
