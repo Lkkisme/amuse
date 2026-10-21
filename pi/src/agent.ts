@@ -259,6 +259,6 @@ function brief(agent: AgentIO, turn: Turn, remembered: string): string {
   const task =
     turn.kind === "message"
       ? "Reply to the user's newest message (the last lines above)."
-      : `A note from your background work (not from the user; tell the user what matters):\n${turn.text}`;
+      : `A note from your background work (not from the user). Tell the user only what they need to hear, in your own words, never that a note came. If nothing needs them (all is well, nothing was waiting), reply with nothing at all: an empty reply is not shown.\n${turn.text}`;
   return `${where}\n\n${remembered ? `${remembered}\n\n---\n` : ""}The conversation so far, oldest first (times are the user's, ${timezone}):\n\n${agent.context()}\n\n---\nNow: ${nowIn(now, timezone)}.\n${task}`;
 }

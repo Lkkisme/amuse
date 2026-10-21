@@ -606,12 +606,11 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
       const waiting = room.state.entities.filter((e): e is Connection => e.kind === "connection" && e.status === "pending" && active.has(e.provider));
       for (const connection of waiting) {
         if (room.agent.act({ kind: "connected", id: connection.id }).ok)
-          room.agent.report(`[app connection] ${connection.title} is connected now. If something was waiting on it, carry on with it.`);
+          room.agent.report(`[app connection] ${connection.title} is connected now. If something was waiting on it, carry on with it; if not, there is nothing to say.`);
       }
     }
   }
 
-  /** The user's time zone: their device's when they last wrote, in this chat or, failing that, the main one. */
   /** The user's day now (YYYY-MM-DD), on their clock. */
   const today = () => localTime(clock.now(), userZone(main().state)).split(" ")[0] ?? "";
   /** A change to the workspace's files; what cannot be done comes back in words. */
@@ -619,6 +618,7 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     change().catch((e: unknown) => {
       throw e instanceof WorkspaceError ? new Rejected({ kind: "unsound", reason: e.message }) : e;
     });
+  /** The user's time zone: their device's when they last wrote, in this chat or, failing that, the main one. */
   const userZoneOf = (room: Room) => (room.state.entities.some((e) => e.kind === "prompt") ? userZone(room.state) : userZone(main().state));
 
   function run(room: Room, effect: Effect): void {
