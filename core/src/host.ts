@@ -29,6 +29,8 @@ import {
   type Reply,
   type Results,
   type Schedule,
+  type SkillInfo,
+  type SkillOrigin,
   type Session,
   type Task,
   type State,
@@ -155,6 +157,8 @@ export interface Ports {
   keys: Keys;
   /** The logins the browsers keep, by site (none where there are no browsers). */
   logins: Logins;
+  /** The skills, built in and the user's (none where they are not kept). */
+  skills?: Skills;
   /** Amuse's own machine, as far as the user controls it (none where there is no sandbox). */
   sandbox: Sandbox;
 }
@@ -180,6 +184,17 @@ export interface Logins {
 
 /** No browsers, no logins kept (the demo, tests). */
 export const noLogins: Logins = { list: async () => [], forget: async () => {} };
+
+/** The skills, to see and to remove the user's own (Settings-like, in the sidebar). */
+export interface Skills {
+  list(): Promise<SkillInfo[]>;
+  /** null: there is no such skill */
+  get(name: string, origin: SkillOrigin): Promise<{ skill: SkillInfo; body: string; files: string[] } | null>;
+  remove(name: string): Promise<void>;
+}
+
+/** No skills to show (the demo, tests). */
+export const noSkills: Skills = { list: async () => [], get: async () => null, remove: async () => {} };
 
 /** A file or folder in the workspace. */
 export interface Entry {
@@ -812,6 +827,16 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
         .flatMap((room) => room.state.entities.filter((e): e is Approval => e.kind === "approval").map((approval) => ({ chat: room.chat, approval })))
         .sort((a, b) => Date.parse(b.approval.at) - Date.parse(a.approval.at)),
     }),
+    "skills.list": async () => ({ skills: await (ports.skills ?? noSkills).list() }),
+    "skills.get": async ({ name, origin }) => {
+      const found = await (ports.skills ?? noSkills).get(name, origin);
+      if (!found) throw new Rejected({ kind: "unsound", reason: "That skill is not there any more." });
+      return found;
+    },
+    "skills.remove": async ({ name }) => {
+      await kept(() => (ports.skills ?? noSkills).remove(name));
+      return null;
+    },
     "goals.list": async () => ({ goals: await listGoals(ports.files) }),
     "goals.get": async ({ id }) => {
       const goal = await readGoal(ports.files, id);

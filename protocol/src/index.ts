@@ -6,3 +6,4 @@ export * from "./apps.ts";
 export * from "./chats.ts";
 export * from "./keys.ts";
 export * from "./goals.ts";
+export * from "./skills.ts";

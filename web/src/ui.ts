@@ -2,12 +2,12 @@
  * UI-only state: which panels are open and what they show. Server state is
  * the conversation (session.ts); this never duplicates it, only ids into it.
  */
-import { type App, type Attachment, type KeyProvider, MAIN } from "@amuse/protocol";
+import { type App, type Attachment, type KeyProvider, MAIN, type SkillOrigin } from "@amuse/protocol";
 
 export type SettingsSection = "general" | "models" | "connectors" | "permissions" | "logins" | "schedules" | "sandbox";
 
 /** A section of the sidebar besides the chats (nav.ts). */
-export type LeftSection = "goals";
+export type LeftSection = "goals" | "skills";
 
 import type { Theme } from "./theme.ts";
 
@@ -25,6 +25,8 @@ export interface Ui {
   left: LeftSection | null;
   /** the goal whose page is open in the sidebar */
   goal: string | null;
+  /** the skill whose page is open in the sidebar */
+  skill: { name: string; origin: SkillOrigin } | null;
   /** the Muse panel (profile and activity): docked on the right, or floating over the chat while the browser has the right */
   museOpen: boolean;
   /** section null: on a phone, the list of sections (on a desktop, the first one) */
@@ -47,6 +49,7 @@ export const initialUi: Ui = {
   chatsOpen: false,
   left: null,
   goal: null,
+  skill: null,
   museOpen: false,
   settings: { open: false, section: null, app: null, provider: null },
   viewer: null,
@@ -85,6 +88,8 @@ export interface Actions {
   openLeft(section: LeftSection | null): void;
   /** open a goal's page in the sidebar (null: back to the list) */
   openGoal(goal: string | null): void;
+  /** open a skill's page in the sidebar (null: back to the list) */
+  openSkill(skill: { name: string; origin: SkillOrigin } | null): void;
   /** show a chat (the drawer closes) */
   openChat(chat: string): void;
   /** open a new side chat and show it */

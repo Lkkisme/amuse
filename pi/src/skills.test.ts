@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Entry, type Workspace, noWorkspace } from "@amuse/core";
-import { allSkills, builtInSkills, catalog, parseSkill } from "./skills.ts";
+import { allSkills, builtInSkills, catalog, parseSkill, skillsPort } from "./skills.ts";
 
 /** A workspace holding just these files. */
 function holding(files: Record<string, string>): Workspace {
@@ -49,4 +49,37 @@ test("the user's skills join the built-in ones, and one of theirs replaces a bui
   const list = catalog(skills);
   assert.match(list, /^- trips: Planning a trip the way I like$/m);
   assert.match(list, /use_skill/);
+});
+
+test("the sidebar's skills: the user's first, a built-in one theirs replaces said so, and only theirs can go", async () => {
+  const removed: string[] = [];
+  const files = {
+    ...holding({
+      "skills/trips/SKILL.md": "---\nname: trips\ndescription: Planning a trip the way I like\n---\nWindow seats.",
+      "skills/trips/scripts/fares.py": "print(1)",
+      "skills/browser/SKILL.md": "---\nname: browser\ndescription: My own way with browsers\n---\nAsk first.",
+    }),
+    remove: async (path: string) => void removed.push(path),
+  };
+  const port = skillsPort(builtInSkills(), files);
+  const listed = await port.list();
+  assert.deepEqual(
+    listed.slice(0, 2).map((s) => [s.name, s.origin]),
+    [
+      ["browser", "yours"],
+      ["trips", "yours"],
+    ],
+  );
+  assert.equal(listed.find((s) => s.origin === "built-in" && s.name === "browser")?.replaced, true);
+  assert.equal(listed.find((s) => s.origin === "built-in" && s.name === "memory")?.replaced, false);
+
+  const trips = await port.get("trips", "yours");
+  assert.equal(trips?.body, "Window seats.");
+  assert.deepEqual(trips?.files, ["SKILL.md", "scripts/fares.py"]);
+  assert.ok((await port.get("memory", "built-in"))?.body.length);
+  assert.equal(await port.get("nothing", "yours"), null);
+
+  await port.remove("trips");
+  assert.deepEqual(removed, ["skills/trips"]);
+  await assert.rejects(port.remove("memory"), /not there/, "a built-in one cannot go");
 });

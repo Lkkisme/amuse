@@ -58,8 +58,9 @@ export function GoalPage({
   const goal = shown?.goal;
   return (
     <div
-      className="anim-pane-from-right absolute inset-0 z-20 flex flex-col"
-      style={{ background: "var(--bg-primary)" }}
+      // over the sidebar's list, under the ☰ button (which stays at the window's top left)
+      className="anim-pane-from-right absolute inset-x-0 bottom-0 top-14 z-20 flex flex-col"
+      style={{ background: "var(--panel)" }}
     >
       <div className="flex h-14 shrink-0 items-center justify-between px-2">
         <button

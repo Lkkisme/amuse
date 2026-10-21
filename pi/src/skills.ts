@@ -12,7 +12,8 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
-import type { Workspace } from "@amuse/core";
+import { type Skills, type Workspace, WorkspaceError } from "@amuse/core";
+import type { SkillInfo, SkillOrigin } from "@amuse/protocol";
 import { Type } from "typebox";
 import { status } from "./status.ts";
 
@@ -107,4 +108,47 @@ export function skillTools(builtIn: Skill[], files: Workspace | undefined): Tool
       },
     }),
   ];
+}
+
+/** Every path under `folder` (relative to it), files only, up to `limit`. */
+async function filesIn(files: Workspace, folder: string, limit = 200): Promise<string[]> {
+  const found: string[] = [];
+  const walk = async (at: string): Promise<void> => {
+    for (const entry of await files.list(at)) {
+      if (found.length >= limit) return;
+      if (entry.kind === "folder") await walk(entry.path);
+      else found.push(entry.path.slice(folder.length + 1));
+    }
+  };
+  await walk(folder);
+  return found.sort();
+}
+
+/** The skills for the user to see in the sidebar, and to remove their own: built in and in skills/. */
+export function skillsPort(builtIn: Skill[], files: Workspace): Skills {
+  const mine = () => userSkills(files).catch((): Skill[] => []);
+  const info = (skill: Skill, origin: SkillOrigin, replaced: boolean): SkillInfo => ({ name: skill.name, description: skill.description, origin, replaced });
+  return {
+    async list() {
+      const own = await mine();
+      const names = new Set(own.map((s) => s.name));
+      const byName = (a: Skill, b: Skill) => a.name.localeCompare(b.name);
+      return [...[...own].sort(byName).map((s) => info(s, "yours", false)), ...[...builtIn].sort(byName).map((s) => info(s, "built-in", names.has(s.name)))];
+    },
+    async get(name, origin) {
+      const own = await mine();
+      if (origin === "built-in") {
+        const skill = builtIn.find((s) => s.name === name);
+        return skill ? { skill: info(skill, "built-in", own.some((s) => s.name === name)), body: skill.body, files: [] } : null;
+      }
+      const skill = own.find((s) => s.name === name);
+      return skill ? { skill: info(skill, "yours", false), body: skill.body, files: await filesIn(files, skill.from).catch(() => []) } : null;
+    },
+    async remove(name) {
+      const skill = (await mine()).find((s) => s.name === name);
+      // only a folder of its own under skills/, never skills/ itself
+      if (!skill || !skill.from.startsWith(`${SKILLS}/`) || skill.from.slice(SKILLS.length + 1).includes("/")) throw new WorkspaceError("that skill is not there any more");
+      await files.remove(skill.from);
+    },
+  };
 }

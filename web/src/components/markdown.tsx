@@ -1,6 +1,7 @@
 /**
  * Tiny rich-markdown renderer for agent bubbles: **bold**, `inline code`
- * chips, [links](https://…), "# " headings (as bold lines) and "- " bullets.
+ * chips, [links](https://…), "# " headings (as bold lines), "- " bullets and
+ * ``` code blocks (as they are, in a mono box).
  * Hand-parsed (no dangerouslySetInnerHTML); a link goes only to http(s).
  */
 import type { ReactNode } from "react";
@@ -58,7 +59,31 @@ export function RichText({ text }: { text: string }) {
 
   /** a blank line came before: the next block starts a new paragraph, 8px down (Muse) */
   let paragraph = false;
-  lines.forEach((line, i) => {
+  /** the lines of a ``` block being read, or null outside one */
+  let code: string[] | null = null;
+  for (const [i, line] of lines.entries()) {
+    if (line.trimStart().startsWith("```")) {
+      if (code === null) {
+        flushBullets(`u${i}`);
+        code = [];
+      } else {
+        blocks.push(
+          <pre
+            key={`c${i}`}
+            className="my-2 overflow-x-auto rounded-xl px-3 py-2 text-[13px] leading-[19px]"
+            style={{ background: "var(--fill-secondary)", fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}
+          >
+            {code.join("\n")}
+          </pre>,
+        );
+        code = null;
+      }
+      continue;
+    }
+    if (code !== null) {
+      code.push(line);
+      continue;
+    }
     if (line.startsWith("- ")) {
       bullets.push(<li key={`b${i}`}>{renderInline(line.slice(2), `l${i}`)}</li>);
     } else {
@@ -73,8 +98,16 @@ export function RichText({ text }: { text: string }) {
         paragraph = false;
       } else paragraph = true;
     }
-  });
+  }
   flushBullets("u-end");
+  // a block never closed: what was in it, as it is
+  const open = code;
+  if (open !== null)
+    blocks.push(
+      <pre key="c-end" className="my-2 overflow-x-auto rounded-xl px-3 py-2 text-[13px]" style={{ background: "var(--fill-secondary)" }}>
+        {open.join("\n")}
+      </pre>,
+    );
 
   return <>{blocks}</>;
 }

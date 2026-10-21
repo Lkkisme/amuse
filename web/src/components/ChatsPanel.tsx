@@ -12,12 +12,13 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { MessageCircle, MoreHorizontal, Plus, Search, Settings } from "lucide-react";
-import { type Chat, MAIN, type Session } from "@amuse/protocol";
+import { type Chat, MAIN, type Session, type SkillOrigin } from "@amuse/protocol";
 import type { Actions, LeftSection } from "../ui.ts";
 import { NAV_PAGES } from "./nav";
 import { usePresence } from "./usePresence";
 import { Goals } from "./Goals";
 import { GoalPage } from "./GoalPage";
+import { SkillPage, Skills } from "./Skills";
 
 /** How long ago, in a few characters: now, 5m, 3h, 2d, then the date. */
 function ago(iso: string, now = Date.now()): string {
@@ -47,6 +48,7 @@ interface SidebarProps {
   current: string;
   left: LeftSection | null;
   goal: string | null;
+  skill: { name: string; origin: SkillOrigin } | null;
   session: Session;
   actions: Actions;
 }
@@ -113,10 +115,10 @@ export function DrawerSidebar({ open, ...props }: SidebarProps & { open: boolean
   );
 }
 
-function SidebarContent({ chats, current, left, goal, session, actions }: SidebarProps) {
+function SidebarContent({ chats, current, left, goal, skill, session, actions }: SidebarProps) {
   return (
     <>
-      <nav className="mt-3 grid shrink-0 grid-cols-2 gap-1" aria-label="Pages">
+      <nav className="mt-3 grid shrink-0 grid-cols-3 gap-1" aria-label="Pages">
         {NAV_PAGES.map(({ icon: Icon, label, shown, open }) => (
           <button
             key={label}
@@ -139,6 +141,15 @@ function SidebarContent({ chats, current, left, goal, session, actions }: Sideba
             <Goals session={session} onOpen={(id) => actions.openGoal(id)} />
           </div>
           {goal !== null && <GoalPage key={goal} session={session} id={goal} onBack={() => actions.openGoal(null)} />}
+        </>
+      ) : left === "skills" ? (
+        <>
+          <div className="-mx-3 flex min-h-0 flex-1 flex-col">
+            <Skills session={session} actions={actions} onOpen={(name, origin) => actions.openSkill({ name, origin })} />
+          </div>
+          {skill !== null && (
+            <SkillPage key={`${skill.origin}:${skill.name}`} session={session} name={skill.name} origin={skill.origin} onBack={() => actions.openSkill(null)} />
+          )}
         </>
       ) : (
         <ChatList chats={chats} current={current} actions={actions} />

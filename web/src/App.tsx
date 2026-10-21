@@ -358,8 +358,10 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         localStorage.setItem(SIDEBAR, String(sidebar));
         patch((u) => ({ ...u, sidebar, chatsOpen: false }));
       },
-      openLeft: (left) => patch((u) => ({ ...u, left, goal: null })),
+      openLeft: (left) =>
+        patch((u) => ({ ...u, left, goal: null, skill: null })),
       openGoal: (goal) => patch((u) => ({ ...u, goal })),
+      openSkill: (skill) => patch((u) => ({ ...u, skill })),
       // a chat's browsers are its own: the viewer starts over
       openChat: (chat) =>
         patch((u) => ({ ...u, chat, chatsOpen: false, viewer: null })),
@@ -430,6 +432,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           current={ui.chat}
           left={ui.left}
           goal={ui.goal}
+          skill={ui.skill}
           session={session}
           actions={actions}
         />
@@ -519,6 +522,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           current={ui.chat}
           left={ui.left}
           goal={ui.goal}
+          skill={ui.skill}
           session={session}
           actions={actions}
         />

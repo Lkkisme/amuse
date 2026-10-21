@@ -10,6 +10,7 @@ import { Approval, Attachment, Id, Resolution, Schedule, TimeZone } from "./enti
 import { Envelope, Index, Page, Seq, State } from "./events.ts";
 import { Chat, Push } from "./chats.ts";
 import { Goal, GoalNote, GoalStatus } from "./goals.ts";
+import { SkillInfo, SkillOrigin } from "./skills.ts";
 import { KeyTest, KeysState, LocalVoice, LoginStep, ModelRef, ModelRole, ThinkingLevel } from "./keys.ts";
 
 const call = <M extends string, P extends z.ZodObject>(method: M, params: P) =>
@@ -83,6 +84,12 @@ export const Call = z.discriminatedUnion("method", [
   call("goals.get", z.object({ id: z.string().min(1).max(100) })),
   /** Add a goal: what the user wants, and anything more about it. */
   call("goals.add", z.object({ title: z.string().trim().min(1).max(200), about: z.string().max(4000) })),
+  /** Every skill: the user's first, then the built-in ones. */
+  call("skills.list", z.object({})),
+  /** A skill in full: what it says, and the files in its folder (the user's own). */
+  call("skills.get", z.object({ name: z.string().min(1).max(100), origin: SkillOrigin })),
+  /** Remove one of the user's skills (its folder in skills/); a built-in one stays. */
+  call("skills.remove", z.object({ name: z.string().min(1).max(100) })),
   /** Finish a goal or take it up again (its schedules rest while it is done), or mute it or not. */
   call("goals.update", z.object({ id: z.string().min(1).max(100), status: GoalStatus.optional(), muted: z.boolean().optional() })),
   /** The providers there are for keys, which are set up, the models they offer and the ones chosen. */
@@ -152,6 +159,9 @@ export const results = {
   "goals.get": z.object({ goal: Goal, log: z.array(GoalNote) }),
   "goals.add": Goal,
   "goals.update": done,
+  "skills.list": z.object({ skills: z.array(SkillInfo) }),
+  "skills.get": z.object({ skill: SkillInfo, body: z.string(), files: z.array(z.string()) }),
+  "skills.remove": done,
   "keys.list": KeysState,
   "keys.login": LoginStep,
   "keys.answer": LoginStep,
@@ -206,6 +216,9 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "goals.get": (raw) => results["goals.get"].parse(raw),
   "goals.add": (raw) => results["goals.add"].parse(raw),
   "goals.update": (raw) => results["goals.update"].parse(raw),
+  "skills.list": (raw) => results["skills.list"].parse(raw),
+  "skills.get": (raw) => results["skills.get"].parse(raw),
+  "skills.remove": (raw) => results["skills.remove"].parse(raw),
   "keys.list": (raw) => results["keys.list"].parse(raw),
   "keys.login": (raw) => results["keys.login"].parse(raw),
   "keys.answer": (raw) => results["keys.answer"].parse(raw),

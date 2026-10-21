@@ -29,7 +29,7 @@ import { workspace } from "./workspace.ts";
 import { browserPool, controller } from "@amuse/browser";
 import { type Ports, Rejected, createHost, memoryRules, noLogins, noSandbox, realTimers } from "@amuse/core";
 import type { Entity } from "@amuse/protocol";
-import { type PiAuth, VoiceUnavailable, adoptEnvironment, builtInSkills, transcriber, fileCredentials, piAgent, piBrowserAgent, piKeys, piScheduleRunner, piTaskRunner, untrustedRule } from "@amuse/pi";
+import { type PiAuth, VoiceUnavailable, adoptEnvironment, builtInSkills, skillsPort, transcriber, fileCredentials, piAgent, piBrowserAgent, piKeys, piScheduleRunner, piTaskRunner, untrustedRule } from "@amuse/pi";
 import { fileAccess } from "./access.ts";
 import { fileDefaults } from "./defaults.ts";
 import { listen } from "./server.ts";
@@ -252,6 +252,8 @@ const ports: Ports = {
   keys,
   // the logins the browsers keep (shared by every browser), to see and sign out of in Settings
   logins: browsers ? { list: () => browsers.logins(), forget: (site) => browsers.forgetLogin(site) } : noLogins,
+  // the skills, built in and the user's, for the sidebar's Skills
+  skills: skillsPort(skills, files),
   ...(browsers
     ? piBrowserAgent({ model: browserModel, thinking: () => keys.thinking("browser"), auth }, browsers, rules, files)
     : {
