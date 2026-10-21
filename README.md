@@ -36,6 +36,14 @@ amuse listens on `127.0.0.1:8080` only. To reach it from your phone over
 
 Then `docker compose up -d`.
 
+## Voice
+
+The mic turns what you say into text with OpenAI, Groq or Fireworks (your key), or a speech
+server you run yourself (any OpenAI-style `/v1/audio/transcriptions`, e.g. faster-whisper-server):
+Settings › Models › Voice. Run it in Docker beside Amuse and give its service name as the address;
+on the host outside Docker it is `host.docker.internal`, which a host firewall (ufw) may block for
+containers. The mic needs https (see above).
+
 ## Good to know
 
 - Your conversation, the password, your keys and saved browser logins live in Docker volumes;

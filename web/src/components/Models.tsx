@@ -564,8 +564,9 @@ function LocalVoiceSheet({
           style={{ color: "var(--text-secondary)" }}
         >
           Any server that turns speech into text the way OpenAI's does, like
-          faster-whisper-server or whisper.cpp. On this machine, its address
-          starts with host.docker.internal.
+          faster-whisper-server or whisper.cpp. Easiest in Docker beside Amuse
+          (its address is then its service name); on this machine outside Docker
+          it is at host.docker.internal, if the firewall lets Amuse in.
         </p>
         <div
           className="mt-5 w-full divide-y divide-[var(--fill-divider)] overflow-hidden rounded-[18px] text-left"
