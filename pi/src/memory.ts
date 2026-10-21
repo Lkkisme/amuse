@@ -69,7 +69,9 @@ export async function memoryBrief(files: Workspace): Promise<string> {
       ? null
       : [
           `## What the user is working toward (${GOALS}/; the goals skill says how to help)`,
-          ...goals.map((g) => `- ${g.title} (${GOALS}/${g.id}/)${g.latest ? `, last moved ${g.latest.day}` : ""}`),
+          ...goals.map(
+            (g) => `- ${g.title} (${GOALS}/${g.id}/)${g.muted ? ", muted: do not bring it up unasked" : ""}${g.latest ? `, last moved ${g.latest.day}` : ""}`,
+          ),
         ].join("\n");
   const shown = [...parts, working].filter((p) => p !== null);
   return shown.length === 0 ? "" : `Your memory of the user (the files are yours to keep current):\n\n${shown.join("\n\n")}`;

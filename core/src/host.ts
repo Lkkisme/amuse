@@ -57,7 +57,7 @@ import {
   verdict,
 } from "./decide.ts";
 import { deadline, localTime, userZone } from "./schedule.ts";
-import { addGoal, closeGoal, goalLog, listGoals, readGoal } from "./goals.ts";
+import { addGoal, goalLog, listGoals, readGoal, updateGoal } from "./goals.ts";
 import { BEAT_MS, beatNote, inFlight } from "./heartbeat.ts";
 import { type Timers, realTimers } from "./timers.ts";
 import type { Rules } from "./policy.ts";
@@ -800,8 +800,8 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
       return { goal, log: await goalLog(ports.files, id) };
     },
     "goals.add": (goal) => kept(() => addGoal(ports.files, goal, today())),
-    "goals.close": async ({ id, status }) => {
-      await kept(() => closeGoal(ports.files, id, status, today()));
+    "goals.update": async ({ id, status, muted }) => {
+      await kept(() => updateGoal(ports.files, id, { status, muted }, today()));
       return null;
     },
     "apps.accounts": async () => {

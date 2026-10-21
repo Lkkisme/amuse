@@ -14,6 +14,7 @@ import { CalendarClock, CircleCheck, Clock, Globe, List, ListTodo, Plug, ShieldC
 import type { Approval, Chat, Entity, Schedule, Session, State } from "@amuse/protocol";
 import { AppLogo } from "./AppLogo";
 import { Goals } from "./Goals";
+import { GoalPage } from "./GoalPage";
 import { museAvatar, travels } from "../transition.ts";
 import type { Actions } from "../ui.ts";
 import { browserLook, host, providerLogo, taskStatus, time } from "../view.ts";
@@ -101,7 +102,7 @@ function done(entity: Entity): Done | null {
 
 const frame: Record<MuseMode, string> = {
   // a page of its own on a phone; on the right from md up
-  docked: "fixed inset-0 z-50 md:static md:z-auto md:w-[360px] md:shrink-0 md:border-l",
+  docked: "fixed inset-0 z-50 md:relative md:z-auto md:w-[360px] md:shrink-0 md:border-l",
   // over the chat, beside the rail, while the browser is on the right (lg up): within what the chat has
   // (16px clear of the viewer)
   floating: "fixed bottom-4 left-[72px] top-4 z-[55] w-[min(440px,calc(100vw-var(--viewer-width)-88px))] rounded-[28px]",
@@ -119,6 +120,10 @@ export function MusePanel({ conversation, session, mode, actions }: { conversati
   const working = conversation.activity !== null;
   const list = conversation.entities.flatMap((e) => done(e) ?? []).reverse();
   const [tab, setTab] = useState<Tab>("activity");
+  /** the goal whose page is open over the panel */
+  const [goal, setGoal] = useState<string | null>(null);
+  /** the list is read again on the way back from a page, where it may have changed */
+  const [goalsRead, setGoalsRead] = useState(0);
 
   return (
     <aside
@@ -192,7 +197,18 @@ export function MusePanel({ conversation, session, mode, actions }: { conversati
 
       {tab === "approvals" && <Approvals session={session} conversation={conversation} actions={actions} />}
       {tab === "upcoming" && <Upcoming session={session} />}
-      {tab === "goals" && <Goals session={session} />}
+      {tab === "goals" && <Goals key={goalsRead} session={session} onOpen={setGoal} />}
+      {goal !== null && (
+        <GoalPage
+          key={goal}
+          session={session}
+          id={goal}
+          onBack={() => {
+            setGoal(null);
+            setGoalsRead((n) => n + 1);
+          }}
+        />
+      )}
       {tab === "activity" && (
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-5">
           <p className="text-[17px] font-semibold" style={{ color: "var(--text-primary)" }}>

@@ -135,7 +135,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
         ...(cfg.files ? [...memoryReadTools(io, cfg.files), ...memoryWriteTools(io, cfg.files)] : []),
         ...skillTools(cfg.skills ?? [], cfg.files),
         ...chatTools(io),
-        ...scheduleTools(io),
+        ...scheduleTools(io, cfg.files),
         ...taskTools(io),
         ...relayTools(io),
         ...webTools(io, cfg.rules, cfg.search),

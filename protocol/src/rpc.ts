@@ -9,7 +9,7 @@ import { Account, App, KindRule, Permission, Site, SiteRule, ToolKind } from "./
 import { Approval, Attachment, Id, Resolution, Schedule, TimeZone } from "./entities.ts";
 import { Envelope, Index, Page, Seq, State } from "./events.ts";
 import { Chat, Push } from "./chats.ts";
-import { Goal, GoalNote } from "./goals.ts";
+import { Goal, GoalNote, GoalStatus } from "./goals.ts";
 import { KeyTest, KeysState, LocalVoice, LoginStep, ModelRef, ModelRole, ThinkingLevel } from "./keys.ts";
 
 const call = <M extends string, P extends z.ZodObject>(method: M, params: P) =>
@@ -83,8 +83,8 @@ export const Call = z.discriminatedUnion("method", [
   call("goals.get", z.object({ id: z.string().min(1).max(100) })),
   /** Add a goal: what the user wants, and anything more about it. */
   call("goals.add", z.object({ title: z.string().trim().min(1).max(200), about: z.string().max(4000) })),
-  /** Close a goal: reached, or let go of. */
-  call("goals.close", z.object({ id: z.string().min(1).max(100), status: z.enum(["done", "dropped"]) })),
+  /** Finish a goal or take it up again (its schedules rest while it is done), or mute it or not. */
+  call("goals.update", z.object({ id: z.string().min(1).max(100), status: GoalStatus.optional(), muted: z.boolean().optional() })),
   /** The providers there are for keys, which are set up, the models they offer and the ones chosen. */
   call("keys.list", z.object({})),
   /** Start setting up a provider's key: its first prompt (or done/failed). */
@@ -149,7 +149,7 @@ export const results = {
   "goals.list": z.object({ goals: z.array(Goal) }),
   "goals.get": z.object({ goal: Goal, log: z.array(GoalNote) }),
   "goals.add": Goal,
-  "goals.close": done,
+  "goals.update": done,
   "keys.list": KeysState,
   "keys.login": LoginStep,
   "keys.answer": LoginStep,
@@ -202,7 +202,7 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "goals.list": (raw) => results["goals.list"].parse(raw),
   "goals.get": (raw) => results["goals.get"].parse(raw),
   "goals.add": (raw) => results["goals.add"].parse(raw),
-  "goals.close": (raw) => results["goals.close"].parse(raw),
+  "goals.update": (raw) => results["goals.update"].parse(raw),
   "keys.list": (raw) => results["keys.list"].parse(raw),
   "keys.login": (raw) => results["keys.login"].parse(raw),
   "keys.answer": (raw) => results["keys.answer"].parse(raw),

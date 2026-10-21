@@ -1,9 +1,11 @@
 /**
  * The goals' files (protocol goals.ts), read as the user or Amuse left them:
- * memory/goals/<id>/GOAL.md opens with front matter (title, status, added),
+ * memory/goals/<id>/GOAL.md opens with front matter (title, status, added;
+ * muted when it is),
  * then what the goal is and where it stands; log.md has a note under each
  * "## YYYY-MM-DD …" heading, oldest first. What is missing reads leniently:
- * the folder's name for a title, active for a status.
+ * the folder's name for a title, active for a status (and done for the
+ * "dropped" of before).
  */
 import { type Goal, type GoalNote, GoalStatus } from "@amuse/protocol";
 import { type Workspace, WorkspaceError } from "./host.ts";
@@ -34,16 +36,18 @@ function split(source: string): { fields: Map<string, string>; body: string } {
   return { fields, body: (match ? (match[2] ?? "") : source).trim() };
 }
 
-/** `source` with front matter field `key` set to `value` (added, or front matter made, when missing). */
+/** `source` with front matter field `key` set to `value` (added, or front matter made, when missing; taken out for ""). */
 function setField(source: string, key: string, value: string): string {
   const match = source.match(FRONT);
-  if (!match) return `---\n${key}: ${value}\n---\n\n${source.trim()}\n`;
+  if (!match) return value ? `---\n${key}: ${value}\n---\n\n${source.trim()}\n` : source;
+  const field = (l: string) => l.toLowerCase().startsWith(`${key}:`);
   const lines = (match[1] ?? "").split("\n");
-  const at = lines.findIndex((l) => l.toLowerCase().startsWith(`${key}:`));
+  const at = lines.findIndex(field);
   if (at >= 0) lines[at] = `${key}: ${value}`;
   else lines.push(`${key}: ${value}`);
+  const kept = value ? lines : lines.filter((l) => !field(l));
   const body = (match[2] ?? "").trim();
-  return `---\n${lines.join("\n")}\n---\n${body ? `\n${body}\n` : ""}`;
+  return `---\n${kept.join("\n")}\n---\n${body ? `\n${body}\n` : ""}`;
 }
 
 /** A log's notes, newest first: the day each heading starts with, the rest of the heading, and what is under it. */
@@ -69,12 +73,14 @@ export async function readGoal(files: Workspace, id: string): Promise<Goal | nul
   const source = await read(files, goalFile(id));
   if (source === null) return null;
   const { fields, body } = split(source);
-  const status = GoalStatus.safeParse(fields.get("status"));
+  const said = fields.get("status");
+  const status = GoalStatus.safeParse(said === "dropped" ? "done" : said);
   const log = await read(files, logFile(id));
   return {
     id,
     title: fields.get("title") || body.match(/^# (.+)$/m)?.[1]?.trim() || id,
     status: status.success ? status.data : "active",
+    muted: fields.get("muted") === "true",
     added: fields.get("added") ?? "",
     about: body,
     latest: (log === null ? [] : parseLog(log))[0] ?? null,
@@ -117,11 +123,24 @@ export async function addGoal(files: Workspace, goal: { title: string; about: st
   return added;
 }
 
-/** Close a goal on `day`: reached (done) or let go of (dropped), said in its log. */
-export async function closeGoal(files: Workspace, id: string, status: "done" | "dropped", day: string): Promise<void> {
+/** Add a note to a goal's log on `day`: `label` says what kind ("Progress", "From Meal reminders"). */
+export async function noteGoal(files: Workspace, id: string, day: string, label: string, text: string): Promise<void> {
+  if (!sound(id) || (await read(files, goalFile(id))) === null) throw new WorkspaceError("that goal is not there any more");
+  const log = (await read(files, logFile(id))) ?? "# Log\n";
+  await write(files, logFile(id), `${log.replace(/\n*$/, "\n")}\n## ${day} · ${label.replace(/\s+/g, " ").trim()}\n${text.trim()}\n`);
+}
+
+/** Finish a goal or take it up again on `day` (said in its log), or mute it or not. */
+export async function updateGoal(files: Workspace, id: string, change: { status?: GoalStatus | undefined; muted?: boolean | undefined }, day: string): Promise<void> {
   const source = sound(id) ? await read(files, goalFile(id)) : null;
   if (source === null) throw new WorkspaceError("that goal is not there any more");
-  await write(files, goalFile(id), setField(setField(source, "status", status), "closed", day));
-  const log = (await read(files, logFile(id))) ?? "# Log\n";
-  await write(files, logFile(id), `${log.replace(/\n*$/, "\n")}\n## ${day} · ${status === "done" ? "Reached" : "Let go"}\nClosed by the user.\n`);
+  let next = source;
+  if (change.muted !== undefined) next = setField(next, "muted", String(change.muted));
+  const before = split(source).fields.get("status") ?? "active";
+  const moved = change.status !== undefined && change.status !== (before === "dropped" ? "done" : before);
+  if (change.status !== undefined) next = setField(setField(next, "status", change.status), "closed", change.status === "done" ? day : "");
+  await write(files, goalFile(id), next);
+  if (!moved) return;
+  if (change.status === "done") await noteGoal(files, id, day, "Done", "Marked done by the user.");
+  else await noteGoal(files, id, day, "Taken up again", "Reopened by the user.");
 }

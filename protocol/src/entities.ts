@@ -193,6 +193,8 @@ export const Schedule = z.object({
   needs: Needs.nullable().default(null),
   /** one every instance starts with (not asked for in the chat, so not shown there); the user's like any other */
   preset: z.boolean().default(false),
+  /** the user's goal it serves (its id, a folder in memory/goals/); null: none */
+  goal: z.string().nullable().default(null),
 });
 
 /**

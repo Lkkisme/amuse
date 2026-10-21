@@ -23,6 +23,7 @@ const daily: Schedule = {
   last: null,
   needs: null,
   preset: false,
+  goal: null,
 };
 
 test("a cron runs on the user's clock, strictly after the given instant; a one-off once", () => {

@@ -7,7 +7,7 @@
  * A briefing down, a report up; no reply to the user of its own.
  */
 import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
-import { type AgentIO, type Ports, describe, nowIn, wallClock } from "@amuse/core";
+import { type AgentIO, type Ports, type Workspace, describe, localTime, noteGoal, nowIn, readGoal, wallClock } from "@amuse/core";
 import type { Chat, RunOutcome, Schedule, When } from "@amuse/protocol";
 import { Type } from "typebox";
 import type { PiConfig } from "./agent.ts";
@@ -46,7 +46,7 @@ export function whenOf(args: { cron?: string; at?: string; timezone?: string }, 
 }
 
 /** The chat agent's tools for setting schedules up and cancelling them. */
-export function scheduleTools(io: () => AgentIO): ToolDefinition[] {
+export function scheduleTools(io: () => AgentIO, files?: Workspace): ToolDefinition[] {
   return [
     defineTool({
       name: "schedule",
@@ -65,6 +65,12 @@ export function scheduleTools(io: () => AgentIO): ToolDefinition[] {
         cron: Type.Optional(Type.String({ description: "Repeating: a 5-field cron pattern (minute hour day-of-month month day-of-week), e.g. '0 8 * * *' for every day at 8:00, '0 * * * *' hourly. At most every 15 minutes." })),
         at: Type.Optional(Type.String({ description: "One-off: the user's local date and time, 'YYYY-MM-DD HH:mm'" })),
         timezone: Type.Optional(Type.String({ description: "An IANA time zone, only if the user names one other than their own" })),
+        goal: Type.Optional(
+          Type.String({
+            description:
+              "The user's goal this serves, by its id (its folder in memory/goals/, e.g. 'gain-weight'), e.g. meal reminders for a weight goal. It shows on the goal's page, rests while the goal is done, and stays quiet while the goal is muted.",
+          }),
+        ),
         needs: Type.Optional(
           Type.Union([Type.Literal("conversation"), Type.Literal("lull")], {
             description:
@@ -72,12 +78,14 @@ export function scheduleTools(io: () => AgentIO): ToolDefinition[] {
           }),
         ),
       }),
-      async execute(_, { title, instructions, cron, at, timezone, needs }) {
+      async execute(_, { title, instructions, cron, at, timezone, needs, goal }) {
         const agent = io();
+        const served = goal?.trim() ? (files ? await readGoal(files, goal.trim()).catch(() => null) : null) : null;
+        if (goal?.trim() && !served) return text(`Not scheduled: there is no goal "${goal}" (goals are the folders in memory/goals/).`);
         const { timezone: zone } = agent.time();
         const when = whenOf({ ...(cron ? { cron } : {}), ...(at ? { at } : {}), ...(timezone ? { timezone } : {}) }, zone);
         if (!when.ok) return text(`Not scheduled: ${when.reason}.`);
-        const made = agent.act({ kind: "schedule", title, instructions, when: when.when, needs: needs ?? null });
+        const made = agent.act({ kind: "schedule", title, instructions, when: when.when, needs: needs ?? null, goal: served?.id ?? null });
         if (!made.ok) return text(`Not scheduled: ${describe(made.rejection)}.`);
         return text(`Scheduled ${made.id}. Tell the user briefly when it will run (their time zone is ${zone}); the schedule shows in the chat.`);
       },
@@ -109,16 +117,27 @@ export function piScheduleRunner(cfg: PiConfig): Pick<Ports, "schedule"> {
       void (async () => {
         // nothing to do yet: no model is asked, and it does not count as a run
         if (!worthRunning(schedule, io.chats(), io.time().now)) return void io.act({ kind: "scheduleRan", id: schedule.id, outcome: "skipped", summary: "" });
+        // the work for a goal rests while the goal is done, and goes on once it is taken up again
+        const goal = schedule.goal !== null && cfg.files ? await readGoal(cfg.files, schedule.goal).catch(() => null) : null;
+        if (goal?.status === "done") return void io.act({ kind: "scheduleRan", id: schedule.id, outcome: "skipped", summary: "" });
         const stop = new AbortController();
         const run = { id: schedule.id, title: schedule.title, noun: "scheduled task", io, stop: stop.signal, abort: () => stop.abort() };
         let reported = false;
+        let kept = false;
         const report = defineTool({
           name: "report",
           label: "Tell the user",
           description: "Tell the user something worth their attention from this task. Once per run, only when it matters.",
           parameters: Type.Object({ message: Type.String({ description: "What the user should hear, in their language, plain text" }) }),
           async execute(_, { message }) {
-            if (reported) return text("Already reported this run.");
+            if (reported || kept) return text("Already reported this run.");
+            // a muted goal's work tells the user nothing unasked: what it would have said goes in the goal's log
+            if (goal?.muted && cfg.files) {
+              kept = true;
+              const { now, timezone } = io.time();
+              await noteGoal(cfg.files, goal.id, localTime(now, timezone).split(" ")[0] ?? "", `From ${schedule.title}`, message);
+              return text(`The user muted the goal "${goal.title}", so this went in its log instead of to them. Finish with your one-line record.`);
+            }
             reported = true;
             io.report(`[scheduled task "${schedule.title}" (${schedule.id})]\n${message}`);
             return text("Reported. Finish with your one-line record.");

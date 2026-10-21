@@ -26,6 +26,7 @@ test("a run waits for what it needs: new conversation, or a conversation gone qu
     last: { at: "2026-10-21T10:00:00Z", outcome: "quiet", summary: "" },
     needs: "conversation",
     preset: true,
+    goal: null,
   };
   const chats = (updated: string) => [{ updated: "2026-10-20T00:00:00Z" }, { updated }];
   assert.equal(worthRunning(base, chats("2026-10-21T09:00:00Z"), "2026-10-21T11:00:00Z"), false, "nothing since the last run");

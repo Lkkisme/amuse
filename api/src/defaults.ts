@@ -73,7 +73,7 @@ export const defaultSchedules: DefaultSchedule[] = [
       "1) Progress: what moved since its last note, from the conversations (list_chats, read_chat).",
       "2) Research: one or two things worth reading or trying next (web_search, web_read), with links, building on the log rather than repeating it.",
       "Append both as today's note to its log.md and bring \"Where it stands\" in GOAL.md up to date. Change only memory/goals/.",
-      "This work is silent; report once, briefly, only if a goal needs the user soon (a deadline close, a decision to make).",
+      "This work is silent; report once, briefly, only if a goal needs the user soon (a deadline close, a decision to make), and never about a muted goal (muted: true in its GOAL.md).",
     ].join("\n"),
   },
   {

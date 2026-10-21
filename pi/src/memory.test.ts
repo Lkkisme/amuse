@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type Entry, type Workspace, addGoal, closeGoal, noWorkspace } from "@amuse/core";
+import { type Entry, type Workspace, addGoal, noWorkspace, updateGoal } from "@amuse/core";
 import { forget, memoryBrief, remember, search } from "./memory.ts";
 
 /** A workspace in memory: files by path, folders as their prefixes. */
@@ -74,10 +74,13 @@ test("every turn gets who the user is and what is true now; nothing before there
   assert.match(brief, /Send the draft to Aaron by Friday/);
   await addGoal(files, { title: "Learn Japanese", about: "" }, "2026-10-21");
   const closing = await addGoal(files, { title: "Move to Seattle", about: "" }, "2026-10-21");
-  await closeGoal(files, closing.id, "dropped", "2026-10-22");
+  await updateGoal(files, closing.id, { status: "done" }, "2026-10-22");
+  const quiet = await addGoal(files, { title: "Gain weight", about: "" }, "2026-10-21");
+  await updateGoal(files, quiet.id, { muted: true }, "2026-10-22");
   const withGoals = await memoryBrief(files);
   assert.match(withGoals, /- Learn Japanese \(memory\/goals\/learn-japanese\/\)/);
   assert.doesNotMatch(withGoals, /Seattle/, "only the goals still worked on");
+  assert.match(withGoals, /- Gain weight \(memory\/goals\/gain-weight\/\), muted: do not bring it up unasked/);
 });
 
 test("forgetting takes the lines out and records it", async () => {

@@ -1,21 +1,25 @@
 /**
  * The Amuse panel's Goals: what the user is working toward (core goals.ts),
  * each with its latest note, Amuse's from the night or from the chat. Add one
- * with +; a tap opens it: what it is, where it stands, its log, and closing
- * it (reached, or let go of). Closed ones stay below.
+ * with +; a tap opens its page (GoalPage.tsx). Done ones stay below.
  */
 import { useCallback, useEffect, useState } from "react";
-import { CircleCheck, Plus, Target } from "lucide-react";
-import type { Goal, GoalNote, Session } from "@amuse/protocol";
-import { RichText } from "./markdown";
+import { BellOff, CircleCheck, Plus, Target } from "lucide-react";
+import type { Goal, Session } from "@amuse/protocol";
 import { Sheet } from "./Sheet";
 
-const reason = (e: unknown) => (e instanceof Error ? e.message : String(e));
+export const reason = (e: unknown) =>
+  e instanceof Error ? e.message : String(e);
 
-export function Goals({ session }: { session: Session }) {
+export function Goals({
+  session,
+  onOpen,
+}: {
+  session: Session;
+  onOpen: (id: string) => void;
+}) {
   const [goals, setGoals] = useState<Goal[] | null>(null);
   const [adding, setAdding] = useState(false);
-  const [open, setOpen] = useState<string | null>(null);
 
   const load = useCallback(
     () =>
@@ -61,7 +65,7 @@ export function Goals({ session }: { session: Session }) {
       ) : (
         <ul className="mt-3 space-y-4">
           {active.map((g) => (
-            <GoalRow key={g.id} goal={g} onOpen={() => setOpen(g.id)} />
+            <GoalRow key={g.id} goal={g} onOpen={() => onOpen(g.id)} />
           ))}
         </ul>
       )}
@@ -71,11 +75,11 @@ export function Goals({ session }: { session: Session }) {
             className="mt-6 text-[13px] font-semibold"
             style={{ color: "var(--text-secondary)" }}
           >
-            Closed
+            Done
           </p>
           <ul className="mt-3 space-y-4 opacity-60">
             {closed.map((g) => (
-              <GoalRow key={g.id} goal={g} onOpen={() => setOpen(g.id)} />
+              <GoalRow key={g.id} goal={g} onOpen={() => onOpen(g.id)} />
             ))}
           </ul>
         </>
@@ -90,22 +94,15 @@ export function Goals({ session }: { session: Session }) {
           void load();
         }}
       />
-      <GoalSheet
-        session={session}
-        id={open}
-        onClose={() => setOpen(null)}
-        onChanged={() => void load()}
-      />
     </div>
   );
 }
 
 function GoalRow({ goal, onOpen }: { goal: Goal; onOpen: () => void }) {
   const Icon = goal.status === "done" ? CircleCheck : Target;
-  const when = goal.latest ? ` · ${day(goal.latest.day)}` : "";
   const latest =
-    goal.status !== "active"
-      ? `${goal.status === "done" ? "Reached" : "Let go"}${when}`
+    goal.status === "done"
+      ? `Done${goal.latest ? ` · ${day(goal.latest.day)}` : ""}`
       : goal.latest
         ? `${day(goal.latest.day)} · ${firstLine(goal.latest.text)}`
         : goal.added
@@ -128,10 +125,18 @@ function GoalRow({ goal, onOpen }: { goal: Goal; onOpen: () => void }) {
         </span>
         <span className="min-w-0 flex-1">
           <span
-            className="block text-[15px] font-medium"
+            className="flex items-center gap-1.5 text-[15px] font-medium"
             style={{ color: "var(--text-primary)" }}
           >
-            {goal.title}
+            <span className="min-w-0 truncate">{goal.title}</span>
+            {goal.muted && (
+              <BellOff
+                aria-label="Muted"
+                size={14}
+                className="shrink-0"
+                style={{ color: "var(--icon-secondary)" }}
+              />
+            )}
           </span>
           {latest && (
             <span
@@ -148,7 +153,7 @@ function GoalRow({ goal, onOpen }: { goal: Goal; onOpen: () => void }) {
 }
 
 /** A note's first line, as plain text. */
-function firstLine(text: string): string {
+export function firstLine(text: string): string {
   const line =
     text
       .split("\n")
@@ -162,7 +167,7 @@ function firstLine(text: string): string {
 }
 
 /** A day (YYYY-MM-DD) as the user reads dates: "Oct 21" (with the year when it is not this one). */
-function day(value: string): string {
+export function day(value: string): string {
   const date = new Date(`${value}T12:00:00`);
   if (Number.isNaN(date.getTime())) return value;
   const thisYear = date.getFullYear() === new Date().getFullYear();
@@ -280,144 +285,6 @@ function AddGoal({
         >
           Cancel
         </button>
-      </div>
-    </Sheet>
-  );
-}
-
-function GoalSheet({
-  session,
-  id,
-  onClose,
-  onChanged,
-}: {
-  session: Session;
-  id: string | null;
-  onClose: () => void;
-  onChanged: () => void;
-}) {
-  const [shown, setShown] = useState<{ goal: Goal; log: GoalNote[] } | null>(
-    null,
-  );
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (id === null) return;
-    setError(null);
-    session.call("goals.get", { id }).then(setShown, (e: unknown) => {
-      setShown(null);
-      setError(reason(e));
-    });
-  }, [session, id]);
-
-  const close = (status: "done" | "dropped") => {
-    if (!shown) return;
-    setBusy(true);
-    setError(null);
-    session
-      .call("goals.close", { id: shown.goal.id, status })
-      .then(
-        () => {
-          onChanged();
-          onClose();
-        },
-        (e: unknown) => setError(reason(e)),
-      )
-      .finally(() => setBusy(false));
-  };
-
-  const goal = shown?.goal;
-  return (
-    <Sheet open={id !== null} onClose={onClose}>
-      <div className="overflow-y-auto px-6 pb-6 pt-4">
-        {error && (
-          <p
-            role="alert"
-            className="pr-8 text-[14px]"
-            style={{ color: "var(--fill-red)" }}
-          >
-            {error}
-          </p>
-        )}
-        {goal && (
-          <>
-            <p
-              className="pr-8 text-[20px] font-semibold leading-tight"
-              style={{ color: "var(--text-primary)" }}
-            >
-              {goal.title}
-            </p>
-            <p
-              className="mt-1 text-[13px]"
-              style={{ color: "var(--text-secondary)" }}
-            >
-              {
-                {
-                  active: "Working on it",
-                  done: "Reached",
-                  dropped: "Let go",
-                }[goal.status]
-              }
-              {goal.added ? ` · added ${day(goal.added)}` : ""}
-            </p>
-            {goal.about && (
-              <div
-                className="mt-4 text-[15px] leading-[22px]"
-                style={{ color: "var(--text-primary)" }}
-              >
-                <RichText text={goal.about} />
-              </div>
-            )}
-            {shown.log.length > 0 && (
-              <p
-                className="mt-5 text-[13px] font-semibold"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                Log
-              </p>
-            )}
-            <ul className="mt-2 space-y-4">
-              {shown.log.map((note, i) => (
-                <li key={i}>
-                  <p
-                    className="text-[13px]"
-                    style={{ color: "var(--text-tertiary)" }}
-                  >
-                    {day(note.day)}
-                    {note.label ? ` · ${note.label}` : ""}
-                  </p>
-                  <div
-                    className="text-[15px] leading-[22px]"
-                    style={{ color: "var(--text-primary)" }}
-                  >
-                    <RichText text={note.text} />
-                  </div>
-                </li>
-              ))}
-            </ul>
-            {goal.status === "active" && (
-              <div className="mt-6 flex flex-col gap-2">
-                <button
-                  disabled={busy}
-                  className="h-12 w-full rounded-full text-[16px] font-semibold text-white disabled:opacity-40"
-                  style={{ background: "var(--fill-blue)" }}
-                  onClick={() => close("done")}
-                >
-                  Reached it
-                </button>
-                <button
-                  disabled={busy}
-                  className="hover-fade h-11 w-full rounded-full text-[16px] font-medium disabled:opacity-40"
-                  style={{ color: "var(--fill-red)" }}
-                  onClick={() => close("dropped")}
-                >
-                  Let it go
-                </button>
-              </div>
-            )}
-          </>
-        )}
       </div>
     </Sheet>
   );

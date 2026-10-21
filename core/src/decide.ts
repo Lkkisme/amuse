@@ -112,7 +112,7 @@ export type AgentAction =
   /** The app's account is live: the connection is connected. */
   | { kind: "connected"; id: string }
   /** Set up work to run later or regularly. */
-  | { kind: "schedule"; title: string; instructions: string; when: When; needs?: Needs | null; preset?: boolean }
+  | { kind: "schedule"; title: string; instructions: string; when: When; needs?: Needs | null; preset?: boolean; goal?: string | null }
   /** Cancel a schedule for good. */
   | { kind: "unschedule"; id: string }
   /** A schedule's run has ended, and how. */
@@ -356,12 +356,12 @@ const agentRules: AgentRules = {
     const expires = later(ctx.now, APPROVAL_TTL_MS);
     return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, remember, status: "pending", expires, app, always: false })], [], { id });
   },
-  schedule: (state, { title, instructions, when, needs = null, preset = false }, ctx) => {
+  schedule: (state, { title, instructions, when, needs = null, preset = false, goal = null }, ctx) => {
     if (standing(state).length >= MAX_SCHEDULES) return reject({ kind: "unsound", reason: `there are already ${MAX_SCHEDULES} schedules; cancel one first` });
     const sound = check(when, ctx.now);
     if (!sound.ok) return reject({ kind: "unsound", reason: sound.reason });
     const id = ctx.id("s");
-    return ok([upsert({ kind: "schedule", id, at: ctx.now, title, instructions, when, status: "active", next: sound.next, running: false, last: null, needs, preset })], [], { id });
+    return ok([upsert({ kind: "schedule", id, at: ctx.now, title, instructions, when, status: "active", next: sound.next, running: false, last: null, needs, preset, goal })], [], { id });
   },
   unschedule: (state, { id }) => {
     const schedule = find(state, "schedule", id);
