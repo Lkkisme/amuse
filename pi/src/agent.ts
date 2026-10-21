@@ -128,7 +128,11 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
     } catch (error) {
       if (!live()) return;
       const message = redact(error instanceof Error ? error.message : String(error), secretsOf(cfg));
-      emit({ kind: "upserted", entity: { kind: "reply", id: newId("r"), at: new Date().toISOString(), text: `Something went wrong: ${message}`, streaming: false, attachments: [] } });
+      // a provider's content filter is not a fault here: say what happened
+      const text = /content_filter/i.test(message)
+        ? "The model's provider would not answer this (its content filter stopped the reply). What the background work found is kept on its card."
+        : `Something went wrong: ${message}`;
+      emit({ kind: "upserted", entity: { kind: "reply", id: newId("r"), at: new Date().toISOString(), text, streaming: false, attachments: [] } });
     } finally {
       lane.session?.close();
       lane.session = undefined;
