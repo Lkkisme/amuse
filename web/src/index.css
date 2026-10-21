@@ -301,8 +301,9 @@ body {
 }
 
 /* Chats panel: slides in over the page from the left edge (Muse mobile). */
+/* past its own width and the 8px it floats in by (the sidebar), so no edge shows at the start */
 @keyframes pane-enter-from-left {
-  0% { transform: translateX(-100%); }
+  0% { transform: translateX(calc(-100% - 16px)); }
   100% { transform: translateX(0); }
 }
 .anim-pane-from-left {
@@ -312,7 +313,7 @@ body {
 /* Exit animations: each mirrors its enter, a little faster, easing in. */
 @keyframes pane-exit-to-left {
   from { transform: translateX(0); }
-  to { transform: translateX(-100%); }
+  to { transform: translateX(calc(-100% - 16px)); }
 }
 .anim-pane-to-left {
   animation: pane-exit-to-left 0.2s cubic-bezier(0.4, 0, 1, 1) both;
