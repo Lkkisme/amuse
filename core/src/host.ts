@@ -605,7 +605,9 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
   function settleConnections(accounts: Account[]): void {
     const active = accounts.filter((a) => a.status === "active");
     // an account connected since the card was shown: one there already (the first Gmail, when the card is for a second) is not it
-    const answers = (c: Connection) => active.some((a) => a.app.id === c.provider && (a.since === null || Date.parse(a.since) >= Date.parse(c.at) - SETTLE_SLACK_MS));
+    const connected = (a: Account) => (a.since === null ? Number.NaN : Date.parse(a.since));
+    const answers = (c: Connection) =>
+      active.some((a) => a.app.id === c.provider && (Number.isNaN(connected(a)) || connected(a) >= Date.parse(c.at) - SETTLE_SLACK_MS));
     for (const room of [...rooms.values()]) {
       const waiting = room.state.entities.filter((e): e is Connection => e.kind === "connection" && e.status === "pending" && answers(e));
       for (const connection of waiting) {
