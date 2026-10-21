@@ -5,10 +5,9 @@ can watch and take over (from a phone, too), and works with your apps. One insta
 run with Docker Compose.
 
 <p>
-  <img src="docs/screenshots/chat-phone.png" width="240" alt="Chat on a phone">
-  <img src="docs/screenshots/browser-phone.png" width="240" alt="Taking over the browser on a phone">
+  <img src="docs/screenshots/chat-phone.png" width="260" alt="Muse asks before visiting a site">
+  <img src="docs/screenshots/browser-phone.png" width="260" alt="The browser Muse works in, live on a phone">
 </p>
-<img src="docs/screenshots/chat-desktop.png" width="720" alt="Chat on a desktop">
 
 ## Start
 
@@ -17,22 +16,12 @@ git clone git@github.com:Microwave-WYB/remuse.git && cd remuse
 docker compose up -d --build  # the first build takes a while: the browser images include Chromium
 ```
 
-Open `http://localhost:8080` and set a password: the first visit sets it, and from then on it
-opens remuse on each device. Run remuse where only you can reach it (your machine, your
-tailnet) and set the password right away. An instance holds nothing of yours until you set it
-up, so someone who got there first could only use it with their own keys; you would notice, as
-the password would already be set (see "Forgot the password" below to start over).
+Open `http://localhost:8080`, set a password, and add an API key for a model provider in
+Settings › Models (any provider [Pi](https://github.com/earendil-works/pi) supports). From there,
+Muse walks you through the rest, such as connecting your apps.
 
-Then, in Settings:
-
-- **Models**: add an API key for a provider and choose the model Muse chats with and the one that
-  works in the browser (it must see pictures). Any provider [Pi](https://github.com/earendil-works/pi)
-  takes an API key for works: OpenRouter, Anthropic, OpenAI, Google Gemini, DeepSeek, Fireworks,
-  xAI, Mistral, Groq, Moonshot (Kimi), Z.ai, and more. The model must support tool calls.
-- **Connectors** (optional): a [Composio](https://dashboard.composio.dev) API key lets Muse connect apps
-  such as Gmail or Google Sheets.
-
-Keys are kept in the `remuse-data` volume and never shown again, only their last characters.
+Run remuse where only you can reach it (your machine, your tailnet), and set the password right
+away: the first visit sets it.
 
 ## Other devices
 
