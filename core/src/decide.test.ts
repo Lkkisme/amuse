@@ -68,11 +68,11 @@ test("an approval resolves once; allow_* approves, deny_* denies", () => {
 });
 
 test("chat.stop ends streaming replies and the activity, then interrupts", () => {
-  const streaming = stateOf({ kind: "reply", id: "r1", at, text: "Hel", streaming: true });
+  const streaming = stateOf({ kind: "reply", id: "r1", at, text: "Hel", streaming: true, attachments: [] });
   const d = decide(streaming, { method: "chat.stop", params: { chat: "main" } }, ctx);
   assert.ok(d.ok);
   assert.deepEqual(d.changes, [
-    { kind: "upserted", entity: { kind: "reply", id: "r1", at, text: "Hel", streaming: false } },
+    { kind: "upserted", entity: { kind: "reply", id: "r1", at, text: "Hel", streaming: false, attachments: [] } },
     { kind: "activity", activity: null },
   ]);
   assert.deepEqual(d.effects, [{ kind: "interrupt" }]);
@@ -101,12 +101,12 @@ test("agent actions: connect reuses a pending request for the same provider; bro
 });
 
 test("recovery ends interrupted replies and clears the activity; a quiet state needs nothing", () => {
-  const busy = apply(stateOf({ kind: "reply", id: "r1", at, text: "Hal", streaming: true }), {
+  const busy = apply(stateOf({ kind: "reply", id: "r1", at, text: "Hal", streaming: true, attachments: [] }), {
     seq: 2,
     event: { kind: "activity", activity: { kind: "responding", label: null } },
   });
   assert.deepEqual(recover(busy, at), [
-    { kind: "upserted", entity: { kind: "reply", id: "r1", at, text: "Hal", streaming: false } },
+    { kind: "upserted", entity: { kind: "reply", id: "r1", at, text: "Hal", streaming: false, attachments: [] } },
     { kind: "activity", activity: null },
   ]);
   assert.deepEqual(recover(stateOf({ kind: "prompt", id: "p1", at, text: "hi", timezone: "UTC", attachments: [] }), at), []);

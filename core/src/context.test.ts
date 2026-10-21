@@ -8,7 +8,7 @@ const at = "2026-10-20T08:00:00Z";
 const stateOf = (...entities: Entity[]): State =>
   entities.reduce((s, entity) => apply(s, { seq: s.seq + 1, event: place(s, { kind: "upserted", entity }) }), empty);
 const prompt = (id: string, text: string): Entity => ({ kind: "prompt", id, at, text, timezone: "UTC", attachments: [] });
-const reply = (id: string, text: string): Entity => ({ kind: "reply", id, at, text, streaming: false });
+const reply = (id: string, text: string): Entity => ({ kind: "reply", id, at, text, streaming: false, attachments: [] });
 const run: Browser = {
   kind: "browser",
   id: "b1",
@@ -59,7 +59,14 @@ test("recall finds what a conversation said, however old, newest first", () => {
   assert.match(recall(state, "zebra"), /^Nothing in the conversation mentions/);
 });
 
-test("files sent with a message are named with their kind, size and id", () => {
-  const sent: Entity = { kind: "prompt", id: "p1", at, text: "what is this?", timezone: "UTC", attachments: [{ id: "f-1", name: "bug.png", type: "image/png", size: 150_000 }] };
-  assert.equal(context(stateOf(sent)), "[2026-10-20 08:00] User: what is this? [attached: bug.png (image/png, 146 KB; f-1)]");
+test("files sent with a message are named with their kind, size and place in the workspace", () => {
+  const sent: Entity = { kind: "prompt", id: "p1", at, text: "what is this?", timezone: "UTC", attachments: [{ id: "f-1", name: "bug.png", type: "image/png", size: 150_000, path: "user/media_library/bug.png" }] };
+  assert.equal(context(stateOf(sent)), "[2026-10-20 08:00] User: what is this? [attached: bug.png (image/png, 146 KB) at user/media_library/bug.png]");
+});
+
+test("a sent file is told where it is now, or that it was deleted", () => {
+  const file = (id: string, name: string) => ({ id, name, type: "image/png", size: 1024, path: `user/media_library/${name}` });
+  const sent: Entity = { kind: "prompt", id: "p1", at, text: "", timezone: "UTC", attachments: [file("f-1", "a.png"), file("f-2", "b.png")] };
+  const where = (a: { id: string }) => (a.id === "f-1" ? "报销/a.png" : null);
+  assert.equal(context(stateOf(sent), undefined, where), "[2026-10-20 08:00] User: [attached: a.png (image/png, 1 KB) at 报销/a.png, b.png (image/png, 1 KB) since deleted]");
 });

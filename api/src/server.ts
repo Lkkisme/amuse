@@ -8,12 +8,12 @@
  * one; anything else is refused before the upgrade.
  */
 import { createHash, timingSafeEqual } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { createReadStream, statSync } from "node:fs";
 import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
 import type { Session } from "@remuse/protocol";
 import { WebSocketServer } from "ws";
 import { z } from "zod";
-import { type FileStore, shownInline } from "./files.ts";
+import { type FileStore, shownInline } from "./workspace.ts";
 import { type Live, attach, thumbnail } from "./live.ts";
 import { serve } from "./rpc.ts";
 import { staticFiles } from "./static.ts";
@@ -144,7 +144,8 @@ export function listen({ session, live, files: uploads, web, returned, origins =
     }
     const found = req.method === "GET" ? uploads.find(url.pathname.slice("/files/".length)) : null;
     if (!found) return void res.writeHead(404).end();
-    const { attachment, path } = found;
+    const { attachment, file: path } = found;
+    const size = statSync(path).size; // as it is now (Muse may have rewritten it)
     const inline = shownInline(attachment.type);
     const headers = {
       "content-type": inline ? attachment.type : "application/octet-stream",
@@ -156,14 +157,14 @@ export function listen({ session, live, files: uploads, web, returned, origins =
     };
     // a video seeks by asking for a range of it
     const range = req.headers.range?.match(/^bytes=(\d*)-(\d*)$/);
-    if (range && attachment.size > 0) {
-      const start = range[1] ? Number(range[1]) : Math.max(0, attachment.size - Number(range[2]));
-      const end = range[1] && range[2] ? Math.min(Number(range[2]), attachment.size - 1) : attachment.size - 1;
-      if (start > end || start >= attachment.size) return void res.writeHead(416, { "content-range": `bytes */${attachment.size}` }).end();
-      res.writeHead(206, { ...headers, "content-range": `bytes ${start}-${end}/${attachment.size}`, "content-length": end - start + 1 });
+    if (range && size > 0) {
+      const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
+      const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
+      if (start > end || start >= size) return void res.writeHead(416, { "content-range": `bytes */${size}` }).end();
+      res.writeHead(206, { ...headers, "content-range": `bytes ${start}-${end}/${size}`, "content-length": end - start + 1 });
       return void createReadStream(path, { start, end }).pipe(res);
     }
-    res.writeHead(200, { ...headers, "content-length": attachment.size });
+    res.writeHead(200, { ...headers, "content-length": size });
     createReadStream(path).pipe(res);
   };
   /** GET /connected?key=… → check the connection now, then tell the user they can go back. */

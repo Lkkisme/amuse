@@ -4,7 +4,7 @@ import { type Entity, type Envelope, type Reply, type State, apply, empty, prepe
 import { Envelope as EnvelopeSchema, State as StateSchema } from "./index.ts";
 
 const at = "2026-10-20T08:24:00Z";
-const reply = (text: string, streaming: boolean): Reply => ({ kind: "reply", id: "r1", at, text, streaming });
+const reply = (text: string, streaming: boolean): Reply => ({ kind: "reply", id: "r1", at, text, streaming, attachments: [] });
 const fold = (events: Envelope["event"][]): State =>
   events.reduce((state, event, i) => apply(state, { seq: i + 1, event }), empty);
 const prompt = (id: string, text = id): Entity => ({ kind: "prompt", id, at, text, timezone: "UTC", attachments: [] });

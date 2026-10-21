@@ -66,7 +66,7 @@ function shown(entity: Entity): boolean {
     case "question":
       return false;
     case "reply":
-      return entity.streaming || entity.text.trim() !== "";
+      return entity.streaming || entity.text.trim() !== "" || entity.attachments.length > 0;
     case "prompt":
     case "task":
     case "approval":
@@ -287,76 +287,116 @@ function useLongPress(onPress: () => void) {
   };
 }
 
-/** Files sent with a message, above its words: images and videos shown, anything else as a file to download. */
-function Sent({ attachments }: { attachments: Attachment[] }) {
-  const files = useFiles();
+/** Files sent with a message, above its words: images and videos shown, anything else as a file to open or download. */
+function Sent({
+  attachments,
+  mine,
+}: {
+  attachments: Attachment[];
+  mine: boolean;
+}) {
   const shown = (a: Attachment) =>
     /^image\/(png|jpeg|gif|webp|avif)$/.test(a.type) || /^video\//.test(a.type);
   const media = attachments.filter(shown);
   const others = attachments.filter((a) => !shown(a));
   const single = media.length === 1;
   return (
-    <div className="flex max-w-[78%] flex-col items-end gap-1.5">
+    <div
+      className={`flex max-w-[78%] flex-col gap-1.5 ${mine ? "items-end" : "items-start"}`}
+    >
       {media.length > 0 && (
         <div className={single ? "" : "grid grid-cols-2 gap-1.5"}>
-          {media.map((a) =>
-            a.type.startsWith("video/") ? (
-              <video
-                key={a.id}
-                src={files?.url(a.id)}
-                controls
-                playsInline
-                preload="metadata"
-                aria-label={a.name}
-                className={`rounded-[18px] ${single ? "max-h-[360px] max-w-full" : "size-36 object-cover"}`}
-                style={{ background: "var(--fill-secondary)" }}
-              />
-            ) : (
-              <a
-                key={a.id}
-                href={files?.url(a.id)}
-                target="_blank"
-                rel="noreferrer"
-                aria-label={`Open ${a.name}`}
-              >
-                <img
-                  src={files?.url(a.id)}
-                  alt={a.name}
-                  loading="lazy"
-                  className={`rounded-[18px] object-cover ${single ? "max-h-[360px] max-w-full" : "size-36"}`}
-                  style={{ background: "var(--fill-secondary)" }}
-                />
-              </a>
-            ),
-          )}
+          {media.map((a) => (
+            <Media key={a.id} file={a} single={single} />
+          ))}
         </div>
       )}
       {others.map((a) => (
-        <a
-          key={a.id}
-          href={files?.url(a.id)}
-          download={a.name}
-          className="hover-fade flex max-w-full items-center gap-2.5 rounded-[18px] px-3.5 py-2.5"
-          style={{ background: "var(--fill-secondary)" }}
-        >
-          <FileIcon size={20} style={{ color: "var(--icon-secondary)" }} />
-          <span className="min-w-0">
-            <span
-              className="block truncate text-[14px] font-medium"
-              style={{ color: "var(--text-primary)" }}
-            >
-              {a.name}
-            </span>
-            <span
-              className="block text-[12px]"
-              style={{ color: "var(--text-secondary)" }}
-            >
-              {size(a.size)}
-            </span>
-          </span>
-        </a>
+        <FileCard key={a.id} file={a} gone={false} />
       ))}
     </div>
+  );
+}
+
+/** A picture or video; once its file is gone from the workspace, a card saying so. */
+function Media({ file, single }: { file: Attachment; single: boolean }) {
+  const files = useFiles();
+  const [gone, setGone] = useState(false);
+  if (gone) return <FileCard file={file} gone />;
+  const fit = single ? "max-h-[360px] max-w-full" : "size-36 object-cover";
+  if (file.type.startsWith("video/"))
+    return (
+      <video
+        src={files?.url(file.id)}
+        controls
+        playsInline
+        preload="metadata"
+        aria-label={file.name}
+        onError={() => setGone(true)}
+        className={`rounded-[18px] ${fit}`}
+        style={{ background: "var(--fill-secondary)" }}
+      />
+    );
+  return (
+    <a
+      href={files?.url(file.id)}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={`Open ${file.name}`}
+    >
+      <img
+        src={files?.url(file.id)}
+        alt={file.name}
+        loading="lazy"
+        onError={() => setGone(true)}
+        className={`rounded-[18px] object-cover ${fit}`}
+        style={{ background: "var(--fill-secondary)" }}
+      />
+    </a>
+  );
+}
+
+/** A file as a card: its name and size, to open or download; or that it was deleted. */
+function FileCard({ file, gone }: { file: Attachment; gone: boolean }) {
+  const files = useFiles();
+  const body = (
+    <>
+      <FileIcon size={20} style={{ color: "var(--icon-secondary)" }} />
+      <span className="min-w-0">
+        <span
+          className={`block truncate text-[14px] font-medium ${gone ? "line-through" : ""}`}
+          style={{
+            color: gone ? "var(--text-secondary)" : "var(--text-primary)",
+          }}
+        >
+          {file.name}
+        </span>
+        <span
+          className="block text-[12px]"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          {gone ? "Deleted" : size(file.size)}
+        </span>
+      </span>
+    </>
+  );
+  const look =
+    "flex max-w-full items-center gap-2.5 rounded-[18px] px-3.5 py-2.5";
+  if (gone || !files)
+    return (
+      <div className={look} style={{ background: "var(--fill-secondary)" }}>
+        {body}
+      </div>
+    );
+  return (
+    <a
+      href={files.url(file.id)}
+      download={file.name}
+      className={`hover-fade ${look}`}
+      style={{ background: "var(--fill-secondary)" }}
+    >
+      {body}
+    </a>
   );
 }
 
@@ -375,12 +415,14 @@ function Bubble({
     const at = bubble.current?.getBoundingClientRect();
     if (at) onMenu({ message: item, at });
   });
-  const attachments = item.kind === "prompt" ? item.attachments : [];
+  const { attachments } = item;
   return (
     <div
       className={`anim-fade-in flex flex-col gap-1.5 ${isUser ? "items-end" : "items-start"}`}
     >
-      {attachments.length > 0 && <Sent attachments={attachments} />}
+      {attachments.length > 0 && (
+        <Sent attachments={attachments} mine={isUser} />
+      )}
       {(item.text !== "" || attachments.length === 0) && (
         <div
           {...press}

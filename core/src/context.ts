@@ -8,7 +8,7 @@
  * The same conversation always gives the same context, and a restart loses
  * nothing.
  */
-import type { Entity, State, When } from "@remuse/protocol";
+import type { Attachment, Entity, State, When } from "@remuse/protocol";
 import { localTime, userZone } from "./schedule.ts";
 
 export interface Budget {
@@ -30,21 +30,34 @@ const clip = (text: string, max: number) => {
 export const size = (bytes: number) =>
   bytes < 1024 ? `${bytes} B` : bytes < 1024 ** 2 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / 1024 ** 2).toFixed(1)} MB`;
 
+/** Where a sent file is in the workspace now; null once it is deleted. */
+export type Where = (attachment: Attachment) => string | null;
+/** Where it was put when sent (when nothing better is known). */
+export const asSent: Where = (a) => a.path;
+
+/** A sent file as the agent knows it: name, kind, size, and where it is now. */
+const describe = (where: Where) => (a: Attachment) => {
+  const now = where(a);
+  return `${a.name} (${a.type}, ${size(a.size)}) ${now === null ? "since deleted" : `at ${now}`}`;
+};
+
 const repeats = (when: When, zone: string) => (when.kind === "repeat" ? `cron "${when.cron}" in ${when.timezone}` : `once at ${localTime(when.at, zone)}`);
 
 /** One entity as a line (or a few), in full or in brief, its times on the user's clock (`zone`); null for what the agent need not see. */
-export function line(entity: Entity, detail: Detail, zone: string): string | null {
+export function line(entity: Entity, detail: Detail, zone: string, where: Where = asSent): string | null {
   const full = detail === "full";
   const at = localTime(entity.at, zone);
   switch (entity.kind) {
     case "prompt": {
-      const files = entity.attachments.map((a) => `${a.name} (${a.type}, ${size(a.size)}; ${a.id})`).join(", ");
+      const files = entity.attachments.map(describe(where)).join(", ");
       const said = full ? entity.text : clip(entity.text, 240);
       return `[${at}] User: ${said}${files ? `${said ? " " : ""}[attached: ${files}]` : ""}`;
     }
-    case "reply":
-      if (!entity.text.trim()) return null;
-      return `[${at}] Muse: ${full ? entity.text : clip(entity.text, 160)}`;
+    case "reply": {
+      if (!entity.text.trim() && entity.attachments.length === 0) return null;
+      const files = entity.attachments.length > 0 ? ` [sent: ${entity.attachments.map(describe(where)).join(", ")}]` : "";
+      return `[${at}] Muse: ${full ? entity.text : clip(entity.text, 160)}${files}`;
+    }
     case "browser": {
       const head = `[${at}] Browser task ${entity.id} "${entity.title}" (${entity.status}) at ${entity.url}`;
       const asked = full ? `\n  Asked: ${entity.instructions}` : ` — asked: ${clip(entity.instructions, 120)}`;
@@ -82,7 +95,7 @@ export function line(entity: Entity, detail: Detail, zone: string): string | nul
  * full while `full` lasts, then in brief while `brief` lasts; what is older
  * is only counted. `state` must hold the whole feed (the host's does).
  */
-export function agentContext(state: State, limits: Budget = budget): string {
+export function agentContext(state: State, limits: Budget = budget, where: Where = asSent): string {
   const zone = userZone(state);
   const lines: string[] = [];
   let full = limits.full;
@@ -91,7 +104,7 @@ export function agentContext(state: State, limits: Budget = budget): string {
   for (let i = state.entities.length - 1; i >= 0; i--) {
     const entity = state.entities[i];
     if (!entity) continue;
-    const whole = line(entity, "full", zone);
+    const whole = line(entity, "full", zone, where);
     if (whole === null) continue;
     if (whole.length <= full) {
       full -= whole.length;
@@ -99,7 +112,7 @@ export function agentContext(state: State, limits: Budget = budget): string {
       continue;
     }
     full = 0; // once something is told in brief, nothing older is told in full
-    const short = line(entity, "brief", zone);
+    const short = line(entity, "brief", zone, where);
     if (short !== null && short.length <= brief) {
       brief -= short.length;
       lines.push(short);
@@ -113,22 +126,22 @@ export function agentContext(state: State, limits: Budget = budget): string {
 }
 
 /** The lines of the entities that mention `query` (case-insensitive), newest first, in full. */
-export function mentions(state: State, query: string, limit = 10): string[] {
+export function mentions(state: State, query: string, limit = 10, where: Where = asSent): string[] {
   const needle = query.trim().toLowerCase();
   if (!needle) return [];
   const zone = userZone(state);
   const found: string[] = [];
   for (let i = state.entities.length - 1; i >= 0 && found.length < limit; i--) {
     const entity = state.entities[i];
-    const text = entity && line(entity, "full", zone);
+    const text = entity && line(entity, "full", zone, where);
     if (text?.toLowerCase().includes(needle)) found.push(text);
   }
   return found;
 }
 
 /** What the conversation says about `query`, for the agent. */
-export function recall(state: State, query: string, limit = 10): string {
+export function recall(state: State, query: string, limit = 10, where: Where = asSent): string {
   if (!query.trim()) return "Give words to search for.";
-  const found = mentions(state, query, limit);
+  const found = mentions(state, query, limit, where);
   return found.length > 0 ? found.join("\n") : `Nothing in the conversation mentions "${query}".`;
 }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Schedule, type Session, type State, apply, prepend } from "@remuse/protocol";
-import { type AgentIO, type Ports, type Timers, type Turn, createHost, memoryChats, memoryRules } from "./index.ts";
+import { type AgentIO, type Ports, type Timers, type Turn, createHost, memoryChats, memoryRules, noWorkspace } from "./index.ts";
 
 /** Ports that do nothing but hand over the AgentIO, so tests can act like an agent. */
 function capture() {
@@ -31,7 +31,7 @@ function capture() {
     },
     rules: memoryRules(),
     // one file was uploaded: the cat photo
-    files: { holds: async (a) => a.id === "f-cat" && a.name === "cat.jpg" && a.size === 2048, read: async () => null },
+    files: { ...noWorkspace, holds: async (a) => a.id === "f-cat" && a.name === "cat.jpg" && a.size === 2048 },
   };
   return { ports, io: () => io, runs };
 }
@@ -297,7 +297,7 @@ test("a file is sent with a message only as it was uploaded; the agent gets it w
   const turns: Turn[] = [];
   const { ports } = capture();
   const host = createHost({ ...ports, prompt: (turn) => void turns.push(turn) });
-  const cat = { id: "f-cat", name: "cat.jpg", type: "image/jpeg", size: 2048 };
+  const cat = { id: "f-cat", name: "cat.jpg", type: "image/jpeg", size: 2048, path: "user/media_library/cat.jpg" };
   await host.call("chat.send", { chat: "main", text: "", timezone: "UTC", attachments: [cat] });
   assert.deepEqual(turns, [{ kind: "message", text: "", attachments: [cat] }]);
   await assert.rejects(host.call("chat.send", { chat: "main", text: "hi", timezone: "UTC", attachments: [{ ...cat, size: 1 }] }), /file f-cat was not uploaded here/);

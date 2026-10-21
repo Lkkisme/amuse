@@ -12,7 +12,11 @@ export const Instant = z.iso.datetime();
 /** An IANA time zone, e.g. "Asia/Shanghai". */
 export const TimeZone = z.string().min(1);
 
-/** A file the user sent, kept on the server under its id (uploaded first, then sent with a message). */
+/**
+ * A file sent in the chat (by the user, or by Muse): a file in Muse's
+ * workspace, known to the chat by its id, which keeps pointing at the file
+ * if it moves (and at nothing once it is deleted).
+ */
 export const Attachment = z.object({
   id: Id,
   name: z.string().min(1).max(255),
@@ -20,6 +24,8 @@ export const Attachment = z.object({
   type: z.string().min(1).max(255),
   /** bytes */
   size: z.int().nonnegative(),
+  /** where it was in the workspace when sent, e.g. "user/media_library/receipt.png" */
+  path: z.string().min(1).max(1024),
 });
 
 /** What the user said, and where they were: their device's time zone, which is the user's time zone from then on. */
@@ -34,13 +40,14 @@ export const Prompt = z.object({
   attachments: z.array(Attachment).default([]),
 });
 
-/** What the agent said; `streaming` until its last delta has arrived. */
+/** What the agent said, with any files it sent; `streaming` until its last delta has arrived. */
 export const Reply = z.object({
   kind: z.literal("reply"),
   id: Id,
   at: Instant,
   text: z.string(),
   streaming: z.boolean(),
+  attachments: z.array(Attachment).default([]),
 });
 
 export const Step = z.object({ label: z.string(), done: z.boolean() });

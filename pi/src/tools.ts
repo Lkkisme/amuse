@@ -221,5 +221,5 @@ export async function appCall(io: AgentIO, apps: Apps, action: string, args: Rec
     const result = await apps.call(action, args, account.id).catch((e: unknown): Result => ({ ok: false, error: String(e) }));
     io.report(`[app action "${label}" done]\n${outcome(result)}`);
   });
-  return "Posted for the user's approval. It runs once they approve; you will get a report. Tell the user briefly.";
+  return "NOT done yet: it waits for the user's OK on the approval card shown in the chat. Tell them it waits for their OK; do not say it is done. You get a report once it runs.";
 }

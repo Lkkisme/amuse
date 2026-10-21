@@ -51,7 +51,7 @@ import {
 import { deadline, userZone } from "./schedule.ts";
 import { type Timers, realTimers } from "./timers.ts";
 import type { Rules } from "./policy.ts";
-import { type Budget, agentContext, mentions, recall } from "./context.ts";
+import { type Budget, type Where, agentContext, budget, mentions, recall } from "./context.ts";
 
 /**
  * What ports may record directly: what the agent says (its replies, streamed)
@@ -133,20 +133,79 @@ export interface Ports {
   apps: AppDirectory;
   /** What the agents may do, per app and per site: the user's (policy.ts). */
   rules: Rules;
-  /** The files the user uploaded. */
-  files: Files;
+  /** Muse's workspace: the files it and the user share. */
+  files: Workspace;
 }
 
-/** Files the user uploaded (attachments): kept by the server, read by the agents. */
-export interface Files {
-  /** Whether `attachment` was uploaded here, as it says (name, type and size). */
+/** A file or folder in the workspace. */
+export interface Entry {
+  path: string;
+  kind: "file" | "folder";
+  /** bytes (0 for a folder) */
+  size: number;
+  modified: string;
+}
+
+/** A workspace operation that cannot be done, in words for the agent (no such file, outside the workspace, …). */
+export class WorkspaceError extends Error {}
+
+/**
+ * Muse's workspace: a folder of real files that Muse and the user share.
+ * What the user sends lands in user/ (pictures and videos in
+ * user/media_library/), the browser's downloads in downloads/, and the rest
+ * is Muse's own. Paths are relative to the workspace and never leave it.
+ * A file sent in the chat is an attachment: an id the chat keeps, pointing
+ * at the file where it is now (nowhere, once deleted).
+ */
+export interface Workspace {
+  /** Whether `attachment` is a file sent here, as it says (name, type and size). */
   holds(attachment: Attachment): Promise<boolean>;
-  /** A file and its bytes; null when there is none. */
+  /** A sent file and its bytes, by its id; null when it is gone. */
   read(id: string): Promise<{ attachment: Attachment; data: Uint8Array } | null>;
+  /** What is in a folder ("" for the top). */
+  list(folder: string): Promise<Entry[]>;
+  /** A file's bytes and what kind of file it is. */
+  open(path: string): Promise<{ path: string; type: string; size: number; data: Uint8Array }>;
+  /** Write a file (its folders are made); an existing one only with `overwrite`. */
+  write(path: string, data: Uint8Array, overwrite: boolean): Promise<void>;
+  /** Move or rename a file or folder; never onto something that exists. */
+  move(from: string, to: string): Promise<void>;
+  /** Delete a file or folder (and what is in it). */
+  remove(path: string): Promise<void>;
+  /** Whether a file or folder is there. */
+  exists(path: string): Promise<boolean>;
+  /** The files the user sent that are at `path` or in it (wherever they have been moved). */
+  sentByUser(path: string): Promise<string[]>;
+  /** Where a sent file is now; null once it is deleted. */
+  locate(id: string): string | null;
+  /** A workspace file as an attachment, to send in the chat. */
+  share(path: string): Promise<Attachment>;
 }
 
-/** No files: where nothing can be uploaded (the demo, tests). */
-export const noFiles: Files = { holds: async () => false, read: async () => null };
+/** No workspace: where no files are kept (the demo, tests). */
+export const noWorkspace: Workspace = {
+  holds: async () => false,
+  read: async () => null,
+  list: async () => [],
+  exists: async () => false,
+  sentByUser: async () => [],
+  locate: () => null,
+  open: async (path) => {
+    throw new WorkspaceError(`there is no ${path}: no files are kept here`);
+  },
+  write: async () => {
+    throw new WorkspaceError("no files are kept here");
+  },
+  move: async () => {
+    throw new WorkspaceError("no files are kept here");
+  },
+  remove: async () => {
+    throw new WorkspaceError("no files are kept here");
+  },
+  share: async () => {
+    throw new WorkspaceError("no files are kept here");
+  },
+};
 
 /** What wakes the agent: the user's message (with any files), or a note from its background work (not shown as a message). */
 export type Turn = { kind: "message"; text: string; attachments: Attachment[] } | { kind: "note"; text: string };
@@ -356,6 +415,8 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
   }
 
   const context = (): Context => ({ now: clock.now(), id: ids });
+  /** Where the chat's files are now, as the agent is told. */
+  const where: Where = (a) => ports.files.locate(a.id);
 
   /** Callers waiting on an approval, settled when the user resolves it. */
   const waiting = new Map<string, ((answer: Answer) => void)[]>();
@@ -388,12 +449,12 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
         // a chat deleted meanwhile has no one to tell
         if (rooms.get(chat) === at()) ports.prompt({ kind: "note", text: note }, io);
       },
-      context: () => agentContext(at().state),
+      context: () => agentContext(at().state, budget, where),
       recall(query, everywhere = false) {
         const room = at();
-        if (!everywhere) return recall(room.state, query);
+        if (!everywhere) return recall(room.state, query, 10, where);
         const found = [room, ...[...rooms.values()].filter((r) => r !== room)].flatMap((r) => {
-          const lines = mentions(r.state, query);
+          const lines = mentions(r.state, query, 10, where);
           return lines.length === 0 ? [] : [`In ${r === room ? "this chat" : `"${titled(r.chat)}" (${r.chat.id})`}:\n${lines.join("\n")}`];
         });
         return found.length > 0 ? found.join("\n\n") : `Nothing in any chat mentions "${query}".`;
@@ -401,7 +462,7 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
       chats: () => ordered().map((c) => ({ id: c.id, title: titled(c), main: c.id === MAIN, updated: c.updated })),
       readChat: (id) => {
         const other = rooms.get(id);
-        return other ? agentContext(other.state, otherChat) || "(nothing said yet)" : null;
+        return other ? agentContext(other.state, otherChat, where) || "(nothing said yet)" : null;
       },
       time: () => ({ now: clock.now(), timezone: userZoneOf(at()) }),
       answer(id) {

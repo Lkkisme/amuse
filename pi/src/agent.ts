@@ -6,8 +6,8 @@
  * reply entity. Pi's coding tools, extensions, skills and context files are
  * all off: the model sees only remuse's tools (tools.ts).
  */
-import { type AgentIO, type Files, type Ports, type Rules, type Turn, localTime, newId } from "@remuse/core";
-import { attachmentTools, images } from "./attachments.ts";
+import { type AgentIO, type Ports, type Rules, type Turn, type Workspace, localTime, newId } from "@remuse/core";
+import { images, workspaceTools } from "./attachments.ts";
 import { redact } from "./redact.ts";
 import { type PiModelConfig, type PiSession, openSession, secretsOf } from "./session.ts";
 import { statusOf } from "./status.ts";
@@ -24,8 +24,8 @@ export interface PiConfig extends PiModelConfig {
   rules: Rules;
   /** A web search, where one is configured (web_read works without). */
   search?: Search;
-  /** The files the user sent, for the agent to look at. */
-  files?: Files;
+  /** Muse's workspace: the files it and the user share. */
+  files?: Workspace;
 }
 
 const toolLabels: Record<string, string> = {
@@ -33,7 +33,12 @@ const toolLabels: Record<string, string> = {
   request_connection: "Preparing a connection",
   app_tools: "Looking up your apps",
   app_call: "Using your apps",
-  read_attachment: "Looking at your file",
+  list_files: "Looking through files",
+  read_file: "Looking at a file",
+  write_file: "Writing a file",
+  move_file: "Moving a file",
+  delete_file: "Deleting a file",
+  send_file: "Sending you a file",
   schedule: "Scheduling",
   cancel_schedule: "Cancelling a schedule",
   message_run: "Telling a background task",
@@ -74,7 +79,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
     /** what came before the reply's first visible character */
     let lead = "";
     const finish = () => {
-      if (reply) emit({ kind: "upserted", entity: { kind: "reply", ...reply, text: reply.text.trimEnd(), streaming: false } });
+      if (reply) emit({ kind: "upserted", entity: { kind: "reply", ...reply, text: reply.text.trimEnd(), streaming: false, attachments: [] } });
       reply = undefined;
       lead = "";
     };
@@ -86,7 +91,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
         ...relayTools(io),
         ...webTools(io, cfg.rules, cfg.search),
         ...(cfg.apps ? appTools(io, cfg.apps) : []),
-        ...(cfg.files ? attachmentTools(cfg.files) : []),
+        ...(cfg.files ? workspaceTools(io, cfg.files) : []),
       ]);
       lane.session = session;
       const pi = session.session;
@@ -102,7 +107,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
             if (!lead.trim()) return;
             reply = { id: newId("r"), at: new Date().toISOString(), text: lead.trimStart() };
             lead = "";
-            emit({ kind: "upserted", entity: { kind: "reply", ...reply, streaming: true } });
+            emit({ kind: "upserted", entity: { kind: "reply", ...reply, streaming: true, attachments: [] } });
           } else {
             reply.text += delta;
             emit({ kind: "appended", id: reply.id, text: delta });
@@ -129,7 +134,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
       finish();
       if (!live()) return;
       const message = redact(error instanceof Error ? error.message : String(error), secretsOf(cfg));
-      emit({ kind: "upserted", entity: { kind: "reply", id: newId("r"), at: new Date().toISOString(), text: `Something went wrong: ${message}`, streaming: false } });
+      emit({ kind: "upserted", entity: { kind: "reply", id: newId("r"), at: new Date().toISOString(), text: `Something went wrong: ${message}`, streaming: false, attachments: [] } });
     } finally {
       lane.session?.close();
       lane.session = undefined;

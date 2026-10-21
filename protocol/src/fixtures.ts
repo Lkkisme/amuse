@@ -9,7 +9,7 @@ const at = "2026-10-20T08:24:00Z";
 
 export const envelopes: Envelope[] = [
   { seq: 1, event: { kind: "upserted", index: 0, entity: { kind: "prompt", id: "p1", at, text: "Log in to the trip portal", timezone: "Asia/Shanghai", attachments: [] } } },
-  { seq: 2, event: { kind: "upserted", index: 1, entity: { kind: "reply", id: "r1", at, text: "On it", streaming: true } } },
+  { seq: 2, event: { kind: "upserted", index: 1, entity: { kind: "reply", id: "r1", at, text: "On it", streaming: true, attachments: [] } } },
   { seq: 3, event: { kind: "appended", id: "r1", text: "." } },
   { seq: 4, event: { kind: "activity", activity: { kind: "working", label: "Opening page" } } },
   {

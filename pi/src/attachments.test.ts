@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Files } from "@remuse/core";
+import { type Workspace, noWorkspace } from "@remuse/core";
 import { images, textOf } from "./attachments.ts";
 
 /** A one-page PDF that says "Hello PDF". */
@@ -27,21 +27,21 @@ function pdf(): Uint8Array {
 
 test("a file's text: text files as they are, a PDF's text, nothing for other kinds", async () => {
   const text = new TextEncoder().encode("line one\nline two");
-  assert.equal(await textOf({ id: "f-1", name: "notes.txt", type: "text/plain", size: text.length }, text), "line one\nline two");
-  assert.match((await textOf({ id: "f-2", name: "a.pdf", type: "application/pdf", size: 0 }, pdf())) ?? "", /Hello PDF/);
-  assert.equal(await textOf({ id: "f-3", name: "a.zip", type: "application/zip", size: 3 }, new Uint8Array([1, 2, 3])), null);
+  assert.equal(await textOf({ name: "notes.txt", type: "text/plain" }, text), "line one\nline two");
+  assert.match((await textOf({ name: "a.pdf", type: "application/pdf" }, pdf())) ?? "", /Hello PDF/);
+  assert.equal(await textOf({ name: "a.zip", type: "application/zip" }, new Uint8Array([1, 2, 3])), null);
 });
 
 test("the images of a message go to the model; other files do not", async () => {
   const png = new Uint8Array([137, 80, 78, 71]);
-  const files: Files = {
-    holds: async () => true,
-    read: async (id) => (id === "f-img" ? { attachment: { id, name: "a.png", type: "image/png", size: 4 }, data: png } : null),
+  const files: Workspace = {
+    ...noWorkspace,
+    read: async (id: string) => (id === "f-img" ? { attachment: { id, name: "a.png", type: "image/png", size: 4, path: "user/media_library/a.png" }, data: png } : null),
   };
   const shown = await images(files, [
-    { id: "f-img", name: "a.png", type: "image/png", size: 4 },
-    { id: "f-doc", name: "a.pdf", type: "application/pdf", size: 9 },
-    { id: "f-gone", name: "b.png", type: "image/png", size: 4 },
+    { id: "f-img", name: "a.png", type: "image/png", size: 4, path: "user/media_library/a.png" },
+    { id: "f-doc", name: "a.pdf", type: "application/pdf", size: 9, path: "user/a.pdf" },
+    { id: "f-gone", name: "b.png", type: "image/png", size: 4, path: "user/media_library/b.png" },
   ]);
   assert.deepEqual(shown, [{ type: "image", data: Buffer.from(png).toString("base64"), mimeType: "image/png" }]);
 });

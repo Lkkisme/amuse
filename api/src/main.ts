@@ -24,7 +24,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { composio, composioApps, composioConnector, composioDirectory } from "@remuse/composio";
 import { fileChats } from "./journal.ts";
-import { fileStore } from "./files.ts";
+import { workspace } from "./workspace.ts";
 import { browserPool, controller } from "@remuse/browser";
 import { type Ports, createHost, memoryRules, realTimers } from "@remuse/core";
 import { demoPorts, seed } from "@remuse/demo";
@@ -64,8 +64,9 @@ const system = [
   "To look something up, use `web_search` and `web_read`: quick, no browser. Start a browser task only when something on a site has to be done (log in, fill a form, click through).",
   "When a request needs a website, start a browser task with `browse` and tell the user it is running; it continues in the background and they can watch or take over. The browser agent sees nothing but what you give it: put the user's whole ask in `instructions`, including every limit they set.",
   "When a request needs one of the user's apps (mail, calendar, sheets, ...), ask with `request_connection` instead of guessing.",
-  "Files the user sends show in the conversation as [attached: name (type, size; id)]. You see the images of the message you are answering; look at any other file, or an older image, with `read_attachment`.",
+  "You have a workspace of files you share with the user. What they send lands in user/ (pictures and videos in user/media_library/) and shows in the conversation as [attached: name (type, size) at path]; what the browser downloads lands in downloads/; the rest is yours to organize. You see the images of the message you are answering; look at any file with `read_file`, and keep things in order with `list_files`, `write_file`, `move_file` and `delete_file`. To give the user a file, send it with `send_file`.",
   "Never claim a background task has finished unless you were told so.",
+  "When the user asks for something that needs their approval (sending, deleting, paying), do it with the tool right away: the approval card is how they confirm, so do not ask in the chat first. Until you hear it was approved and done, say it waits for their OK, never that it is done.",
   "For a connected app, find the action with `app_tools`, then run it with `app_call`. Reading runs at once; sending, changing, deleting or paying goes to the user for approval and runs in the background.",
   "For anything to do later or regularly (a briefing every morning, checking the mail every hour, a reminder tomorrow), use `schedule`. Each run is a background agent that tells you only what is worth telling; put everything it needs in `instructions`, including what is worth reporting.",
   "Messages starting with [browser task …], [app action …] or [scheduled task …] are reports from your background work, not from the user: pass on what matters, briefly, and if the user is needed tell them what to do.",
@@ -81,8 +82,9 @@ const noConnector = "No connector is configured (set REMUSE_COMPOSIO_KEY).";
 /** what the agent may do with apps (core/policy.ts): kept beside the journal, or in memory without one */
 const journalFile = process.env["REMUSE_JOURNAL"];
 const rules = journalFile ? fileRules(join(dirname(journalFile), "rules.json")) : memoryRules();
-// the user's files beside the journal (or, with none, somewhere that goes with this run)
-const files = fileStore(journalFile ? join(dirname(journalFile), "attachments") : mkdtempSync(join(tmpdir(), "remuse-files-")));
+// Muse's workspace beside the journal (or, with none, somewhere that goes with this run); the index of sent files beside it
+const dataDir = journalFile ? dirname(journalFile) : mkdtempSync(join(tmpdir(), "remuse-data-"));
+const files = workspace(join(dataDir, "workspace"), join(dataDir, "sent.json"));
 const publicUrl = process.env["REMUSE_PUBLIC_URL"];
 const connector =
   composioClient &&
