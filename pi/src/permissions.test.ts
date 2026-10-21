@@ -34,11 +34,11 @@ function setup(permission: Permission, answer: Answer = { verdict: "approved", r
     listen: () => () => {},
   };
   const run = async () => {
-    const told = await appCall(io, apps, "GMAIL_SEND_EMAIL", { to: "x@y.z" }, "Email x@y.z", undefined);
+    const told = await appCall(io, apps, "GMAIL_SEND_EMAIL", { to: "x@y.z" }, { summary: "Email x@y.z", reason: "You asked me to write to x" }, undefined);
     await new Promise((r) => setImmediate(r)); // let a background approval settle
     return told;
   };
-  const runHeld = (hold: Hold) => appCall(io, apps, "GMAIL_SEND_EMAIL", { to: "x@y.z" }, "Email x@y.z", undefined, hold);
+  const runHeld = (hold: Hold) => appCall(io, apps, "GMAIL_SEND_EMAIL", { to: "x@y.z" }, { summary: "Email x@y.z", reason: "You asked me to write to x" }, undefined, hold);
   return { run, runHeld, ran, remembered, asked, reports };
 }
 
@@ -101,7 +101,7 @@ test("the card says what will happen in the agent's words, as which account, wit
   assert.ok(card?.kind === "ask");
   assert.equal(card.action, "Email x@y.z");
   assert.equal(card.target, "me@a.com");
-  assert.equal(card.detail, "To: x@y.z");
+  assert.equal(card.detail, "You asked me to write to x\n\nTo: x@y.z");
   assert.equal(
     readable({ start_datetime: "2026-10-21T09:00", summary: "测试日程", threadId: "t1", attendees: [], notes: "", count: 2 }),
     "Start datetime: 2026-10-21T09:00\nSummary: 测试日程\nThread id: t1\nCount: 2",

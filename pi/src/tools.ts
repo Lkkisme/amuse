@@ -224,9 +224,12 @@ export function appTools(io: () => AgentIO, apps: Apps, hold?: Hold): ToolDefini
           description:
             "What this does, as the user would say it, in their language: one plain line with the specifics (e.g. 'Create the event “Team sync” tomorrow at 9:00'). It titles the approval card when one is needed.",
         }),
+        reason: Type.String({
+          description: "Why you are doing it, in the user's language: one plain line tying it to what they asked (e.g. 'You asked me to put a test event on your calendar'). Shown on the approval card.",
+        }),
         account: Type.Optional(Type.String({ description: "Which account (its email or id), when the app has several" })),
       }),
-      execute: async (_, { action, arguments: args, summary, account }) => text(await appCall(io(), apps, action, args, summary, account, hold)),
+      execute: async (_, { action, arguments: args, summary, reason, account }) => text(await appCall(io(), apps, action, args, { summary, reason }, account, hold)),
     }),
   ];
 }
@@ -255,7 +258,8 @@ export async function appCall(
   apps: Apps,
   action: string,
   args: Record<string, unknown>,
-  summary: string,
+  /** what it does and why, in the user's words: the card's title and its first line */
+  said: { summary: string; reason: string },
   asked: string | undefined,
   hold?: Hold,
 ): Promise<string> {
@@ -275,10 +279,10 @@ export async function appCall(
   const approval = io.act({
     kind: "ask",
     // the card says what will happen in the user's words, as which account, and every argument, readably
-    action: summary.trim() || label,
+    action: said.summary.trim() || label,
     target: account.label ?? app,
     // the user approves exactly what will run (a huge argument, e.g. an attachment, is cut and says so)
-    detail: ruled + clip(readable(args), 20_000),
+    detail: ruled + [said.reason.trim(), clip(readable(args), 20_000)].filter(Boolean).join("\n\n"),
     remember: true, // an answer for always holds for the app's actions of this kind
   });
   if (!approval.ok) return `Could not ask for approval: ${describe(approval.rejection)}.`;
