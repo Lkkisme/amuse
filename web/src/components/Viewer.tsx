@@ -69,6 +69,8 @@ export function Viewer({
   if (!mounted || !viewer) return null;
   const browser = viewerRun(conversation, viewer);
   const tabs = viewerTabs(conversation);
+  // with none left, there are no cards to show
+  if (!browser && overview) setOverview(false);
 
   return (
     <div
