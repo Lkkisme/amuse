@@ -8,3 +8,4 @@ export * from "./status.ts";
 export * from "./web.ts";
 export * from "./schedules.ts";
 export * from "./runs.ts";
+export * from "./attachments.ts";

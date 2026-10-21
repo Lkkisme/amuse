@@ -6,6 +6,7 @@
  */
 import type {
   Approval,
+  Attachment,
   Browser,
   BrowserStatus,
   Call,
@@ -41,7 +42,7 @@ export function place(state: State, change: Change): Event {
 
 /** Work for the ports once the changes are recorded. */
 export type Effect =
-  | { kind: "prompt"; text: string }
+  | { kind: "prompt"; text: string; attachments: Attachment[] }
   | { kind: "interrupt" }
   /** `browser` is the run as it stands after the move */
   | { kind: "browser"; browser: Browser; action: BrowserAction }
@@ -117,6 +118,8 @@ export type Rejection =
   | { kind: "notRunning"; id: string }
   /** there is no chat with this id */
   | { kind: "noChat"; id: string }
+  /** a file sent that was not uploaded here (or not as it says) */
+  | { kind: "noFile"; id: string }
   /** the main chat is always there, under its own name */
   | { kind: "mainChat" }
   /** a schedule the agent asked for cannot be: why, in words */
@@ -205,9 +208,9 @@ function closeQuestions(state: State, run: string): { changes: Change[]; effects
 type Rules = { [M in CommandMethod]: (state: State, params: Params[M], ctx: Context) => Decision<Outputs[M]> };
 
 const rules: Rules = {
-  "chat.send": (_, { text, timezone }, ctx) => {
+  "chat.send": (_, { text, timezone, attachments }, ctx) => {
     const id = ctx.id("p");
-    return ok([upsert({ kind: "prompt", id, at: ctx.now, text, timezone })], [{ kind: "prompt", text }], { id });
+    return ok([upsert({ kind: "prompt", id, at: ctx.now, text, timezone, attachments })], [{ kind: "prompt", text, attachments }], { id });
   },
 
   "chat.stop": (state) => {

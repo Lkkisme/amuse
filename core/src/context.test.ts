@@ -7,7 +7,7 @@ import { place } from "./decide.ts";
 const at = "2026-10-20T08:00:00Z";
 const stateOf = (...entities: Entity[]): State =>
   entities.reduce((s, entity) => apply(s, { seq: s.seq + 1, event: place(s, { kind: "upserted", entity }) }), empty);
-const prompt = (id: string, text: string): Entity => ({ kind: "prompt", id, at, text, timezone: "UTC" });
+const prompt = (id: string, text: string): Entity => ({ kind: "prompt", id, at, text, timezone: "UTC", attachments: [] });
 const reply = (id: string, text: string): Entity => ({ kind: "reply", id, at, text, streaming: false });
 const run: Browser = {
   kind: "browser",
@@ -57,4 +57,9 @@ test("recall finds what a conversation said, however old, newest first", () => {
   assert.equal(recall(state, "BLUE FOLDER"), ["[2026-10-20 08:00] User: Where's the blue folder?", "[2026-10-20 08:00] User: my passport number is in the blue folder"].join("\n"));
   assert.match(recall(state, "submit anything"), /Asked: Open the pizza form/);
   assert.match(recall(state, "zebra"), /^Nothing in the conversation mentions/);
+});
+
+test("files sent with a message are named with their kind, size and id", () => {
+  const sent: Entity = { kind: "prompt", id: "p1", at, text: "what is this?", timezone: "UTC", attachments: [{ id: "f-1", name: "bug.png", type: "image/png", size: 150_000 }] };
+  assert.equal(context(stateOf(sent)), "[2026-10-20 08:00] User: what is this? [attached: bug.png (image/png, 146 KB; f-1)]");
 });

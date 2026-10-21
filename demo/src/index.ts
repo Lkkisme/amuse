@@ -3,7 +3,7 @@
  * server run until the real agent, browser pool and connectors are plugged
  * in. Behavior lives here only as port reactions; the rules stay in decide.
  */
-import { type AppDirectory, type Emit, type Ports, type Rules, type Timers, kinds, memoryRules, newId, permissionOf, verdict } from "@remuse/core";
+import { type AppDirectory, type Emit, type Ports, type Rules, type Timers, kinds, memoryRules, newId, noFiles, permissionOf, verdict } from "@remuse/core";
 import type { Account, App, Entity } from "@remuse/protocol";
 
 const demoApp = (id: string, name: string, description: string): App => ({ id, name, description, logo: `https://logos.composio.dev/api/${id}` });
@@ -72,6 +72,7 @@ export function demoPorts<H>(timers: Timers<H>): Ports {
     rules,
     apps: demoApps(rules),
     fit: () => {}, // the demo's browsers are sketches
+    files: noFiles, // nothing is uploaded to a demo
     // a side chat is named after its first few words
     title: async (text) => text.split(/\s+/).slice(0, 4).join(" "),
     prompt: (turn, { emit, act, time }) => {
@@ -135,7 +136,7 @@ const zone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 export function seed(): Entity[] {
   return [
-    { kind: "prompt", id: "p-seed1", at: minutesAgo(32), text: "Check the school-trip email and research exhibits at the aquarium", timezone: zone() },
+    { kind: "prompt", id: "p-seed1", at: minutesAgo(32), text: "Check the school-trip email and research exhibits at the aquarium", timezone: zone(), attachments: [] },
     {
       kind: "reply",
       id: "r-seed1",
@@ -156,7 +157,7 @@ export function seed(): Entity[] {
         { label: "Summarize for the reply", done: false },
       ],
     },
-    { kind: "prompt", id: "p-seed2", at: minutesAgo(29), text: "Book the table for Friday", timezone: zone() },
+    { kind: "prompt", id: "p-seed2", at: minutesAgo(29), text: "Book the table for Friday", timezone: zone(), attachments: [] },
     {
       kind: "approval",
       id: "a-seed1",
@@ -169,7 +170,7 @@ export function seed(): Entity[] {
       expires: minutesAgo(-30),
     },
     { kind: "browser", id: "b-seed1", at: minutesAgo(28), title: "Monterey Bay Aquarium exhibits", url: "https://mbayaq.org/exhibits", status: "completed", instructions: "List the current exhibits", result: "Found 12 exhibits; the kelp forest feeding is at 11:30.", step: null, live: false },
-    { kind: "prompt", id: "p-seed3", at: minutesAgo(5), text: "Also check the tide schedule, and log in to the trip portal for me", timezone: zone() },
+    { kind: "prompt", id: "p-seed3", at: minutesAgo(5), text: "Also check the tide schedule, and log in to the trip portal for me", timezone: zone(), attachments: [] },
     { kind: "browser", id: "b-seed2", at: minutesAgo(5), title: "Check the tide schedule", url: "https://tidesandcurrents.noaa.gov/stationhome", status: "working", instructions: "Check Saturday's low tide at Monterey", result: null, step: null, live: true },
     { kind: "browser", id: "b-seed3", at: minutesAgo(4), title: "Log in to the trip portal", url: "https://portal.example.edu/login", status: "needs_you", instructions: "Log in to the trip portal and open the itinerary", result: null, step: null, live: true },
     {

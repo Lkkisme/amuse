@@ -1,6 +1,6 @@
 /**
- * The network edge: an HTTP server — the built web app, /unlock, /thumb and
- * /connected — with two WebSocket routes: /rpc (one shared Session, one Peer
+ * The network edge: an HTTP server — the built web app, /unlock, /thumb,
+ * /files (uploads and the files themselves) and /connected — with two WebSocket routes: /rpc (one shared Session, one Peer
  * per socket) and /live?id=<run> (a run's live browser view). Requests
  * authenticate with the HttpOnly cookie from /unlock, a Bearer header, or
  * (cross-origin dev only) a token query parameter, compared in constant
@@ -8,10 +8,12 @@
  * one; anything else is refused before the upgrade.
  */
 import { createHash, timingSafeEqual } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
 import type { Session } from "@remuse/protocol";
 import { WebSocketServer } from "ws";
 import { z } from "zod";
+import { type FileStore, shownInline } from "./files.ts";
 import { type Live, attach, thumbnail } from "./live.ts";
 import { serve } from "./rpc.ts";
 import { staticFiles } from "./static.ts";
@@ -20,6 +22,8 @@ export interface Options {
   session: Session;
   /** Live browser views at /live?id=<run>; off when absent. */
   live?: Live;
+  /** The user's files: POST /files uploads one, GET /files/<id> serves it; off when absent. */
+  files?: FileStore;
   /** Directory of the built web app to serve over HTTP; 404 for everything when absent. */
   web?: string;
   /** The user's browser is back from a connector's hosted page with a one-time key (GET /connected?key=…). */
@@ -78,7 +82,7 @@ export interface Listening {
   close(): Promise<void>;
 }
 
-export function listen({ session, live, web, returned, origins = [], token, port, host }: Options): Promise<Listening> {
+export function listen({ session, live, files: uploads, web, returned, origins = [], token, port, host }: Options): Promise<Listening> {
   const route = (url: URL): Target | null => {
     if (url.pathname === "/rpc") return { kind: "rpc" };
     const id = url.searchParams.get("id");
@@ -112,6 +116,56 @@ export function listen({ session, live, web, returned, origins = [], token, port
     if (!image) return void res.writeHead(404).end();
     res.writeHead(200, { "content-type": "image/png", "cache-control": "no-store" }).end(image);
   };
+  /**
+   * POST /files (the bytes as the body; the name in X-File-Name, URI-encoded; the
+   * type in Content-Type) → the Attachment, to send with a message.
+   * GET /files/<id> → the file. Images and videos are shown in the page; anything
+   * else only downloads. Nothing served runs: no sniffing, and a sandbox for
+   * whatever is opened on its own.
+   */
+  const file = async (req: IncomingMessage, url: URL, res: ServerResponse) => {
+    // the dev web server is another origin: it may upload (and its preflight asks first)
+    const origin = req.headers.origin;
+    if (origin && origins.includes(origin)) {
+      res.setHeader("access-control-allow-origin", origin);
+      res.setHeader("access-control-allow-credentials", "true");
+      res.setHeader("access-control-allow-headers", "content-type, x-file-name, authorization");
+      res.setHeader("access-control-allow-methods", "GET, POST");
+      res.setHeader("vary", "origin");
+      if (req.method === "OPTIONS") return void res.writeHead(204).end();
+    }
+    if (!uploads || !allowed(req, url)) return void res.writeHead(uploads ? 401 : 404).end();
+    if (url.pathname === "/files" && req.method === "POST") {
+      const name = decoded(String(req.headers["x-file-name"] ?? "")) ?? "";
+      const type = String(req.headers["content-type"] ?? "").split(";")[0]?.trim() ?? "";
+      const saved = await uploads.save(name, type, req);
+      if (!saved) return void res.writeHead(413).end();
+      return void res.writeHead(201, { "content-type": "application/json" }).end(JSON.stringify(saved));
+    }
+    const found = req.method === "GET" ? uploads.find(url.pathname.slice("/files/".length)) : null;
+    if (!found) return void res.writeHead(404).end();
+    const { attachment, path } = found;
+    const inline = shownInline(attachment.type);
+    const headers = {
+      "content-type": inline ? attachment.type : "application/octet-stream",
+      "content-disposition": `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(attachment.name)}`,
+      "x-content-type-options": "nosniff",
+      "content-security-policy": "sandbox; default-src 'none'",
+      "cache-control": "private, max-age=31536000, immutable",
+      "accept-ranges": "bytes",
+    };
+    // a video seeks by asking for a range of it
+    const range = req.headers.range?.match(/^bytes=(\d*)-(\d*)$/);
+    if (range && attachment.size > 0) {
+      const start = range[1] ? Number(range[1]) : Math.max(0, attachment.size - Number(range[2]));
+      const end = range[1] && range[2] ? Math.min(Number(range[2]), attachment.size - 1) : attachment.size - 1;
+      if (start > end || start >= attachment.size) return void res.writeHead(416, { "content-range": `bytes */${attachment.size}` }).end();
+      res.writeHead(206, { ...headers, "content-range": `bytes ${start}-${end}/${attachment.size}`, "content-length": end - start + 1 });
+      return void createReadStream(path, { start, end }).pipe(res);
+    }
+    res.writeHead(200, { ...headers, "content-length": attachment.size });
+    createReadStream(path).pipe(res);
+  };
   /** GET /connected?key=… → check the connection now, then tell the user they can go back. */
   const back = async (url: URL, res: ServerResponse) => {
     const key = url.searchParams.get("key");
@@ -125,6 +179,7 @@ export function listen({ session, live, web, returned, origins = [], token, port
     const handled =
       url.pathname === "/unlock" ? unlock(req, url, res)
       : url.pathname === "/thumb" ? thumb(req, url, res)
+      : url.pathname === "/files" || url.pathname.startsWith("/files/") ? file(req, url, res)
       : url.pathname === "/connected" ? back(url, res)
       : files ? files(req, res)
       : Promise.resolve(void res.writeHead(404).end());

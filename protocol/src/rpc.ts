@@ -6,7 +6,7 @@
  */
 import { z } from "zod";
 import { Account, App, KindRule, Permission, Site, SiteRule, ToolKind } from "./apps.ts";
-import { Id, Resolution, Schedule, TimeZone } from "./entities.ts";
+import { Attachment, Id, Resolution, Schedule, TimeZone } from "./entities.ts";
 import { Envelope, Index, Page, Seq, State } from "./events.ts";
 import { Chat, Push } from "./chats.ts";
 
@@ -19,7 +19,12 @@ export const Call = z.discriminatedUnion("method", [
   /** Up to `limit` of a chat's entities just before feed index `before`, for a state holding only the recent end. */
   call("session.history", z.object({ chat: Id, before: Index, limit: z.int().min(1).max(200) })),
   /** `timezone`: the device's (Intl), so times are the user's own */
-  call("chat.send", z.object({ chat: Id, text: z.string().min(1), timezone: TimeZone })),
+  call(
+    "chat.send",
+    z
+      .object({ chat: Id, text: z.string(), timezone: TimeZone, attachments: z.array(Attachment).max(10) })
+      .refine((p) => p.text.trim() !== "" || p.attachments.length > 0, "Say something or attach a file"),
+  ),
   /** Stop the agent's current reply in a chat. */
   call("chat.stop", z.object({ chat: Id })),
   /** The chats there are: the main chat first, then side chats, most recently used first. */

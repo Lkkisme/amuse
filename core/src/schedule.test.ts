@@ -122,7 +122,7 @@ test("a run cut short by a restart is recorded as failed", () => {
 });
 
 test("the agent sees times on the user's clock, and its schedules", () => {
-  const text = agentContext(stateOf({ kind: "prompt", id: "p1", at, text: "brief me at 8 every day", timezone: "Asia/Shanghai" }, daily));
+  const text = agentContext(stateOf({ kind: "prompt", id: "p1", at, text: "brief me at 8 every day", timezone: "Asia/Shanghai", attachments: [] }, daily));
   assert.equal(
     text,
     [

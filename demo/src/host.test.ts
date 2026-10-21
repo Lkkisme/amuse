@@ -55,7 +55,7 @@ test("sync from nothing returns the seeded snapshot; sync from a seq returns the
 
 test("a prompt streams a reply and clears the activity", async () => {
   const { host, advance, view } = await setup();
-  const { id } = await host.call("chat.send", { chat: "main", text: "hi", timezone: "UTC" });
+  const { id } = await host.call("chat.send", { chat: "main", text: "hi", timezone: "UTC", attachments: [] });
   assert.equal(view().entities.at(-1)?.id, id);
   assert.equal(view().activity?.kind, "responding");
   advance(10_000);
@@ -66,7 +66,7 @@ test("a prompt streams a reply and clears the activity", async () => {
 
 test("chat.stop cuts the reply mid-stream and nothing arrives afterwards", async () => {
   const { host, advance, view } = await setup();
-  await host.call("chat.send", { chat: "main", text: "a long answer please", timezone: "UTC" });
+  await host.call("chat.send", { chat: "main", text: "a long answer please", timezone: "UTC", attachments: [] });
   advance(1500); // reply started, a few words in
   await host.call("chat.stop", { chat: "main" });
   const seq = view().seq;
@@ -105,7 +105,7 @@ test("connecting returns the hosted link, then the callback marks it connected",
 
 test("the agent acts through the rules: a URL in the prompt starts a browser run that finishes", async () => {
   const { host, advance, view } = await setup();
-  await host.call("chat.send", { chat: "main", text: "check https://tides.example/today", timezone: "UTC" });
+  await host.call("chat.send", { chat: "main", text: "check https://tides.example/today", timezone: "UTC", attachments: [] });
   const run = () => view().entities.find((e) => e.kind === "browser" && e.url === "https://tides.example/today");
   assert.ok(run(), "the browser run started");
   advance(10_000);
@@ -123,7 +123,7 @@ test("an agent's ask becomes a pending approval; resolving it answers the waitin
     },
   };
   const host = createHost(ports, { clock, timers });
-  await host.call("chat.send", { chat: "main", text: "book it", timezone: "UTC" });
+  await host.call("chat.send", { chat: "main", text: "book it", timezone: "UTC", attachments: [] });
   assert.ok(io);
   const asked = io.act({ kind: "ask", action: "Submit", target: "opentable.com", detail: "Book a table for 4", remember: false });
   assert.ok(asked.ok);

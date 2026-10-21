@@ -26,6 +26,10 @@ const clip = (text: string, max: number) => {
   const flat = text.replace(/\s+/g, " ").trim();
   return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`;
 };
+/** A file's size in words: 820 B, 14 KB, 3.2 MB. */
+export const size = (bytes: number) =>
+  bytes < 1024 ? `${bytes} B` : bytes < 1024 ** 2 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+
 const repeats = (when: When, zone: string) => (when.kind === "repeat" ? `cron "${when.cron}" in ${when.timezone}` : `once at ${localTime(when.at, zone)}`);
 
 /** One entity as a line (or a few), in full or in brief, its times on the user's clock (`zone`); null for what the agent need not see. */
@@ -33,8 +37,11 @@ export function line(entity: Entity, detail: Detail, zone: string): string | nul
   const full = detail === "full";
   const at = localTime(entity.at, zone);
   switch (entity.kind) {
-    case "prompt":
-      return `[${at}] User: ${full ? entity.text : clip(entity.text, 240)}`;
+    case "prompt": {
+      const files = entity.attachments.map((a) => `${a.name} (${a.type}, ${size(a.size)}; ${a.id})`).join(", ");
+      const said = full ? entity.text : clip(entity.text, 240);
+      return `[${at}] User: ${said}${files ? `${said ? " " : ""}[attached: ${files}]` : ""}`;
+    }
     case "reply":
       if (!entity.text.trim()) return null;
       return `[${at}] Muse: ${full ? entity.text : clip(entity.text, 160)}`;

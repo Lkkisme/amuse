@@ -6,7 +6,8 @@
  * reply entity. Pi's coding tools, extensions, skills and context files are
  * all off: the model sees only remuse's tools (tools.ts).
  */
-import { type AgentIO, type Ports, type Rules, type Turn, localTime, newId } from "@remuse/core";
+import { type AgentIO, type Files, type Ports, type Rules, type Turn, localTime, newId } from "@remuse/core";
+import { attachmentTools, images } from "./attachments.ts";
 import { redact } from "./redact.ts";
 import { type PiModelConfig, type PiSession, openSession, secretsOf } from "./session.ts";
 import { statusOf } from "./status.ts";
@@ -23,6 +24,8 @@ export interface PiConfig extends PiModelConfig {
   rules: Rules;
   /** A web search, where one is configured (web_read works without). */
   search?: Search;
+  /** The files the user sent, for the agent to look at. */
+  files?: Files;
 }
 
 const toolLabels: Record<string, string> = {
@@ -30,6 +33,7 @@ const toolLabels: Record<string, string> = {
   request_connection: "Preparing a connection",
   app_tools: "Looking up your apps",
   app_call: "Using your apps",
+  read_attachment: "Looking at your file",
   schedule: "Scheduling",
   cancel_schedule: "Cancelling a schedule",
   message_run: "Telling a background task",
@@ -82,6 +86,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
         ...relayTools(io),
         ...webTools(io, cfg.rules, cfg.search),
         ...(cfg.apps ? appTools(io, cfg.apps) : []),
+        ...(cfg.files ? attachmentTools(cfg.files) : []),
       ]);
       lane.session = session;
       const pi = session.session;
@@ -113,7 +118,9 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
         }
       });
       try {
-        await pi.prompt(brief(agent, turn), { expandPromptTemplates: false });
+        // the images the user just sent are seen with their message
+        const shown = turn.kind === "message" && cfg.files ? await images(cfg.files, turn.attachments) : [];
+        await pi.prompt(brief(agent, turn), { expandPromptTemplates: false, ...(shown.length > 0 ? { images: shown } : {}) });
       } finally {
         unsubscribe();
       }

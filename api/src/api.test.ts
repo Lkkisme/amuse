@@ -76,7 +76,7 @@ test("the client syncs, sends, and folds the streamed events into the same state
       if (u.envelope.event.kind === "activity" && u.envelope.event.activity === null) resolve();
     }),
   );
-  const { id } = await session.call("chat.send", { chat: "main", text: "over the wire", timezone: "UTC" });
+  const { id } = await session.call("chat.send", { chat: "main", text: "over the wire", timezone: "UTC", attachments: [] });
   await done;
   assert.ok(state.entities.some((e) => e.id === id && e.kind === "prompt"));
   const last = state.entities.at(-1);
@@ -150,7 +150,7 @@ test("a client that reconnects receives the events it missed", async () => {
     if (u.kind === "reset") state = u.state;
   });
   await first.close(); // the network goes away; the conversation does not
-  const { id } = await host.call("chat.send", { chat: "main", text: "while you were away", timezone: "UTC" });
+  const { id } = await host.call("chat.send", { chat: "main", text: "while you were away", timezone: "UTC", attachments: [] });
   const second = await listen({ session: host, token, port: first.port, host: "127.0.0.1" });
   for (let i = 0; i < 60 && !state.entities.some((e) => e.id === id); i++) await new Promise((r) => setTimeout(r, 50));
   assert.ok(state.entities.some((e) => e.id === id), "the missed prompt arrived after the reconnect");

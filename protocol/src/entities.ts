@@ -12,13 +12,26 @@ export const Instant = z.iso.datetime();
 /** An IANA time zone, e.g. "Asia/Shanghai". */
 export const TimeZone = z.string().min(1);
 
+/** A file the user sent, kept on the server under its id (uploaded first, then sent with a message). */
+export const Attachment = z.object({
+  id: Id,
+  name: z.string().min(1).max(255),
+  /** MIME type, e.g. "image/png"; "application/octet-stream" when unknown */
+  type: z.string().min(1).max(255),
+  /** bytes */
+  size: z.int().nonnegative(),
+});
+
 /** What the user said, and where they were: their device's time zone, which is the user's time zone from then on. */
 export const Prompt = z.object({
   kind: z.literal("prompt"),
   id: Id,
   at: Instant,
+  /** may be empty when files say it all */
   text: z.string(),
   timezone: TimeZone,
+  /** files sent with it, in order (prompts from before files could be sent have none) */
+  attachments: z.array(Attachment).default([]),
 });
 
 /** What the agent said; `streaming` until its last delta has arrived. */
@@ -184,6 +197,7 @@ export const Activity = z.object({
 });
 
 export type Prompt = z.infer<typeof Prompt>;
+export type Attachment = z.infer<typeof Attachment>;
 export type Reply = z.infer<typeof Reply>;
 export type Task = z.infer<typeof Task>;
 export type Approval = z.infer<typeof Approval>;

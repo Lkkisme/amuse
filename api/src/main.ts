@@ -20,9 +20,11 @@
  */
 import { randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { composio, composioApps, composioConnector, composioDirectory } from "@remuse/composio";
 import { fileChats } from "./journal.ts";
+import { fileStore } from "./files.ts";
 import { browserPool, controller } from "@remuse/browser";
 import { type Ports, createHost, memoryRules, realTimers } from "@remuse/core";
 import { demoPorts, seed } from "@remuse/demo";
@@ -62,6 +64,7 @@ const system = [
   "To look something up, use `web_search` and `web_read`: quick, no browser. Start a browser task only when something on a site has to be done (log in, fill a form, click through).",
   "When a request needs a website, start a browser task with `browse` and tell the user it is running; it continues in the background and they can watch or take over. The browser agent sees nothing but what you give it: put the user's whole ask in `instructions`, including every limit they set.",
   "When a request needs one of the user's apps (mail, calendar, sheets, ...), ask with `request_connection` instead of guessing.",
+  "Files the user sends show in the conversation as [attached: name (type, size; id)]. You see the images of the message you are answering; look at any other file, or an older image, with `read_attachment`.",
   "Never claim a background task has finished unless you were told so.",
   "For a connected app, find the action with `app_tools`, then run it with `app_call`. Reading runs at once; sending, changing, deleting or paying goes to the user for approval and runs in the background.",
   "For anything to do later or regularly (a briefing every morning, checking the mail every hour, a reminder tomorrow), use `schedule`. Each run is a background agent that tells you only what is worth telling; put everything it needs in `instructions`, including what is worth reporting.",
@@ -78,6 +81,8 @@ const noConnector = "No connector is configured (set REMUSE_COMPOSIO_KEY).";
 /** what the agent may do with apps (core/policy.ts): kept beside the journal, or in memory without one */
 const journalFile = process.env["REMUSE_JOURNAL"];
 const rules = journalFile ? fileRules(join(dirname(journalFile), "rules.json")) : memoryRules();
+// the user's files beside the journal (or, with none, somewhere that goes with this run)
+const files = fileStore(journalFile ? join(dirname(journalFile), "attachments") : mkdtempSync(join(tmpdir(), "remuse-files-")));
 const publicUrl = process.env["REMUSE_PUBLIC_URL"];
 const connector =
   composioClient &&
@@ -108,8 +113,9 @@ await browsers?.reset();
  */
 const apps = composioClient ? composioApps(composioClient, composioUser, rules) : undefined;
 const real = (model: string, browserModel: string): Ports => ({
-  ...piAgent({ model, auth, system, rules, ...(apps ? { apps, search: apps.search } : {}) }),
-  ...piScheduleRunner({ model, auth, system, rules, ...(apps ? { apps, search: apps.search } : {}) }),
+  ...piAgent({ model, auth, system, rules, files, ...(apps ? { apps, search: apps.search } : {}) }),
+  ...piScheduleRunner({ model, auth, system, rules, files, ...(apps ? { apps, search: apps.search } : {}) }),
+  files,
   ...(browsers
     ? piBrowserAgent({ model: browserModel, auth }, browsers, rules)
     : {
@@ -148,7 +154,7 @@ const real = (model: string, browserModel: string): Ports => ({
       },
 });
 const demo = !(model && browserModel);
-const ports: Ports = model && browserModel ? real(model, browserModel) : demoPorts(realTimers);
+const ports: Ports = model && browserModel ? real(model, browserModel) : { ...demoPorts(realTimers), files };
 
 const journalPath = process.env["REMUSE_JOURNAL"];
 // side chats beside the main chat's log
@@ -173,7 +179,7 @@ const live = browsers && { browsers, controlled: (id: string) => held.has(id) };
 
 const web = process.env["REMUSE_WEB"];
 const origins = (process.env["REMUSE_ALLOWED_ORIGINS"] ?? "").split(",").map((o) => o.trim()).filter(Boolean);
-await listen({ session, ...(live ? { live } : {}), ...(web ? { web } : {}), ...(connector ? { returned: connector.returned } : {}), origins, token, port, host });
+await listen({ session, files, ...(live ? { live } : {}), ...(web ? { web } : {}), ...(connector ? { returned: connector.returned } : {}), origins, token, port, host });
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.once(signal, () => process.exit(0));
 // the way in, for whoever reads the logs of their own instance: open it once per device

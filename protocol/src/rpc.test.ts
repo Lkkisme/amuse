@@ -30,7 +30,7 @@ const handlers: Handlers = {
 };
 
 test("a framed request parses into a typed call and dispatches to its handler", async () => {
-  const frame = Request.parse({ jsonrpc: "2.0", id: 1, method: "chat.send", params: { chat: "main", text: "hi", timezone: "UTC" } });
+  const frame = Request.parse({ jsonrpc: "2.0", id: 1, method: "chat.send", params: { chat: "main", text: "hi", timezone: "UTC", attachments: [] } });
   const call = Call.parse({ method: frame.method, params: frame.params });
   const result = await dispatch(handlers, call);
   assert.deepEqual(result, { id: "p:hi" });
@@ -40,6 +40,6 @@ test("a framed request parses into a typed call and dispatches to its handler", 
 test("unknown methods and bad params are rejected by Call, not by framing", () => {
   const unknown = Request.parse({ jsonrpc: "2.0", id: 2, method: "chat.nope", params: {} });
   assert.equal(Call.safeParse({ method: unknown.method, params: unknown.params }).success, false);
-  assert.equal(Call.safeParse({ method: "chat.send", params: { chat: "main", text: "", timezone: "UTC" } }).success, false);
+  assert.equal(Call.safeParse({ method: "chat.send", params: { chat: "main", text: "", timezone: "UTC", attachments: [] } }).success, false);
   assert.equal(Call.safeParse({ method: "browser.control", params: { id: "b1", action: "fly" } }).success, false);
 });

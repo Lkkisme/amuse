@@ -18,6 +18,7 @@ import { status } from "./status.ts";
 import { appTools, tools } from "./tools.ts";
 import { untrustedRule } from "./untrusted.ts";
 import { webTools } from "./web.ts";
+import { attachmentTools } from "./attachments.ts";
 
 type Text = { content: { type: "text"; text: string }[]; details: null };
 const text = (value: string): Text => ({ content: [{ type: "text", text: value }], details: null });
@@ -123,6 +124,7 @@ export function piScheduleRunner(cfg: PiConfig): Pick<Ports, "schedule"> {
           ...tools(own, cfg.rules).filter((t) => t.name !== "request_connection"),
           ...webTools(own, cfg.rules, cfg.search),
           ...(cfg.apps ? appTools(own, cfg.apps) : []),
+          ...(cfg.files ? attachmentTools(cfg.files) : []),
           askTool(run),
           report,
         ];

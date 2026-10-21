@@ -8,6 +8,7 @@
  */
 import {
   type Account,
+  type Attachment,
   type Permission,
   type KindRule,
   type ToolKind,
@@ -132,10 +133,23 @@ export interface Ports {
   apps: AppDirectory;
   /** What the agents may do, per app and per site: the user's (policy.ts). */
   rules: Rules;
+  /** The files the user uploaded. */
+  files: Files;
 }
 
-/** What wakes the agent: the user's message, or a note from its background work (not shown as a message). */
-export type Turn = { kind: "message"; text: string } | { kind: "note"; text: string };
+/** Files the user uploaded (attachments): kept by the server, read by the agents. */
+export interface Files {
+  /** Whether `attachment` was uploaded here, as it says (name, type and size). */
+  holds(attachment: Attachment): Promise<boolean>;
+  /** A file and its bytes; null when there is none. */
+  read(id: string): Promise<{ attachment: Attachment; data: Uint8Array } | null>;
+}
+
+/** No files: where nothing can be uploaded (the demo, tests). */
+export const noFiles: Files = { holds: async () => false, read: async () => null };
+
+/** What wakes the agent: the user's message (with any files), or a note from its background work (not shown as a message). */
+export type Turn = { kind: "message"; text: string; attachments: Attachment[] } | { kind: "note"; text: string };
 
 /** Where apps are found, connected and let go of: the connector's directory. */
 export interface AppDirectory {
@@ -162,6 +176,8 @@ export function describe(rejection: Rejection): string {
       return `no run ${rejection.id} is in flight (it ended, or never was)`;
     case "noChat":
       return `no chat ${rejection.id}`;
+    case "noFile":
+      return `file ${rejection.id} was not uploaded here`;
     case "mainChat":
       return "the main chat cannot be renamed or deleted";
     case "invalid":
@@ -423,7 +439,7 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     const { agent } = room;
     switch (effect.kind) {
       case "prompt":
-        return ports.prompt({ kind: "message", text: effect.text }, agent);
+        return ports.prompt({ kind: "message", text: effect.text, attachments: effect.attachments }, agent);
       case "interrupt":
         return ports.interrupt(agent);
       case "browser":
@@ -527,6 +543,8 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     },
     "chat.send": async (params) => {
       const room = roomOf(params.chat);
+      // a file is sent as uploaded, or not at all
+      for (const attachment of params.attachments) if (!(await ports.files.holds(attachment))) throw new Rejected({ kind: "noFile", id: attachment.id });
       const sent = command(room, "chat.send", params);
       nameAfter(room, params.text);
       return sent;

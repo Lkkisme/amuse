@@ -10,12 +10,13 @@
     "test": "node --test 'src/**/*.test.ts'"
   },
   "dependencies": {
+    "@earendil-works/pi-ai": "1.3.0",
     "@earendil-works/pi-coding-agent": "1.3.0",
+    "@remuse/browser": "*",
     "@remuse/core": "*",
     "@remuse/protocol": "*",
     "typebox": "1.3.27",
-    "@remuse/browser": "*",
-    "@earendil-works/pi-ai": "1.3.0",
+    "unpdf": "^1.9.1",
     "zod": "^4.6.7"
   }
 }

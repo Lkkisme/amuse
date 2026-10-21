@@ -17,7 +17,7 @@ const snapshot = async (host: ReturnType<typeof createHost>) => {
 test("a restarted host comes back with the same state and keeps counting", async () => {
   const path = join(mkdtempSync(join(tmpdir(), "remuse-journal-")), "log", "events.jsonl");
   const first = createHost(demoPorts(idle), { seed: seed(), store: fileChats(dirname(path), path), timers: idle });
-  await first.call("chat.send", { chat: "main", text: "remember me", timezone: "UTC" });
+  await first.call("chat.send", { chat: "main", text: "remember me", timezone: "UTC", attachments: [] });
   const before = await snapshot(first);
   assert.equal((statSync(path).mode & 0o777).toString(8), "600");
 
@@ -34,7 +34,7 @@ test("a restarted host comes back with the same state and keeps counting", async
     if (e.kind === "approval") assert.notEqual(e.status, "pending");
     if (e.kind === "task") assert.ok(!["queued", "working", "waiting"].includes(e.status));
   }
-  const { id } = await second.call("chat.send", { chat: "main", text: "and this", timezone: "UTC" });
+  const { id } = await second.call("chat.send", { chat: "main", text: "and this", timezone: "UTC", attachments: [] });
   const after = await snapshot(second);
   assert.ok(after.seq > before.seq);
   assert.equal(after.entities.at(-1)?.id, id);
@@ -66,7 +66,7 @@ test("side chats are kept beside the main chat's log, and a deleted one's log go
   const main = join(dir, "events.jsonl");
   const first = createHost(demoPorts(idle), { store: fileChats(dir, main), timers: idle });
   const side = await first.call("chats.create", {});
-  await first.call("chat.send", { chat: side.id, text: "a side thought", timezone: "UTC" });
+  await first.call("chat.send", { chat: side.id, text: "a side thought", timezone: "UTC", attachments: [] });
   const log = join(dir, "chats", `${side.id}.jsonl`);
   assert.equal((statSync(log).mode & 0o777).toString(8), "600");
   assert.equal((statSync(join(dir, "chats.json")).mode & 0o777).toString(8), "600");

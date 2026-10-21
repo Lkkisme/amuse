@@ -11,11 +11,11 @@ const stateOf = (...entities: Entity[]): State => record(empty, entities.map((en
 const browser = (status: BrowserStatus, live = true): Browser => ({ kind: "browser", id: "b1", at, title: "Log in", url: "https://x.example/", status, instructions: "Log in", result: null, step: null, live });
 
 test("chat.send records the prompt and asks the agent", () => {
-  const d = decide(empty, { method: "chat.send", params: { chat: "main", text: "hi", timezone: "Asia/Shanghai" } }, ctx);
+  const d = decide(empty, { method: "chat.send", params: { chat: "main", text: "hi", timezone: "Asia/Shanghai", attachments: [] } }, ctx);
   assert.ok(d.ok);
   assert.deepEqual(d.output, { id: "p1" });
-  assert.deepEqual(d.changes, [{ kind: "upserted", entity: { kind: "prompt", id: "p1", at, text: "hi", timezone: "Asia/Shanghai" } }]);
-  assert.deepEqual(d.effects, [{ kind: "prompt", text: "hi" }]);
+  assert.deepEqual(d.changes, [{ kind: "upserted", entity: { kind: "prompt", id: "p1", at, text: "hi", timezone: "Asia/Shanghai", attachments: [] } }]);
+  assert.deepEqual(d.effects, [{ kind: "prompt", text: "hi", attachments: [] }]);
 });
 
 test("browser moves follow Muse: take → paused, handBack → working, stop → stopped", () => {
@@ -109,7 +109,7 @@ test("recovery ends interrupted replies and clears the activity; a quiet state n
     { kind: "upserted", entity: { kind: "reply", id: "r1", at, text: "Hal", streaming: false } },
     { kind: "activity", activity: null },
   ]);
-  assert.deepEqual(recover(stateOf({ kind: "prompt", id: "p1", at, text: "hi", timezone: "UTC" }), at), []);
+  assert.deepEqual(recover(stateOf({ kind: "prompt", id: "p1", at, text: "hi", timezone: "UTC", attachments: [] }), at), []);
 });
 
 test("only a run the user holds is reshaped to their screen", () => {

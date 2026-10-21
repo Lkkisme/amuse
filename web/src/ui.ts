@@ -2,7 +2,7 @@
  * UI-only state: which panels are open and what they show. Server state is
  * the conversation (session.ts); this never duplicates it, only ids into it.
  */
-import { type App, MAIN } from "@remuse/protocol";
+import { type App, type Attachment, MAIN } from "@remuse/protocol";
 import type { SettingsData } from "./demo/settings.ts";
 
 export type SettingsSection = "general" | "connectors" | "permissions" | "schedules" | "secure-store";
@@ -42,7 +42,8 @@ export const initialUi: Ui = {
 
 /** Everything a component can ask for: protocol calls and UI changes. */
 export interface Actions {
-  send(text: string): void;
+  /** say something in the chat on screen, with any files already uploaded */
+  send(text: string, attachments: Attachment[]): void;
   stop(): void;
   resolveApproval(id: string, resolution: "allow_once" | "allow_always" | "deny"): void;
   openExplainer(connectionId: string | null): void;

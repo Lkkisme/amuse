@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Schedule, type Session, type State, apply, prepend } from "@remuse/protocol";
-import { type AgentIO, type Ports, type Timers, createHost, memoryChats, memoryRules } from "./index.ts";
+import { type AgentIO, type Ports, type Timers, type Turn, createHost, memoryChats, memoryRules } from "./index.ts";
 
 /** Ports that do nothing but hand over the AgentIO, so tests can act like an agent. */
 function capture() {
@@ -30,6 +30,8 @@ function capture() {
       permit: async () => {},
     },
     rules: memoryRules(),
+    // one file was uploaded: the cat photo
+    files: { holds: async (a) => a.id === "f-cat" && a.name === "cat.jpg" && a.size === 2048, read: async () => null },
   };
   return { ports, io: () => io, runs };
 }
@@ -63,7 +65,7 @@ function manualTime(start: string) {
 test("a decision already made is answered at once; one still open waits for the user", async () => {
   const { ports, io } = capture();
   const host = createHost(ports);
-  await host.call("chat.send", { chat: "main", text: "go", timezone: "UTC" });
+  await host.call("chat.send", { chat: "main", text: "go", timezone: "UTC", attachments: [] });
   const agent = io();
   assert.ok(agent);
   const asked = agent.act({ kind: "ask", action: "send", target: "gmail", detail: "{}", remember: true });
@@ -77,7 +79,7 @@ test("a decision already made is answered at once; one still open waits for the 
 test("an agent cannot move a run the user stopped", async () => {
   const { ports, io } = capture();
   const host = createHost(ports);
-  await host.call("chat.send", { chat: "main", text: "go", timezone: "UTC" });
+  await host.call("chat.send", { chat: "main", text: "go", timezone: "UTC", attachments: [] });
   const agent = io();
   assert.ok(agent);
   const started = agent.act({ kind: "browse", title: "t", url: "https://x.example/", instructions: "t" });
@@ -92,12 +94,12 @@ test("an agent cannot move a run the user stopped", async () => {
 test("a client holding only the recent end sees what the whole feed shows there, and pages back to all of it", async () => {
   const { ports, io } = capture();
   const host = createHost(ports, { snapshot: 3 });
-  for (const text of ["a", "b", "c", "d", "e"]) await host.call("chat.send", { chat: "main", text, timezone: "UTC" });
+  for (const text of ["a", "b", "c", "d", "e"]) await host.call("chat.send", { chat: "main", text, timezone: "UTC", attachments: [] });
   const agent = io();
   assert.ok(agent);
   const run = agent.act({ kind: "browse", title: "t", url: "https://x.example/", instructions: "t" });
   assert.ok(run.ok);
-  for (const text of ["f", "g", "h", "i"]) await host.call("chat.send", { chat: "main", text, timezone: "UTC" });
+  for (const text of ["f", "g", "h", "i"]) await host.call("chat.send", { chat: "main", text, timezone: "UTC", attachments: [] });
 
   const synced = await host.call("session.sync", { chat: "main", since: null });
   assert.ok(synced.kind === "snapshot");
@@ -108,7 +110,7 @@ test("a client holding only the recent end sees what the whole feed shows there,
   });
 
   agent.act({ kind: "browserEnded", id: run.id, status: "completed", result: "done" });
-  await host.call("chat.send", { chat: "main", text: "j", timezone: "UTC" });
+  await host.call("chat.send", { chat: "main", text: "j", timezone: "UTC", attachments: [] });
   while (client.earlier > 0) {
     const page = await host.call("session.history", { chat: "main", before: client.earlier, limit: 2 });
     const next = prepend(client, page);
@@ -131,7 +133,7 @@ test("a schedule runs in the background when its time comes, and again the next 
   const { ports, io, runs } = capture();
   const time = manualTime("2026-10-20T08:00:00Z");
   const host = createHost(ports, { clock: time.clock, timers: time.timers });
-  await host.call("chat.send", { chat: "main", text: "brief me at 8", timezone: "Asia/Shanghai" });
+  await host.call("chat.send", { chat: "main", text: "brief me at 8", timezone: "Asia/Shanghai", attachments: [] });
   const agent = io();
   assert.ok(agent);
   assert.deepEqual(agent.time(), { now: "2026-10-20T08:00:00.000Z", timezone: "Asia/Shanghai" });
@@ -152,7 +154,7 @@ test("an approval nobody answers times out, as a no to whoever waits on it", asy
   const { ports, io } = capture();
   const time = manualTime("2026-10-20T08:00:00Z");
   const host = createHost(ports, { clock: time.clock, timers: time.timers });
-  await host.call("chat.send", { chat: "main", text: "send it", timezone: "UTC" });
+  await host.call("chat.send", { chat: "main", text: "send it", timezone: "UTC", attachments: [] });
   const agent = io();
   assert.ok(agent);
   const asked = agent.act({ kind: "ask", action: "send", target: "gmail", detail: "{}", remember: true });
@@ -169,7 +171,7 @@ async function withRun() {
   const { ports, io, runs } = capture();
   const time = manualTime("2026-10-20T08:00:00Z");
   const host = createHost(ports, { clock: time.clock, timers: time.timers });
-  await host.call("chat.send", { chat: "main", text: "check the tides", timezone: "UTC" });
+  await host.call("chat.send", { chat: "main", text: "check the tides", timezone: "UTC", attachments: [] });
   const agent = io();
   assert.ok(agent);
   const run = agent.act({ kind: "browse", title: "Tides", url: "https://tides.example/", instructions: "Read today's tides" });
@@ -244,10 +246,10 @@ test("side chats: each its own feed and agent, named after its first message, li
   const host = createHost(ports, { clock: time.clock, timers: time.timers, store });
   const pushed: string[][] = [];
   host.subscribe((u) => void (u.kind === "chats" && pushed.push(u.chats.map((c) => c.title))));
-  await host.call("chat.send", { chat: "main", text: "hello main", timezone: "UTC" });
+  await host.call("chat.send", { chat: "main", text: "hello main", timezone: "UTC", attachments: [] });
   const side = await host.call("chats.create", {});
   time.advance(60_000);
-  await host.call("chat.send", { chat: side.id, text: "plan the trip please", timezone: "UTC" });
+  await host.call("chat.send", { chat: side.id, text: "plan the trip please", timezone: "UTC", attachments: [] });
   await new Promise((r) => setImmediate(r)); // the title arrives
   const agent = io();
   assert.equal(agent?.chat, side.id, "the side chat's agent answers it");
@@ -283,10 +285,22 @@ test("chats and their feeds survive a restart", async () => {
   const store = memoryChats();
   const first = createHost(capture().ports, { store, timers: manualTime("2026-10-20T08:00:00Z").timers });
   const side = await first.call("chats.create", {});
-  await first.call("chat.send", { chat: side.id, text: "remember this", timezone: "UTC" });
+  await first.call("chat.send", { chat: side.id, text: "remember this", timezone: "UTC", attachments: [] });
   const second = createHost(capture().ports, { store, timers: manualTime("2026-10-20T08:00:00Z").timers });
   const { chats } = await second.call("chats.list", {});
   assert.deepEqual(chats.map((c) => c.id), ["main", side.id]);
   const synced = await second.call("session.sync", { chat: side.id, since: null });
   assert.ok(synced.kind === "snapshot" && synced.state.entities.some((e) => e.kind === "prompt" && e.text === "remember this"));
+});
+
+test("a file is sent with a message only as it was uploaded; the agent gets it with the message", async () => {
+  const turns: Turn[] = [];
+  const { ports } = capture();
+  const host = createHost({ ...ports, prompt: (turn) => void turns.push(turn) });
+  const cat = { id: "f-cat", name: "cat.jpg", type: "image/jpeg", size: 2048 };
+  await host.call("chat.send", { chat: "main", text: "", timezone: "UTC", attachments: [cat] });
+  assert.deepEqual(turns, [{ kind: "message", text: "", attachments: [cat] }]);
+  await assert.rejects(host.call("chat.send", { chat: "main", text: "hi", timezone: "UTC", attachments: [{ ...cat, size: 1 }] }), /file f-cat was not uploaded here/);
+  const { entities } = await host.call("session.history", { chat: "main", before: 100, limit: 100 });
+  assert.equal(entities.length, 1, "a refused send records nothing");
 });
