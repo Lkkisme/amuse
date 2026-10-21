@@ -42,8 +42,6 @@ const joins = (a: Entity | undefined, b: Entity | undefined): boolean =>
   !!b &&
   side(a) === side(b) &&
   Date.parse(b.at) - Date.parse(a.at) < GROUP_GAP_MS;
-const isMessage = (e: Entity | undefined) =>
-  e?.kind === "prompt" || e?.kind === "reply";
 
 /** A time line goes in only after a pause this long (and before the first item). */
 const STAMP_GAP_MS = 10 * 60_000;
@@ -716,11 +714,11 @@ export function ChatFeed({
       >
         <div ref={contentRef} className="mx-auto flex max-w-3xl flex-col gap-3">
           {feed.map((entity, i) => (
-            // joining the one above: 2px under it between bubbles, 4px where a card is involved (the feed's gap is 12px)
+            // joining the one above: 4px under it, bubble or card alike (the feed's gap is 12px)
             <div
               key={outgoing.keys.get(entity.id) ?? entity.id}
               data-entity={entity.id}
-              className={`flex flex-col gap-3 ${joins(feed[i - 1], entity) ? (isMessage(entity) && isMessage(feed[i - 1]) ? "-mt-2.5" : "-mt-2") : ""}`}
+              className={`flex flex-col gap-3 ${joins(feed[i - 1], entity) ? "-mt-2" : ""}`}
             >
               {stamped(feed[i - 1], entity) && (
                 <TimeDivider time={time(entity.at)} />

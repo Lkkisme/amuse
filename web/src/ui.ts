@@ -6,6 +6,9 @@ import { type App, type Attachment, type KeyProvider, MAIN } from "@amuse/protoc
 
 export type SettingsSection = "general" | "models" | "connectors" | "permissions" | "logins" | "schedules";
 
+/** A section of the sidebar besides the chats (nav.ts). */
+export type LeftSection = "goals";
+
 import type { Theme } from "./theme.ts";
 
 export type { Theme };
@@ -14,7 +17,14 @@ export interface Ui {
   theme: Theme;
   /** the chat on screen: MAIN or a side chat's id */
   chat: string;
+  /** the sidebar docked beside the chat, where there is room: the user's choice (☰), kept on this device */
+  sidebar: boolean;
+  /** the sidebar as a drawer over the chat (a phone; a desktop without room to dock it) */
   chatsOpen: boolean;
+  /** what the sidebar shows besides the chats; null: the chats */
+  left: LeftSection | null;
+  /** the goal whose page is open in the sidebar */
+  goal: string | null;
   /** the Muse panel (profile and activity): docked on the right, or floating over the chat while the browser has the right */
   museOpen: boolean;
   /** section null: on a phone, the list of sections (on a desktop, the first one) */
@@ -33,7 +43,10 @@ export interface Ui {
 export const initialUi: Ui = {
   theme: "system",
   chat: MAIN,
+  sidebar: true,
   chatsOpen: false,
+  left: null,
+  goal: null,
   museOpen: false,
   settings: { open: false, section: null, app: null, provider: null },
   viewer: null,
@@ -66,6 +79,12 @@ export interface Actions {
   stopTask(taskId: string): void;
   openTaskDetail(taskId: string | null): void;
   setChats(open: boolean): void;
+  /** dock the sidebar or collapse it (where there is room for it) */
+  setSidebar(docked: boolean): void;
+  /** show a section in the sidebar (null: the chats) */
+  openLeft(section: LeftSection | null): void;
+  /** open a goal's page in the sidebar (null: back to the list) */
+  openGoal(goal: string | null): void;
   /** show a chat (the drawer closes) */
   openChat(chat: string): void;
   /** open a new side chat and show it */

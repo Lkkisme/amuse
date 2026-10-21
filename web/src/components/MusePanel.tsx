@@ -2,19 +2,17 @@
  * The Muse panel, opened by tapping Muse's avatar (Muse web): the avatar
  * travels into it (a view transition), with Muse's name and state, a
  * segmented control: Activity ("Today": what Muse has done, newest first),
- * Approvals (every approval asked, in any chat, and how it ended),
- * Upcoming (the schedules, next run first) and Goals (what the user is
- * working toward: Goals.tsx).
+ * Approvals (every approval asked, in any chat, and how it ended) and
+ * Upcoming (the schedules, next run first): Amuse's state and record. The
+ * user's own things are in the sidebar, on the left.
  *
  * Docked on the right; while the browser has the right, a floating window
  * over the chat instead; on a phone, a page of its own.
  */
 import { useEffect, useState } from "react";
-import { CalendarClock, CircleCheck, Clock, Globe, List, ListTodo, Plug, ShieldCheck, Target, X } from "lucide-react";
+import { CalendarClock, CircleCheck, Clock, Globe, List, ListTodo, Plug, ShieldCheck, X } from "lucide-react";
 import type { Approval, Chat, Entity, Schedule, Session, State } from "@amuse/protocol";
 import { AppLogo } from "./AppLogo";
-import { Goals } from "./Goals";
-import { GoalPage } from "./GoalPage";
 import { museAvatar, travels } from "../transition.ts";
 import type { Actions } from "../ui.ts";
 import { browserLook, host, providerLogo, taskStatus, time } from "../view.ts";
@@ -103,27 +101,23 @@ function done(entity: Entity): Done | null {
 const frame: Record<MuseMode, string> = {
   // a page of its own on a phone; on the right from md up
   docked: "fixed inset-0 z-50 md:relative md:z-auto md:w-[360px] md:shrink-0 md:border-l",
-  // over the chat, beside the rail, while the browser is on the right (lg up): within what the chat has
-  // (16px clear of the viewer)
-  floating: "fixed bottom-4 left-[72px] top-4 z-[55] w-[min(440px,calc(100vw-var(--viewer-width)-88px))] rounded-[28px]",
+  // over the chat while the browser is on the right (lg up): within what the chat has, beside a docked
+  // sidebar (16px clear of it and of the viewer)
+  floating:
+    "fixed bottom-4 left-[calc(var(--sidebar-width)+16px)] top-4 z-[55] w-[min(440px,calc(100vw-var(--viewer-width)-var(--sidebar-width)-32px))] rounded-[28px]",
 };
 
-type Tab = "activity" | "approvals" | "upcoming" | "goals";
+type Tab = "activity" | "approvals" | "upcoming";
 const TABS: { id: Tab; label: string; icon: typeof Globe }[] = [
   { id: "activity", label: "Activity", icon: List },
   { id: "approvals", label: "Approvals", icon: ShieldCheck },
   { id: "upcoming", label: "Upcoming", icon: Clock },
-  { id: "goals", label: "Goals", icon: Target },
 ];
 
 export function MusePanel({ conversation, session, mode, actions }: { conversation: State; session: Session; mode: MuseMode; actions: Actions }) {
   const working = conversation.activity !== null;
   const list = conversation.entities.flatMap((e) => done(e) ?? []).reverse();
   const [tab, setTab] = useState<Tab>("activity");
-  /** the goal whose page is open over the panel */
-  const [goal, setGoal] = useState<string | null>(null);
-  /** the list is read again on the way back from a page, where it may have changed */
-  const [goalsRead, setGoalsRead] = useState(0);
 
   return (
     <aside
@@ -170,8 +164,8 @@ export function MusePanel({ conversation, session, mode, actions }: { conversati
         </p>
       </div>
 
-      {/* segmented control: what Amuse did, what it asked, what comes next, what the user is working toward */}
-      <div role="tablist" className="mx-4 mt-7 grid h-[34px] grid-cols-4 rounded-full p-[3px]" style={{ background: "var(--fill-secondary)" }}>
+      {/* segmented control: what Amuse did, what it asked, what comes next */}
+      <div role="tablist" className="mx-4 mt-7 grid h-[34px] grid-cols-3 rounded-full p-[3px]" style={{ background: "var(--fill-secondary)" }}>
         {TABS.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
@@ -197,18 +191,6 @@ export function MusePanel({ conversation, session, mode, actions }: { conversati
 
       {tab === "approvals" && <Approvals session={session} conversation={conversation} actions={actions} />}
       {tab === "upcoming" && <Upcoming session={session} />}
-      {tab === "goals" && <Goals key={goalsRead} session={session} onOpen={setGoal} />}
-      {goal !== null && (
-        <GoalPage
-          key={goal}
-          session={session}
-          id={goal}
-          onBack={() => {
-            setGoal(null);
-            setGoalsRead((n) => n + 1);
-          }}
-        />
-      )}
       {tab === "activity" && (
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-5">
           <p className="text-[17px] font-semibold" style={{ color: "var(--text-primary)" }}>

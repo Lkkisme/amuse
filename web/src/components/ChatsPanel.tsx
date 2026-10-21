@@ -1,16 +1,21 @@
 /**
- * Left drawer, toggled by the ☰ button, which stays above it and turns into a
- * collapse icon: page grid on mobile, then the chat search box right above the
- * list it filters: the main chat, then side chats (+ opens one), most recently
- * used first. A side chat can be renamed or deleted from its row. Slide-over
- * from the left.
+ * The sidebar: the user's things, on the left. Page entries at the top
+ * (Goals, Settings; nav.ts), then the chats: search, the main chat, side
+ * chats (+ opens one), most recently used first; a side chat's row renames
+ * or deletes it. Goals opens inside it: the list, then a goal's page.
+ *   docked  beside the chat while there is room (☰ collapses it)
+ *   drawer  over the chat from the left (☰ opens and closes it): the phone's
+ *           drawer; on a desktop without room to dock it, a floating window
+ *           like the Muse panel's
  */
 import { useEffect, useRef, useState } from "react";
-import { MessageCircle, MoreHorizontal, Plus, Search, Settings } from "lucide-react";
-import { type Chat, MAIN } from "@amuse/protocol";
-import type { Actions } from "../ui.ts";
+import { ChevronLeft, MessageCircle, MoreHorizontal, Plus, Search } from "lucide-react";
+import { type Chat, MAIN, type Session } from "@amuse/protocol";
+import type { Actions, LeftSection } from "../ui.ts";
 import { NAV_PAGES } from "./nav";
 import { usePresence } from "./usePresence";
+import { Goals } from "./Goals";
+import { GoalPage } from "./GoalPage";
 
 /** How long ago, in a few characters: now, 5m, 3h, 2d, then the date. */
 function ago(iso: string, now = Date.now()): string {
@@ -24,97 +29,142 @@ function ago(iso: string, now = Date.now()): string {
 
 const named = (chat: Chat) => (chat.id === MAIN ? "Main chat" : chat.title || "New chat");
 
-export function ChatsPanel({ open, chats, current, actions }: { open: boolean; chats: Chat[]; current: string; actions: Actions }) {
-  const [query, setQuery] = useState("");
+/** The docked sidebar's width (the drawer's too, up to 85% of a phone). */
+export const SIDEBAR_WIDTH = 300;
+
+interface SidebarProps {
+  chats: Chat[];
+  current: string;
+  left: LeftSection | null;
+  goal: string | null;
+  session: Session;
+  actions: Actions;
+}
+
+/** Beside the chat, while there is room. */
+export function DockedSidebar(props: SidebarProps) {
+  return (
+    <aside
+      className="relative hidden h-full shrink-0 flex-col border-r p-3 md:flex"
+      style={{ width: SIDEBAR_WIDTH, background: "var(--chat-background)", borderColor: "var(--fill-divider)" }}
+      aria-label="Sidebar"
+    >
+      <SidebarContent {...props} />
+    </aside>
+  );
+}
+
+/** Over the chat from the left: a phone's drawer, or a desktop's sidebar without room to dock. */
+export function DrawerSidebar({ open, ...props }: SidebarProps & { open: boolean }) {
   const { mounted, closing, onAnimationEnd } = usePresence(open);
   if (!mounted) return null;
+  return (
+    // clips the slide, so the panel comes out from the edge; a tap beside it closes it (dimmed on a phone only)
+    <div className={`fixed inset-0 z-40 flex overflow-hidden md:pb-4 md:pl-4 md:pt-[60px] ${closing ? "pointer-events-none" : ""}`}>
+      <div className={`${closing ? "anim-fade-out" : "anim-fade-in"} absolute inset-0 bg-black/30 md:bg-transparent`} onClick={() => props.actions.setChats(false)} />
+      <aside
+        onAnimationEnd={onAnimationEnd}
+        className={`${closing ? "anim-pane-to-left pointer-events-none" : "anim-pane-from-left"} relative flex h-full max-w-[85vw] flex-col p-3 md:rounded-[28px]`}
+        style={{ width: SIDEBAR_WIDTH, background: "var(--chat-background)", boxShadow: "var(--shadow-drawer)" }}
+        aria-label="Sidebar"
+      >
+        {/* room for the ☰ button (TopBar's MenuButton), which stays put above the drawer (on a desktop, the window opens under it) */}
+        <div className="h-11 shrink-0 md:hidden" />
+        <SidebarContent {...props} />
+      </aside>
+    </div>
+  );
+}
+
+function SidebarContent({ chats, current, left, goal, session, actions }: SidebarProps) {
+  if (left === "goals")
+    return (
+      <>
+        <button
+          className="hover-fade mt-2 flex h-9 w-fit shrink-0 items-center gap-1 rounded-full pl-1 pr-3 text-[15px] font-medium"
+          style={{ color: "var(--text-secondary)" }}
+          onClick={() => actions.openLeft(null)}
+        >
+          <ChevronLeft size={20} />
+          Chats
+        </button>
+        <div className="-mx-3 flex min-h-0 flex-1 flex-col">
+          <Goals session={session} onOpen={(id) => actions.openGoal(id)} />
+        </div>
+        {goal !== null && <GoalPage key={goal} session={session} id={goal} onBack={() => actions.openGoal(null)} />}
+      </>
+    );
+  return <ChatList chats={chats} current={current} left={left} actions={actions} />;
+}
+
+function ChatList({ chats, current, left, actions }: { chats: Chat[]; current: string; left: LeftSection | null; actions: Actions }) {
+  const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
   const main = chats.find((c) => c.id === MAIN);
   const sides = chats.filter((c) => c.id !== MAIN && (!q || named(c).toLowerCase().includes(q)));
-  // on md+ the drawer opens beside the icon rail (w-14), so the ☰ button lines up with its padding
   return (
-    // starts right of the rail (md up) and clips the slide, so the panel comes out from under the rail, never over it
-    <div className={`fixed inset-0 z-40 flex overflow-hidden md:left-14 ${closing ? "pointer-events-none" : ""}`}>
-      <div className={`${closing ? "anim-fade-out" : "anim-fade-in"} absolute inset-0 bg-black/30`} onClick={() => actions.setChats(false)} />
-      <aside
-        onAnimationEnd={onAnimationEnd}
-        className={`${closing ? "anim-pane-to-left pointer-events-none" : "anim-pane-from-left"} relative flex h-full w-[300px] max-w-[85vw] flex-col p-3`}
-        style={{ background: "var(--chat-background)", boxShadow: "var(--shadow-drawer)" }}
-        aria-label="Menu"
-      >
-        {/* room for the ☰ button (TopBar's MenuButton), which stays put above the drawer */}
-        <div className="h-11 shrink-0" />
-
-        {/* pages: the rail is hidden below md, so the drawer carries them, Settings last */}
-        <nav className="mt-3 grid grid-cols-3 gap-1 md:hidden" aria-label="Pages">
-          {NAV_PAGES.map(({ icon: Icon, label, active }) => (
-            <button
-              key={label}
-              className="hover-fade flex flex-col items-center gap-1 rounded-xl py-2.5 text-[12px] font-medium"
-              style={{ background: active ? "var(--fill-secondary)" : "transparent", color: active ? "var(--text-primary)" : "var(--text-secondary)" }}
-              onClick={() => actions.setChats(false)}
-            >
-              <Icon size={20} />
-              {label}
-            </button>
-          ))}
+    <>
+      {/* the pages, Settings last */}
+      <nav className="mt-3 grid grid-cols-3 gap-1" aria-label="Pages">
+        {NAV_PAGES.map(({ icon: Icon, label, section, open }) => (
           <button
+            key={label}
             className="hover-fade flex flex-col items-center gap-1 rounded-xl py-2.5 text-[12px] font-medium"
-            style={{ color: "var(--text-secondary)" }}
-            onClick={() => {
-              actions.setChats(false);
-              actions.openSettings(null);
+            style={{
+              background: section !== null && section === left ? "var(--fill-secondary)" : "transparent",
+              color: section !== null && section === left ? "var(--text-primary)" : "var(--text-secondary)",
             }}
+            onClick={() => open(actions)}
           >
-            <Settings size={20} />
-            Settings
+            <Icon size={20} />
+            {label}
           </button>
-        </nav>
+        ))}
+      </nav>
 
-        {/* search sits on the list it filters */}
-        <div className="mt-3 flex h-10 shrink-0 items-center gap-2 rounded-full px-3" style={{ background: "var(--fill-secondary)", color: "var(--text-tertiary)" }}>
-          <Search size={16} />
-          <input
-            className="w-full bg-transparent text-[14px] outline-none"
-            style={{ color: "var(--text-primary)" }}
-            placeholder="Search chats"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
+      {/* search sits on the list it filters */}
+      <div className="mt-3 flex h-10 shrink-0 items-center gap-2 rounded-full px-3" style={{ background: "var(--fill-secondary)", color: "var(--text-tertiary)" }}>
+        <Search size={16} />
+        <input
+          className="w-full bg-transparent text-[14px] outline-none"
+          style={{ color: "var(--text-primary)" }}
+          placeholder="Search chats"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
+
+      <div className="mt-3 flex-1 overflow-y-auto">
+        {main && (
+          <Row chat={main} current={current === MAIN} actions={actions} main />
+        )}
+
+        {/* Side chats + add */}
+        <div className="mt-4 flex items-center justify-between px-3">
+          <span className="text-[13px] font-semibold" style={{ color: "var(--text-secondary)" }}>
+            Side chats
+          </span>
+          <button
+            aria-label="New side chat"
+            className="hover-fade flex size-6 items-center justify-center rounded-full"
+            style={{ background: "var(--fill-secondary)", color: "var(--icon-primary)" }}
+            onClick={actions.newChat}
+          >
+            <Plus size={14} />
+          </button>
         </div>
-
-        <div className="mt-3 flex-1 overflow-y-auto">
-          {main && (
-            <Row chat={main} current={current === MAIN} actions={actions} main />
+        <div className="mt-2 space-y-0.5">
+          {sides.length === 0 && (
+            <p className="px-3 py-2 text-[14px]" style={{ color: "var(--text-secondary)" }}>
+              {q ? `No chats match "${query}"` : "None yet. A side chat keeps a topic apart from the main chat."}
+            </p>
           )}
-
-          {/* Side chats + add */}
-          <div className="mt-4 flex items-center justify-between px-3">
-            <span className="text-[13px] font-semibold" style={{ color: "var(--text-secondary)" }}>
-              Side chats
-            </span>
-            <button
-              aria-label="New side chat"
-              className="hover-fade flex size-6 items-center justify-center rounded-full"
-              style={{ background: "var(--fill-secondary)", color: "var(--icon-primary)" }}
-              onClick={actions.newChat}
-            >
-              <Plus size={14} />
-            </button>
-          </div>
-          <div className="mt-2 space-y-0.5">
-            {sides.length === 0 && (
-              <p className="px-3 py-2 text-[14px]" style={{ color: "var(--text-secondary)" }}>
-                {q ? `No chats match "${query}"` : "None yet. A side chat keeps a topic apart from the main chat."}
-              </p>
-            )}
-            {sides.map((c) => (
-              <Row key={c.id} chat={c} current={current === c.id} actions={actions} />
-            ))}
-          </div>
+          {sides.map((c) => (
+            <Row key={c.id} chat={c} current={current === c.id} actions={actions} />
+          ))}
         </div>
-      </aside>
-    </div>
+      </div>
+    </>
   );
 }
 

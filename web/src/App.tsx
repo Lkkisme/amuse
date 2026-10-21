@@ -21,15 +21,22 @@ import { close, useBack } from "./back.ts";
 
 /** the width the user dragged the viewer to (only that is kept; the default follows the window) */
 const VIEWER_WIDTH = "amuse.viewerDragged";
-/** The viewer is at least 420px; the chat keeps at least 360px beside the 56px rail. */
+/** The viewer is at least 420px; the chat keeps at least 360px (the sidebar gives way first). */
 const clampViewer = (width: number) =>
-  Math.round(Math.max(420, Math.min(width, innerWidth - 56 - 360)));
+  Math.round(Math.max(420, Math.min(width, innerWidth - 360)));
+/** whether the sidebar is docked where there is room (the user's choice) */
+const SIDEBAR = "amuse.sidebar";
+/** the chat's least width beside a docked sidebar: with less, the sidebar collapses */
+const CHAT_ROOM = 480;
 import { MusePanel } from "./components/MusePanel";
 import { ChatFeed } from "./components/ChatFeed";
-import { ChatsPanel } from "./components/ChatsPanel";
+import {
+  DockedSidebar,
+  DrawerSidebar,
+  SIDEBAR_WIDTH,
+} from "./components/ChatsPanel";
 import { Composer } from "./components/Composer";
 import { ExplainerModal } from "./components/ExplainerModal";
-import { IconRail } from "./components/IconRail";
 import { SettingsModal } from "./components/SettingsModal";
 import { TaskDetailSheet } from "./components/TaskDetailSheet";
 import { BrowserButton } from "./components/BrowserButton";
@@ -69,6 +76,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
   const [ui, setUi] = useState<Ui>(() => ({
     ...initialUi,
     theme: storedTheme(),
+    sidebar: localStorage.getItem(SIDEBAR) !== "false",
   }));
   const {
     state: conversation,
@@ -142,6 +150,34 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         Math.min(innerWidth - 482, (innerWidth * 2) / 3),
     ),
   );
+  /** the window's width: what decides whether the sidebar has room to dock */
+  const [width, setWidth] = useState(innerWidth);
+  useEffect(() => {
+    const resized = () => setWidth(innerWidth);
+    addEventListener("resize", resized);
+    return () => removeEventListener("resize", resized);
+  }, []);
+  // the right side's share: the browser (docked from lg), or a docked Muse panel
+  const right =
+    ui.viewer && width >= 1024
+      ? viewerWidth
+      : ui.museOpen && !ui.viewer
+        ? 360
+        : 0;
+  /** room to dock the sidebar and leave the chat enough (md up) */
+  const fits = width >= 768 && width - right - SIDEBAR_WIDTH >= CHAT_ROOM;
+  const docked = ui.sidebar && fits;
+  // once there is room to dock it, the sidebar is no longer a drawer over the chat
+  useEffect(() => {
+    if (docked) setUi((u) => (u.chatsOpen ? { ...u, chatsOpen: false } : u));
+  }, [docked]);
+  useEffect(() => {
+    // read by what floats over the chat (the Muse panel), to keep beside the sidebar
+    document.documentElement.style.setProperty(
+      "--sidebar-width",
+      `${docked ? SIDEBAR_WIDTH : 0}px`,
+    );
+  }, [docked]);
   useEffect(() => {
     document.documentElement.style.setProperty(
       "--viewer-width",
@@ -311,6 +347,12 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
       stopTask: (id) => call("task.stop", { id }),
       openTaskDetail: (taskDetail) => patch((u) => ({ ...u, taskDetail })),
       setChats: (chatsOpen) => patch((u) => ({ ...u, chatsOpen })),
+      setSidebar: (sidebar) => {
+        localStorage.setItem(SIDEBAR, String(sidebar));
+        patch((u) => ({ ...u, sidebar, chatsOpen: false }));
+      },
+      openLeft: (left) => patch((u) => ({ ...u, left, goal: null })),
+      openGoal: (goal) => patch((u) => ({ ...u, goal })),
       // a chat's browsers are its own: the viewer starts over
       openChat: (chat) =>
         patch((u) => ({ ...u, chat, chatsOpen: false, viewer: null })),
@@ -374,7 +416,16 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         className="flex h-full"
         style={{ background: "var(--chat-background)" }}
       >
-        <IconRail actions={actions} />
+        {docked && (
+          <DockedSidebar
+            chats={chats}
+            current={ui.chat}
+            left={ui.left}
+            goal={ui.goal}
+            session={session}
+            actions={actions}
+          />
+        )}
         {/* with the viewer open on desktop, the chat keeps what the viewer leaves */}
         <div
           className={`relative flex min-w-0 flex-1 flex-col ${ui.viewer ? "lg:mr-[var(--viewer-width)]" : ""}`}
@@ -392,7 +443,14 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
             museOpen={ui.museOpen}
             actions={actions}
           />
-          <MenuButton open={ui.chatsOpen} actions={actions} />
+          <MenuButton
+            open={docked || ui.chatsOpen}
+            onToggle={() =>
+              fits
+                ? actions.setSidebar(!docked)
+                : actions.setChats(!ui.chatsOpen)
+            }
+          />
           <BrowserButton
             conversation={conversation}
             open={ui.viewer !== null}
@@ -443,10 +501,13 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
             actions={actions}
           />
         )}
-        <ChatsPanel
-          open={ui.chatsOpen}
+        <DrawerSidebar
+          open={ui.chatsOpen && !docked}
           chats={chats}
           current={ui.chat}
+          left={ui.left}
+          goal={ui.goal}
+          session={session}
           actions={actions}
         />
         <SettingsModal

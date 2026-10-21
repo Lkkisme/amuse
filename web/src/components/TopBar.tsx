@@ -75,7 +75,8 @@ function AvatarBadge({ line }: { line: AgentLine | null }) {
  * under the viewer's z-50) and morphs into a collapse icon while the drawer
  * is open, so one tap target opens and closes it.
  */
-export function MenuButton({ open, actions }: { open: boolean; actions: Actions }) {
+/** ☰: docks or collapses the sidebar where there is room for it, else opens or closes it over the chat. */
+export function MenuButton({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   const icon = "absolute transition-all duration-200 ease-out";
   return (
     <button
@@ -83,7 +84,7 @@ export function MenuButton({ open, actions }: { open: boolean; actions: Actions 
       aria-expanded={open}
       className="hover-fade absolute left-3 top-2 z-[45] flex size-11 items-center justify-center rounded-full"
       style={{ background: "var(--fill-primary)", color: "var(--text-primary)", boxShadow: "var(--shadow-float)" }}
-      onClick={() => actions.setChats(!open)}
+      onClick={onToggle}
     >
       <Menu size={20} className={icon} style={{ opacity: open ? 0 : 1, transform: open ? "rotate(90deg) scale(0.6)" : "none" }} />
       <PanelLeftClose

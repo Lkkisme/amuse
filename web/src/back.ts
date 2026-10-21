@@ -8,6 +8,8 @@ import { useEffect, useRef } from "react";
 import type { Ui } from "./ui.ts";
 
 export type Layer =
+  | "left"
+  | "goal"
   | "muse"
   | "chats"
   | "viewer"
@@ -24,6 +26,8 @@ export type Layer =
  */
 export function layers(ui: Ui, phone: boolean): Layer[] {
   const open: [Layer, boolean][] = [
+    ["left", ui.left !== null],
+    ["goal", ui.left === "goals" && ui.goal !== null],
     ["muse", ui.museOpen],
     ["chats", ui.chatsOpen],
     ["viewer", ui.viewer !== null],
@@ -40,6 +44,10 @@ export function layers(ui: Ui, phone: boolean): Layer[] {
 /** `ui` with `layer` closed, and nothing else changed. */
 export function close(ui: Ui, layer: Layer): Ui {
   switch (layer) {
+    case "left":
+      return { ...ui, left: null, goal: null };
+    case "goal":
+      return { ...ui, goal: null };
     case "muse":
       return { ...ui, museOpen: false };
     case "chats":
