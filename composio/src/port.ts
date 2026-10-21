@@ -50,7 +50,7 @@ export function composioConnector<H>(client: Pick<Composio, "link" | "status">, 
     const { title, id } = watch.connection;
     // wake the agent: whatever needed the app can go on now (or it knows it will not)
     if (status === "active") {
-      if (watch.io.act({ kind: "connected", id }).ok) watch.io.report(`[app connection] ${title} is connected now. If something was waiting on it, carry on with it.`);
+      if (watch.io.act({ kind: "connected", id }).ok) watch.io.report(`[app connection] ${title} is connected now. If something was waiting on it, carry on with it; if not, there is nothing to say.`);
     } else watch.io.report(`[app connection] Connecting ${title} did not go through (the authorization failed or was cancelled).`);
     return status === "active" ? "active" : "done";
   };
