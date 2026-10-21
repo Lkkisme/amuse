@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileCredentials } from "./credentials.ts";
-import { piKeys } from "./keys.ts";
+import { piKeys, plainly } from "./keys.ts";
 
 const composio = {
   id: "composio",
@@ -112,4 +112,42 @@ test("a sign-in can be stopped, and an unknown provider is refused", async () =>
   assert.equal((await keys.answer(first.login, "late")).kind, "failed");
   assert.equal((await keys.list()).providers.find((p) => p.id === "fireworks")?.connected, false);
   assert.equal((await keys.login("no-such-provider")).kind, "failed");
+});
+
+test("a key is tried on request: none set up says so; an app's test says how it went, never echoing the key", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "remuse-keys-"));
+  let works = true;
+  const keys = piKeys({
+    keys: fileCredentials(join(dir, "keys.json")),
+    choicePath: join(dir, "models.json"),
+    apps: [
+      {
+        ...composio,
+        test: async (key) => {
+          if (!works) throw new Error(`401 Unauthorized for ${key}`);
+        },
+      },
+    ],
+  });
+  assert.deepEqual(await keys.test("fireworks"), { ok: false, detail: "No key is set up." });
+  assert.deepEqual(await keys.test("composio"), { ok: false, detail: "No key is set up." });
+
+  const first = await keys.login("composio");
+  if (first.kind !== "prompt") return assert.fail("expected a prompt");
+  await keys.answer(first.login, "ak_composio_5678");
+  assert.deepEqual(await keys.test("composio"), { ok: true, detail: "The key works." });
+  works = false;
+  const failed = await keys.test("composio");
+  assert.equal(failed.ok, false);
+  assert.ok(failed.detail.includes("401") && !failed.detail.includes("ak_composio_5678"));
+});
+
+test("a provider's error reads plainly", () => {
+  assert.equal(
+    plainly('401 {"type":"error","error":{"type":"authentication_error","message":"The API key you provided is invalid."},"request_id":"x"}'),
+    "401 · The API key you provided is invalid.",
+  );
+  assert.equal(plainly('{"error":"Invalid token"}'), "Invalid token");
+  assert.equal(plainly("fetch failed"), "fetch failed");
+  assert.equal(plainly("500 {not json"), "500 {not json");
 });

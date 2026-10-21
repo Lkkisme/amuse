@@ -11,6 +11,7 @@ import {
   type Attachment,
   type Permission,
   type KindRule,
+  type KeyTest,
   type LoginStep,
   type ModelRole,
   type ToolKind,
@@ -237,6 +238,8 @@ export interface Keys {
   login(provider: string): Promise<LoginStep>;
   answer(login: string, value: string): Promise<LoginStep>;
   cancel(login: string): Promise<void>;
+  /** Try a provider's key with one short request. */
+  test(provider: string): Promise<KeyTest>;
   logout(provider: string): Promise<void>;
   choose(role: ModelRole, model: string): Promise<void>;
 }
@@ -247,6 +250,7 @@ export const noKeys: Keys = {
   login: async () => ({ kind: "failed", reason: "No keys are kept here." }),
   answer: async () => ({ kind: "failed", reason: "No keys are kept here." }),
   cancel: async () => {},
+  test: async () => ({ ok: false, detail: "No keys are kept here." }),
   logout: async () => {},
   choose: async () => {
     throw new Error("No models are chosen here.");
@@ -719,6 +723,7 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
       await ports.keys.cancel(login);
       return null;
     },
+    "keys.test": ({ provider }) => ports.keys.test(provider),
     "keys.logout": async ({ provider }) => {
       await ports.keys.logout(provider);
       return null;

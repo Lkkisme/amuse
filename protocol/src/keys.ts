@@ -60,6 +60,10 @@ export const LoginStep = z.discriminatedUnion("kind", [
 ]);
 export type LoginStep = z.infer<typeof LoginStep>;
 
+/** How a key's test went: it works, or why not (in the provider's words). */
+export const KeyTest = z.object({ ok: z.boolean(), detail: z.string() });
+export type KeyTest = z.infer<typeof KeyTest>;
+
 export const KeysState = z.object({
   providers: z.array(KeyProvider),
   /** the models the providers set up offer */

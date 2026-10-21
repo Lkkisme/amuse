@@ -2,7 +2,7 @@
  * UI-only state: which panels are open and what they show. Server state is
  * the conversation (session.ts); this never duplicates it, only ids into it.
  */
-import { type App, type Attachment, MAIN } from "@remuse/protocol";
+import { type App, type Attachment, type KeyProvider, MAIN } from "@remuse/protocol";
 
 export type SettingsSection = "general" | "models" | "connectors" | "permissions" | "schedules";
 
@@ -18,7 +18,8 @@ export interface Ui {
   /** the Muse panel (profile and activity): docked on the right, or floating over the chat while the browser has the right */
   museOpen: boolean;
   /** section null: on a phone, the list of sections (on a desktop, the first one) */
-  settings: { open: boolean; section: SettingsSection | null; app: App | null };
+  /** `app`, `provider`: a connector's or a key provider's page, open over its section */
+  settings: { open: boolean; section: SettingsSection | null; app: App | null; provider: KeyProvider | null };
   /** browser viewer: active tab, and tabs the user closed (every other run is a tab) */
   viewer: { browserId: string | null } | null;
   /** connection whose pre-connect explainer is open */
@@ -34,7 +35,7 @@ export const initialUi: Ui = {
   chat: MAIN,
   chatsOpen: false,
   museOpen: false,
-  settings: { open: false, section: null, app: null },
+  settings: { open: false, section: null, app: null, provider: null },
   viewer: null,
   explainer: null,
   taskDetail: null,
@@ -75,6 +76,7 @@ export interface Actions {
   openSettings(section: SettingsSection | null): void;
   /** Settings › Connectors: an app's page, or back to the list (null) */
   openApp(app: App | null): void;
+  openProvider(provider: KeyProvider | null): void;
   closeSettings(): void;
   setTheme(theme: Theme): void;
   reset(): void;

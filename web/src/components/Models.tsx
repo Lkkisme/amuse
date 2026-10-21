@@ -1,26 +1,37 @@
 /**
  * Settings › Models: the model Muse chats with and the one that works in the
  * browser (it must see pictures), among those of the providers set up with
- * the user's own API keys; the providers set up (only the end of a key shows),
- * and every other one to add.
+ * the user's own API keys; the providers set up (only the end of a key
+ * shows), each with a page of its own to test, replace or remove its key; and
+ * every other one to add.
  */
 import { useCallback, useEffect, useState } from "react";
-import { ChevronRight, Search, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, KeyRound, Search } from "lucide-react";
 import type {
   KeyProvider,
   KeysState,
   ModelRole,
   Session,
 } from "@remuse/protocol";
-import { KeyLogin } from "./KeyLogin";
+import { KeyLine, KeyLogin, type TestState, useKeyTests } from "./KeyLogin";
 
 const label = "mb-2 mt-6 px-1 text-[13px] font-medium";
 const group = "divide-y divide-[var(--fill-divider)] rounded-[18px] px-4";
 
-export function Models({ session }: { session: Session }) {
+/** `viewing`: the provider whose page is open (the settings' own state, so a phone's back button can leave it). */
+export function Models({
+  session,
+  viewing,
+  onView,
+}: {
+  session: Session;
+  viewing: KeyProvider | null;
+  onView: (provider: KeyProvider | null) => void;
+}) {
   const [state, setState] = useState<KeysState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [setting, setSetting] = useState<KeyProvider | null>(null);
+  const { tests, test, clear } = useKeyTests(session);
   const [query, setQuery] = useState("");
 
   const load = useCallback(
@@ -40,6 +51,8 @@ export function Models({ session }: { session: Session }) {
   };
   const forget = (provider: KeyProvider) => {
     setError(null);
+    clear(provider.id);
+    onView(null);
     session.call("keys.logout", { provider: provider.id }).then(load, fail);
   };
 
@@ -52,6 +65,39 @@ export function Models({ session }: { session: Session }) {
       (!words || p.name.toLowerCase().includes(words) || p.id.includes(words)),
   );
   const models = state?.models ?? [];
+  // the page shows the provider as it is now (its key may have been replaced)
+  const open =
+    viewing && (providers.find((p) => p.id === viewing.id) ?? viewing);
+
+  const sheet = (
+    <KeyLogin
+      session={session}
+      provider={setting}
+      onClose={(done) => {
+        // a key just set up is tried at once
+        if (done && setting) test(setting.id);
+        setSetting(null);
+        if (done) void load();
+      }}
+    />
+  );
+
+  if (open)
+    return (
+      <ProviderPage
+        provider={open}
+        test={tests[open.id]}
+        uses={(["chat", "browser"] satisfies ModelRole[]).filter((role) =>
+          state?.[role]?.startsWith(`${open.id}/`),
+        )}
+        onBack={() => onView(null)}
+        onTest={() => test(open.id)}
+        onReplace={() => setSetting(open)}
+        onRemove={() => forget(open)}
+      >
+        {sheet}
+      </ProviderPage>
+    );
 
   return (
     <div className="flex-1 overflow-y-auto px-5 pb-6 sm:px-6">
@@ -98,37 +144,24 @@ export function Models({ session }: { session: Session }) {
           </p>
           <ul className={group} style={{ background: "var(--fill-secondary)" }}>
             {mine.map((p) => (
-              <li key={p.id} className="flex items-center gap-3 py-2.5">
-                <span className="min-w-0 flex-1">
-                  <span
-                    className="block truncate text-[16px]"
-                    style={{ color: "var(--text-primary)" }}
-                  >
-                    {p.name}
-                  </span>
-                  {p.hint && (
+              <li key={p.id}>
+                <button
+                  className="flex w-full items-center gap-3 py-2.5 text-left"
+                  onClick={() => onView(p)}
+                >
+                  <span className="min-w-0 flex-1">
                     <span
-                      className="block text-[13px]"
-                      style={{ color: "var(--text-secondary)" }}
+                      className="block truncate text-[16px]"
+                      style={{ color: "var(--text-primary)" }}
                     >
-                      Key {p.hint}
+                      {p.name}
                     </span>
-                  )}
-                </span>
-                <button
-                  className="hover-fade rounded-full px-2 py-1 text-[14px] font-medium"
-                  style={{ color: "var(--fill-blue)" }}
-                  onClick={() => setSetting(p)}
-                >
-                  Replace
-                </button>
-                <button
-                  aria-label={`Remove the key for ${p.name}`}
-                  className="hover-fade rounded-full p-1"
-                  style={{ color: "var(--icon-secondary)" }}
-                  onClick={() => forget(p)}
-                >
-                  <X size={16} />
+                    <KeyLine hint={p.hint} test={tests[p.id]} brief />
+                  </span>
+                  <ChevronRight
+                    size={16}
+                    style={{ color: "var(--icon-secondary)" }}
+                  />
                 </button>
               </li>
             ))}
@@ -183,15 +216,110 @@ export function Models({ session }: { session: Session }) {
           </li>
         ))}
       </ul>
+      {sheet}
+    </div>
+  );
+}
 
-      <KeyLogin
-        session={session}
-        provider={setting}
-        onClose={(done) => {
-          setSetting(null);
-          if (done) void load();
+/** A provider set up: its key (only the end), what it is used for, and what can be done with it. */
+function ProviderPage({
+  provider,
+  test,
+  uses,
+  onBack,
+  onTest,
+  onReplace,
+  onRemove,
+  children,
+}: {
+  provider: KeyProvider;
+  test: TestState;
+  uses: ModelRole[];
+  onBack: () => void;
+  onTest: () => void;
+  onReplace: () => void;
+  onRemove: () => void;
+  children: React.ReactNode;
+}) {
+  const row =
+    "hover-fade w-full py-3.5 text-left text-[15px] disabled:opacity-50";
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6 pt-3 sm:px-6">
+      <button
+        aria-label="Back"
+        // a desktop's way back to the providers (a phone's is in the settings' own bar)
+        className="hover-fade hidden size-8 shrink-0 items-center justify-center rounded-full sm:flex"
+        style={{
+          background: "var(--fill-primary)",
+          color: "var(--icon-primary)",
+          boxShadow: "var(--shadow-float)",
         }}
-      />
+        onClick={onBack}
+      >
+        <ChevronLeft size={18} />
+      </button>
+      <div className="mt-2 flex flex-col items-center text-center">
+        <span
+          className="flex size-12 items-center justify-center rounded-[14px]"
+          style={{ background: "#ffffff", color: "#111112" }}
+        >
+          <KeyRound size={22} />
+        </span>
+        <p
+          className="mt-2 text-[18px] font-semibold"
+          style={{ color: "var(--text-primary)" }}
+        >
+          {provider.name}
+        </p>
+        <p
+          className="mt-0.5 text-[13px]"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          {uses.length === 0
+            ? "Not used for a model now"
+            : `Used for ${uses.map((u) => (u === "chat" ? "chat" : "the browser")).join(" and ")}`}
+        </p>
+      </div>
+      <div
+        className="mt-5 rounded-[18px] px-4 py-3"
+        style={{ background: "var(--fill-secondary)" }}
+      >
+        <KeyLine hint={provider.hint} test={test} />
+      </div>
+      <ul
+        className={`${group} mt-3`}
+        style={{ background: "var(--fill-secondary)" }}
+      >
+        <li>
+          <button
+            disabled={test === "testing"}
+            className={row}
+            style={{ color: "var(--fill-blue)" }}
+            onClick={onTest}
+          >
+            Test key
+          </button>
+        </li>
+        <li>
+          <button
+            className={row}
+            style={{ color: "var(--fill-blue)" }}
+            onClick={onReplace}
+          >
+            Replace key
+          </button>
+        </li>
+        <li>
+          <button
+            className={row}
+            style={{ color: "var(--fill-red)" }}
+            onClick={onRemove}
+          >
+            Remove key
+          </button>
+        </li>
+      </ul>
+      {children}
     </div>
   );
 }

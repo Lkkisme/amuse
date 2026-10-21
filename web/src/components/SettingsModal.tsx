@@ -253,7 +253,9 @@ export function SettingsModal({
     ? "Settings"
     : ui.app
       ? ui.app.name
-      : (NAV.find((n) => n.id === section)?.label ?? "");
+      : ui.provider
+        ? ui.provider.name
+        : (NAV.find((n) => n.id === section)?.label ?? "");
   const adds = !ui.app && shown === "permissions" ? "Add a website" : null;
   // a phone's bar has the chat's round buttons; a desktop's has small labelled ones, the height of its close button
   const add = adds && (
@@ -304,7 +306,9 @@ export function SettingsModal({
                 ? "Close settings"
                 : ui.app
                   ? "All connectors"
-                  : "All settings"
+                  : ui.provider
+                    ? "All providers"
+                    : "All settings"
             }
             className={barButton}
             style={barButtonLook}
@@ -313,7 +317,9 @@ export function SettingsModal({
                 ? actions.closeSettings()
                 : ui.app
                   ? actions.openApp(null)
-                  : actions.openSettings(null)
+                  : ui.provider
+                    ? actions.openProvider(null)
+                    : actions.openSettings(null)
             }
           >
             <ChevronLeft size={barIcon} />
@@ -381,7 +387,7 @@ export function SettingsModal({
               className="flex-1 truncate text-[20px] font-semibold"
               style={{ color: "var(--text-primary)" }}
             >
-              {ui.app ? "" : title}
+              {ui.app || ui.provider ? "" : title}
             </p>
             {addLabelled}
             <button
@@ -412,7 +418,13 @@ export function SettingsModal({
             />
           )}
           {shown === "schedules" && <Schedules session={session} />}
-          {shown === "models" && <Models session={session} />}
+          {shown === "models" && (
+            <Models
+              session={session}
+              viewing={ui.provider}
+              onView={actions.openProvider}
+            />
+          )}
           {shown === "general" && (
             <GeneralSection theme={theme} server={!demo} actions={actions} />
           )}

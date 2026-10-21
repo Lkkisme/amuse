@@ -9,7 +9,7 @@ import { Account, App, KindRule, Permission, Site, SiteRule, ToolKind } from "./
 import { Attachment, Id, Resolution, Schedule, TimeZone } from "./entities.ts";
 import { Envelope, Index, Page, Seq, State } from "./events.ts";
 import { Chat, Push } from "./chats.ts";
-import { KeysState, LoginStep, ModelRef, ModelRole } from "./keys.ts";
+import { KeyTest, KeysState, LoginStep, ModelRef, ModelRole } from "./keys.ts";
 
 const call = <M extends string, P extends z.ZodObject>(method: M, params: P) =>
   z.object({ method: z.literal(method), params });
@@ -77,6 +77,8 @@ export const Call = z.discriminatedUnion("method", [
   /** Answer a sign-in's prompt: the next one (or done/failed). */
   call("keys.answer", z.object({ login: z.string().min(1).max(100), value: z.string().max(8192) })),
   call("keys.cancel", z.object({ login: z.string().min(1).max(100) })),
+  /** Try a provider's key: one short request with it (a model of theirs; the apps' directory for Composio). */
+  call("keys.test", z.object({ provider: z.string().min(1).max(100) })),
   /** Forget a provider's key. */
   call("keys.logout", z.object({ provider: z.string().min(1).max(100) })),
   /** Choose the model Muse chats with, or the one that works in the browser (it must see pictures). */
@@ -123,6 +125,7 @@ export const results = {
   "keys.login": LoginStep,
   "keys.answer": LoginStep,
   "keys.cancel": done,
+  "keys.test": KeyTest,
   "keys.logout": done,
   "models.choose": done,
 } satisfies Record<Method, z.ZodType>;
@@ -165,6 +168,7 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "keys.login": (raw) => results["keys.login"].parse(raw),
   "keys.answer": (raw) => results["keys.answer"].parse(raw),
   "keys.cancel": (raw) => results["keys.cancel"].parse(raw),
+  "keys.test": (raw) => results["keys.test"].parse(raw),
   "keys.logout": (raw) => results["keys.logout"].parse(raw),
   "models.choose": (raw) => results["models.choose"].parse(raw),
 };

@@ -6,7 +6,12 @@
  */
 import { useEffect, useState } from "react";
 import { KeyRound } from "lucide-react";
-import type { KeyProvider, LoginStep, Session } from "@remuse/protocol";
+import type {
+  KeyProvider,
+  KeyTest,
+  LoginStep,
+  Session,
+} from "@remuse/protocol";
 import { Sheet } from "./Sheet";
 
 export function KeyLogin({
@@ -223,5 +228,56 @@ export function KeyLogin({
         </button>
       </div>
     </Sheet>
+  );
+}
+
+/** Keys being tried, by provider: testing, or how it went. */
+export function useKeyTests(session: Session) {
+  const [tests, setTests] = useState<Record<string, TestState>>({});
+  const test = (provider: string) => {
+    setTests((t) => ({ ...t, [provider]: "testing" }));
+    session.call("keys.test", { provider }).then(
+      (result) => setTests((t) => ({ ...t, [provider]: result })),
+      (e: unknown) =>
+        setTests((t) => ({
+          ...t,
+          [provider]: {
+            ok: false,
+            detail: e instanceof Error ? e.message : String(e),
+          },
+        })),
+    );
+  };
+  /** forget a result once the key changes */
+  const clear = (provider: string) =>
+    setTests(({ [provider]: _, ...rest }) => rest);
+  return { tests, test, clear };
+}
+
+/** Where a key's test stands: not tried, being tried, or how it went. */
+export type TestState = KeyTest | "testing" | undefined;
+
+/** A key's line: its end, and how its test went (`brief`: only whether it works, for a list). */
+export function KeyLine({
+  hint,
+  test,
+  brief = false,
+}: {
+  hint: string | null;
+  test: TestState;
+  brief?: boolean;
+}) {
+  const failed = test !== undefined && test !== "testing" && !test.ok;
+  return (
+    <span
+      className="block text-[13px] [overflow-wrap:anywhere]"
+      style={{ color: failed ? "var(--fill-red)" : "var(--text-secondary)" }}
+    >
+      {hint ? `Key ${hint}` : "Key set"}
+      {test === "testing" && " · Testing…"}
+      {test !== undefined &&
+        test !== "testing" &&
+        ` · ${test.ok ? "Works" : brief ? "Not working" : test.detail}`}
+    </span>
   );
 }

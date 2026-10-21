@@ -33,6 +33,7 @@ const handlers: Handlers = {
   "keys.login": async () => ({ kind: "done" }),
   "keys.answer": async () => ({ kind: "done" }),
   "keys.cancel": async () => null,
+  "keys.test": async () => ({ ok: true, detail: "GLM 5.3 Flash answered." }),
   "keys.logout": async () => null,
   "models.choose": async () => null,
 };

@@ -236,10 +236,12 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         patch((u) => ({
           ...u,
           chatsOpen: false,
-          settings: { open: true, section, app: null },
+          settings: { open: true, section, app: null, provider: null },
         })),
       openApp: (app) =>
         patch((u) => ({ ...u, settings: { ...u.settings, app } })),
+      openProvider: (provider) =>
+        patch((u) => ({ ...u, settings: { ...u.settings, provider } })),
       closeSettings: () =>
         patch((u) => ({ ...u, settings: { ...u.settings, open: false } })),
       setTheme: (theme) => patch((u) => ({ ...u, theme })),

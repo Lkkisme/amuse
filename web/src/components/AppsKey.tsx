@@ -1,14 +1,15 @@
 /**
  * Settings › Connectors, behind the apps' own key: apps are connected through
  * Composio, with the user's Composio API key. Without one, the page asks for
- * it; with one, it shows the connectors, and the key (only its end) to
- * replace or remove.
+ * it; with one, it shows the connectors, and below them the key (only its
+ * end), which opens what can be done with it: test, replace, remove.
  */
 import { useCallback, useEffect, useState } from "react";
-import { LayoutGrid } from "lucide-react";
+import { ChevronRight, KeyRound, LayoutGrid } from "lucide-react";
 import type { App, KeyProvider, Session } from "@remuse/protocol";
 import { Connectors } from "./Connectors";
-import { KeyLogin } from "./KeyLogin";
+import { KeyLine, KeyLogin, useKeyTests } from "./KeyLogin";
+import { Sheet } from "./Sheet";
 
 /** `demo`: the in-browser demo, whose connectors are scripted and need no key. */
 export function AppsKey({
@@ -25,6 +26,8 @@ export function AppsKey({
   const [key, setKey] = useState<KeyProvider | null | undefined>(undefined);
   const [setting, setSetting] = useState<KeyProvider | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { tests, test, clear } = useKeyTests(session);
+  const [managing, setManaging] = useState(false);
   const load = useCallback(
     () =>
       session.call("keys.list", {}).then(
@@ -40,6 +43,8 @@ export function AppsKey({
       session={session}
       provider={setting}
       onClose={(done) => {
+        // a key just set up is tried at once
+        if (done && setting) test(setting.id);
         setSetting(null);
         if (done) void load();
       }}
@@ -90,35 +95,96 @@ export function AppsKey({
   return (
     <>
       <Connectors session={session} viewing={viewing} onView={onView} />
+      {/* the key: one row; what can be done with it opens over it */}
       {!viewing && (
-        <div
-          className="flex shrink-0 items-center gap-3 border-t px-5 py-3 text-[13px] sm:px-6"
-          style={{
-            borderColor: "var(--fill-divider)",
-            color: "var(--text-secondary)",
-          }}
+        <button
+          className="flex shrink-0 items-center gap-3 border-t px-5 py-3 text-left sm:px-6"
+          style={{ borderColor: "var(--fill-divider)" }}
+          onClick={() => setManaging(true)}
         >
-          <span className="min-w-0 flex-1 truncate">
-            Composio key {key.hint ?? ""}
+          <span className="min-w-0 flex-1">
+            <span
+              className="block text-[15px]"
+              style={{ color: "var(--text-primary)" }}
+            >
+              Composio
+            </span>
+            <KeyLine hint={key.hint} test={tests[key.id]} brief />
           </span>
-          <button
-            className="hover-fade font-medium"
-            style={{ color: "var(--fill-blue)" }}
-            onClick={() => setSetting(key)}
+          <ChevronRight size={16} style={{ color: "var(--icon-secondary)" }} />
+        </button>
+      )}
+      <Sheet open={managing} onClose={() => setManaging(false)} bare>
+        <div className="flex flex-col items-center px-6 pb-6 pt-5 text-center">
+          <span
+            className="flex size-14 items-center justify-center rounded-[16px]"
+            style={{ background: "#ffffff", color: "#111112" }}
           >
-            Replace
-          </button>
-          <button
-            className="hover-fade font-medium"
-            style={{ color: "var(--fill-red)" }}
-            onClick={() =>
-              void session.call("keys.logout", { provider: key.id }).then(load)
-            }
+            <KeyRound size={26} />
+          </span>
+          <p
+            className="mt-4 text-[20px] font-semibold"
+            style={{ color: "var(--text-primary)" }}
           >
-            Remove
+            Composio
+          </p>
+          <div
+            className="mt-4 w-full rounded-[18px] px-4 py-3 text-left"
+            style={{ background: "var(--field)" }}
+          >
+            <KeyLine hint={key.hint} test={tests[key.id]} />
+          </div>
+          <ul
+            className="mt-3 w-full divide-y divide-[var(--fill-divider)] rounded-[18px] px-4 text-left"
+            style={{ background: "var(--field)" }}
+          >
+            <li>
+              <button
+                disabled={tests[key.id] === "testing"}
+                className="hover-fade w-full py-3.5 text-left text-[16px] disabled:opacity-50"
+                style={{ color: "var(--fill-blue)" }}
+                onClick={() => test(key.id)}
+              >
+                Test key
+              </button>
+            </li>
+            <li>
+              <button
+                className="hover-fade w-full py-3.5 text-left text-[16px]"
+                style={{ color: "var(--fill-blue)" }}
+                onClick={() => {
+                  setManaging(false);
+                  setSetting(key);
+                }}
+              >
+                Replace key
+              </button>
+            </li>
+            <li>
+              <button
+                className="hover-fade w-full py-3.5 text-left text-[16px]"
+                style={{ color: "var(--fill-red)" }}
+                onClick={() => {
+                  setManaging(false);
+                  clear(key.id);
+                  void session
+                    .call("keys.logout", { provider: key.id })
+                    .then(load);
+                }}
+              >
+                Remove key
+              </button>
+            </li>
+          </ul>
+          <button
+            className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
+            style={{ color: "var(--text-primary)" }}
+            onClick={() => setManaging(false)}
+          >
+            Done
           </button>
         </div>
-      )}
+      </Sheet>
       {sheet}
     </>
   );

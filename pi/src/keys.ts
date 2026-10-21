@@ -23,7 +23,12 @@ export interface AppKey {
   name: string;
   message: string;
   link: { url: string; label: string };
+  /** One short request with `key`; throws when it does not work. */
+  test?(key: string): Promise<void>;
 }
+
+/** How long a key's test may take. */
+const TEST_TIMEOUT_MS = 30_000;
 
 export interface PiKeys extends Keys {
   /** The model chosen for `role`, as "provider/model-id"; null: none yet. */
@@ -73,6 +78,26 @@ function noteOf(event: AuthEvent): LoginNote | null {
     };
   if (event.type === "progress") return { message: event.message, links: [] };
   return null; // auth_url and device_code belong to OAuth, which is not offered
+}
+
+/** A provider's error as a person reads it: "401 {…"message":"The API key you provided is invalid."…}" → "401 · The API key you provided is invalid." */
+export function plainly(error: string): string {
+  const json = error.indexOf("{");
+  if (json < 0) return error;
+  let body: unknown;
+  try {
+    body = JSON.parse(error.slice(json));
+  } catch {
+    return error;
+  }
+  const message = (value: unknown): string | null => {
+    if (typeof value !== "object" || value === null) return null;
+    if ("message" in value && typeof value.message === "string") return value.message;
+    return "error" in value ? (typeof value.error === "string" ? value.error : message(value.error)) : null;
+  };
+  const said = message(body);
+  const before = error.slice(0, json).trim().replace(/[:\s]+$/, "");
+  return said ? (before ? `${before} · ${said}` : said) : error;
 }
 
 /** A sign-in in progress: what it waits for, and how to hear its next step. */
@@ -263,6 +288,40 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
     async cancel(login) {
       logins.get(login)?.abort.abort();
       logins.get(login)?.pending?.reject(new Error("The sign-in was stopped."));
+    },
+
+    async test(provider) {
+      const why = (e: unknown) => redact(plainly(e instanceof Error ? e.message : String(e)), keys.secrets());
+      const app = apps.find((a) => a.id === provider);
+      if (app) {
+        await loaded;
+        const key = appKeys.get(app.id);
+        if (!key) return { ok: false, detail: "No key is set up." };
+        try {
+          await app.test?.(key);
+          return { ok: true, detail: "The key works." };
+        } catch (e) {
+          return { ok: false, detail: why(e) };
+        }
+      }
+      if (!(await keys.read(provider))) return { ok: false, detail: "No key is set up." };
+      const models = await runtime(cfg);
+      // the model chosen from this provider, else the first it offers
+      const chosen = [choice.chat, choice.browser].map((ref) => (ref ? parseModel(ref) : undefined)).find((spec) => spec?.provider === provider);
+      const model = (chosen && models.getModel(chosen.provider, chosen.id)) ?? (await models.getAvailable(provider))[0];
+      if (!model) return { ok: false, detail: "This provider offers no model to try." };
+      try {
+        const reply = await models.completeSimple(
+          model,
+          { messages: [{ role: "user", content: "Reply with the word OK.", timestamp: Date.now() }] },
+          { maxTokens: 32, signal: AbortSignal.timeout(TEST_TIMEOUT_MS) },
+        );
+        if (reply.stopReason === "error" || reply.stopReason === "aborted")
+          return { ok: false, detail: why(reply.errorMessage ?? "The provider did not answer.") };
+        return { ok: true, detail: `${model.name} answered.` };
+      } catch (e) {
+        return { ok: false, detail: why(e) };
+      }
     },
 
     async logout(provider) {

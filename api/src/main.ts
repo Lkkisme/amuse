@@ -18,7 +18,7 @@
 import { dirname, join } from "node:path";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { NoComposioKey, composioApps, composioConnector, composioDirectory, keyedComposio } from "@remuse/composio";
+import { NoComposioKey, composio, composioApps, composioConnector, composioDirectory, keyedComposio } from "@remuse/composio";
 import { fileChats } from "./journal.ts";
 import { workspace } from "./workspace.ts";
 import { browserPool, controller } from "@remuse/browser";
@@ -64,6 +64,8 @@ const keys = piKeys({
         url: "https://platform.composio.dev/",
         label: "platform.composio.dev",
       },
+      // a key that lists the user's accounts works
+      test: async (key) => void (await composio(key).accounts(composioUser)),
     },
   ],
 });

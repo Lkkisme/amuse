@@ -14,6 +14,7 @@ export type Layer =
   | "settings"
   | "section"
   | "app"
+  | "provider"
   | "taskDetail"
   | "explainer";
 
@@ -29,6 +30,7 @@ export function layers(ui: Ui, phone: boolean): Layer[] {
     ["settings", ui.settings.open],
     ["section", ui.settings.open && phone && ui.settings.section !== null],
     ["app", ui.settings.open && ui.settings.app !== null],
+    ["provider", ui.settings.open && ui.settings.provider !== null],
     ["taskDetail", ui.taskDetail !== null],
     ["explainer", ui.explainer !== null],
   ];
@@ -47,9 +49,11 @@ export function close(ui: Ui, layer: Layer): Ui {
     case "settings":
       return { ...ui, settings: { ...ui.settings, open: false } };
     case "section":
-      return { ...ui, settings: { ...ui.settings, section: null, app: null } };
+      return { ...ui, settings: { ...ui.settings, section: null, app: null, provider: null } };
     case "app":
       return { ...ui, settings: { ...ui.settings, app: null } };
+    case "provider":
+      return { ...ui, settings: { ...ui.settings, provider: null } };
     case "taskDetail":
       return { ...ui, taskDetail: null };
     case "explainer":
