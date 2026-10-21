@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { BrowserAction, Permission, SiteActions, SiteEntry } from "@amuse/protocol";
-import { type BrowserRules, browserActions, browserPermission, browserRulesOf, decideBrowser, defaultBrowser, defaultPermission, kindOf, memoryRules, permissionOf, ruleSaid, siteOf, siteRuleFor, withSiteAction } from "./policy.ts";
+import { type BrowserRules, browserActions, hostOf, browserPermission, browserRulesOf, decideBrowser, defaultBrowser, defaultPermission, kindOf, memoryRules, permissionOf, ruleSaid, setSiteAction, setSiteEntry, siteOf, siteRuleFor, withSiteAction } from "./policy.ts";
 
 test("a tool's own hints decide its kind; without any, its name does", () => {
   assert.equal(kindOf("GMAIL_FETCH_EMAILS", ["readOnlyHint", "openWorldHint"]), "read");
@@ -137,9 +137,56 @@ test("browser and site rules are kept apart from app rules, and from each other"
 });
 
 test("Amuse's own sandbox is always open to its browsers, whatever the rules say of other sites", () => {
-  assert.equal(siteAccess({}, "http://sandbox:5173/"), "allow");
-  assert.equal(siteAccess({ sandbox: "deny" }, "http://sandbox:8000/app/"), "allow");
+  const rules: BrowserRules = { actions: { visit: "deny", submit: "deny" }, sites: { sandbox: entry({}, true) } };
+  assert.equal(browserPermission(rules, "http://sandbox:5173/", "visit"), "allow");
+  assert.equal(browserPermission(rules, "http://sandbox:8000/app/", "submit"), "allow");
+  assert.equal(browserPermission(rules, "http://sandbox:8000/app/", "upload"), "ask", "a file of the user's is still asked about");
   // only that name: a site that merely contains it is a site like any
-  assert.equal(siteAccess({}, "https://sandbox.example.com/"), "unlisted");
-  assert.equal(siteAccess({}, "https://mysandbox/"), "unlisted");
+  assert.equal(browserPermission(rules, "https://sandbox.example.com/", "visit"), "deny");
+  assert.equal(browserPermission(rules, "https://mysandbox/", "visit"), "deny");
+});
+
+test("a trailing dot, case, a full-width or encoded dot, or www do not get round a site's rule", () => {
+  const rules: BrowserRules = { actions: {}, sites: { "evil.com": entry({}, true), "ok.example": entry({ submit: "allow" }) } };
+  for (const url of [
+    "https://evil.com./x",
+    "https://evil.com../x",
+    "https://EVIL.com/x",
+    "https://www.evil.com./x",
+    "https://login.evil.com./x",
+    "https://Login.Evil.COM./x",
+    "https://evil%2Ecom/x",
+    "https://evil。com/x",
+    "http://evil.com.:8080/x",
+    "https://user:pw@evil.com./x",
+  ]) {
+    assert.equal(browserPermission(rules, url, "visit"), "deny", url);
+    assert.deepEqual(decideBrowser(rules, url, "submit").source, { kind: "never", site: "evil.com" }, url);
+    assert.equal(siteOf(url), url.toLowerCase().includes("login") ? "login.evil.com" : "evil.com", url);
+  }
+  assert.equal(browserPermission(rules, "https://ok.example./pay", "submit"), "allow", "a site's own rule, with the dot");
+  assert.equal(hostOf("https://www.Example.com./"), "example.com");
+  // a name in another script is the URL parser's punycode, and a rule for it matches
+  assert.equal(siteOf("https://münchen.de./"), "xn--mnchen-3ya.de");
+});
+
+test("a host no rule can name is still visited under the browser's settings, but has no site: nothing to keep a rule under", () => {
+  const rules: BrowserRules = { actions: { visit: "allow", submit: "deny" }, sites: { "evil.com": entry({}, true) } };
+  for (const url of ["http://[2606:4700::1111]/", "https://my_host.example.com/", "http://[::1]:8080/"]) {
+    assert.equal(siteOf(url), null, url);
+    assert.notEqual(hostOf(url), null, url);
+    assert.equal(browserPermission(rules, url, "visit"), "allow", url);
+    assert.deepEqual(decideBrowser(rules, url, "submit"), { permission: "deny", source: { kind: "global" } }, url);
+  }
+  assert.equal(hostOf("http://[2606:4700::1111]/"), "[2606:4700::1111]");
+  // not a web page at all: no
+  for (const url of ["about:blank", "file:///etc/passwd", "ftp://evil.com/", "not a url", "https://"]) assert.equal(browserPermission(rules, url, "visit"), "deny", url);
+});
+
+test("a rule cannot be kept for a name that would not be read back", () => {
+  for (const bad of ["evil.com.", "my_host.example.com", "[2606:4700::1111]", "nodots", "Upper.com", "", "a b.com"]) {
+    assert.throws(() => setSiteAction({}, bad, "submit", "allow"), /not a website name/, bad);
+    assert.throws(() => setSiteEntry({}, bad, { never: true, actions: {} }), /not a website name/, bad);
+  }
+  assert.deepEqual(setSiteAction({}, "evil.com", "never", "deny"), { "evil.com": { never: true, actions: {} } });
 });

@@ -14,7 +14,7 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
-import { type AgentIO, type BrowserRules, type RuleSource, type Rules, browserRulesOf, decideBrowser, siteOf } from "@amuse/core";
+import { type AgentIO, type BrowserRules, type RuleSource, type Rules, browserRulesOf, decideBrowser, hostOf } from "@amuse/core";
 import { Type } from "typebox";
 import { status } from "./status.ts";
 import { untrusted } from "./untrusted.ts";
@@ -63,7 +63,7 @@ export type Read = { kind: "text"; text: string } | { kind: "ask"; url: string }
 
 /** Why a URL may not be read, or null when it may; `ask` when its site needs the user's leave and has not got it. */
 async function refusal(url: string, rules: Rules, granted: ReadonlySet<string>): Promise<Read | null> {
-  const site = siteOf(url);
+  const site = hostOf(url);
   if (!site) return { kind: "text", text: `"${url}" is not an http(s) address.` };
   const { permission, source } = decideBrowser(await browserRulesOf(rules), url, "visit");
   if (permission === "deny") return { kind: "refused", url, source };
@@ -123,7 +123,7 @@ export async function readPage(url: string, rules: Rules, http: typeof fetch = f
       at = new URL(next, at).href;
       continue;
     }
-    if (!response.ok) return page(`${siteOf(at)} answered ${response.status}.`);
+    if (!response.ok) return page(`${hostOf(at)} answered ${response.status}.`);
     const type = response.headers.get("content-type") ?? "";
     if (!/text\/|html|json|xml/.test(type)) return page(`${at} is not a page to read (${type || "unknown type"}).`);
     const body = Buffer.from(await response.arrayBuffer()).subarray(0, READ_LIMIT).toString("utf8");
@@ -144,31 +144,31 @@ const failed = (url: string, e: unknown) => `Could not read ${url}: ${e instance
 export async function readForAgent(io: AgentIO, rules: Rules, url: string, http: typeof fetch = fetch, hold?: Hold): Promise<string> {
   const read = await readPage(url, rules, http).catch((e: unknown): Read => ({ kind: "text", text: failed(url, e) }));
   if (read.kind === "text") return untrusted(read.text);
-  if (read.kind === "refused") return refuseByRule(io, "visit", siteOf(read.url) ?? read.url, read.source, "Visit", read.url);
+  if (read.kind === "refused") return refuseByRule(io, "visit", hostOf(read.url) ?? read.url, read.source, "Visit", read.url);
   const asked = askToVisit(io, read.url, "To read the page");
-  if (!asked.ok) return `Could not ask to visit ${siteOf(read.url)}.`;
+  if (!asked.ok) return `Could not ask to visit ${hostOf(read.url)}.`;
   if (hold) {
     // a helper holds here until the user answers, then reads on
-    hold.waiting(`to visit ${siteOf(read.url)} (to read ${read.url})`);
+    hold.waiting(`to visit ${hostOf(read.url)} (to read ${read.url})`);
     const outcome = await visitAnswer(io, rules, asked.id, read.url);
     hold.working();
     if (outcome !== "approved") return notVisited(read.url, outcome);
-    const site = siteOf(read.url);
+    const site = hostOf(read.url);
     const again = await readPage(read.url, rules, http, new Set(site ? [site] : [])).catch((e: unknown): Read => ({ kind: "text", text: failed(read.url, e) }));
     return again.kind === "text" ? untrusted(again.text) : onward(io, again);
   }
   void visitAnswer(io, rules, asked.id, read.url).then(async (outcome) => {
     if (outcome !== "approved") return io.report(`[page not read] ${notVisited(read.url, outcome)}`);
-    const site = siteOf(read.url);
+    const site = hostOf(read.url);
     const again = await readPage(read.url, rules, http, new Set(site ? [site] : [])).catch((e: unknown): Read => ({ kind: "text", text: failed(read.url, e) }));
     io.report(again.kind === "text" ? `[page read: ${read.url}]\n${untrusted(again.text)}` : `[page not read] ${onward(io, again)}`);
   });
-  return `The user is asked first about visiting ${siteOf(read.url)}. If they allow it, the page is read in the background and you get it as a report. Tell the user briefly that you need their OK.`;
+  return `The user is asked first about visiting ${hostOf(read.url)}. If they allow it, the page is read in the background and you get it as a report. Tell the user briefly that you need their OK.`;
 }
 
 /** A page led on to a site that needs the user's say first (or whose rule says no): what the agent is told. */
 function onward(io: AgentIO, to: Exclude<Read, { kind: "text" }>): string {
-  const where = siteOf(to.url) ?? to.url;
+  const where = hostOf(to.url) ?? to.url;
   return to.kind === "refused"
     ? `It led on to ${where}. ${refuseByRule(io, "visit", where, to.source, "Visit", to.url)}`
     : `It led on to ${where}, which needs the user's permission too; read that address to ask for it.`;

@@ -11,7 +11,7 @@
  * The browser's rules are by kind of action (visit, submit, download, upload),
  * with exceptions per site; see below.
  */
-import type { BrowserAction, Permission, SiteActions, SiteEntry, ToolKind } from "@amuse/protocol";
+import { type BrowserAction, type Permission, Site, type SiteActions, type SiteEntry, type ToolKind } from "@amuse/protocol";
 
 const readVerbs = new Set(["GET", "LIST", "FETCH", "SEARCH", "FIND", "READ", "QUERY", "LOOKUP", "VIEW", "DESCRIBE", "COUNT", "EXPORT", "DOWNLOAD"]);
 const writeWords = new Set([
@@ -59,11 +59,26 @@ export const defaultBrowser: Readonly<Record<BrowserAction, Permission>> = { vis
 /** A permission as it holds for an action: a user's file is never uploaded without asking. */
 const settled = (action: BrowserAction, permission: Permission): Permission => (action === "upload" && permission === "allow" ? "ask" : permission);
 
-/** A URL's site: its host, lower-case, without "www."; null for what is not a web address. */
-export function siteOf(url: string): string | null {
+/**
+ * A web address's host as people write it: lower-case (and as the URL parser makes it, so punycode for a name in another script, a
+ * percent-encoded or full-width dot a plain one), without a trailing dot ("evil.com." is evil.com) and without "www."; null for what
+ * is not an http(s) address.
+ */
+export function hostOf(url: string): string | null {
   if (!URL.canParse(url)) return null;
   const { protocol, hostname } = new URL(url);
-  return /^https?:$/.test(protocol) && hostname ? hostname.toLowerCase().replace(/^www\./, "") : null;
+  const host = hostname.toLowerCase().replace(/\.+$/, "").replace(/^www\./, "");
+  return /^https?:$/.test(protocol) && host ? host : null;
+}
+
+/**
+ * A URL's site, the name the user's rules are kept under: its host, when it is one a rule can name (what the Site format accepts); null
+ * for what is not a web address, and for a host no rule can name (an IPv6 address, a name with an underscore): such a page is still
+ * visited under the user's settings for the browser, and has no rules of its own.
+ */
+export function siteOf(url: string): string | null {
+  const host = hostOf(url);
+  return host !== null && Site.safeParse(host).success ? host : null;
 }
 
 /** The sandbox's name on the network its browsers share with it (compose.yaml): Amuse's own, always open to them. */
@@ -94,10 +109,10 @@ export type RuleSource = { kind: "never"; site: string } | { kind: "site"; site:
  * Something that is not a web page is no (there is nothing to do there).
  */
 export function decideBrowser(rules: BrowserRules, url: string, action: BrowserAction): { permission: Permission; source: RuleSource } {
-  const site = siteOf(url);
-  if (!site) return { permission: "deny", source: { kind: "unreachable" } };
-  if (site === SANDBOX_SITE) return { permission: settled(action, "allow"), source: { kind: "default" } };
-  const chain = lineage(site);
+  if (hostOf(url) === null) return { permission: "deny", source: { kind: "unreachable" } };
+  if (hostOf(url) === SANDBOX_SITE) return { permission: settled(action, "allow"), source: { kind: "default" } };
+  // a host no rule can name has none: the settings for the browser decide
+  const chain = lineage(siteOf(url) ?? "").filter(Boolean);
   for (const name of chain) {
     const entry = rules.sites[name];
     if (entry && (entry.never || entry.actions.visit === "deny")) return { permission: "deny", source: { kind: "never", site: name } };
@@ -174,7 +189,14 @@ export const browserRulesOf = async (rules: Rules): Promise<BrowserRules> => ({ 
 export type AllRules = { apps: Record<string, AppRules>; browser: SiteActions; sites: Record<string, SiteEntry> };
 export const noRules: AllRules = { apps: {}, browser: {}, sites: {} };
 
+/** A site a rule can be kept for: a name the Site format accepts (anything else would not be read back). Throws, in words, for any other. */
+export function checkedSite(site: string): string {
+  if (!Site.safeParse(site).success) throw new Error(`"${site}" is not a website name a rule can be kept for.`);
+  return site;
+}
+
 export function setSiteEntry(all: Readonly<Record<string, SiteEntry>>, site: string, entry: SiteEntry | null): Record<string, SiteEntry> {
+  checkedSite(site);
   const next = { ...all };
   if (entry === null || (!entry.never && Object.keys(entry.actions).length === 0)) delete next[site];
   else next[site] = entry;
@@ -183,7 +205,7 @@ export function setSiteEntry(all: Readonly<Record<string, SiteEntry>>, site: str
 
 /** The rules after one action of a site is set. */
 export const setSiteAction = (all: Readonly<Record<string, SiteEntry>>, site: string, action: BrowserAction | "never", permission: Permission | null) =>
-  setSiteEntry(all, site, withSiteAction(all[site], action, permission));
+  setSiteEntry(all, checkedSite(site), withSiteAction(all[site], action, permission));
 
 export function setBrowserAction(all: Readonly<SiteActions>, action: BrowserAction, permission: Permission | null): SiteActions {
   const next: SiteActions = { ...all };

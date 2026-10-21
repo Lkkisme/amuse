@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Browser, type BrowserStatus, type Entity, type State, apply, empty } from "@amuse/protocol";
-import { type Change, type Context, decide, decideAgent, place, recover } from "./decide.ts";
+import { type Change, type Context, MOST_REFUSALS_PER_HOUR, decide, decideAgent, place, recover } from "./decide.ts";
 
 const at = "2026-10-20T08:00:00Z";
 const ctx: Context = { now: at, id: (prefix) => `${prefix}1` };
@@ -252,4 +252,41 @@ test("a schedule every instance starts with takes this version's instructions; t
   assert.ok(cancelled.ok && cancelled.changes.length === 0, "a cancelled one stays cancelled, unchanged");
   const same = decideAgent(stateOf(preset), "revisePreset", { kind: "revisePreset", title: "Skill review", instructions: "old wording" }, ctx);
   assert.ok(same.ok && same.changes.length === 0, "nothing to record when it is the same");
+});
+
+test("a refusal by the user's rule is one record however often the agent retries; varied wording is capped; an hour later is a new one", () => {
+  const refuse = (state: State, now: string, action = "Visit", target = "bank.com", app: string | null = null) => {
+    const d = decideAgent(state, "refuse", { kind: "refuse", action, target, detail: "x", app }, { now, id: (p) => `${p}-${now}-${action}-${target}-${app}` });
+    assert.ok(d.ok);
+    return { d, state: record(state, d.changes) };
+  };
+  const refusals = (s: State) => s.entities.filter((e) => e.kind === "approval" && e.byRule);
+  let s = empty;
+  const first = refuse(s, "2026-10-20T08:00:00Z");
+  s = first.state;
+  const idOf = (state: State) => refusals(state)[0]?.id;
+  // the same action and target again, many times in a few minutes: still one, as of the latest
+  for (let minute = 1; minute < 9; minute++) {
+    const again = refuse(s, `2026-10-20T08:0${minute}:00Z`);
+    assert.deepEqual(again.d.output, { id: idOf(first.state) });
+    s = again.state;
+  }
+  assert.equal(refusals(s).length, 1);
+  assert.equal(refusals(s)[0]?.at, "2026-10-20T08:08:00Z");
+  // another action, another target or another app is another record
+  s = refuse(s, "2026-10-20T08:09:00Z", "Submit").state;
+  s = refuse(s, "2026-10-20T08:09:00Z", "Visit", "news.example").state;
+  s = refuse(s, "2026-10-20T08:09:00Z", "Visit", "bank.com", "gmail").state;
+  assert.equal(refusals(s).length, 4);
+  // well after the window, the same refusal is a new record
+  s = refuse(s, "2026-10-20T09:30:00Z").state;
+  assert.equal(refusals(s).length, 5);
+  // a flood of differently worded ones is capped within an hour; the step is still refused (the decision is ok)
+  let flood = empty;
+  for (let i = 0; i < MOST_REFUSALS_PER_HOUR + 20; i++) flood = refuse(flood, "2026-10-20T08:00:00Z", `Visit ${i}`, `site${i}.example`).state;
+  assert.equal(refusals(flood).length, MOST_REFUSALS_PER_HOUR);
+  const later = refuse(flood, "2026-10-20T10:00:00Z", "Visit again", "other.example");
+  assert.equal(refusals(later.state).length, MOST_REFUSALS_PER_HOUR + 1, "an hour on, recording goes on");
+  // a refusal that was recorded is never a card to answer
+  assert.ok(refusals(s).every((e) => e.kind === "approval" && e.status === "denied" && !e.remember));
 });

@@ -180,3 +180,26 @@ test("uploads: asked every time (never kept as a rule, never allowed); Deny, set
     ["refuse"],
   );
 });
+
+test("on a page with a trailing dot, the rules for the site apply; for a host no rule can name, 'Always' is not offered", async () => {
+  const dotted = scene(declined, "https://a5.ucsd.edu./apply");
+  await dotted.rules.setSiteAction("ucsd.edu", "never", "deny");
+  const refused = await permitStep(dotted.base, dotted.notify, "submit", "Send", "x");
+  assert.match(refused.kind === "rule" ? refused.told : "", /^Refused by your rule for ucsd\.edu \(never visit it\)/);
+  const named = scene(always, "https://shop.example./buy");
+  await permitStep(named.base, named.notify, "submit", "Order", "x");
+  assert.deepEqual(named.acted[0], { kind: "ask", action: "Order", target: "shop.example", detail: "x", remember: true });
+  assert.deepEqual(await named.rules.sites(), { "shop.example": { never: false, actions: { submit: "allow" } } });
+  // an address or a name no rule can be kept for: asked, with no "Always", and the answer leaves no rule
+  for (const url of ["http://[2606:4700::1111]/pay", "https://my_host.example.com/pay"]) {
+    const odd = scene(always, url);
+    assert.deepEqual(await permitStep(odd.base, odd.notify, "submit", "Order", "x"), { kind: "yes" });
+    assert.equal(odd.acted[0]?.kind === "ask" && odd.acted[0].remember, false, url);
+    assert.deepEqual(await odd.rules.sites(), {}, url);
+  }
+  // under the browser's settings: Deny there is refused, naming the setting
+  const denied = scene(approved, "http://[2606:4700::1111]/pay");
+  await denied.rules.setBrowser("submit", "deny");
+  const told = await permitStep(denied.base, denied.notify, "submit", "Order", "x");
+  assert.match(told.kind === "rule" ? told.told : "", /^Refused by your setting for submitting forms \(Deny\)/);
+});

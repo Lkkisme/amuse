@@ -6,12 +6,13 @@
  * recorded where the user can see it (their Approvals list), and the agent is
  * told which rule it was and where to change it, and not to work around it.
  */
-import { type Acted, type AgentIO, type Outcome, type RuleSource, type Rules, ruleSaid, ruleWhere, siteOf, siteRuleFor } from "@amuse/core";
+import { type Acted, type AgentIO, type Outcome, type RuleSource, type Rules, hostOf, ruleSaid, ruleWhere, siteOf, siteRuleFor } from "@amuse/core";
 import type { BrowserAction } from "@amuse/protocol";
 
 /** Post the card asking whether `url`'s site may be visited, and what for. */
 export function askToVisit(io: AgentIO, url: string, why: string): Acted {
-  return io.act({ kind: "ask", action: "Visit", target: siteOf(url) ?? url, detail: `${url}\n${why}`, remember: true });
+  // "Always" only where a rule can be kept for the site
+  return io.act({ kind: "ask", action: "Visit", target: hostOf(url) ?? url, detail: `${url}\n${why}`, remember: siteOf(url) !== null });
 }
 
 /** The user's answer to a card about `action` at `url`; one meant for good is kept as the site's rule for that action. */
@@ -31,8 +32,8 @@ export const visitAnswer = (io: AgentIO, rules: Rules, id: string, url: string):
 /** What the agent is told when a visit was not allowed. */
 export const notVisited = (url: string, outcome: Exclude<Outcome, "approved">) =>
   outcome === "denied"
-    ? `The user did not allow visiting ${siteOf(url) ?? url}. Do not try to reach it another way.`
-    : `The user did not answer about visiting ${siteOf(url) ?? url} in time, so it was not visited.`;
+    ? `The user did not allow visiting ${hostOf(url) ?? url}. Do not try to reach it another way.`
+    : `The user did not answer about visiting ${hostOf(url) ?? url} in time, so it was not visited.`;
 
 const doing: Record<BrowserAction, string> = { visit: "visiting", submit: "submitting forms on", download: "downloading files from", upload: "uploading files to" };
 

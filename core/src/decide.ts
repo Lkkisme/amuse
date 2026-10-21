@@ -28,6 +28,12 @@ import type {
 } from "@amuse/protocol";
 import { APPROVAL_TTL_MS, GRACE_MS, MAX_SCHEDULES, check, later, nextRun, standing } from "./schedule.ts";
 
+/** The same refusal (what, and where) again within this long is the same record. */
+export const REFUSAL_GROUP_MS = 10 * 60_000;
+/** Refusals by the user's rules recorded in an hour, in a chat, at most. */
+export const MOST_REFUSALS_PER_HOUR = 40;
+const HOUR_MS = 60 * 60_000;
+
 /** Calls that do not touch the conversation: reading it, the app directory (Ports.apps), the keys (Ports.keys), the sandbox (Ports.sandbox), the browser's rules and the goals (in the workspace). */
 export type Query = Extract<Call, { method: "session.sync" | "session.history" | "schedules.list" | `chats.${string}` | `apps.${string}` | `sites.${string}` | `keys.${string}` | `models.${string}` | `approvals.${string}` | `logins.${string}` | `sandbox.${string}` | "browser.rules" | "browser.permit" | `goals.${string}` | `skills.${string}` | `secret.${string}` | `secrets.${string}` }>;
 /** Client calls that change the conversation. */
@@ -365,7 +371,16 @@ const agentRules: AgentRules = {
     const expires = later(ctx.now, APPROVAL_TTL_MS);
     return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, remember, status: "pending", expires, app, always: false, byRule: false })], [], { id });
   },
-  refuse: (_, { action, target, detail, app = null }, ctx) => {
+  refuse: (state, { action, target, detail, app = null }, ctx) => {
+    const now = Date.parse(ctx.now);
+    const refusals = state.entities.filter((e): e is Approval => e.kind === "approval" && e.byRule);
+    // a retrying agent is one refusal, as of its latest try, not a flood of them
+    const again = refusals.findLast((e) => e.action === action && e.target === target && e.app === app && now - Date.parse(e.at) < REFUSAL_GROUP_MS);
+    if (again) return ok([upsert({ ...again, at: ctx.now })], [], { id: again.id });
+    // and however it varies its words, only so many in an hour are recorded (the step is refused all the same)
+    const lately = refusals.filter((e) => now - Date.parse(e.at) < HOUR_MS);
+    const last = lately.at(-1);
+    if (last && lately.length >= MOST_REFUSALS_PER_HOUR) return ok([], [], { id: last.id });
     const id = ctx.id("a");
     return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, remember: false, status: "denied", expires: ctx.now, app, always: false, byRule: true })], [], { id });
   },

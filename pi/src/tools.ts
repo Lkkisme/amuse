@@ -5,7 +5,7 @@
  * background while the chat goes on.
  */
 import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
-import { type AgentIO, type Rules, type Workspace, browserRulesOf, decideBrowser, describe, nowIn, siteOf } from "@amuse/core";
+import { type AgentIO, type Rules, type Workspace, browserRulesOf, decideBrowser, describe, nowIn, hostOf } from "@amuse/core";
 import type { Permission, ToolKind } from "@amuse/protocol";
 import { untrusted } from "./untrusted.ts";
 import { Type } from "typebox";
@@ -91,7 +91,7 @@ export function tools(
         if (!url || !URL.canParse(url) || !/^https?:$/.test(new URL(url).protocol)) return text(`Not started: "${url ?? ""}" is not an http(s) URL.`);
         const agent = io();
         const { permission, source } = decideBrowser(await browserRulesOf(rules), url, "visit");
-        if (permission === "deny") return text(`Not started: ${refuseByRule(agent, "visit", siteOf(url) ?? url, source, "Visit", `For a browser task: ${title}`)}`);
+        if (permission === "deny") return text(`Not started: ${refuseByRule(agent, "visit", hostOf(url) ?? url, source, "Visit", `For a browser task: ${title}`)}`);
         const start = () => agent.act({ kind: "browse", title, url, instructions, files: granted });
         if (permission === "ask") {
           // a site the rules leave to ask about is not visited until the user allows it: ask, and start once they do
@@ -99,7 +99,7 @@ export function tools(
           if (!asked.ok) return text(`Not started: ${describe(asked.rejection)}.`);
           if (hold) {
             // a helper holds here until the user answers
-            hold.waiting(`to visit ${siteOf(url)} for a browser task: ${title}`);
+            hold.waiting(`to visit ${hostOf(url)} for a browser task: ${title}`);
             const outcome = await visitAnswer(agent, rules, asked.id, url);
             hold.working();
             if (outcome !== "approved") return text(`Not started: ${notVisited(url, outcome)}`);
@@ -112,11 +112,11 @@ export function tools(
             const started = start();
             agent.report(
               started.ok
-                ? `[browser task "${title}" started] The user allowed visiting ${siteOf(url) ?? url}; the task runs now, and its result comes as a report.`
+                ? `[browser task "${title}" started] The user allowed visiting ${hostOf(url) ?? url}; the task runs now, and its result comes as a report.`
                 : `[browser task "${title}" not started] ${describe(started.rejection)}`,
             );
           });
-          return text(`The user is asked first about visiting ${siteOf(url)}; the task starts once they allow it. Tell the user briefly that you need their OK.`);
+          return text(`The user is asked first about visiting ${hostOf(url)}; the task starts once they allow it. Tell the user briefly that you need their OK.`);
         }
         const result = start();
         return text(result.ok ? `Started browser task ${result.id}. The user sees it as a card; it continues in the background.` : `Not started: ${describe(result.rejection)}.`);

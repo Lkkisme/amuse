@@ -7,7 +7,7 @@
  */
 import { type AgentSession, type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
 import type { Browsers, PageView, Step } from "@amuse/browser";
-import { type AgentIO, type BrowserProgress, type Ports, type Rules, type Workspace, browserRulesOf, decideBrowser, siteOf, siteRuleFor, size } from "@amuse/core";
+import { type AgentIO, type BrowserProgress, type Ports, type Rules, type Workspace, browserRulesOf, decideBrowser, hostOf, siteOf, siteRuleFor, size } from "@amuse/core";
 import type { BrowserAction } from "@amuse/protocol";
 import { basename, extname } from "node:path";
 import type { Browser } from "@amuse/protocol";
@@ -147,13 +147,15 @@ export interface Notify {
 export type Permitted = { kind: "yes" | "declined" | "stopped" } | { kind: "rule"; told: string };
 
 export async function permitStep(scene: Scene, notify: Notify, action: BrowserAction, title: string, detail: string, remember = true): Promise<Permitted> {
+  const host = hostOf(scene.url) ?? scene.url;
+  // the name a rule can be kept under, if the page has one ("Always" is offered only then)
   const site = siteOf(scene.url);
   const { permission, source } = decideBrowser(await browserRulesOf(scene.rules), scene.url, action);
   if (permission === "allow") return { kind: "yes" };
-  if (permission === "deny") return { kind: "rule", told: refuseByRule(scene.io, action, site ?? scene.url, source, title, detail) };
-  const asked = scene.io.act({ kind: "ask", action: title, target: site ?? scene.url, detail, remember: remember && site !== null });
+  if (permission === "deny") return { kind: "rule", told: refuseByRule(scene.io, action, host, source, title, detail) };
+  const asked = scene.io.act({ kind: "ask", action: title, target: host, detail, remember: remember && site !== null });
   if (!asked.ok) return { kind: "declined" };
-  notify.waiting(`${title} on ${site ?? scene.url}: ${detail}`);
+  notify.waiting(`${title} on ${host}: ${detail}`);
   const decided = await untilStopped(scene, scene.io.decision(asked.id));
   if (decided === "stopped") return { kind: "stopped" };
   if (remember && decided.remember && site && decided.verdict !== "timed_out") {
@@ -181,7 +183,7 @@ export async function keepDownloads(
   let told = "";
   for (const file of got) {
     const name = basename(file.name.replaceAll("\\", "/")) || "download";
-    const site = siteOf(scene.url) ?? scene.url;
+    const site = hostOf(scene.url) ?? scene.url;
     const allowed = await permitStep(scene, notify, "download", `Download ${name}`, `${name} (${size(file.data.length)}) from ${site}`);
     if (allowed.kind === "stopped") break;
     if (allowed.kind === "rule") {
@@ -222,25 +224,25 @@ function runTools(run: Run): ToolDefinition[] {
     const { permission } = decideBrowser(await browserRulesOf(run.rules), url, "visit");
     if (permission === "deny") return "no";
     if (permission === "allow") return "yes";
-    const site = siteOf(url);
+    const site = hostOf(url);
     return site && run.granted.has(site) ? "yes" : "ask";
   };
   /** A visit to `url` that the rules refuse: recorded for the user, and what the agent is told. */
   const noVisit = async (url: string): Promise<string> =>
-    refuseByRule(run.io, "visit", siteOf(url) ?? url, decideBrowser(await browserRulesOf(run.rules), url, "visit").source, "Visit", `For the browser task: ${run.browser.title}`);
+    refuseByRule(run.io, "visit", hostOf(url) ?? url, decideBrowser(await browserRulesOf(run.rules), url, "visit").source, "Visit", `For the browser task: ${run.browser.title}`);
   /** The card is the system's; Muse is told what waits on it, to tell the user in a sentence why it appeared. */
   const waitingOn = (what: string) => run.io.report(`[browser task "${run.browser.title}" (${run.browser.id}) waits for the user's approval] ${what}`);
   /** Ask the user to let this run visit `url`'s site: null once they have, else what the agent is told. */
   const visit = async (url: string): Promise<string | null> => {
     const asked = askToVisit(run.io, url, `For the browser task: ${run.browser.title}`);
-    if (!asked.ok) return `Could not ask to visit ${siteOf(url) ?? url}.`;
-    waitingOn(`to visit ${siteOf(url) ?? url}`);
+    if (!asked.ok) return `Could not ask to visit ${hostOf(url) ?? url}.`;
+    waitingOn(`to visit ${hostOf(url) ?? url}`);
     set("waiting");
     const outcome = await untilStopped(run, visitAnswer(run.io, run.rules, asked.id, url));
     if (outcome === "stopped") return "The task was stopped.";
     set("working");
     if (outcome !== "approved") return notVisited(url, outcome);
-    const site = siteOf(url);
+    const site = hostOf(url);
     if (site) run.granted.add(site);
     return null;
   };
@@ -266,19 +268,19 @@ function runTools(run: Run): ToolDefinition[] {
     if (view && (await reach(view.url)) === "no") {
       const told = await noVisit(view.url);
       await back();
-      return text(`That led to ${siteOf(view.url) ?? view.url}; went back. ${told}\n\n${await observe(run)}`);
+      return text(`That led to ${hostOf(view.url) ?? view.url}; went back. ${told}\n\n${await observe(run)}`);
     }
     if (view && (await reach(view.url)) === "ask") {
       const target = view.url;
       await back(); // not on a site the user has not allowed, even while they are asked
       const refused = await visit(target);
       if (run.stop.signal.aborted) return stoppedText();
-      if (refused) return text(`That led to ${siteOf(target) ?? target}; went back. ${refused}\n\n${await observe(run)}`);
+      if (refused) return text(`That led to ${hostOf(target) ?? target}; went back. ${refused}\n\n${await observe(run)}`);
       await run.browsers.step(run.browser.id, { kind: "navigate", url: target }).catch(() => {});
       view = await run.browsers.look(run.browser.id).catch(() => null);
       if (view && (await reach(view.url)) !== "yes") {
         await back();
-        return text(`That led on to ${siteOf(view.url) ?? view.url}, which is not allowed yet; went back. Navigate there to ask for it.\n\n${await observe(run)}`);
+        return text(`That led on to ${hostOf(view.url) ?? view.url}, which is not allowed yet; went back. Navigate there to ask for it.\n\n${await observe(run)}`);
       }
     }
     if (!view) return text(`${failed}(the page could not be read)`);
@@ -409,7 +411,7 @@ function runTools(run: Run): ToolDefinition[] {
         if (!workspace || !run.browser.files.includes(file))
           return text(`You were not given ${file}. Files you may upload: ${run.browser.files.join(", ") || "none"}.`);
         if (run.held && (await untilStopped(run, run.held.promise)) === "stopped") return stoppedText();
-        const site = siteOf(run.url) ?? run.url;
+        const site = hostOf(run.url) ?? run.url;
         // the user's file going to a site: not at all where the rules say no; else asked every time, never kept as a rule
         const go = await permit("upload", "Upload a file", `${file} to ${site}`, false);
         if (go.kind !== "yes") return go.kind === "declined" ? text(`The user did not approve uploading ${file}. Do not upload it; finish or ask what they want instead.`) : stopped(go);
@@ -541,12 +543,12 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers, rules: Ru
         if (theirs) return null;
         const where = (await browsers.look(browser.id).catch(() => null))?.url ?? browser.url;
         const denied = decideBrowser(await browserRulesOf(rules), where, "visit");
-        return denied.permission === "deny" ? refuseByRule(io, "visit", siteOf(where) ?? where, denied.source, "Visit", where) : null;
+        return denied.permission === "deny" ? refuseByRule(io, "visit", hostOf(where) ?? where, denied.source, "Visit", where) : null;
       };
       browserRulesOf(rules)
         .then((browserRules) => {
           const denied = decideBrowser(browserRules, browser.url, "visit");
-          if (!theirs && denied.permission === "deny") throw new Error(refuseByRule(io, "visit", siteOf(browser.url) ?? browser.url, denied.source, "Visit", browser.url));
+          if (!theirs && denied.permission === "deny") throw new Error(refuseByRule(io, "visit", hostOf(browser.url) ?? browser.url, denied.source, "Visit", browser.url));
           return browsers.open(browser.id, browser.url, stop.signal, { wait: !theirs });
         })
         .then(async () => {
@@ -557,7 +559,7 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers, rules: Ru
             return close(browser.id, io);
           }
           // its start site has a rule, or the user allowed it before it started (tools.ts browse)
-          const start = siteOf(browser.url);
+          const start = hostOf(browser.url);
           const run: Run = {
             browser, browsers, url: browser.url, io, session: null, stop, held: theirs ? hold() : null, steps: 0, finished: false, rules,
             allowed: browser.url, granted: new Set(start ? [start] : []), workspace, downloaded: [], jobs: 0, queue: Promise.resolve(), idle: null, mail: null, end: null, watch: null, taken: theirs, nudge: null,
