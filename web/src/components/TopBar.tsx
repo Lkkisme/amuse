@@ -76,8 +76,8 @@ function AvatarBadge({ line }: { line: AgentLine | null }) {
  * is open, so one tap target opens and closes it.
  */
 /**
- * ☰, one button for the sidebar: away, it sits at the chat's top left (a round button); with the sidebar
- * out, it moves into the sidebar's top right and becomes the way to put it away (App.tsx places it), on the
+ * ☰, one round button for the sidebar, as the browser's is: away, it sits at the chat's top left; with the
+ * sidebar out, it moves into the sidebar's top right and becomes the way to put it away (App.tsx places it), on the
  * same curve the sidebar moves on.
  */
 export function MenuButton({ open, left, onClick }: { open: boolean; left: number; onClick: () => void }) {
@@ -90,10 +90,10 @@ export function MenuButton({ open, left, onClick }: { open: boolean; left: numbe
       className="hover-fade fixed top-3 z-[45] flex size-11 items-center justify-center rounded-full"
       style={{
         left,
-        background: open ? "transparent" : "var(--fill-primary)",
-        color: open ? "var(--icon-secondary)" : "var(--text-primary)",
-        boxShadow: open ? "none" : "var(--shadow-float)",
-        transition: `left ${ease}, background-color ${ease}, box-shadow ${ease}, color ${ease}`,
+        background: "var(--fill-primary)",
+        color: "var(--text-primary)",
+        boxShadow: "var(--shadow-float)",
+        transition: `left ${ease}`,
       }}
       onClick={onClick}
     >
