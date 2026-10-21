@@ -57,7 +57,7 @@ export function RichText({ text }: { text: string }) {
       flushBullets(`u${i}`);
       if (line.trim()) {
         blocks.push(
-          <p key={`p${i}`} className={paragraph && blocks.length > 0 ? "mt-2" : undefined}>
+          <p key={`p${i}`} className={paragraph && blocks.length > 0 ? "mt-3" : undefined}>
             {renderInline(line, `l${i}`)}
           </p>,
         );

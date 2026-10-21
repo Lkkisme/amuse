@@ -454,8 +454,9 @@ function Bubble({
         <div
           {...press}
           ref={bubble}
-          // Muse (measured): 16px text on 22px lines, 10px above and below, 16px at the sides
-          className="msg relative w-fit max-w-[88%] sm:max-w-[78%] px-4 py-2.5 text-[16px] leading-[22px]"
+          // 16px text on 22px lines; 12px above and below (15px to the eye, with the leading) to 20px at the sides, 4:3;
+          // a line is 46px high, a pill with the 22px corners
+          className="msg relative w-fit max-w-[88%] sm:max-w-[78%] px-5 py-3 text-[16px] leading-[22px]"
           style={{
             ...corners(isUser ? "user" : "muse", place),
             background: isUser
