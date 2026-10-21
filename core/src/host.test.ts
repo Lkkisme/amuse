@@ -503,6 +503,7 @@ test("a credential the user gives goes to the sandbox alone: not the chat, its r
   await host.call("secret.answer", { id: declined.id, value: null });
   assert.equal(given.length, 1, "nothing goes to the sandbox when declined");
   assert.match(notes[1] ?? "", /declined/);
+});
 
 test("the browser's rules are listed with their defaults and what the user chose, and a site's exceptions are kept as a whole", async () => {
   const { ports } = capture();

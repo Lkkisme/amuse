@@ -59,12 +59,14 @@ function done(entity: Entity): Done | null {
       };
     }
     case "approval": {
-      const sub = {
-        pending: "Waiting for your approval",
-        approved: "Approved",
-        denied: "Denied",
-        timed_out: "Timed out",
-      }[entity.status];
+      const sub = entity.byRule
+        ? "Refused by your rule"
+        : {
+            pending: "Waiting for your approval",
+            approved: "Approved",
+            denied: "Denied",
+            timed_out: "Timed out",
+          }[entity.status];
       return {
         id: entity.id,
         title: entity.action,
@@ -275,9 +277,9 @@ const answered: Record<Approval["status"], string> = {
   denied: "Denied",
   timed_out: "No answer in time",
 };
-/** How an approval ended, "always" said when it became a rule. */
+/** How an approval ended, "always" said when it became a rule; one the user's rule refused was never asked. */
 const outcome = (a: Approval) =>
-  a.always && a.status !== "pending" && a.status !== "timed_out" ? `Always ${a.status === "approved" ? "allowed" : "denied"}` : answered[a.status];
+  a.byRule ? "Refused by your rule" : a.always && a.status !== "pending" && a.status !== "timed_out" ? `Always ${a.status === "approved" ? "allowed" : "denied"}` : answered[a.status];
 
 /**
  * Every approval asked, in any chat, newest first: what, for which app or site, how it ended,

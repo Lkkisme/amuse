@@ -69,9 +69,11 @@ function shown(entity: Entity): boolean {
     // one every instance starts with was not asked for here: it is in Settings › Schedules
     case "schedule":
       return !entity.preset;
+    // one refused by the user's own rule was never a card: it is in the Approvals list, and Amuse says so in a line
+    case "approval":
+      return !entity.byRule;
     case "prompt":
     case "task":
-    case "approval":
     case "connection":
     case "secret":
     case "browser":
