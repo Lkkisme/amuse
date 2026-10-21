@@ -1,10 +1,10 @@
 /**
  * Settings › Permissions: what Muse may do on each website, the server's rules
- * (sites.* calls; core/policy.ts). A site not listed is not visited until the
- * user allows it (Muse asks). Allow: it visits and acts without asking. Visit
- * only: it visits, and asks before any step that commits the user. Block: it
- * never goes there and does not ask (a link or redirect there is undone). A
- * rule covers the site's subdomains too.
+ * (sites.* calls; core/policy.ts), Muse's Allow / Ask / Deny. A site not
+ * listed is not visited until the user allows it (Muse asks). Allow: it visits
+ * and acts without asking. Ask: it visits, and asks before any step that
+ * commits the user. Deny: it never goes there and does not ask (a link or
+ * redirect there is undone). A rule covers the site's subdomains too.
  */
 import { useCallback, useEffect, useState } from "react";
 import { Globe, X } from "lucide-react";
@@ -15,7 +15,7 @@ import {
   Site,
   type SiteRule,
 } from "@remuse/protocol";
-import { PermissionSelect, siteNames } from "./PermissionSelect";
+import { PermissionSelect } from "./PermissionSelect";
 
 /** What the user typed, as a site: "https://www.Bank.com/login" and "bank.com" are both bank.com. */
 const asSite = (input: string): string | null => {
@@ -65,10 +65,10 @@ export function SitePermissions({ session }: { session: Session }) {
         className="mt-1 text-[13px] leading-snug"
         style={{ color: "var(--text-secondary)" }}
       >
-        Muse asks before visiting a website that is not listed here. Visit only
-        lets it go there, and it still asks before anything that commits you
+        Muse asks before visiting a website that is not listed here. Ask lets
+        it go there, and it still asks before anything that commits you
         (buying, sending, submitting); Allow lets it act there without asking;
-        Block keeps it off the site and stops it asking. A rule covers the
+        Deny keeps it off the site and stops it asking. A rule covers the
         site's subdomains too.
       </p>
 
@@ -89,7 +89,6 @@ export function SitePermissions({ session }: { session: Session }) {
               <PermissionSelect
                 value={rule.permission}
                 onChange={(p) => permit(rule.site, p)}
-                names={siteNames}
               />
               <button
                 aria-label={`Remove the rule for ${rule.site}`}

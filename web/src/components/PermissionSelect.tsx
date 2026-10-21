@@ -5,10 +5,7 @@ import type { Permission } from "@remuse/protocol";
 const PERMISSIONS: Permission[] = ["allow", "ask", "deny"];
 const permissionName: Record<Permission, string> = { allow: "Allow", ask: "Ask", deny: "Deny" };
 
-/** For websites: what each rule lets Muse do there. */
-export const siteNames: Record<Permission, string> = { allow: "Allow", ask: "Visit only", deny: "Block" };
-
-export function PermissionSelect({ value, onChange, names = permissionName }: { value: Permission; onChange: (p: Permission) => void; names?: Record<Permission, string> }) {
+export function PermissionSelect({ value, onChange }: { value: Permission; onChange: (p: Permission) => void }) {
   return (
     <span className="relative flex items-center">
       <select
@@ -23,7 +20,7 @@ export function PermissionSelect({ value, onChange, names = permissionName }: { 
       >
         {PERMISSIONS.map((p) => (
           <option key={p} value={p}>
-            {names[p]}
+            {permissionName[p]}
           </option>
         ))}
       </select>
