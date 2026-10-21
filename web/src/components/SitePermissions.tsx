@@ -1,9 +1,10 @@
 /**
- * Settings › Permissions: what the browser agent may do on each website, the
- * server's rules (sites.* calls). A site not listed is asked about: the agent
- * may browse it and asks before any step that commits the user. Allow: it
- * goes ahead without asking. Deny: it never goes there (a link or redirect
- * there is undone). A rule covers the site's subdomains too.
+ * Settings › Permissions: what Muse may do on each website, the server's rules
+ * (sites.* calls; core/policy.ts). A site not listed is not visited until the
+ * user allows it (Muse asks). Allow: it visits and acts without asking. Visit
+ * only: it visits, and asks before any step that commits the user. Block: it
+ * never goes there and does not ask (a link or redirect there is undone). A
+ * rule covers the site's subdomains too.
  */
 import { useCallback, useEffect, useState } from "react";
 import { Globe, X } from "lucide-react";
@@ -14,7 +15,7 @@ import {
   Site,
   type SiteRule,
 } from "@remuse/protocol";
-import { PermissionSelect } from "./PermissionSelect";
+import { PermissionSelect, siteNames } from "./PermissionSelect";
 
 /** What the user typed, as a site: "https://www.Bank.com/login" and "bank.com" are both bank.com. */
 const asSite = (input: string): string | null => {
@@ -48,7 +49,7 @@ export function SitePermissions({ session }: { session: Session }) {
   const add = () => {
     const site = asSite(draft);
     if (!site) return setError(`“${draft}” is not a website address.`);
-    permit(site, "deny"); // most rules keep the agent off a site; the list sets any other
+    permit(site, "ask"); // added to be visited without asking first; the list sets any other rule
     setDraft("");
   };
 
@@ -64,9 +65,10 @@ export function SitePermissions({ session }: { session: Session }) {
         className="mt-1 text-[13px] leading-snug"
         style={{ color: "var(--text-secondary)" }}
       >
-        Muse can visit any other website and asks you before anything that
-        commits you (buying, sending, submitting). Allow lets it go ahead
-        without asking; Deny keeps it off the site altogether. A rule covers the
+        Muse asks before visiting a website that is not listed here. Visit only
+        lets it go there, and it still asks before anything that commits you
+        (buying, sending, submitting); Allow lets it act there without asking;
+        Block keeps it off the site and stops it asking. A rule covers the
         site's subdomains too.
       </p>
 
@@ -87,6 +89,7 @@ export function SitePermissions({ session }: { session: Session }) {
               <PermissionSelect
                 value={rule.permission}
                 onChange={(p) => permit(rule.site, p)}
+                names={siteNames}
               />
               <button
                 aria-label={`Remove the rule for ${rule.site}`}
@@ -100,7 +103,7 @@ export function SitePermissions({ session }: { session: Session }) {
           ))}
         </ul>
       )}
-      {/* a site added is denied at first; its row in the list sets any other rule */}
+      {/* a site added may be visited; its row in the list sets any other rule */}
       <div
         className="mt-3 flex h-11 items-center gap-2 rounded-full pl-4 pr-1.5"
         style={{ background: "var(--fill-secondary)" }}
@@ -108,7 +111,7 @@ export function SitePermissions({ session }: { session: Session }) {
         <input
           className="min-w-0 flex-1 bg-transparent text-[15px] outline-none"
           style={{ color: "var(--text-primary)" }}
-          placeholder="Block a website, like bank.com"
+          placeholder="Add a website, like news.ycombinator.com"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && draft.trim() && add()}

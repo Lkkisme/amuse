@@ -54,11 +54,18 @@ export function siteOf(url: string): string | null {
   return /^https?:$/.test(protocol) && hostname ? hostname.toLowerCase().replace(/^www\./, "") : null;
 }
 
-/** By default the browser agent may go anywhere and asks before steps that commit the user. */
-export const defaultSitePermission: Permission = "ask";
+/**
+ * What the agents may do at a URL: the user's rule for its site or the nearest
+ * parent ("bank.com" covers "login.bank.com").
+ *   allow     visit it, and act there without asking
+ *   ask       visit it; ask before any step that commits the user
+ *   deny      never go there, and do not ask
+ *   unlisted  no rule: not visited until the user allows it (asked each time,
+ *             or for good: "always" makes it `ask`)
+ */
+export type SiteAccess = Permission | "unlisted";
 
-/** What the browser agent may do at `url`: the rule for its site or the nearest parent ("bank.com" covers "login.bank.com"). */
-export function sitePermission(rules: Readonly<Record<string, Permission>>, url: string): Permission {
+export function siteAccess(rules: Readonly<Record<string, Permission>>, url: string): SiteAccess {
   const site = siteOf(url);
   if (!site) return "deny"; // not a web page: nothing to do there
   const labels = site.split(".");
@@ -66,8 +73,11 @@ export function sitePermission(rules: Readonly<Record<string, Permission>>, url:
     const rule = rules[labels.slice(i).join(".")];
     if (rule) return rule;
   }
-  return defaultSitePermission;
+  return "unlisted";
 }
+
+/** The rule an answer to "may I visit?" leaves when meant for good: visiting allowed (acting still asked), or never. */
+export const visitRule = (approved: boolean): Permission => (approved ? "ask" : "deny");
 
 /** The user's choices, per app and per site (the store is the server's: a file beside the journal). */
 export interface Rules {

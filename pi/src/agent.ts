@@ -67,7 +67,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt"> {
       lead = "";
     };
     try {
-      session = await openSession(cfg, cfg.system, [...tools(io, cfg.rules), ...scheduleTools(io), ...relayTools(io), ...webTools(cfg.rules, cfg.search), ...(cfg.apps ? appTools(io, cfg.apps) : [])]);
+      session = await openSession(cfg, cfg.system, [...tools(io, cfg.rules), ...scheduleTools(io), ...relayTools(io), ...webTools(io, cfg.rules, cfg.search), ...(cfg.apps ? appTools(io, cfg.apps) : [])]);
       const pi = session.session;
       if (!live()) return;
       let failure: string | undefined;

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Permission } from "@remuse/protocol";
-import { defaultPermission, kindOf, memoryRules, permissionOf, siteOf, sitePermission } from "./policy.ts";
+import { defaultPermission, kindOf, memoryRules, permissionOf, siteAccess, siteOf } from "./policy.ts";
 
 test("a tool's own hints decide its kind; without any, its name does", () => {
   assert.equal(kindOf("GMAIL_FETCH_EMAILS", ["readOnlyHint", "openWorldHint"]), "read");
@@ -30,14 +30,14 @@ test("rules are kept per app and go back to the default when cleared", async () 
   assert.deepEqual(await rules.of("gmail"), {});
 });
 
-test("a site is a URL's host without www; its rule covers its subdomains; the nearest rule wins", () => {
+test("a site is a URL's host without www; its rule covers its subdomains; the nearest rule wins; a site with none is unlisted", () => {
   assert.equal(siteOf("https://www.Bank.com/login"), "bank.com");
   assert.equal(siteOf("file:///etc/passwd"), null);
   const rules: Record<string, Permission> = { "bank.com": "deny", "help.bank.com": "allow" };
-  assert.equal(sitePermission(rules, "https://login.bank.com/"), "deny");
-  assert.equal(sitePermission(rules, "https://help.bank.com/faq"), "allow");
-  assert.equal(sitePermission(rules, "https://notbank.com/"), "ask");
-  assert.equal(sitePermission(rules, "about:blank"), "deny");
+  assert.equal(siteAccess(rules, "https://login.bank.com/"), "deny");
+  assert.equal(siteAccess(rules, "https://help.bank.com/faq"), "allow");
+  assert.equal(siteAccess(rules, "https://notbank.com/"), "unlisted");
+  assert.equal(siteAccess(rules, "about:blank"), "deny");
 });
 
 test("site rules are kept apart from app rules", async () => {

@@ -5,11 +5,12 @@
  * background while the chat goes on.
  */
 import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
-import { type AgentIO, type Rules, describe, siteOf, sitePermission } from "@remuse/core";
+import { type AgentIO, type Rules, describe, siteAccess, siteOf } from "@remuse/core";
 import type { Permission } from "@remuse/protocol";
 import { untrusted } from "./untrusted.ts";
 import { Type } from "typebox";
 import { status } from "./status.ts";
+import { askToVisit, notVisited, visitAnswer } from "./visits.ts";
 
 const text = (value: string) => ({ content: [{ type: "text" as const, text: value }], details: null });
 
@@ -41,8 +42,22 @@ export function tools(io: () => AgentIO, rules: Rules): ToolDefinition[] {
       }),
       async execute(_, { title, url, instructions }) {
         if (!URL.canParse(url) || !/^https?:$/.test(new URL(url).protocol)) return text(`Not started: "${url}" is not an http(s) URL.`);
-        if (sitePermission(await rules.sites(), url) === "deny") return text(`Not started: the user does not allow ${siteOf(url)}. Tell them; do not try another way to reach it.`);
-        const result = io().act({ kind: "browse", title, url, instructions });
+        const access = siteAccess(await rules.sites(), url);
+        if (access === "deny") return text(`Not started: the user does not allow ${siteOf(url)}. Tell them; do not try another way to reach it.`);
+        const agent = io();
+        const start = () => agent.act({ kind: "browse", title, url, instructions });
+        if (access === "unlisted") {
+          // a site with no rule is not visited until the user allows it: ask, and start once they do
+          const asked = askToVisit(agent, url, `For a browser task: ${title}`);
+          if (!asked.ok) return text(`Not started: ${describe(asked.rejection)}.`);
+          void visitAnswer(agent, rules, asked.id, url).then((outcome) => {
+            if (outcome !== "approved") return agent.report(`[browser task "${title}" not started] ${notVisited(url, outcome)}`);
+            const started = start();
+            if (!started.ok) agent.report(`[browser task "${title}" not started] ${describe(started.rejection)}`);
+          });
+          return text(`${siteOf(url)} has no rule yet, so the user is asked first; the task starts once they allow it. Tell the user briefly that you need their OK.`);
+        }
+        const result = start();
         return text(result.ok ? `Started browser task ${result.id}. The user sees it as a card; it continues in the background.` : `Not started: ${describe(result.rejection)}.`);
       },
     }),
