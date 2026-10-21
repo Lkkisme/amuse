@@ -2,9 +2,16 @@
 # set the password; models, keys and apps are set up in the app. The browser pool's secrets are
 # made on first start and kept in volumes. .env (optional) says where it listens.
 # Published on 127.0.0.1 unless AMUSE_PUBLISH_HOST says otherwise (e.g. your Tailscale IP).
+# The sandbox is a machine of Amuse's own (see README): its own network, shared with amuse alone, and no secrets.
 name: amuse # whatever the folder is called
 include:
   - compose.browsers.yaml
+
+x-sandbox-image: &sandbox-image
+  build:
+    context: .
+    dockerfile: sandbox/Dockerfile
+  image: amuse-sandbox:local
 
 services:
   amuse:
@@ -19,13 +26,17 @@ services:
       AMUSE_PUBLIC_URL: ${AMUSE_PUBLIC_URL:-http://localhost:8080}
       AMUSE_BROWSERS: pool1|http://ab-controller-1:8000|http://ab-node-1:6080|/handoff/pool1,pool2|http://ab-controller-2:8000|http://ab-node-2:6080|/handoff/pool2,pool3|http://ab-controller-3:8000|http://ab-node-3:6080|/handoff/pool3
       AUTO_BROWSER_TOKEN_FILE: /secrets/auto-browser-token
-    networks: [default, pair-1, pair-2, pair-3]
+      # the sandbox's control daemon; set empty (in .env) for no sandbox
+      AMUSE_SANDBOX_URL: ${AMUSE_SANDBOX_URL-http://sandbox:7070}
+    networks: [default, sandbox, pair-1, pair-2, pair-3]
     # services the user runs on this machine (a speech server, say) are at host.docker.internal
     extra_hosts: ["host.docker.internal:host-gateway"]
     depends_on:
       ab-controller-1: { condition: service_healthy }
       ab-controller-2: { condition: service_healthy }
       ab-controller-3: { condition: service_healthy }
+      # up first: the server learns the sandbox's network at start, to turn it away
+      sandbox: { condition: service_healthy }
     volumes:
       - amuse-data:/data
       - secrets:/secrets:ro
@@ -34,5 +45,52 @@ services:
       - handoff-3:/handoff/pool3
     ports:
       - "${AMUSE_PUBLISH_HOST:-127.0.0.1}:${AMUSE_PUBLISH_PORT:-8080}:8080"
+
+  # Amuse's own machine. Commands run as `amuse` (uid 1000, with passwordless sudo) and only the control daemon
+  # (port 7070) is listening; the only way in is the `sandbox` network, shared with amuse and nothing else.
+  # It reaches the internet (this network is not internal) and holds none of amuse's secrets: no env_file, no
+  # /secrets, no Docker socket, not privileged. Only the workspace of amuse-data is mounted, not the rest of it.
+  # sudo needs its setuid, so no-new-privileges is not set; the default capabilities are kept for it.
+  # Limits can be changed in .env. A full reset to a fresh image: `docker compose up -d --force-recreate sandbox`
+  # (its home keeps; `docker volume rm amuse_sandbox-home` after stopping it wipes that too).
+  sandbox:
+    <<: *sandbox-image
+    restart: unless-stopped
+    init: true
+    networks: [sandbox]
+    cpus: ${AMUSE_SANDBOX_CPUS:-2}
+    mem_limit: ${AMUSE_SANDBOX_MEMORY:-4g}
+    memswap_limit: ${AMUSE_SANDBOX_MEMORY:-4g}
+    pids_limit: ${AMUSE_SANDBOX_PIDS:-1024}
+    depends_on:
+      sandbox-init: { condition: service_completed_successfully }
+    volumes:
+      - sandbox-home:/home/amuse
+      - type: volume
+        source: amuse-data
+        target: /home/amuse/workspace
+        volume: { subpath: workspace }
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:7070/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 5s
+
+  # first start only, before the sandbox: the workspace folder amuse-data shares with it must exist to be mounted,
+  # and amuse (uid 1000) must own the volume, whichever of them is created first
+  sandbox-init:
+    <<: *sandbox-image
+    user: "0"
+    network_mode: none
+    restart: "no"
+    read_only: true
+    entrypoint: [sh, -c, "mkdir -p /data/workspace && chown 1000:1000 /data /data/workspace"]
+    volumes: [amuse-data:/data]
+
+networks:
+  sandbox: {}
+
 volumes:
   amuse-data:
+  sandbox-home: # the sandbox's home folder: what it installs for itself, its configuration, its caches

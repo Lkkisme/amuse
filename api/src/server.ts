@@ -5,7 +5,8 @@
  * Peer per socket) and /live?id=<run> (a run's live browser view). Requests
  * authenticate with the HttpOnly session cookie the master password opens
  * (access.ts). Browsers may open the sockets, and post to the way in, only
- * from this origin; anything else is refused.
+ * from this origin; anything else is refused. So is every request, whatever it
+ * asks, from an address given to `refuse` (the sandbox's network).
  */
 import { createReadStream, statSync } from "node:fs";
 import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
@@ -29,6 +30,8 @@ export interface Options {
   /** The user's browser is back from a connector's hosted page with a one-time key (GET /connected?key=…). */
   returned?: (key: string) => Promise<boolean>;
   access: Access;
+  /** Whether the server turns away everything from this remote address (the sandbox's network: it has no business here, signed in or not). */
+  refuse?: (address: string | undefined) => boolean;
   /** Speech to text for the composer's mic (POST /transcribe); off when absent. The reason, in words, when it cannot. */
   transcribe?: (audio: Uint8Array, type: string) => Promise<{ text: string } | { reason: string }>;
   port: number;
@@ -82,7 +85,7 @@ export interface Listening {
   close(): Promise<void>;
 }
 
-export function listen({ session, live, files: uploads, web, returned, access, transcribe, port, host }: Options): Promise<Listening> {
+export function listen({ session, live, files: uploads, web, returned, access, refuse, transcribe, port, host }: Options): Promise<Listening> {
   const route = (url: URL): Target | null => {
     if (url.pathname === "/rpc") return { kind: "rpc" };
     const id = url.searchParams.get("id");
@@ -283,6 +286,7 @@ export function listen({ session, live, files: uploads, web, returned, access, t
     );
   };
   const http = createServer((req, res) => {
+    if (refuse?.(req.socket.remoteAddress)) return void res.writeHead(403).end();
     const url = new URL(req.url ?? "/", "http://local");
     const handled = ["/setup", "/unlock", "/lock", "/password"].includes(url.pathname)
       ? way(req, url, res)
@@ -306,6 +310,10 @@ export function listen({ session, live, files: uploads, web, returned, access, t
   });
 
   http.on("upgrade", (req, socket, head) => {
+    if (refuse?.(req.socket.remoteAddress)) {
+      socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
+      return;
+    }
     const url = new URL(req.url ?? "/", "http://local");
     const target = route(url);
     // a page elsewhere (even a sibling subdomain carrying the cookie) may not open our sockets
