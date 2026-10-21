@@ -82,7 +82,7 @@ test("an agent cannot move a run the user stopped", async () => {
   await host.call("chat.send", { chat: "main", text: "go", timezone: "UTC", attachments: [] });
   const agent = io();
   assert.ok(agent);
-  const started = agent.act({ kind: "browse", title: "t", url: "https://x.example/", instructions: "t" });
+  const started = agent.act({ kind: "browse", title: "t", url: "https://x.example/", instructions: "t", files: [] });
   assert.ok(started.ok);
   await host.call("browser.control", { id: started.id, action: "stop" });
   assert.deepEqual(agent.act({ kind: "browserEnded", id: started.id, status: "completed", result: "done" }), {
@@ -97,7 +97,7 @@ test("a client holding only the recent end sees what the whole feed shows there,
   for (const text of ["a", "b", "c", "d", "e"]) await host.call("chat.send", { chat: "main", text, timezone: "UTC", attachments: [] });
   const agent = io();
   assert.ok(agent);
-  const run = agent.act({ kind: "browse", title: "t", url: "https://x.example/", instructions: "t" });
+  const run = agent.act({ kind: "browse", title: "t", url: "https://x.example/", instructions: "t", files: [] });
   assert.ok(run.ok);
   for (const text of ["f", "g", "h", "i"]) await host.call("chat.send", { chat: "main", text, timezone: "UTC", attachments: [] });
 
@@ -174,7 +174,7 @@ async function withRun() {
   await host.call("chat.send", { chat: "main", text: "check the tides", timezone: "UTC", attachments: [] });
   const agent = io();
   assert.ok(agent);
-  const run = agent.act({ kind: "browse", title: "Tides", url: "https://tides.example/", instructions: "Read today's tides" });
+  const run = agent.act({ kind: "browse", title: "Tides", url: "https://tides.example/", instructions: "Read today's tides", files: [] });
   assert.ok(run.ok);
   const entity = async (id: string) => (await host.call("session.history", { chat: "main", before: 1000, limit: 200 })).entities.find((e) => e.id === id);
   return { host, agent, run: run.id, time, runs, entity };

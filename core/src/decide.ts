@@ -77,8 +77,8 @@ export type TaskProgress = Extract<TaskStatus, "working" | "waiting" | "complete
 export type AgentAction =
   /** Ask the user to connect an app; a pending request for the same provider is reused. */
   | { kind: "connect"; provider: string; title: string }
-  /** Hand a browser task to the browser port; it starts working at once. `instructions`: the user's ask in full. */
-  | { kind: "browse"; title: string; url: string; instructions: string }
+  /** Hand a browser task to the browser port; it starts working at once. `instructions`: the user's ask in full; `files`: workspace files it may upload. */
+  | { kind: "browse"; title: string; url: string; instructions: string; files: string[] }
   /** Ask the user to approve a consequential step before taking it; `remember`: the answer may become a rule. */
   | { kind: "ask"; action: string; target: string; detail: string; remember: boolean }
   /** A browser run's progress, from the agent driving it. */
@@ -363,8 +363,8 @@ const agentRules: AgentRules = {
     if (question.status !== "open") return reject({ kind: "invalid", action: "answer", from: question.status });
     return ok([upsert({ ...question, status: "answered", answer: text })], [{ kind: "settled", id, answer: { kind: "answered", text } }], { id });
   },
-  browse: (_, { title, url, instructions }, ctx) => {
-    const browser: Browser = { kind: "browser", id: ctx.id("b"), at: ctx.now, title, url, status: "working", instructions, result: null, step: null, live: true };
+  browse: (_, { title, url, instructions, files }, ctx) => {
+    const browser: Browser = { kind: "browser", id: ctx.id("b"), at: ctx.now, title, url, status: "working", instructions, result: null, step: null, live: true, files };
     return ok([upsert(browser)], [{ kind: "browse", browser }], { id: browser.id });
   },
   released: (state, { id }) => {

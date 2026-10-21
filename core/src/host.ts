@@ -97,6 +97,8 @@ export interface AgentIO {
   report(note: string): void;
   /** Now, and the user's time zone (their device's when they last wrote). */
   time(): { now: string; timezone: string };
+  /** What the user last said in this chat (or, before they have, in the main chat); "" before they ever have. */
+  lastWords(): string;
   /** Resolves when Muse answers question `id` (from a `question` action), it times out, or its run ends. */
   answer(id: string): Promise<QuestionOutcome>;
   /** What Muse tells run `run` while it is in flight (instructions; a stop for a schedule's run). Returns unsubscribe. */
@@ -174,8 +176,6 @@ export interface Workspace {
   remove(path: string): Promise<void>;
   /** Whether a file or folder is there. */
   exists(path: string): Promise<boolean>;
-  /** The files the user sent that are at `path` or in it (wherever they have been moved). */
-  sentByUser(path: string): Promise<string[]>;
   /** Where a sent file is now; null once it is deleted. */
   locate(id: string): string | null;
   /** A workspace file as an attachment, to send in the chat. */
@@ -188,7 +188,6 @@ export const noWorkspace: Workspace = {
   read: async () => null,
   list: async () => [],
   exists: async () => false,
-  sentByUser: async () => [],
   locate: () => null,
   open: async (path) => {
     throw new WorkspaceError(`there is no ${path}: no files are kept here`);
@@ -465,6 +464,11 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
         return other ? agentContext(other.state, otherChat, where) || "(nothing said yet)" : null;
       },
       time: () => ({ now: clock.now(), timezone: userZoneOf(at()) }),
+      lastWords: () => {
+        const said = (r: Room) => r.state.entities.findLast((e) => e.kind === "prompt" && e.text.trim() !== "");
+        const last = said(at()) ?? said(main());
+        return last?.kind === "prompt" ? last.text : "";
+      },
       answer(id) {
         const question = holder(id)?.state.entities.find((e) => e.kind === "question" && e.id === id);
         if (question?.kind === "question" && question.status !== "open")

@@ -2,9 +2,10 @@
  * The agent port on Pi (@earendil-works/pi-coding-agent). The conversation
  * lives in remuse's events, not in Pi: each turn is a fresh Pi session given
  * the conversation as the core renders it (context.ts), so a restart loses
- * nothing and the context never outgrows the model. Each turn streams into a
- * reply entity. Pi's coding tools, extensions, skills and context files are
- * all off: the model sees only remuse's tools (tools.ts).
+ * nothing and the context never outgrows the model. Its reply is what it
+ * says once it is done (no more tools); what it writes on the way is not shown
+ * (the status line says what it is doing). Pi's coding tools, extensions,
+ * skills and context files are all off: the model sees only remuse's tools (tools.ts).
  */
 import { type AgentIO, type Ports, type Rules, type Turn, type Workspace, localTime, newId } from "@remuse/core";
 import { images, workspaceTools } from "./attachments.ts";
@@ -75,17 +76,14 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
     /** tools act through this run's chat */
     const io = () => agent;
     emit({ kind: "activity", activity: { kind: "responding", label: null } });
-    let reply: { id: string; at: string; text: string } | undefined;
-    /** what came before the reply's first visible character */
-    let lead = "";
-    const finish = () => {
-      if (reply) emit({ kind: "upserted", entity: { kind: "reply", ...reply, text: reply.text.trimEnd(), streaming: false, attachments: [] } });
-      reply = undefined;
-      lead = "";
-    };
+    /** what the model is writing in its current message */
+    let said = "";
     try {
-      const session = await openSession(cfg, cfg.system, [
-        ...tools(io, cfg.rules),
+      // the user's language, said where the model weighs it most: the system prompt of this turn
+      const language = scriptOf(agent.lastWords());
+      const system = language ? `${cfg.system}\nThe user writes in ${language}: reply in ${language}.` : cfg.system;
+      const session = await openSession(cfg, system, [
+        ...tools(io, cfg.rules, cfg.files),
         ...chatTools(io),
         ...scheduleTools(io),
         ...relayTools(io),
@@ -99,27 +97,21 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
       let failure: string | undefined;
       const unsubscribe = pi.subscribe((event) => {
         if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-          const delta = event.assistantMessageEvent.delta;
-          if (!delta) return;
-          if (!reply) {
-            // a model may write a line break or two before calling a tool: that is not a reply
-            lead += delta;
-            if (!lead.trim()) return;
-            reply = { id: newId("r"), at: new Date().toISOString(), text: lead.trimStart() };
-            lead = "";
-            emit({ kind: "upserted", entity: { kind: "reply", ...reply, streaming: true, attachments: [] } });
-          } else {
-            reply.text += delta;
-            emit({ kind: "appended", id: reply.id, text: delta });
-          }
+          said += event.assistantMessageEvent.delta;
         } else if (event.type === "tool_execution_start") {
           // the line under the avatar says what the agent is doing, Muse-style
           emit({ kind: "activity", activity: { kind: "working", label: statusOf(event.args) ?? toolLabels[event.toolName] ?? "Working" } });
         } else if (event.type === "tool_execution_end") {
           emit({ kind: "activity", activity: { kind: "responding", label: null } });
         } else if (event.type === "message_end" && event.message.role === "assistant") {
-          finish();
-          if (event.message.stopReason === "error") failure = event.message.errorMessage ?? "The model run failed";
+          // only what the agent says once it is done is its reply; what it writes on the way to a tool
+          // is its own thinking aloud (often in another language), and the status line already says what it does
+          const { stopReason } = event.message;
+          const text = said.trim();
+          said = "";
+          if (stopReason === "error") failure = event.message.errorMessage ?? "The model run failed";
+          else if (text && stopReason !== "toolUse" && stopReason !== "aborted")
+            emit({ kind: "upserted", entity: { kind: "reply", id: newId("r"), at: new Date().toISOString(), text, streaming: false, attachments: [] } });
         }
       });
       try {
@@ -131,7 +123,6 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
       }
       if (failure !== undefined) throw new Error(failure);
     } catch (error) {
-      finish();
       if (!live()) return;
       const message = redact(error instanceof Error ? error.message : String(error), secretsOf(cfg));
       emit({ kind: "upserted", entity: { kind: "reply", id: newId("r"), at: new Date().toISOString(), text: `Something went wrong: ${message}`, streaming: false, attachments: [] } });
@@ -174,6 +165,23 @@ async function title(cfg: PiModelConfig, text: string): Promise<string> {
     session.close();
   }
 }
+
+/**
+ * The language the user writes in, where its script tells it (a model slips into English
+ * after reading English pages, or answering a message full of URLs): Chinese, Japanese,
+ * Korean. Null for scripts that do not tell (the model goes by the message).
+ */
+export function scriptOf(text: string): Language | null {
+  const plain = text.replace(/https?:\/\/\S+/g, "");
+  if (scripts.Japanese.test(plain)) return "Japanese";
+  if (scripts.Korean.test(plain)) return "Korean";
+  if (scripts.Chinese.test(plain)) return "Chinese";
+  return null;
+}
+
+type Language = "Chinese" | "Japanese" | "Korean";
+/** Characters only that language's script has (Japanese kana; Korean hangul; Chinese, then, han). */
+const scripts: Record<Language, RegExp> = { Japanese: /[\u3040-\u30ff]/, Korean: /[\uac00-\ud7af]/, Chinese: /[\u4e00-\u9fff]/ };
 
 /** The turn as the model gets it: the conversation, now on the user's clock, then what to do. */
 function brief(agent: AgentIO, turn: Turn): string {

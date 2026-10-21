@@ -43,3 +43,12 @@ test("an app with several accounts asks which; one is used as is; an account is 
   assert.ok(!pick("gmail", two, "x@c.com").ok);
   assert.ok(!pick("gmail", [], undefined).ok);
 });
+
+test("the user's language is told by the script they write in, links aside", async () => {
+  const { scriptOf } = await import("./agent.ts");
+  assert.equal(scriptOf("用浏览器打开 https://example.com/download 下载第一个文件"), "Chinese");
+  assert.equal(scriptOf("ダウンロードして"), "Japanese");
+  assert.equal(scriptOf("다운로드해 줘"), "Korean");
+  assert.equal(scriptOf("open https://例え.jp/ please"), null);
+  assert.equal(scriptOf("download the first file"), null);
+});

@@ -70,6 +70,8 @@ x-controller-env: &controller-env
   REQUIRE_AUTH_STATE_ENCRYPTION: "true"
   ALLOWED_HOSTS: "*"
   MAX_SESSIONS: "1"
+  # remuse asks the user before every upload itself (the controller's own approvals are not seen by anyone)
+  REQUIRE_APPROVAL_FOR_UPLOADS: "false"
   REQUEST_RATE_LIMIT_REQUESTS: "1200"
   AUTH_STATE_MAX_AGE_HOURS: "720"
 
@@ -81,7 +83,7 @@ services:
     read_only: true
     network_mode: none
     restart: "no"
-    volumes: [secrets:/secrets]
+    volumes: [secrets:/secrets, handoff-1:/handoff/1, handoff-2:/handoff/2]
     entrypoint:
       - python
       - -c
@@ -98,6 +100,10 @@ services:
         # remuse (uid 1000) owns the token; the controllers (root, without capabilities) read it as group 0
         make("auto-browser-token", secrets.token_hex(24), 1000, 0o440)
         make("logins-key", base64.urlsafe_b64encode(os.urandom(32)).decode(), 0, 0o400)  # Fernet key, controllers only
+        # the folders remuse hands a file to upload through: remuse (uid 1000) puts it there, the controller
+        # (root without capabilities) makes its own session folder beside it and reads the file
+        for folder in ("/handoff/1", "/handoff/2"):
+            os.chmod(folder, 0o1777)
 
   ab-node-1:
     <<: *node
@@ -119,7 +125,7 @@ services:
       CONTROLLER_ALLOWED_HOSTS: ab-controller-1,localhost,127.0.0.1,::1
       BROWSER_WS_ENDPOINT_FILE: /node-profile/browser-ws-endpoint.txt
       TAKEOVER_URL: http://ab-node-1:6080/vnc.html?autoconnect=true
-    volumes: [profile-1:/node-profile:ro, controller-1:/data, logins:/data/auth, secrets:/secrets:ro]
+    volumes: [profile-1:/node-profile:ro, controller-1:/data, logins:/data/auth, handoff-1:/data/uploads, secrets:/secrets:ro]
 
   ab-node-2:
     <<: *node
@@ -141,7 +147,7 @@ services:
       CONTROLLER_ALLOWED_HOSTS: ab-controller-2,localhost,127.0.0.1,::1
       BROWSER_WS_ENDPOINT_FILE: /node-profile/browser-ws-endpoint.txt
       TAKEOVER_URL: http://ab-node-2:6080/vnc.html?autoconnect=true
-    volumes: [profile-2:/node-profile:ro, controller-2:/data, logins:/data/auth, secrets:/secrets:ro]
+    volumes: [profile-2:/node-profile:ro, controller-2:/data, logins:/data/auth, handoff-2:/data/uploads, secrets:/secrets:ro]
 
 networks:
   pair-1: { internal: true }
@@ -156,3 +162,5 @@ volumes:
   profile-2:
   controller-1:
   controller-2:
+  handoff-1: # a file on its way into an upload, put there by remuse (pair 1)
+  handoff-2:

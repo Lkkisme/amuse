@@ -15,7 +15,7 @@ services:
     env_file: .env
     environment:
       REMUSE_PUBLIC_URL: ${REMUSE_PUBLIC_URL:-http://localhost:8080}
-      REMUSE_BROWSERS: pool1|http://ab-controller-1:8000|http://ab-node-1:6080,pool2|http://ab-controller-2:8000|http://ab-node-2:6080
+      REMUSE_BROWSERS: pool1|http://ab-controller-1:8000|http://ab-node-1:6080|/handoff/pool1,pool2|http://ab-controller-2:8000|http://ab-node-2:6080|/handoff/pool2
       AUTO_BROWSER_TOKEN_FILE: /secrets/auto-browser-token
     networks: [default, pair-1, pair-2]
     depends_on:
@@ -24,6 +24,8 @@ services:
     volumes:
       - remuse-data:/data
       - secrets:/secrets:ro
+      - handoff-1:/handoff/pool1
+      - handoff-2:/handoff/pool2
     ports:
       - "${REMUSE_PUBLISH_HOST:-127.0.0.1}:${REMUSE_PUBLISH_PORT:-8080}:8080"
 volumes:

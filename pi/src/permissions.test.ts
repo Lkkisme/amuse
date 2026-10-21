@@ -28,6 +28,7 @@ function setup(permission: Permission, answer: Answer = { verdict: "approved", r
     context: () => "",
     recall: () => "",
     time: () => ({ now: "2026-10-20T08:00:00Z", timezone: "UTC" }),
+    lastWords: () => "",
     answer: async () => ({ kind: "closed" }),
     listen: () => () => {},
   };

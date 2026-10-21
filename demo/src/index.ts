@@ -155,6 +155,7 @@ export function demoPorts<H>(timers: Timers<H>): Ports {
           title: `Look at ${new URL(url).host}`,
           url,
           instructions: text,
+          files: [],
         });
       if (app)
         act({
@@ -329,6 +330,7 @@ export function seed(): Entity[] {
       result: "Found 12 exhibits; the kelp forest feeding is at 11:30.",
       step: null,
       live: false,
+      files: [],
     },
     {
       kind: "prompt",
@@ -349,6 +351,7 @@ export function seed(): Entity[] {
       result: null,
       step: null,
       live: true,
+      files: [],
     },
     {
       kind: "browser",
@@ -361,6 +364,7 @@ export function seed(): Entity[] {
       result: null,
       step: null,
       live: true,
+      files: [],
     },
     {
       kind: "reply",

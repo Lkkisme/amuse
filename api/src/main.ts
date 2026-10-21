@@ -63,7 +63,7 @@ const system = [
   "Do quick things yourself: a fact to look up, a page to read, something to fetch from a connected app. Hand work to the background (a browser task, a schedule) only when it needs a website operated or should run later or regularly, and do not hand off what you can answer at once.",
   "Each turn you get the conversation so far: the newest part in full, older parts in brief. If you need something older or cut short, search it with `recall`.",
   "To look something up, use `web_search` and `web_read`: quick, no browser. Start a browser task only when something on a site has to be done (log in, fill a form, click through).",
-  "When a request needs a website, start a browser task with `browse` and tell the user it is running; it continues in the background and they can watch or take over. The browser agent sees nothing but what you give it: put the user's whole ask in `instructions`, including every limit they set.",
+  "When a request needs a website, start a browser task with `browse` and tell the user it is running; it continues in the background and they can watch or take over. The browser agent sees nothing but what you give it: put the user's whole ask in `instructions`, including every limit they set, and give it in `files` only the workspace files it must upload (it is asked each time). What it downloads lands in downloads/; send what the user wants with `send_file`.",
   "When a request needs one of the user's apps (mail, calendar, sheets, ...), ask with `request_connection` instead of guessing.",
   "You have a workspace of files you share with the user. What they send lands in user/ (pictures and videos in user/media_library/) and shows in the conversation as [attached: name (type, size) at path]; what the browser downloads lands in downloads/; the rest is yours to organize. You see the images of the message you are answering; look at any file with `read_file`, and keep things in order with `list_files`, `write_file`, `move_file` and `delete_file`. To give the user a file, send it with `send_file`.",
   "Never claim a background task has finished unless you were told so.",
@@ -95,18 +95,22 @@ const connector =
     timers: realTimers,
     ...(publicUrl ? { callbackUrl: (key: string) => `${new URL("/connected", publicUrl)}?key=${key}` } : {}),
   });
-/** "name|http://controller:8000|http://node:6080, …" → nodes whose noVNC websocket is …/websockify */
+/**
+ * "name|http://controller:8000|http://node:6080|/handoff/name, …" → nodes whose noVNC websocket is
+ * …/websockify; the last part, if there, is the folder shared with that controller for uploads
+ * (it sees it as its upload root, /data/uploads).
+ */
 /** The controllers' bearer token, made on first start by compose.browsers.yaml's `secrets`. */
 const tokenFile = process.env["AUTO_BROWSER_TOKEN_FILE"];
 const browserToken = tokenFile ? readFileSync(tokenFile, "utf8").trim() : "";
 const nodes = (process.env["REMUSE_BROWSERS"] ?? "")
   .split(",")
   .map((entry) => entry.trim().split("|"))
-  .flatMap(([name, api, novnc]) => {
+  .flatMap(([name, api, novnc, handoff]) => {
     if (!name || !api || !novnc) return [];
     const vnc = new URL("/websockify", novnc);
     vnc.protocol = vnc.protocol === "https:" ? "wss:" : "ws:";
-    return [{ name, controller: controller(api, browserToken), vnc: vnc.toString() }];
+    return [{ name, controller: controller(api, browserToken), vnc: vnc.toString(), ...(handoff ? { handoff: { local: handoff, remote: "/data/uploads" } } : {}) }];
   });
 const browsers = nodes.length > 0 ? browserPool(nodes) : undefined;
 await browsers?.reset();
@@ -121,7 +125,7 @@ const real = (model: string, browserModel: string): Ports => ({
   ...piScheduleRunner({ model, auth, system, rules, files, ...(apps ? { apps, search: apps.search } : {}) }),
   files,
   ...(browsers
-    ? piBrowserAgent({ model: browserModel, auth }, browsers, rules)
+    ? piBrowserAgent({ model: browserModel, auth }, browsers, rules, files)
     : {
         browse: (browser, io) => {
           if (io.act({ kind: "browserEnded", id: browser.id, status: "failed", result: "No browser is configured on this server." }).ok)

@@ -7,6 +7,8 @@
  * step that changes the URL retires them all — a stale ref is refused, never
  * retargeted.
  */
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
 import type { Controller, Element, Observation } from "./controller.ts";
 import { type Size, fitted, resize, standard } from "./desktop.ts";
 
@@ -15,6 +17,19 @@ export interface Node {
   controller: Controller;
   /** noVNC's websocket on this node (…/websockify), for the live view and takeover */
   vnc: string;
+  /**
+   * A folder this process and the controller share, for handing a file to an
+   * upload: where it is here (`local`) and where the controller sees it
+   * (`remote`, inside its upload root). Only the file being uploaded is put
+   * there, and only while it is. Without one, the node takes no uploads.
+   */
+  handoff?: { local: string; remote: string };
+}
+
+/** A file, by name and bytes. */
+export interface FileData {
+  name: string;
+  data: Uint8Array;
 }
 
 export type Step =
@@ -45,6 +60,10 @@ export interface Browsers {
   close(run: string): Promise<void>;
   /** The run's live desktop (noVNC websocket), while it has one. */
   vnc(run: string): string | null;
+  /** Put a file into the file input `ref`: the browser gets the file itself, never a path of ours. */
+  upload(run: string, ref: string, file: FileData): Promise<void>;
+  /** What the run's pages have downloaded since the last time this was asked. */
+  downloads(run: string): Promise<FileData[]>;
 }
 
 export class StaleRef extends Error {
@@ -60,6 +79,8 @@ interface Run {
   current: Map<string, string>;
   /** controller id → ref, stable for the run so an element keeps its ref */
   refs: Map<string, string>;
+  /** downloads already handed over */
+  taken: Set<string>;
 }
 
 const describe = (e: Element) => e.label?.trim() || e.href || e.tag || "";
@@ -146,7 +167,7 @@ export function browserPool(
           await node.controller.delete(session).catch(() => {});
           throw new Error("stopped");
         }
-        runs.set(id, { node, session, current: new Map(), refs: new Map() });
+        runs.set(id, { node, session, current: new Map(), refs: new Map(), taken: new Set() });
       } catch (error) {
         release(node);
         throw error;
@@ -203,5 +224,31 @@ export function browserPool(
       release(r.node);
     },
     vnc: (id) => runs.get(id)?.node.vnc ?? null,
+    async upload(id, ref, file) {
+      const r = run(id);
+      const { handoff } = r.node;
+      if (!handoff) throw new Error("This browser cannot take files.");
+      const element_id = target(r, ref);
+      // a folder per run, readable by the controller (which runs without the power to read past permissions)
+      const name = basename(file.name.replaceAll("\\", "/")) || "file";
+      const folder = join(handoff.local, id);
+      await mkdir(folder, { recursive: true, mode: 0o755 });
+      await writeFile(join(folder, name), file.data, { mode: 0o644 });
+      try {
+        await act(r, { name: "upload", body: { element_id, file_path: `${handoff.remote}/${id}/${name}`, approved: true } });
+      } finally {
+        await rm(folder, { recursive: true, force: true });
+      }
+    },
+    async downloads(id) {
+      const r = run(id);
+      const done = (await r.node.controller.downloads(r.session)).filter((d) => d.status === "completed" && !r.taken.has(d.url));
+      const files: FileData[] = [];
+      for (const d of done) {
+        r.taken.add(d.url);
+        files.push({ name: d.filename, data: await r.node.controller.artifact(d.url) });
+      }
+      return files;
+    },
   };
 }

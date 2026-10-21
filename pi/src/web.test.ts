@@ -63,6 +63,7 @@ function agentIO(answer: Answer) {
     context: () => "",
     recall: () => "",
     time: () => ({ now: "2026-10-20T08:00:00Z", timezone: "UTC" }),
+    lastWords: () => "",
     answer: async () => ({ kind: "closed" }),
     listen: () => () => {},
   };

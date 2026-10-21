@@ -20,6 +20,7 @@ const run: Browser = {
   result: "The form is open; nothing filled.",
   step: null,
   live: false,
+  files: [],
 };
 
 test("a short conversation is told in full, in order, with what each run was asked and came to", () => {

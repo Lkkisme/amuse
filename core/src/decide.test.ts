@@ -8,7 +8,7 @@ const ctx: Context = { now: at, id: (prefix) => `${prefix}1` };
 const record = (state: State, changes: Change[]): State =>
   changes.reduce((s, change) => apply(s, { seq: s.seq + 1, event: place(s, change) }), state);
 const stateOf = (...entities: Entity[]): State => record(empty, entities.map((entity) => ({ kind: "upserted", entity })));
-const browser = (status: BrowserStatus, live = true): Browser => ({ kind: "browser", id: "b1", at, title: "Log in", url: "https://x.example/", status, instructions: "Log in", result: null, step: null, live });
+const browser = (status: BrowserStatus, live = true): Browser => ({ kind: "browser", id: "b1", at, title: "Log in", url: "https://x.example/", status, instructions: "Log in", result: null, step: null, live, files: [] });
 
 test("chat.send records the prompt and asks the agent", () => {
   const d = decide(empty, { method: "chat.send", params: { chat: "main", text: "hi", timezone: "Asia/Shanghai", attachments: [] } }, ctx);
@@ -93,9 +93,9 @@ test("agent actions: connect reuses a pending request for the same provider; bro
   assert.deepEqual(again.changes, []);
   assert.equal(again.output.id, first.output.id);
 
-  const browse = decideAgent(empty, "browse", { kind: "browse", title: "Tides", url: "https://tides.example/", instructions: "Read today's tides" }, ctx);
+  const browse = decideAgent(empty, "browse", { kind: "browse", title: "Tides", url: "https://tides.example/", instructions: "Read today's tides", files: [] }, ctx);
   assert.ok(browse.ok);
-  const run: Browser = { kind: "browser", id: "b1", at, title: "Tides", url: "https://tides.example/", status: "working", instructions: "Read today's tides", result: null, step: null, live: true };
+  const run: Browser = { kind: "browser", id: "b1", at, title: "Tides", url: "https://tides.example/", status: "working", instructions: "Read today's tides", result: null, step: null, live: true, files: [] };
   assert.deepEqual(browse.changes, [{ kind: "upserted", entity: run }]);
   assert.deepEqual(browse.effects, [{ kind: "browse", browser: run }]);
 });

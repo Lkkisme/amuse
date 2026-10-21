@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import { type Action, type Controller, type Observation, type Size, StaleRef, browserPool, controller } from "./index.ts";
 
@@ -32,6 +35,11 @@ function fakeController(log: string[] = []): Controller {
     saveProfile: async () => void log.push("save"),
     delete: async (s) => void log.push(`delete ${s}`),
     live: async () => [],
+    downloads: async () => [
+      { filename: "report.pdf", status: "completed", url: "/artifacts/s1/downloads/report.pdf" },
+      { filename: "big.zip", status: "in_progress", url: "/artifacts/s1/downloads/big.zip" },
+    ],
+    artifact: async (u) => new TextEncoder().encode(`bytes of ${u}`),
   };
 }
 
@@ -119,4 +127,42 @@ test("a run starts at the standard desktop size; the user's screen reshapes it; 
   await pool.fit("r1", null);
   assert.deepEqual(set, ["ws://n1/websockify 1024x768", "ws://n1/websockify 720x1034", "ws://n1/websockify 1024x768"]);
   await assert.rejects(pool.fit("r9", null), /not open/);
+});
+
+test("an upload hands the controller only that file, in the shared folder, for as long as it takes", async () => {
+  const local = mkdtempSync(join(tmpdir(), "remuse-handoff-"));
+  const log: string[] = [];
+  const base = fakeController(log);
+  let seen = "";
+  const controller: Controller = {
+    ...base,
+    act: async (session, action) => {
+      if (action.name === "upload") {
+        const file = join(local, action.body.file_path.replace("/data/uploads/", ""));
+        seen = `${readFileSync(file, "utf8")} ${(statSync(file).mode & 0o777).toString(8)}`;
+      }
+      return base.act(session, action);
+    },
+  };
+  const pool = browserPool([{ name: "n1", controller, vnc: "ws://n1/websockify", handoff: { local, remote: "/data/uploads" } }], { desktop: sizes() });
+  await pool.open("r1", "https://a.example/");
+  const box = (await pool.look("r1")).elements.find((e) => e.label === "Search");
+  assert.ok(box);
+  await pool.upload("r1", box.ref, { name: "../../cv.pdf", data: new TextEncoder().encode("my cv") });
+  assert.equal(seen, "my cv 644", "the controller can read it while it uploads");
+  assert.ok(log.some((l) => l.startsWith('upload {"element_id":"op-box","file_path":"/data/uploads/r1/cv.pdf"')), "a name is only a name");
+  assert.ok(!existsSync(join(local, "r1")), "and it is gone after");
+  const bare = browserPool([{ name: "n2", controller: fakeController(), vnc: "ws://n2/websockify" }], { desktop: sizes() });
+  await bare.open("r2", "https://a.example/");
+  const field = (await bare.look("r2")).elements.find((e) => e.label === "Search");
+  assert.ok(field);
+  await assert.rejects(bare.upload("r2", field.ref, { name: "a.txt", data: new Uint8Array() }), /cannot take files/);
+});
+
+test("finished downloads are handed over once each", async () => {
+  const pool = browserPool([{ name: "n1", controller: fakeController(), vnc: "ws://n1/websockify" }], { desktop: sizes() });
+  await pool.open("r1", "https://a.example/");
+  const first = await pool.downloads("r1");
+  assert.deepEqual(first.map((f) => [f.name, new TextDecoder().decode(f.data)]), [["report.pdf", "bytes of /artifacts/s1/downloads/report.pdf"]]);
+  assert.deepEqual(await pool.downloads("r1"), []);
 });

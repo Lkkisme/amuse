@@ -4,12 +4,12 @@
  * (downloads/), and its own. It lists, reads (an image to see, text as text,
  * a PDF's text), writes, moves and deletes them, and sends one to the user
  * in the chat. The images of the message it answers it sees directly.
- * Deleting or overwriting what the user sent (wherever it has been moved)
- * is theirs to approve; the rest is Muse's to keep in order. What a file says reaches the agent as
+ * Deleting or replacing a file is done when the user asks (their word is
+ * their OK, as for anything hard to undo); the rest is Muse's to keep in order. What a file says reaches the agent as
  * untrusted data.
  */
 import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
-import { type AgentIO, type Workspace, describe, newId, size } from "@remuse/core";
+import { type AgentIO, type Workspace, newId, size } from "@remuse/core";
 import type { Attachment } from "@remuse/protocol";
 import { Type } from "typebox";
 import { extractText, getDocumentProxy } from "unpdf";
@@ -59,20 +59,6 @@ type Result = { content: ({ type: "text"; text: string } | ImageContent)[]; deta
 const say = (text: string): Result => ({ content: [{ type: "text", text }], details: null });
 const failed = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-/**
- * Do `work` on the user's files once they approve `action` (an approval card):
- * the agent is told now that it was asked, and gets a report when it is done.
- */
-function onApproval(io: AgentIO, action: string, target: string, work: () => Promise<string>): string {
-  const asked = io.act({ kind: "ask", action, target, detail: target, remember: false });
-  if (!asked.ok) return `Could not ask: ${describe(asked.rejection)}.`;
-  void io.decision(asked.id).then(async ({ verdict }) => {
-    if (verdict !== "approved") return io.report(`[file not changed] ${target}: the user ${verdict === "denied" ? "declined" : "did not answer in time"}.`);
-    io.report(`[file changed] ${await work().catch(failed)}`);
-  });
-  return `NOT done yet: ${target} holds what the user sent, so it waits for their OK on the approval card shown in the chat. Tell them it waits for their OK; do not say it is done. You get a report once it is.`;
-}
-
 /** The workspace tools; `send` only where there is a chat to send to. */
 export function workspaceTools(io: () => AgentIO, files: Workspace, { send = true }: { send?: boolean } = {}): ToolDefinition[] {
   const tools = [
@@ -117,13 +103,11 @@ export function workspaceTools(io: () => AgentIO, files: Workspace, { send = tru
       name: "write_file",
       label: "Write a file",
       description:
-        "Write a text file in your workspace (folders are made as needed). An existing file is replaced only with `overwrite`; replacing one the user sent shows them an approval card and is done once they confirm there.",
+        "Write a text file in your workspace (folders are made as needed). An existing file is replaced only with `overwrite`; replace a file the user sent only when they asked for it.",
       parameters: Type.Object({ status, path: Type.String(), content: Type.String(), overwrite: Type.Optional(Type.Boolean()) }),
       async execute(_, { path, content, overwrite }) {
         const data = new TextEncoder().encode(content);
         try {
-          if (overwrite && (await files.sentByUser(path)).length > 0)
-            return say(onApproval(io(), "Replace a file you sent", path, async () => (await files.write(path, data, true), `${path} replaced.`)));
           await files.write(path, data, overwrite === true);
           return say(`Wrote ${path} (${size(data.length)}).`);
         } catch (e) {
@@ -149,15 +133,11 @@ export function workspaceTools(io: () => AgentIO, files: Workspace, { send = tru
       name: "delete_file",
       label: "Delete a file",
       description:
-        "Delete a file or folder in your workspace for good. For what the user sent, this shows them an approval card and deletes once they confirm there: call it as soon as they ask (the card is the confirmation; do not ask in the chat). In the chat it then shows as deleted.",
+        "Delete a file or folder in your workspace for good. Delete what the user sent only when they asked for it (their asking is their OK; if it is unclear which files they mean, ask). In the chat it then shows as deleted.",
       parameters: Type.Object({ status, path: Type.String() }),
       async execute(_, { path }) {
         try {
           if (!(await files.exists(path))) return say(`There is no ${path}.`);
-          // what the user sent is theirs to let go of, wherever it has been moved
-          const sent = await files.sentByUser(path);
-          if (sent.length > 0)
-            return say(onApproval(io(), sent.length === 1 && sent[0] === path ? "Delete a file you sent" : `Delete ${path}, with ${sent.length} file(s) you sent`, path, async () => (await files.remove(path), `${path} deleted.`)));
           await files.remove(path);
           return say(`Deleted ${path}.`);
         } catch (e) {
@@ -172,12 +152,13 @@ export function workspaceTools(io: () => AgentIO, files: Workspace, { send = tru
     defineTool({
       name: "send_file",
       label: "Send a file",
-      description: "Send a workspace file to the user in the chat (a picture or video shows there; anything else can be opened or downloaded), with an optional line about it.",
-      parameters: Type.Object({ status, path: Type.String(), message: Type.Optional(Type.String()) }),
-      async execute(_, { path, message }) {
+      description:
+        "Send a workspace file to the user in the chat (a picture or video shows there; anything else can be opened or downloaded). It goes on its own, without words: what you say about it goes in your reply.",
+      parameters: Type.Object({ status, path: Type.String() }),
+      async execute(_, { path }) {
         try {
           const attachment = await files.share(path);
-          io().emit({ kind: "upserted", entity: { kind: "reply", id: newId("r"), at: new Date().toISOString(), text: message ?? "", streaming: false, attachments: [attachment] } });
+          io().emit({ kind: "upserted", entity: { kind: "reply", id: newId("r"), at: new Date().toISOString(), text: "", streaming: false, attachments: [attachment] } });
           return say(`Sent ${attachment.name} to the user.`);
         } catch (e) {
           return say(failed(e));

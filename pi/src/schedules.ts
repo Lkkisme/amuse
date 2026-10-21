@@ -121,7 +121,7 @@ export function piScheduleRunner(cfg: PiConfig): Pick<Ports, "schedule"> {
         });
         const own = () => io;
         const toolset = [
-          ...tools(own, cfg.rules).filter((t) => t.name !== "request_connection"),
+          ...tools(own, cfg.rules, cfg.files).filter((t) => t.name !== "request_connection"),
           ...webTools(own, cfg.rules, cfg.search),
           ...(cfg.apps ? appTools(own, cfg.apps) : []),
           ...(cfg.files ? workspaceTools(own, cfg.files, { send: false }) : []),

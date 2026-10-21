@@ -96,11 +96,10 @@ test("the workspace stays inside itself, and the chat's files follow them when t
   await files.move("notes", "archive/notes");
   assert.equal(files.find(shared.id)?.attachment.path, "archive/notes/today.md");
   assert.equal(new TextDecoder().decode((await files.read(shared.id))?.data), "# hi");
-  assert.deepEqual(await files.sentByUser("archive"), [], "Muse's own files are Muse's");
   const theirs = await files.save("bill.png", "image/png", [new Uint8Array([1, 2])]);
-  await files.move("user/media_library/bill.png", "archive/bill.png");
-  assert.deepEqual(await files.sentByUser("archive"), ["archive/bill.png"], "what the user sent stays theirs where it is moved");
   assert.ok(theirs);
+  await files.move("user/media_library/bill.png", "archive/bill.png");
+  assert.equal(files.locate(theirs.id), "archive/bill.png", "what the user sent is found where it is moved");
   await files.remove("archive");
   assert.equal(files.find(shared.id), null);
   assert.equal(await files.read(shared.id), null);

@@ -5,7 +5,7 @@
  * background while the chat goes on.
  */
 import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
-import { type AgentIO, type Rules, describe, siteAccess, siteOf } from "@remuse/core";
+import { type AgentIO, type Rules, type Workspace, describe, siteAccess, siteOf } from "@remuse/core";
 import type { Permission } from "@remuse/protocol";
 import { untrusted } from "./untrusted.ts";
 import { Type } from "typebox";
@@ -14,8 +14,8 @@ import { askToVisit, notVisited, visitAnswer } from "./visits.ts";
 
 const text = (value: string) => ({ content: [{ type: "text" as const, text: value }], details: null });
 
-/** Tools bound to the agent IO of the run in progress. */
-export function tools(io: () => AgentIO, rules: Rules): ToolDefinition[] {
+/** Tools bound to the agent IO of the run in progress; `files`: the workspace, where browser tasks may be given files to upload. */
+export function tools(io: () => AgentIO, rules: Rules, files?: Workspace): ToolDefinition[] {
   return [
     defineTool({
       name: "recall",
@@ -43,13 +43,21 @@ export function tools(io: () => AgentIO, rules: Rules): ToolDefinition[] {
           description:
             "Everything the browser agent must know, in full: what to do, what to bring back, and every limit the user set (e.g. 'open it but do not fill or submit anything'). It sees nothing of the chat but this.",
         }),
+        files: Type.Optional(
+          Type.Array(Type.String(), {
+            description: "Workspace files the task may upload to the site (e.g. 'user/cv.pdf'), only the ones it needs; each upload still asks the user. What it downloads lands in downloads/.",
+          }),
+        ),
       }),
-      async execute(_, { title, url, instructions }) {
+      async execute(_, { title, url, instructions, files: given }) {
         if (!URL.canParse(url) || !/^https?:$/.test(new URL(url).protocol)) return text(`Not started: "${url}" is not an http(s) URL.`);
+        const granted = [...new Set(given ?? [])];
+        if (granted.length > 0 && !files) return text("Not started: no files are kept here to give it.");
+        for (const path of granted) if (!(await files?.exists(path))) return text(`Not started: there is no ${path} in the workspace.`);
         const access = siteAccess(await rules.sites(), url);
         if (access === "deny") return text(`Not started: the user does not allow ${siteOf(url)}. Tell them; do not try another way to reach it.`);
         const agent = io();
-        const start = () => agent.act({ kind: "browse", title, url, instructions });
+        const start = () => agent.act({ kind: "browse", title, url, instructions, files: granted });
         if (access === "unlisted") {
           // a site with no rule is not visited until the user allows it: ask, and start once they do
           const asked = askToVisit(agent, url, `For a browser task: ${title}`);

@@ -43,7 +43,17 @@ export type Action =
   | { name: "click"; body: { element_id: string } }
   | { name: "type"; body: { element_id: string; text: string; clear_first: boolean } }
   | { name: "press"; body: { key: string } }
-  | { name: "scroll"; body: { delta_x: number; delta_y: number } };
+  | { name: "scroll"; body: { delta_x: number; delta_y: number } }
+  /** a file already in the controller's upload folder, into a file input (remuse approves uploads itself) */
+  | { name: "upload"; body: { element_id: string; file_path: string; approved: boolean } };
+
+/** A file the page downloaded, kept by the controller. */
+export const Download = z.object({
+  filename: z.string(),
+  status: z.string(),
+  url: z.string().startsWith("/artifacts/"),
+});
+export type Download = z.infer<typeof Download>;
 
 export interface Controller {
   create(startUrl: string, profile: string | null): Promise<string>;
@@ -55,6 +65,10 @@ export interface Controller {
   delete(session: string): Promise<void>;
   /** Ids of sessions the controller still has live (left over from a crash, say). */
   live(): Promise<string[]>;
+  /** What the session's pages have downloaded so far. */
+  downloads(session: string): Promise<Download[]>;
+  /** A downloaded file's bytes, by its /artifacts/ url. */
+  artifact(url: string): Promise<Uint8Array>;
 }
 
 export function controller(base: string, token: string, http: typeof fetch = fetch): Controller {
@@ -102,6 +116,11 @@ export function controller(base: string, token: string, http: typeof fetch = fet
     },
     async live() {
       return (await json(z.array(Session), "GET", "/sessions")).filter((s) => s.live).map((s) => s.id);
+    },
+    downloads: (session) => json(z.array(Download.loose()), "GET", `/sessions/${session}/downloads`),
+    async artifact(url) {
+      if (!url.startsWith("/artifacts/")) throw new ControllerError("not an artifact");
+      return new Uint8Array(await (await request("GET", url, undefined, 120_000)).arrayBuffer());
     },
   };
 }

@@ -115,6 +115,8 @@ export const Browser = z.object({
   step: z.string().nullable(),
   /** the run still has its browser, to watch and take over; once it is gone the card is only a record */
   live: z.boolean(),
+  /** workspace files the run was given to upload (each upload still asks the user); none by default */
+  files: z.array(z.string()).default([]),
 });
 
 /** When a schedule runs: on a cron pattern (5 fields) in a time zone, or once. */

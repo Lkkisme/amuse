@@ -197,11 +197,6 @@ export function workspace(root: string, index: string): FileStore {
       return attachment;
     },
     locate: (id) => store.find(id)?.attachment.path ?? null,
-    async sentByUser(path) {
-      const rel = plain(path);
-      const paths = Object.values(sent).flatMap((file) => (file.by === "user" && (rel === "" || within(file.attachment.path, rel)) ? [file.attachment.path] : []));
-      return [...new Set(paths)].filter((p) => existsSync(disk(p)));
-    },
   };
   return store;
 }
