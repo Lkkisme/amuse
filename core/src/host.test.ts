@@ -454,7 +454,38 @@ test("the sandbox is reset when the user asks; with none on the server they are 
   const { ports } = capture();
   await assert.rejects(createHost(ports).call("sandbox.reset", {}), /no sandbox/);
   let wiped = 0;
-  const host = createHost({ ...ports, sandbox: { reset: async () => void wiped++ } });
+  const host = createHost({ ...ports, sandbox: { ...noSandbox, reset: async () => void wiped++ } });
   assert.equal(await host.call("sandbox.reset", {}), null);
   assert.equal(wiped, 1);
+});
+
+test("a credential the user gives goes to the sandbox alone: not the chat, its record or what the agent hears", async () => {
+  const notes: string[] = [];
+  const given: { name: string; value: string }[] = [];
+  const { ports, io } = capture();
+  const host = createHost({
+    ...ports,
+    prompt: (turn, agent) => (turn.kind === "note" ? void notes.push(turn.text) : ports.prompt(turn, agent)),
+    sandbox: { ...noSandbox, give: async (request, value) => void given.push({ name: request.name, value }) },
+  });
+  await host.call("chat.send", { chat: "main", text: "log in to the CLI", timezone: "UTC", attachments: [] });
+  const agent = io();
+  assert.ok(agent);
+  const asked = agent.act({ kind: "askSecret", name: "Login code", why: "the CLI waits for it", deliver: { kind: "stdin", service: "login" } });
+  assert.ok(asked.ok);
+  await host.call("secret.answer", { id: asked.id, value: "code-very-secret" });
+  assert.deepEqual(given, [{ name: "Login code", value: "code-very-secret" }]);
+  const { entities } = await host.call("session.history", { chat: "main", before: 100, limit: 100 });
+  const request = entities.find((e) => e.id === asked.id);
+  assert.equal(request?.kind === "secret" ? request.status : null, "provided");
+  assert.doesNotMatch(JSON.stringify(entities), /code-very-secret/);
+  assert.equal(notes.length, 1);
+  assert.doesNotMatch(notes[0] ?? "", /code-very-secret/);
+  await assert.rejects(host.call("secret.answer", { id: asked.id, value: "again" }), /answered already/);
+
+  const declined = agent.act({ kind: "askSecret", name: "API key", why: "a tool needs it", deliver: { kind: "env", name: "TOOL_KEY" } });
+  assert.ok(declined.ok);
+  await host.call("secret.answer", { id: declined.id, value: null });
+  assert.equal(given.length, 1, "nothing goes to the sandbox when declined");
+  assert.match(notes[1] ?? "", /declined/);
 });

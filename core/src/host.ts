@@ -29,6 +29,8 @@ import {
   type Reply,
   type Results,
   type Schedule,
+  type SecretInfo,
+  type SecretRequest,
   type SkillInfo,
   type SkillOrigin,
   type Session,
@@ -163,16 +165,31 @@ export interface Ports {
   sandbox: Sandbox;
 }
 
-/** The sandbox Amuse works in, as the user sees it: it can be wiped. */
+/** The sandbox Amuse works in, as the user sees it: it can be wiped, and given credentials. */
 export interface Sandbox {
   /** Stop what runs in the sandbox and wipe its home folder; the workspace is kept, and system-wide installs stay until the container is recreated. Rejects, in words, when it cannot. */
   reset(): Promise<void>;
+  /** Give the sandbox a credential the user typed, where `request` says. Rejects, in words, when it cannot. */
+  give(request: SecretRequest, value: string): Promise<void>;
+  /** The credentials given, never their values. */
+  secrets(): Promise<SecretInfo[]>;
+  /** Take one back, from the sandbox too. */
+  forget(id: string): Promise<void>;
 }
+
+const noSandboxHere = () => new Rejected({ kind: "unsound", reason: "This server has no sandbox." });
 
 /** No sandbox on this server (the demo, tests). */
 export const noSandbox: Sandbox = {
   reset: async () => {
-    throw new Rejected({ kind: "unsound", reason: "This server has no sandbox." });
+    throw noSandboxHere();
+  },
+  give: async () => {
+    throw noSandboxHere();
+  },
+  secrets: async () => [],
+  forget: async () => {
+    throw noSandboxHere();
   },
 };
 
@@ -439,7 +456,10 @@ function subjectOf(action: AgentAction): string | null {
     case "ask":
     case "schedule":
     case "revisePreset": // set up in the main chat, where this is asked
+    case "askSecret":
       return null;
+    case "secretAnswered":
+      return action.id;
   }
 }
 
@@ -828,6 +848,27 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
         .flatMap((room) => room.state.entities.filter((e): e is Approval => e.kind === "approval").map((approval) => ({ chat: room.chat, approval })))
         .sort((a, b) => Date.parse(b.approval.at) - Date.parse(a.approval.at)),
     }),
+    // the value goes from here to the sandbox, never into the chat, the journal or the agent's context
+    "secret.answer": async ({ id, value }) => {
+      const room = holder(id);
+      const request = room?.state.entities.find((e): e is SecretRequest => e.kind === "secret" && e.id === id);
+      if (!room || !request) throw new Rejected({ kind: "notFound", entity: "secret", id });
+      if (request.status !== "pending") throw new Rejected({ kind: "unsound", reason: "That has been answered already." });
+      if (value !== null) await ports.sandbox.give(request, value);
+      const provided = value !== null;
+      room.agent.act({ kind: "secretAnswered", id, outcome: provided ? "provided" : "declined" });
+      room.agent.report(
+        provided
+          ? `[credential] The user provided ${request.name}; it is in your sandbox as asked. Carry on with what needed it (you never see the value, and output shows it masked).`
+          : `[credential] The user declined to give ${request.name}. Do not ask for it again unless they bring it up.`,
+      );
+      return null;
+    },
+    "secrets.list": async () => ({ secrets: await ports.sandbox.secrets() }),
+    "secrets.remove": async ({ id }) => {
+      await ports.sandbox.forget(id);
+      return null;
+    },
     "skills.list": async () => ({ skills: await (ports.skills ?? noSkills).list() }),
     "skills.get": async ({ name, origin }) => {
       const found = await (ports.skills ?? noSkills).get(name, origin);

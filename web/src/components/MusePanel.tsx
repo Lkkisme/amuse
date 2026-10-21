@@ -11,7 +11,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { usePresence } from "./usePresence";
-import { CalendarClock, CircleCheck, Clock, Globe, List, ListTodo, Plug, ShieldCheck, X } from "lucide-react";
+import { CalendarClock, CircleCheck, Clock, Globe, KeyRound, List, ListTodo, Plug, ShieldCheck, X } from "lucide-react";
 import type { Approval, Chat, Entity, Schedule, Session, State } from "@amuse/protocol";
 import { AppLogo } from "./AppLogo";
 import { barButton, barButtonLook, barIcon } from "./bar";
@@ -74,6 +74,15 @@ function done(entity: Entity): Done | null {
         icon: ShieldCheck,
       };
     }
+    case "secret":
+      return {
+        id: entity.id,
+        title: entity.name,
+        sub: { pending: "Waiting for you to provide it", provided: "Provided", declined: "Declined" }[entity.status],
+        time: at,
+        done: entity.status === "provided",
+        icon: KeyRound,
+      };
     case "connection":
       return {
         id: entity.id,

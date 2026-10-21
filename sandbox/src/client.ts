@@ -8,7 +8,22 @@
  * `detail`, to be shown only as untrusted text.
  */
 import type { z } from "zod";
-import { DEFAULT_TIMEOUT, Failure, Log, Nothing, Ran, type Run, type Service, Services, type Start, Started, Stopped } from "./protocol.ts";
+import {
+  DEFAULT_TIMEOUT,
+  Failure,
+  type Forget,
+  Log,
+  Nothing,
+  Ran,
+  type Run,
+  type SecretEnv,
+  type SecretFile,
+  type Service,
+  Services,
+  type Start,
+  Started,
+  Stopped,
+} from "./protocol.ts";
 
 /** A request the sandbox could not do, or could not be asked: why, in words of our own. */
 export class SandboxError extends Error {
@@ -31,6 +46,14 @@ export interface SandboxClient {
   stop(service: string): Promise<Service>;
   /** Stop everything and empty the home folder back to its skeleton; the workspace stays. */
   reset(): Promise<void>;
+  /** Type a line into a running service (a CLI waiting for a code). */
+  input(service: string, text: string): Promise<void>;
+  /** Keep a credential as an environment variable every command gets. */
+  setEnv(secret: SecretEnv): Promise<void>;
+  /** Keep a credential as a file of the user's in the home folder. */
+  setFile(secret: SecretFile): Promise<void>;
+  /** Take a credential back. */
+  forget(what: Forget): Promise<void>;
 }
 
 /** How long a quick request may take (a reset is the slowest of them), and how long a command may take beyond its own timeout before the answer is given up on. */
@@ -102,5 +125,9 @@ export function sandboxClient(
     log: (service, lines) => call("GET", `${named(service)}/log${lines === undefined ? "" : `?lines=${lines}`}`, Log, quick),
     stop: async (service) => (await call("POST", `${named(service)}/stop`, Stopped, quick, {})).service,
     reset: async () => void (await call("POST", "/reset", Nothing, quick)),
+    input: async (service, text) => void (await call("POST", `${named(service)}/input`, Nothing, quick, { text })),
+    setEnv: async (secret) => void (await call("POST", "/secrets/env", Nothing, quick, secret)),
+    setFile: async (secret) => void (await call("POST", "/secrets/file", Nothing, quick, secret)),
+    forget: async (what) => void (await call("POST", "/secrets/forget", Nothing, quick, what)),
   };
 }

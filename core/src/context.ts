@@ -77,6 +77,11 @@ export function line(entity: Entity, detail: Detail, zone: string, where: Where 
       return `[${at}] Approval to ${entity.action} ${entity.target}: ${entity.status}`;
     case "connection":
       return `[${at}] Connect ${entity.title}: ${entity.status}`;
+    case "secret": {
+      // what and where only: the value never reaches the agent
+      const where = entity.deliver.kind === "env" ? `$${entity.deliver.name}` : entity.deliver.kind === "file" ? entity.deliver.path : `the input of service ${entity.deliver.service}`;
+      return `[${at}] Asked the user for a credential, ${entity.name}, for ${where} in your sandbox: ${entity.status}`;
+    }
     case "failure":
       return `[${at}] (You could not reply here: ${entity.reason === "refused" ? "the model's provider refused (content filter)" : "the model's service failed"}${entity.status === "retried" ? "; tried again" : ""})`;
     case "instruction":

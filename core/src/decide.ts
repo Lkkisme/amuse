@@ -19,6 +19,7 @@ import type {
   Resolution,
   RunOutcome,
   Schedule,
+  SecretDestination,
   State,
   Task,
   TaskStatus,
@@ -28,7 +29,7 @@ import type {
 import { APPROVAL_TTL_MS, GRACE_MS, MAX_SCHEDULES, check, later, nextRun, standing } from "./schedule.ts";
 
 /** Calls that do not touch the conversation: reading it, the app directory (Ports.apps), the keys (Ports.keys), the sandbox (Ports.sandbox) and the goals (in the workspace). */
-export type Query = Extract<Call, { method: "session.sync" | "session.history" | "schedules.list" | `chats.${string}` | `apps.${string}` | `sites.${string}` | `keys.${string}` | `models.${string}` | `approvals.${string}` | `logins.${string}` | `sandbox.${string}` | `goals.${string}` | `skills.${string}` }>;
+export type Query = Extract<Call, { method: "session.sync" | "session.history" | "schedules.list" | `chats.${string}` | `apps.${string}` | `sites.${string}` | `keys.${string}` | `models.${string}` | `approvals.${string}` | `logins.${string}` | `sandbox.${string}` | `goals.${string}` | `skills.${string}` | `secret.${string}` | `secrets.${string}` }>;
 /** Client calls that change the conversation. */
 export type Command = Exclude<Call, Query>;
 type CommandMethod = Command["method"];
@@ -115,6 +116,10 @@ export type AgentAction =
   | { kind: "schedule"; title: string; instructions: string; when: When; needs?: Needs | null; preset?: boolean; goal?: string | null }
   /** Cancel a schedule for good. */
   | { kind: "unschedule"; id: string }
+  /** Ask the user for a credential for the sandbox, on a card (the value goes from there to the sandbox, never through here). */
+  | { kind: "askSecret"; name: string; why: string; deliver: SecretDestination }
+  /** A credential request was answered (by the server, once the value is where it was to go). */
+  | { kind: "secretAnswered"; id: string; outcome: "provided" | "declined" }
   /** One every instance starts with takes its instructions as this version of Amuse words them (they ship with it, like the built-in skills). */
   | { kind: "revisePreset"; title: string; instructions: string }
   /** A schedule's run has ended, and how. */
@@ -365,6 +370,19 @@ const agentRules: AgentRules = {
     const id = ctx.id("s");
     return ok([upsert({ kind: "schedule", id, at: ctx.now, title, instructions, when, status: "active", next: sound.next, running: false, last: null, needs, preset, goal })], [], { id });
   },
+  askSecret: (state, { name, why, deliver }, ctx) => {
+    // asked again while one for the same is open: that one stands
+    const open = state.entities.find((e) => e.kind === "secret" && e.status === "pending" && e.name === name);
+    if (open) return ok([], [], { id: open.id });
+    const id = ctx.id("k");
+    return ok([upsert({ kind: "secret", id, at: ctx.now, name, why, deliver, status: "pending" })], [], { id });
+  },
+  secretAnswered: (state, { id, outcome }) => {
+    const request = find(state, "secret", id);
+    if (!request) return reject({ kind: "notFound", entity: "secret", id });
+    if (request.status !== "pending") return ok([], [], { id });
+    return ok([upsert({ ...request, status: outcome })], [], { id });
+  },
   revisePreset: (state, { title, instructions }) => {
     const preset = state.entities.find((e): e is Schedule => e.kind === "schedule" && e.preset && e.title === title && (e.status === "active" || e.status === "paused"));
     // cancelled by the user, or as this version has it already: nothing to do
@@ -561,6 +579,7 @@ export function recover(state: State, now: string): Change[] {
         return e.running ? { ...e, running: false, last: { at: now, outcome: "failed", summary: "cut short by a restart" } } : null; // ended now, as far as anyone can tell
       case "prompt":
       case "connection":
+      case "secret": // still to be answered after a restart (a service waiting for it may be gone: then the answer says so)
         return null;
     }
   };

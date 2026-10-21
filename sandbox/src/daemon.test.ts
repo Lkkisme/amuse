@@ -210,3 +210,41 @@ test("what a service printed fits the answer however it escapes, and a list of l
   assert.equal((await sandbox.services()).filter((s) => s.name.startsWith("long")).length, 8);
   for (let i = 0; i < 8; i++) await sandbox.stop(`long${i}`);
 });
+
+test("a credential given as an environment variable is in every command after, for the user alone, and goes when taken back", async () => {
+  await sandbox.setEnv({ name: "API_TOKEN", value: "tok-123456" });
+  assert.equal((await sandbox.run({ command: "echo $API_TOKEN" })).output.trim(), "tok-123456");
+  const kept = join(home, ".config", "amuse", "secrets.json");
+  assert.equal((await import("node:fs")).statSync(kept).mode & 0o777, 0o600);
+  await sandbox.forget({ env: "API_TOKEN" });
+  assert.equal((await sandbox.run({ command: 'echo "[$API_TOKEN]"' })).output.trim(), "[]");
+});
+
+test("a credential file goes in the home folder, never the workspace or out of home", async () => {
+  await sandbox.setFile({ path: ".config/tool/key", value: "file-secret" });
+  const written = join(home, ".config", "tool", "key");
+  assert.equal(readFileSync(written, "utf8"), "file-secret");
+  assert.equal((await import("node:fs")).statSync(written).mode & 0o777, 0o600);
+  // a link left in its place is replaced, not followed
+  const elsewhere = join(root, "elsewhere");
+  writeFileSync(elsewhere, "untouched");
+  (await import("node:fs")).rmSync(written);
+  symlinkSync(elsewhere, written);
+  await sandbox.setFile({ path: ".config/tool/key", value: "again" });
+  assert.equal(readFileSync(elsewhere, "utf8"), "untouched");
+  assert.match(await failure(sandbox.setFile({ path: "workspace/key", value: "x" })), /workspace/);
+  assert.match(await failure(sandbox.setFile({ path: "../outside", value: "x" })), /home folder/);
+  await sandbox.forget({ file: ".config/tool/key" });
+  assert.equal(existsSync(written), false);
+});
+
+test("a running service can be typed into, as a CLI waiting for a code reads it", async () => {
+  await sandbox.start({ name: "waiting", command: 'read code; echo "got $code"; sleep 30' });
+  await sandbox.input("waiting", "abc-123");
+  // the line is read and answered in a moment
+  await new Promise((done) => setTimeout(done, 300));
+  const log = await sandbox.log("waiting");
+  assert.match(log.output, /got abc-123/);
+  await sandbox.stop("waiting");
+  assert.match(await failure(sandbox.input("waiting", "late")), /not running/);
+});

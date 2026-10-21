@@ -22,7 +22,7 @@
 import { dirname, join } from "node:path";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { SandboxError, sandboxClient } from "@amuse/sandbox";
+import { SandboxError, masking, sandboxClient } from "@amuse/sandbox";
 import { ComposioError, NoComposioKey, composio, composioApps, composioGuide, composioConnector, composioDirectory, keyedComposio } from "@amuse/composio";
 import { fileChats } from "./journal.ts";
 import { workspace } from "./workspace.ts";
@@ -35,6 +35,7 @@ import { fileDefaults } from "./defaults.ts";
 import { listen } from "./server.ts";
 import { fileRules } from "./rules.ts";
 import { refusing } from "./sandbox.ts";
+import { sandboxSecrets } from "./secrets.ts";
 
 const port = Number(process.env["AMUSE_PORT"] ?? 8797);
 const host = process.env["AMUSE_HOST"] ?? "127.0.0.1";
@@ -78,7 +79,10 @@ const keys = piKeys({
 const auth: PiAuth = { kind: "keys", keys: credentials };
 /** Amuse's own machine, where there is one: commands run there by the agents, and wiped by the user in Settings */
 const sandboxUrl = process.env["AMUSE_SANDBOX_URL"];
-const sandbox = sandboxUrl ? sandboxClient(sandboxUrl) : undefined;
+const sandboxDirect = sandboxUrl ? sandboxClient(sandboxUrl) : undefined;
+/** credentials the user gave for the sandbox (secrets.ts): kept, given, and masked in all it says to the agent */
+const given = sandboxDirect ? sandboxSecrets(join(dataDir, "sandbox-secrets.json"), sandboxDirect) : undefined;
+const sandbox = sandboxDirect && given ? masking(sandboxDirect, () => given.masked()) : undefined;
 const model = () => keys.model("chat");
 const browserModel = () => keys.model("browser");
 const system = [
@@ -273,18 +277,24 @@ const ports: Ports = {
         browser: () => {},
         fit: () => {},
       }),
-  sandbox: sandbox
-    ? {
-        reset: async () => {
-          try {
-            await sandbox.reset();
-          } catch (error) {
-            // our own words only, never what the sandbox said about it (`detail`)
-            throw error instanceof SandboxError ? new Rejected({ kind: "unsound", reason: error.message }) : error;
-          }
-        },
-      }
-    : noSandbox,
+  sandbox:
+    sandbox && given
+      ? {
+          reset: async () => {
+            try {
+              await sandbox.reset();
+            } catch (error) {
+              // our own words only, never what the sandbox said about it (`detail`)
+              throw error instanceof SandboxError ? new Rejected({ kind: "unsound", reason: error.message }) : error;
+            }
+            // the reset emptied its home, where the credentials were
+            await given.again();
+          },
+          give: (request, value) => given.give(request, value),
+          secrets: () => given.secrets(),
+          forget: (id) => given.forget(id),
+        }
+      : noSandbox,
   rules,
   approval: () => {}, // waiting agents get the verdict through AgentIO.decision
   // a card from before the key was removed: the user hears where to add one

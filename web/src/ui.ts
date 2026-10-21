@@ -66,6 +66,8 @@ export interface Actions {
   /** try again a turn Muse could not reply to */
   retry(failure: string): void;
   resolveApproval(id: string, resolution: "allow_once" | "allow_always" | "deny"): void;
+  /** answer a request for a credential: its value (to the sandbox, never the chat), or null to decline; fails, in words, when it could not be given */
+  answerSecret(id: string, value: string | null): Promise<void>;
   openExplainer(connectionId: string | null): void;
   connect(connectionId: string): void;
   /** null: whichever browser is newest (or none, said so) */

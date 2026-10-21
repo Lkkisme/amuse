@@ -29,6 +29,10 @@ function fake(answers: { ran?: Ran; services?: Service[]; fail?: string } = {}) 
     log: async (name, lines) => (asked.push([name, lines]), refuse(), { service: service(), output: "GET /\nGET /about", cut: 0 }),
     stop: async (name) => (asked.push(name), refuse(), service({ running: false, signal: "SIGTERM" })),
     reset: async () => {},
+    input: async () => {},
+    setEnv: async () => {},
+    setFile: async () => {},
+    forget: async () => {},
   };
   return { sandbox, asked };
 }

@@ -3,8 +3,9 @@
  * over HTTP, checked with these schemas on both sides. What the daemon says is
  * not taken for trusted (a process in the sandbox could stand in for it), so
  * what could carry words into the agent's context is held to a plain shape. A command is run to
- * completion (`POST /run`) or kept running as a service (`/services`); the
- * daemon also empties the sandbox's home on request (`POST /reset`).
+ * completion (`POST /run`) or kept running as a service (`/services`, which
+ * can be typed into); the daemon also keeps credentials the user gave for the
+ * sandbox (`/secrets`) and empties the sandbox's home on request (`POST /reset`).
  */
 import { z } from "zod";
 
@@ -70,3 +71,19 @@ export const Failure = z.object({ error: z.string() });
 
 /** An answer that says only that it is done. */
 export const Nothing = z.object({});
+
+/** A credential for commands here, as an environment variable every command gets. */
+export const EnvName = z.string().regex(/^[A-Z_][A-Z0-9_]{0,63}$/);
+export const SecretEnv = z.object({ name: EnvName, value: z.string().min(1).max(20_000) });
+export type SecretEnv = z.infer<typeof SecretEnv>;
+
+/** A credential written to a file in the home folder (never the workspace, which the user and Amuse's own tools read). */
+export const SecretFile = z.object({ path: z.string().min(1).max(1024), value: z.string().min(1).max(200_000) });
+export type SecretFile = z.infer<typeof SecretFile>;
+
+/** Taking a credential back: the variable, or the file. */
+export const Forget = z.union([z.object({ env: EnvName }), z.object({ file: z.string().min(1).max(1024) })]);
+export type Forget = z.infer<typeof Forget>;
+
+/** A line typed into a running service (a CLI waiting for a code). */
+export const Input = z.object({ text: z.string().max(20_000) });

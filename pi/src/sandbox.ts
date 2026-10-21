@@ -10,6 +10,8 @@
  */
 import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_TIMEOUT, LONGEST_TIMEOUT, type Ran, type SandboxClient, SandboxError, type Service } from "@amuse/sandbox";
+import { type AgentIO, describe } from "@amuse/core";
+import type { SecretDestination } from "@amuse/protocol";
 import { Type } from "typebox";
 import { status } from "./status.ts";
 import { untrusted } from "./untrusted.ts";
@@ -132,6 +134,39 @@ export function sandboxTools(sandbox: SandboxClient): ToolDefinition[] {
       parameters: Type.Object({ status, name: Type.String({ description: "The service's name" }) }),
       async execute(_, args) {
         return say(await act.stop(args));
+      },
+    }),
+  ];
+}
+
+/** A variable's name as the sandbox takes it. */
+const ENV_NAME = /^[A-Z_][A-Z0-9_]{0,63}$/;
+
+/** Asking the user for a credential the sandbox needs: on a card, from which it goes to the sandbox, never through the agent. */
+export function secretTools(io: () => AgentIO): ToolDefinition[] {
+  return [
+    defineTool({
+      name: "request_secret",
+      label: "Asking for a credential",
+      description:
+        "Ask the user for a credential your sandbox needs: an API key for a tool, a code a CLI login waits for. They type it on a card; it goes straight to the sandbox, never to you or the chat, and what the sandbox prints shows it masked. " +
+        "Say where it goes: `env` (a variable every command gets: use $NAME in commands), `file` (a path in your home folder, not the workspace) or `stdin` (typed into a running service, e.g. a login waiting for a code). " +
+        "Never ask for a credential in the chat, and never for Amuse's own keys (those are in Settings).",
+      parameters: Type.Object({
+        status,
+        name: Type.String({ description: "What it is, as the user knows it, e.g. 'OpenAI API key', 'Claude login code'" }),
+        why: Type.String({ description: "What it is for, in the user's language" }),
+        to: Type.Union([Type.Literal("env"), Type.Literal("file"), Type.Literal("stdin")]),
+        target: Type.String({ description: "env: the variable (UPPER_CASE); file: the path (in your home folder); stdin: the running service's name" }),
+      }),
+      async execute(_, { name, why, to, target }) {
+        const where = target.trim();
+        if (to === "env" && !ENV_NAME.test(where)) return say(`Not asked: ${where} is not a variable's name (UPPER_CASE letters, digits and _).`);
+        if (!where) return say("Not asked: say where it goes.");
+        const deliver: SecretDestination = to === "env" ? { kind: "env", name: where } : to === "file" ? { kind: "file", path: where } : { kind: "stdin", service: where };
+        const asked = io().act({ kind: "askSecret", name: name.trim(), why: why.trim(), deliver });
+        if (!asked.ok) return say(`Not asked: ${describe(asked.rejection)}.`);
+        return say("Asked on a card. You will hear when they provide it or decline; you never see the value. Tell them in a line what it is for.");
       },
     }),
   ];

@@ -23,6 +23,7 @@ import {
   ApprovalCard,
   BrowserCard,
   ConnectionCard,
+  SecretCard,
   FailureCard,
   ScheduleCard,
   TaskCard,
@@ -72,6 +73,7 @@ function shown(entity: Entity): boolean {
     case "task":
     case "approval":
     case "connection":
+    case "secret":
     case "browser":
     case "failure":
       return true;
@@ -109,6 +111,8 @@ function EntityView({
       return (
         <ConnectionCard connection={entity} place={place} actions={actions} />
       );
+    case "secret":
+      return <SecretCard secret={entity} place={place} actions={actions} />;
     case "browser":
       return (
         <BrowserCard

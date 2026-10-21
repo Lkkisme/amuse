@@ -104,6 +104,32 @@ export const Connection = z.object({
   status: z.enum(["pending", "connected", "dismissed"]),
 });
 
+/** Where a credential the user gives for Amuse's sandbox goes: an environment variable every command there gets, a file in its home, or the input of a running service (a CLI waiting for a code). */
+export const SecretDestination = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("env"), name: z.string().regex(/^[A-Z_][A-Z0-9_]{0,63}$/) }),
+  z.object({ kind: z.literal("file"), path: z.string().min(1).max(1024) }),
+  z.object({ kind: z.literal("stdin"), service: z.string().min(1).max(60) }),
+]);
+export type SecretDestination = z.infer<typeof SecretDestination>;
+
+/**
+ * The agent asking the user for a credential for its sandbox (an API key, a
+ * login code). The user types it on the card; it goes from there to the
+ * sandbox through the server, never through the agent, the chat or this
+ * entity, which keeps only that it was asked and how it was answered.
+ */
+export const SecretRequest = z.object({
+  kind: z.literal("secret"),
+  id: Id,
+  at: Instant,
+  /** what it is, as the user knows it ("OpenAI API key") */
+  name: z.string(),
+  /** what it is for */
+  why: z.string(),
+  deliver: SecretDestination,
+  status: z.enum(["pending", "provided", "declined"]),
+});
+
 /**
  * A browser's statuses. Takeover is a status, not a flag: paused means the
  * user controls the browser.
@@ -249,7 +275,7 @@ export const Failure = z.object({
   status: z.enum(["open", "retried"]),
 });
 
-export const Entity = z.discriminatedUnion("kind", [Prompt, Reply, Task, Approval, Connection, Browser, Schedule, Instruction, Question, Failure]);
+export const Entity = z.discriminatedUnion("kind", [Prompt, Reply, Task, Approval, Connection, SecretRequest, Browser, Schedule, Instruction, Question, Failure]);
 
 /**
  * What the agent is doing, shown under its name. `label` overrides the
@@ -265,6 +291,7 @@ export const Activity = z.object({
 export type Prompt = z.infer<typeof Prompt>;
 export type Attachment = z.infer<typeof Attachment>;
 export type Reply = z.infer<typeof Reply>;
+export type SecretRequest = z.infer<typeof SecretRequest>;
 export type Task = z.infer<typeof Task>;
 export type Approval = z.infer<typeof Approval>;
 export type Connection = z.infer<typeof Connection>;

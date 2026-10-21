@@ -263,6 +263,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
       },
       stop: () => call("chat.stop", { chat: chatRef.current }),
       retry: (id) => call("chat.retry", { id }),
+      answerSecret: async (id, value) =>
+        void (await session.call("secret.answer", { id, value })),
       resolveApproval: (id, resolution) =>
         call("approval.resolve", { id, resolution }),
       // before apps are set up, a Connect card goes straight to where their key goes

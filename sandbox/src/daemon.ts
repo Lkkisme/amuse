@@ -14,15 +14,20 @@
  * away (setsid, a daemon) no longer holds the answer back. Reset stops
  * everything and empties the home folder back to its skeleton, never touching
  * the workspace.
+ *
+ * Credentials the user gave for the sandbox (through the Amuse server, never
+ * the agent) are kept here: as environment variables every command gets (a
+ * file of them, the user's only), or as files of the user's in the home
+ * folder; and a service can be typed into (a CLI waiting for a code).
  */
 import { spawn } from "node:child_process";
-import { cpSync, existsSync, statSync } from "node:fs";
-import { lchown, lstat, readdir, rm } from "node:fs/promises";
+import { cpSync, existsSync, readFileSync, statSync } from "node:fs";
+import { chmod, lchown, lstat, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
-import { join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { z } from "zod";
 import { Clip, endOf, lastLines } from "./output.ts";
-import { DEFAULT_TIMEOUT, Run, type Service, Start } from "./protocol.ts";
+import { DEFAULT_TIMEOUT, Forget, Input, Run, SecretEnv, SecretFile, type Service, Start } from "./protocol.ts";
 
 export interface Options {
   /** the user's home: emptied by a reset */
@@ -86,6 +91,8 @@ interface Job {
   signal(name: NodeJS.Signals): void;
   /** ask the group to end, then force it after `grace` ms */
   stop(grace: number): void;
+  /** type into it (a service only: a command's input is empty); false when it takes no more */
+  type(text: string): boolean;
 }
 
 const said = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -100,14 +107,26 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
   if (user) process.setgroups?.([user.gid]);
   /** What a command sees, as a login of the user would set it. */
   const environment = { ...process.env, HOME: home, ...(user ? { USER: user.name, LOGNAME: user.name, SHELL: "/bin/bash" } : {}) };
+  /** The credentials given as environment variables, kept for the user alone (and gone with a reset of home). */
+  const secretsFile = join(home, ".config", "amuse", "secrets.json");
+  const secrets = (): Record<string, string> => {
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(secretsFile, "utf8"));
+      return typeof parsed === "object" && parsed !== null
+        ? Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
+        : {};
+    } catch {
+      return {};
+    }
+  };
 
-  /** `command` in a bash of its own, in `cwd`, its output going to `clip`. */
-  const launch = (command: string, cwd: string, clip: Clip): Job => {
+  /** `command` in a bash of its own, in `cwd`, its output going to `clip`; a service's input stays open to type into. */
+  const launch = (command: string, cwd: string, clip: Clip, typed = false): Job => {
     const child = spawn("bash", ["-c", command], {
       cwd,
       detached: true,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: environment,
+      stdio: [typed ? "pipe" : "ignore", "pipe", "pipe"],
+      env: { ...environment, ...secrets() },
       ...(user ? { uid: user.uid, gid: user.gid } : {}),
     });
     const group = child.pid;
@@ -119,7 +138,9 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
         // the group is gone already
       }
     };
-    for (const stream of [child.stdout, child.stderr]) {
+    // both are pipes (the stdio above); only the input is left out for a command
+    const outputs = [child.stdout, child.stderr].filter((stream) => stream !== null);
+    for (const stream of outputs) {
       stream.setEncoding("utf8");
       stream.on("data", (text: string) => clip.append(text));
     }
@@ -131,7 +152,7 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
         // its output is all in once the pipes close; one something else holds open (a process that got away) is not waited for
         const finish = () => {
           clearTimeout(grace);
-          for (const stream of [child.stdout, child.stderr]) stream.destroy();
+          for (const stream of outputs) stream.destroy();
           done({ exitCode, signal: by });
         };
         const grace = setTimeout(finish, GRACE_MS);
@@ -141,6 +162,12 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
     const job: Job = {
       ended,
       signal,
+      type: (text) => {
+        const input = child.stdin;
+        if (!input || input.destroyed || !input.writable) return false;
+        input.write(text);
+        return true;
+      },
       stop(grace) {
         signal("SIGTERM");
         const force = setTimeout(() => signal("SIGKILL"), grace);
@@ -250,7 +277,7 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
       cwd,
       startedAt: new Date().toISOString(),
       clip,
-      job: launch(request.command, cwd, clip),
+      job: launch(request.command, cwd, clip, true),
       end: null,
     };
     service.job.ended.then(
@@ -276,6 +303,55 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
       await service.job.ended.catch(() => {});
     }
     return { service: describe(service) };
+  };
+
+  /** A line typed into a running service: what a waiting CLI reads (a code), never kept here. */
+  const type = (ref: string, text: string) => {
+    const service = find(ref);
+    if (service.end !== null || !service.job.type(`${text}\n`)) throw new Refused(`The service ${service.name} is not running, or takes no input.`, 409);
+    return {};
+  };
+
+  /* ---------- credentials ---------- */
+
+  /** `path` (relative to home, or absolute) as a place in home, outside the workspace. */
+  const homePath = (path: string): string => {
+    const full = resolve(home, path);
+    const within = relative(home, full);
+    if (within === "" || within.startsWith("..") || resolve(home, within) !== full) throw new Refused("A credential file goes in the home folder.");
+    const inWorkspace = relative(workspace, full);
+    if (!inWorkspace.startsWith("..")) throw new Refused("A credential file does not go in the workspace: the user and Amuse's own tools read that.");
+    return full;
+  };
+
+  /** Write `text` to `path` as the user's own, readable by them alone, with its folders. */
+  const keep = async (path: string, text: string) => {
+    const folder = dirname(path);
+    await mkdir(folder, { recursive: true, mode: 0o700 });
+    for (let at = folder; at !== home && at.startsWith(`${home}/`); at = dirname(at)) if (user) await lchown(at, user.uid, user.gid);
+    // not following a link the user's programs may have left in its place
+    await rm(path, { force: true });
+    await writeFile(path, text, { mode: 0o600, flag: "wx" });
+    await chmod(path, 0o600);
+    if (user) await lchown(path, user.uid, user.gid);
+  };
+
+  const setEnv = async ({ name, value }: SecretEnv) => {
+    await keep(secretsFile, JSON.stringify({ ...secrets(), [name]: value }));
+    return {};
+  };
+
+  const setFile = async ({ path, value }: SecretFile) => {
+    await keep(homePath(path), value);
+    return {};
+  };
+
+  const forget = async (what: Forget) => {
+    if ("env" in what) {
+      const rest = Object.fromEntries(Object.entries(secrets()).filter(([name]) => name !== what.env));
+      await keep(secretsFile, JSON.stringify(rest));
+    } else await rm(homePath(what.file), { force: true });
+    return {};
   };
 
   const log = (ref: string, lines: number) => {
@@ -368,7 +444,8 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
   const handle = async (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://local");
     const path = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
-    const route = `${req.method} /${path.map((part, i) => (i === 1 ? ":service" : part)).join("/")}`;
+    // a service's name or id is the part after /services
+    const route = `${req.method} /${path.map((part, i) => (i === 1 && path[0] === "services" ? ":service" : part)).join("/")}`;
     if (resetting && route !== "POST /reset") await resetting.catch(() => {});
     switch (route) {
       case "GET /health":
@@ -385,6 +462,14 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
       }
       case "POST /services/:service/stop":
         return json(res, 200, await stop(path[1] ?? ""));
+      case "POST /services/:service/input":
+        return json(res, 200, type(path[1] ?? "", (await asked(req, Input)).text));
+      case "POST /secrets/env":
+        return json(res, 200, await setEnv(await asked(req, SecretEnv)));
+      case "POST /secrets/file":
+        return json(res, 200, await setFile(await asked(req, SecretFile)));
+      case "POST /secrets/forget":
+        return json(res, 200, await forget(await asked(req, Forget)));
       case "POST /reset":
         resetting ??= reset().finally(() => void (resetting = null));
         await resetting;

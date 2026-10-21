@@ -9,6 +9,7 @@ import {
   CircleAlert,
   CircleCheck,
   Globe,
+  KeyRound,
   ListTodo,
   ShieldCheck,
 } from "lucide-react";
@@ -18,6 +19,7 @@ import type {
   Connection,
   Failure,
   Schedule,
+  SecretRequest,
   Task,
 } from "@amuse/protocol";
 import { repeats, scheduleState } from "../schedules.ts";
@@ -334,6 +336,149 @@ export function ConnectionCard({
         {connection.status === "connected" && <Check size={15} />}
         {label}
       </button>
+    </div>
+  );
+}
+
+/* ---------- Credential ---------- */
+
+/** Where a credential goes, as the user reads it. */
+const destination = (deliver: SecretRequest["deliver"]) =>
+  deliver.kind === "env"
+    ? `For Amuse's computer, as $${deliver.name}`
+    : deliver.kind === "file"
+      ? `For Amuse's computer, in ~/${deliver.path.replace(/^~?\/?/, "")}`
+      : `Typed into ${deliver.service} on Amuse's computer`;
+
+/**
+ * Amuse asking for a credential its computer needs: typed here, it goes to
+ * the sandbox through the server, never into the chat or Amuse's context.
+ */
+export function SecretCard({
+  secret,
+  place = alone,
+  actions,
+}: {
+  secret: SecretRequest;
+  place?: Place;
+  actions: Actions;
+}) {
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const answer = (given: string | null) => {
+    setBusy(true);
+    setError(null);
+    actions
+      .answerSecret(secret.id, given)
+      .then(
+        () => setValue(""),
+        (e: unknown) => setError(e instanceof Error ? e.message : String(e)),
+      )
+      .finally(() => setBusy(false));
+  };
+  return (
+    <div {...shell(place, "w-full max-w-[320px] p-3", 18)}>
+      <div className="flex items-center gap-2.5">
+        <span
+          className="flex size-10 shrink-0 items-center justify-center rounded-[12px]"
+          style={{
+            background: "var(--fill-card-button)",
+            color: "var(--icon-primary)",
+          }}
+        >
+          <KeyRound size={18} />
+        </span>
+        <div className="min-w-0">
+          <p
+            className="truncate text-[14px] font-semibold"
+            style={{ color: "var(--text-primary)" }}
+          >
+            {secret.name}
+          </p>
+          <p
+            className="truncate text-[12px]"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            {destination(secret.deliver)}
+          </p>
+        </div>
+      </div>
+      {secret.why && (
+        <p
+          className="mt-2 text-[14px]"
+          style={{ color: "var(--text-primary)" }}
+        >
+          {secret.why}
+        </p>
+      )}
+      {secret.status === "pending" ? (
+        <>
+          <input
+            type="password"
+            autoComplete="off"
+            aria-label={secret.name}
+            placeholder="Paste or type it here"
+            className="mt-2.5 h-10 w-full rounded-[12px] px-3 text-[14px] outline-none"
+            style={{ background: "var(--field)", color: "var(--text-primary)" }}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) =>
+              e.key === "Enter" && value && !busy && answer(value)
+            }
+          />
+          <p
+            className="mt-1.5 text-[12px]"
+            style={{ color: "var(--text-tertiary)" }}
+          >
+            It goes to Amuse's computer, not into the chat. Programs there can
+            read it.
+          </p>
+          {error && (
+            <p
+              role="alert"
+              className="mt-1.5 text-[12px]"
+              style={{ color: "var(--fill-red)" }}
+            >
+              {error}
+            </p>
+          )}
+          <div className="mt-2.5 flex gap-2">
+            <button
+              disabled={busy}
+              className="h-9 flex-1 rounded-full text-[14px] font-medium disabled:opacity-50"
+              style={{
+                background: "var(--fill-card-button)",
+                color: "var(--text-primary)",
+              }}
+              onClick={() => answer(null)}
+            >
+              Decline
+            </button>
+            <button
+              disabled={busy || !value}
+              className="h-9 flex-1 rounded-full text-[14px] font-semibold text-white disabled:opacity-40"
+              style={{ background: "var(--fill-blue)" }}
+              onClick={() => answer(value)}
+            >
+              Provide
+            </button>
+          </div>
+        </>
+      ) : (
+        <p
+          className="mt-2.5 inline-flex items-center gap-1.5 text-[14px] font-medium"
+          style={{
+            color:
+              secret.status === "provided"
+                ? "var(--fill-green)"
+                : "var(--text-secondary)",
+          }}
+        >
+          {secret.status === "provided" && <Check size={15} />}
+          {secret.status === "provided" ? "Provided" : "Declined"}
+        </p>
+      )}
     </div>
   );
 }
