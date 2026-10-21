@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, statSync, symlinkSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -141,4 +142,109 @@ test("the workspace stays inside itself, and the chat's files follow them when t
   await files.remove("archive");
   assert.equal(files.find(shared.id), null);
   assert.equal(await files.read(shared.id), null);
+});
+
+/** A workspace with, beside it, a folder of the server's own that must never be reached: keys and a folder of them. */
+function withSecrets() {
+  const dir = mkdtempSync(join(tmpdir(), "amuse-links-"));
+  const secrets = join(dir, "secrets");
+  mkdirSync(join(secrets, "folder"), { recursive: true });
+  writeFileSync(join(secrets, "keys.json"), "keys");
+  writeFileSync(join(secrets, "folder/more.json"), "more");
+  const files = workspace(join(dir, "workspace"), join(dir, "sent.json"));
+  const untouched = () => {
+    assert.equal(readFileSync(join(secrets, "keys.json"), "utf8"), "keys");
+    assert.equal(readFileSync(join(secrets, "folder/more.json"), "utf8"), "more");
+    assert.deepEqual(readdirSync(secrets).sort(), ["folder", "keys.json"], "nothing was added or taken");
+  };
+  return { dir, secrets, files, untouched };
+}
+const text = (s: string) => new TextEncoder().encode(s);
+
+test("a link to a folder, on the way or at the end, is refused for read, write, move, delete and listing, and nothing it leads to is touched", async () => {
+  const { dir, secrets, files, untouched } = withSecrets();
+  await files.write("mine/note.md", text("# hi"), false);
+  symlinkSync(secrets, join(dir, "workspace/out"));
+  symlinkSync(secrets, join(dir, "workspace/mine/out2"));
+  for (const link of ["out", "mine/out2"]) {
+    await assert.rejects(files.open(`${link}/keys.json`), /not in the workspace/);
+    await assert.rejects(files.list(link), /not in the workspace/);
+    await assert.rejects(files.exists(`${link}/keys.json`), /not in the workspace/);
+    await assert.rejects(files.write(`${link}/new.txt`, text("x"), false), /not in the workspace/);
+    await assert.rejects(files.write(`${link}/keys.json`, text("x"), true), /not in the workspace/);
+    await assert.rejects(files.write(`${link}/deeper/new.txt`, text("x"), false), /not in the workspace/);
+    await assert.rejects(files.move(`${link}/keys.json`, "stolen.json"), /not in the workspace/);
+    await assert.rejects(files.move("mine/note.md", `${link}/note.md`), /not in the workspace/);
+    await assert.rejects(files.move(link, "moved-link"), /not in the workspace/);
+    await assert.rejects(files.remove(`${link}/keys.json`), /not in the workspace/);
+    await assert.rejects(files.remove(`${link}/folder`), /not in the workspace/);
+    await assert.rejects(files.remove(link), /not in the workspace/);
+    await assert.rejects(files.share(`${link}/keys.json`), /not in the workspace/);
+  }
+  untouched();
+  assert.ok(existsSync(join(dir, "workspace/mine/note.md")));
+});
+
+test("a link to a file, at the end of a path, is refused for read, write, move, delete and serving", async () => {
+  const { dir, secrets, files, untouched } = withSecrets();
+  symlinkSync(join(secrets, "keys.json"), join(dir, "workspace/leaf.json"));
+  await assert.rejects(files.open("leaf.json"), /not in the workspace/);
+  await assert.rejects(files.write("leaf.json", text("overwritten"), true), /not in the workspace/);
+  await assert.rejects(files.write("leaf.json", text("new"), false), /not in the workspace/);
+  await assert.rejects(files.move("leaf.json", "elsewhere.json"), /not in the workspace/);
+  await files.write("plain.txt", text("p"), false);
+  await assert.rejects(files.move("plain.txt", "leaf.json"), /already exists/);
+  await assert.rejects(files.remove("leaf.json"), /not in the workspace/);
+  await assert.rejects(files.exists("leaf.json"), /not in the workspace/);
+  assert.deepEqual((await files.list("")).map((e) => e.path), ["plain.txt"], "a link is not listed");
+  untouched();
+  assert.ok(statSync(join(dir, "workspace/leaf.json"), { throwIfNoEntry: false }) !== undefined, "the link itself is still there");
+});
+
+test("a sent file whose folder or file is swapped for a link is no longer served, read or held", async () => {
+  const { dir, secrets, files, untouched } = withSecrets();
+  const server = await listen({ session: createHost({ ...demoPorts(never), files }, { timers: never }), files, access, port: 0, host: "127.0.0.1" });
+  const get = (id: string) => fetch(`http://127.0.0.1:${server.port}/files/${id}`, { headers: { cookie: "amuse=s" } });
+  try {
+    const sent = await files.save("report.txt", "text/plain", [text("the report")]);
+    assert.ok(sent);
+    assert.equal(await (await get(sent.id)).text(), "the report");
+    assert.ok(await files.holds(sent));
+
+    // the file swapped for a link to a secret
+    const where = join(dir, "workspace", sent.path);
+    renameSync(where, `${where}.real`);
+    symlinkSync(join(secrets, "keys.json"), where);
+    assert.equal((await get(sent.id)).status, 404);
+    assert.equal(await files.read(sent.id), null);
+    assert.ok(!(await files.holds(sent)));
+    rmSync(where);
+    renameSync(`${where}.real`, where);
+
+    // its folder swapped for a link to a folder holding a file of the same name
+    writeFileSync(join(secrets, "report.txt"), "not the report");
+    renameSync(join(dir, "workspace/user"), join(dir, "workspace/user-real"));
+    symlinkSync(secrets, join(dir, "workspace/user"));
+    assert.equal((await get(sent.id)).status, 404);
+    assert.equal(await files.read(sent.id), null);
+    assert.equal(readFileSync(join(secrets, "keys.json"), "utf8"), "keys");
+    rmSync(join(secrets, "report.txt"));
+    untouched();
+  } finally {
+    await server.close();
+  }
+});
+
+test("deleting a folder deletes the links in it, not what they lead to; a pipe in a file's place does not hang a read", async () => {
+  const { dir, secrets, files, untouched } = withSecrets();
+  await files.write("tree/inner/f.txt", text("x"), false);
+  symlinkSync(secrets, join(dir, "workspace/tree/inner/out"));
+  symlinkSync(join(secrets, "keys.json"), join(dir, "workspace/tree/file-link"));
+  await files.remove("tree");
+  assert.ok(!existsSync(join(dir, "workspace/tree")));
+  untouched();
+
+  execFileSync("mkfifo", [join(dir, "workspace/pipe")]);
+  await assert.rejects(files.open("pipe"), /there is no file pipe/);
+  await assert.rejects(files.write("pipe", text("x"), true), /already exists/);
 });

@@ -1,61 +1,26 @@
 import assert from "node:assert/strict";
 import { request } from "node:http";
-import type { NetworkInterfaceInfo } from "node:os";
 import { test } from "node:test";
 import { createHost, type Timers } from "@amuse/core";
 import { demoPorts, seed } from "@amuse/demo";
 import { type Access } from "./access.ts";
-import { type Sources, sandboxReach } from "./sandbox.ts";
+import { refusing } from "./sandbox.ts";
 import { listen } from "./server.ts";
 
-const nic = (address: string, cidr: string, internal = false): NetworkInterfaceInfo => ({
-  address,
-  netmask: "",
-  family: "IPv4",
-  mac: "",
-  internal,
-  cidr,
+test("the sandbox's whole subnet is refused, whichever way its addresses are written, and no other", () => {
+  const refuses = refusing("10.231.250.0/24");
+  for (const address of ["10.231.250.2", "10.231.250.1", "10.231.250.254", "::ffff:10.231.250.2", "::FFFF:10.231.250.77"])
+    assert.equal(refuses(address), true, address);
+  for (const address of ["10.231.251.2", "10.231.249.255", "172.19.0.1", "127.0.0.1", "::1", "fe80::1", "::ffff:10.231.251.1", "not an address", undefined])
+    assert.equal(refuses(address), false, String(address));
+  assert.equal(refusing("10.231.250.7/24")("10.231.250.200"), true, "a host address in the range is the range");
+  assert.equal(refusing("fd00:abcd::/48")("fd00:abcd:0:5::9"), true);
+  assert.equal(refusing("fd00:abcd::/48")("fd00:abce::9"), false);
 });
 
-/** The server on the default network (172.19.0.0/16) and on the sandbox's (172.20.0.0/24), the sandbox at 172.20.0.2. */
-const sources = (found: string[] = ["172.20.0.2"]): Sources => ({
-  resolve: async () => found,
-  interfaces: () => ({ lo: [nic("127.0.0.1", "127.0.0.1/8", true)], eth0: [nic("172.19.0.5", "172.19.0.5/16")], eth1: [nic("172.20.0.3", "172.20.0.3/24")] }),
-});
-
-test("the sandbox's whole network is refused, whichever way its addresses are written, and no other", async () => {
-  const reach = sandboxReach("sandbox", sources());
-  assert.equal(reach.refuses("172.20.0.2"), false, "nothing is known until it is looked up");
-  assert.equal(await reach.refresh(), 1);
-  for (const address of ["172.20.0.2", "172.20.0.9", "172.20.0.1", "::ffff:172.20.0.2", "::FFFF:172.20.0.77"])
-    assert.equal(reach.refuses(address), true, address);
-  for (const address of ["172.19.0.1", "172.19.0.5", "172.21.0.2", "127.0.0.1", "::1", "fe80::1", "::ffff:172.19.0.1", undefined])
-    assert.equal(reach.refuses(address), false, String(address));
-});
-
-test("the network is kept when the sandbox is gone, and found again when it comes back with another address", async () => {
-  let found = ["172.20.0.2"];
-  const reach = sandboxReach("sandbox", { ...sources(), resolve: async () => found });
-  await reach.refresh();
-  found = [];
-  assert.equal(await reach.refresh(), 0);
-  assert.equal(reach.refuses("172.20.0.2"), true);
-  assert.equal(reach.refuses("172.20.0.200"), true, "recreated with another address on the same network");
-});
-
-test("an address on none of the server's networks is refused as that address alone; a failed lookup refuses nothing", async () => {
-  const reach = sandboxReach("sandbox", sources(["10.9.9.9"]));
-  await reach.refresh();
-  assert.equal(reach.refuses("10.9.9.9"), true);
-  assert.equal(reach.refuses("10.9.9.10"), false);
-  const missing = sandboxReach("sandbox", {
-    ...sources(),
-    resolve: async () => {
-      throw new Error("ENOTFOUND");
-    },
-  });
-  assert.equal(await missing.refresh(), 0);
-  assert.equal(missing.refuses("172.20.0.2"), false);
+test("a subnet that cannot be read stops the server rather than letting the sandbox in", () => {
+  for (const bad of ["", "sandbox", "10.231.250.0", "10.231.250.0/33", "10.231.250.0/x", "10.231.250.0/24/1", "300.1.1.1/24", "fd00::/129"])
+    assert.throws(() => refusing(bad), /not an address range/, bad);
 });
 
 /** Lets every request in: whatever is refused is refused for where it comes from. */

@@ -14,8 +14,9 @@
  *   AMUSE_PUBLIC_URL  this server's address as the user's browser reaches it (http://host:port);
  *                 lets connectors send the user straight back for an instant "connected"
  *   AMUSE_SANDBOX_URL  the sandbox's control daemon (http://sandbox:7070, see compose.yaml): gives the agent a machine of
- *                 its own to run commands on; without it there are no such tools. The server turns away every request from the
- *                 sandbox's network.
+ *                 its own to run commands on; without it there are no such tools
+ *   AMUSE_SANDBOX_SUBNET  the sandbox network's address range (10.231.250.0/24, as compose.yaml fixes it): the server turns
+ *                 away every request from it, whether or not the sandbox is in use; required with AMUSE_SANDBOX_URL
  *   AMUSE_WEB    directory of the built web app to serve (same origin as /rpc and /live)
  */
 import { dirname, join } from "node:path";
@@ -33,7 +34,7 @@ import { fileAccess } from "./access.ts";
 import { fileDefaults } from "./defaults.ts";
 import { listen } from "./server.ts";
 import { fileRules } from "./rules.ts";
-import { sandboxReach } from "./sandbox.ts";
+import { refusing } from "./sandbox.ts";
 
 const port = Number(process.env["AMUSE_PORT"] ?? 8797);
 const host = process.env["AMUSE_HOST"] ?? "127.0.0.1";
@@ -247,6 +248,7 @@ const ports: Ports = {
           try {
             await sandbox.reset();
           } catch (error) {
+            // our own words only, never what the sandbox said about it (`detail`)
             throw error instanceof SandboxError ? new Rejected({ kind: "unsound", reason: error.message }) : error;
           }
         },
@@ -287,18 +289,10 @@ for (const { id } of (await session.call("chats.list", {})).chats) {
 }
 const live = browsers && { browsers, controlled: (id: string) => held.has(id) };
 
-// the sandbox is up before the server (compose starts it first), so its network is known before anyone is let in
-const reach = sandboxUrl ? sandboxReach(new URL(sandboxUrl).hostname) : undefined;
-if (reach) {
-  let found = await reach.refresh();
-  for (let tries = 0; tries < 30 && found === 0; tries++) {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    found = await reach.refresh();
-  }
-  if (found === 0) console.warn(`The sandbox (${sandboxUrl}) cannot be found yet: its network is turned away as soon as it is.`);
-  // it may be recreated later, and come back on its network with another address
-  setInterval(() => void reach.refresh(), 10_000).unref();
-}
+// the sandbox network is turned away from the first request; a sandbox without one to turn away does not start
+const sandboxSubnet = process.env["AMUSE_SANDBOX_SUBNET"];
+if (sandboxUrl && !sandboxSubnet) throw new Error("AMUSE_SANDBOX_URL is set without AMUSE_SANDBOX_SUBNET: the server must know the sandbox's network to turn it away.");
+const refuse = sandboxSubnet ? refusing(sandboxSubnet) : undefined;
 
 const web = process.env["AMUSE_WEB"];
 await listen({
@@ -308,7 +302,7 @@ await listen({
   ...(web ? { web } : {}),
   returned: connector.returned,
   access,
-  ...(reach ? { refuse: (address: string | undefined) => reach.refuses(address) } : {}),
+  ...(refuse ? { refuse } : {}),
   transcribe: speech,
   port,
   host,

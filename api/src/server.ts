@@ -8,8 +8,8 @@
  * from this origin; anything else is refused. So is every request, whatever it
  * asks, from an address given to `refuse` (the sandbox's network).
  */
-import { createReadStream, statSync } from "node:fs";
 import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
+import { pipeline } from "node:stream";
 import type { Session } from "@amuse/protocol";
 import { WebSocketServer } from "ws";
 import { z } from "zod";
@@ -243,10 +243,10 @@ export function listen({ session, live, files: uploads, web, returned, access, r
       if (!saved) return void res.writeHead(413).end();
       return void res.writeHead(201, { "content-type": "application/json" }).end(JSON.stringify(saved));
     }
-    const found = req.method === "GET" ? uploads.find(url.pathname.slice("/files/".length)) : null;
+    // opened by the workspace, never through a link; the size is as it is now (Amuse may have rewritten it)
+    const found = req.method === "GET" ? await uploads.serve(url.pathname.slice("/files/".length)) : null;
     if (!found) return void res.writeHead(404).end();
-    const { attachment, file: path } = found;
-    const size = statSync(path).size; // as it is now (Amuse may have rewritten it)
+    const { attachment, size, handle } = found;
     const inline = shownInline(attachment.type);
     const headers = {
       "content-type": inline ? attachment.type : "application/octet-stream",
@@ -261,16 +261,19 @@ export function listen({ session, live, files: uploads, web, returned, access, r
     if (range && size > 0) {
       const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
       const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
-      if (start > end || start >= size) return void res.writeHead(416, { "content-range": `bytes */${size}` }).end();
+      if (start > end || start >= size) {
+        await handle.close();
+        return void res.writeHead(416, { "content-range": `bytes */${size}` }).end();
+      }
       res.writeHead(206, {
         ...headers,
         "content-range": `bytes ${start}-${end}/${size}`,
         "content-length": end - start + 1,
       });
-      return void createReadStream(path, { start, end }).pipe(res);
+      return void pipeline(handle.createReadStream({ start, end }), res, () => {});
     }
     res.writeHead(200, { ...headers, "content-length": size });
-    createReadStream(path).pipe(res);
+    pipeline(handle.createReadStream(), res, () => {});
   };
   /** GET /connected?key=… → check the connection now, then tell the user they can go back. */
   const back = async (url: URL, res: ServerResponse) => {

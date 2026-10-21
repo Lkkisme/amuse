@@ -3,19 +3,24 @@
  * the user sends is saved under user/ (pictures and videos under
  * user/media_library/) by its own name, made unique; the rest is laid out by
  * Muse. Paths are workspace-relative and checked before any use: no "..",
- * no absolute paths, no way through a symbolic link, so nothing leaves it.
+ * no absolute paths. The sandbox shares the folder and may swap a folder or a
+ * file for a symbolic link at any moment, so a path is never looked up twice:
+ * it is walked from the top, each folder opened from the one before without
+ * following a link, and everything is done through what was opened
+ * (descend.ts). A link on the way is refused.
  * The chat's attachments are kept in an index beside the workspace (not in
  * it, out of the agent's reach): id → where the file is now, kept up to date
  * when files move and dropped when they are deleted.
  */
-import { createWriteStream, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { constants, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { type FileHandle, lstat, readdir, rename } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { type Entry, type Workspace, WorkspaceError, newId } from "@amuse/core";
 import { Attachment } from "@amuse/protocol";
 import { z } from "zod";
+import { type Folder, Missing, kindOf, openFile, remove as removeTree, walk } from "./descend.ts";
 
 /** The largest file the server takes. */
 export const MAX_FILE = 50 * 1024 ** 2;
@@ -57,8 +62,13 @@ const within = (path: string, folder: string) => path === folder || path.startsW
 export interface FileStore extends Workspace {
   /** Keep an upload in user/ by its name (made unique): its bytes as they come, under the size limit; null when too large. */
   save(name: string, type: string, body: AsyncIterable<Uint8Array> | Iterable<Uint8Array>): Promise<Attachment | null>;
-  /** A sent file, by its id: what it is and where it is on disk now; null when it is gone. */
-  find(id: string): { attachment: Attachment; file: string } | null;
+  /** A sent file, by its id: what it is; null when it is not (or no longer) one. */
+  find(id: string): { attachment: Attachment } | null;
+  /**
+   * A sent file ready to serve, by its id: opened (never through a link) and its size now. The caller closes the handle (a
+   * stream made from it does, when it ends); null when the file is gone, or is not a plain file.
+   */
+  serve(id: string): Promise<{ attachment: Attachment; size: number; handle: FileHandle } | null>;
 }
 
 /** The workspace at `root`; the index of sent files at `index` (outside it). */
@@ -71,109 +81,168 @@ export function workspace(root: string, index: string): FileStore {
     renameSync(temporary, index);
   };
 
-  /** Where a workspace path is on disk, having made sure no symbolic link is on the way. */
-  const disk = (path: string): string => {
-    const rel = plain(path);
-    let at = root;
-    for (const part of rel === "" ? [] : rel.split("/")) {
-      at = join(at, part);
-      if (existsSync(at) && lstatSync(at).isSymbolicLink()) throw new WorkspaceError(`"${path}" is not in the workspace`);
+  const parts = (rel: string) => (rel === "" ? [] : rel.split("/"));
+  /** The folder at a path (made if `make`), to use and let go. */
+  const inFolder = async <T>(rel: string, make: boolean, use: (folder: Folder) => Promise<T>): Promise<T> => {
+    const folder = await walk(root, parts(rel), make);
+    try {
+      return await use(folder);
+    } finally {
+      await folder.close().catch(() => {});
     }
-    return at;
   };
-  const missing = (path: string) => new WorkspaceError(`there is no ${plain(path) || "workspace"}`);
+  /** The folder a path is in (made if `make`), and its name there, to use and let go. */
+  const inParent = <T>(rel: string, make: boolean, use: (folder: Folder, leaf: string) => Promise<T>): Promise<T> => {
+    const names = parts(rel);
+    return inFolder(names.slice(0, -1).join("/"), make, (folder) => use(folder, names.at(-1) ?? ""));
+  };
+  const missing = (path: string) => new Missing(`there is no ${plain(path) || "workspace"}`);
+  const refused = (path: string) => new WorkspaceError(`"${path}" is not in the workspace`);
 
   /** `name` in `folder`, or "name (2).ext" and so on if that is taken. */
-  const unique = (folder: string, name: string) => {
+  const unique = async (folder: Folder, name: string) => {
     const ext = extname(name);
     const stem = name.slice(0, name.length - ext.length);
     for (let n = 1; ; n++) {
-      const candidate = `${folder}/${n === 1 ? name : `${stem} (${n})${ext}`}`;
-      if (!existsSync(disk(candidate))) return candidate;
+      const candidate = n === 1 ? name : `${stem} (${n})${ext}`;
+      if ((await kindOf(folder, candidate)) === "missing") return candidate;
     }
   };
 
   const store: FileStore = {
-    find(id) {
+    find: (id) => (sent[id] ? { attachment: sent[id].attachment } : null),
+    async serve(id) {
       const attachment = sent[id]?.attachment;
       if (!attachment) return null;
-      const file = disk(attachment.path);
-      return existsSync(file) && lstatSync(file).isFile() ? { attachment, file } : null;
+      try {
+        return await inParent(plain(attachment.path), false, async (folder, leaf) => {
+          const handle = await openFile(folder, leaf, attachment.path);
+          return { attachment, size: (await handle.stat()).size, handle };
+        });
+      } catch (error) {
+        if (error instanceof WorkspaceError) return null;
+        throw error;
+      }
     },
     async save(name, type, body) {
       const clean = cleanName(name);
       const kind = type && type !== "application/octet-stream" ? type.slice(0, 255) : typeOf(clean);
       const folder = /^(image|video)\//.test(kind) ? "user/media_library" : "user";
-      await mkdir(disk(folder), { recursive: true, mode: 0o700 });
-      const partial = join(dirname(index), `upload-${newId("p")}.part`);
-      let size = 0;
-      const limit = new Transform({
-        transform(chunk: Buffer, _, done) {
-          size += chunk.length;
-          done(size > MAX_FILE ? new Error("too large") : null, chunk);
-        },
+      return inFolder(folder, true, async (into) => {
+        const partial = join(dirname(index), `upload-${newId("p")}.part`);
+        let size = 0;
+        const limit = new Transform({
+          transform(chunk: Buffer, _, done) {
+            size += chunk.length;
+            done(size > MAX_FILE ? new Error("too large") : null, chunk);
+          },
+        });
+        try {
+          await pipeline(Readable.from(body), limit, createWriteStream(partial, { mode: 0o600 }));
+        } catch (error) {
+          rmSync(partial, { force: true });
+          if (size > MAX_FILE) return null;
+          throw error;
+        }
+        const leaf = await unique(into, clean);
+        await rename(partial, into.at(leaf));
+        const attachment: Attachment = { id: newId("f"), name: clean, type: kind, size, path: `${folder}/${leaf}` };
+        sent = { ...sent, [attachment.id]: { attachment, by: "user" } };
+        saveIndex();
+        return attachment;
       });
-      try {
-        await pipeline(Readable.from(body), limit, createWriteStream(partial, { mode: 0o600 }));
-      } catch (error) {
-        rmSync(partial, { force: true });
-        if (size > MAX_FILE) return null;
-        throw error;
-      }
-      const path = unique(folder, clean);
-      renameSync(partial, disk(path));
-      const attachment: Attachment = { id: newId("f"), name: clean, type: kind, size, path };
-      sent = { ...sent, [attachment.id]: { attachment, by: "user" } };
-      saveIndex();
-      return attachment;
     },
     async holds(attachment) {
-      const found = store.find(attachment.id);
-      return found !== null && found.attachment.name === attachment.name && found.attachment.type === attachment.type && found.attachment.size === attachment.size;
+      const found = await store.serve(attachment.id);
+      await found?.handle.close();
+      return (
+        found !== null && found.attachment.name === attachment.name && found.attachment.type === attachment.type && found.attachment.size === attachment.size
+      );
     },
     async read(id) {
-      const found = store.find(id);
-      return found ? { attachment: found.attachment, data: new Uint8Array(await readFile(found.file)) } : null;
+      const found = await store.serve(id);
+      if (!found) return null;
+      try {
+        return { attachment: found.attachment, data: new Uint8Array(await found.handle.readFile()) };
+      } finally {
+        await found.handle.close();
+      }
     },
     async list(folder) {
-      const at = disk(folder);
-      if (!existsSync(at)) throw missing(folder);
-      const names = await readdir(at);
-      const entries = await Promise.all(
-        names.map(async (name): Promise<Entry | null> => {
-          const stat = await lstat(join(at, name));
-          if (stat.isSymbolicLink()) return null;
-          const path = [plain(folder), name].filter(Boolean).join("/");
-          return { path, kind: stat.isDirectory() ? "folder" : "file", size: stat.isDirectory() ? 0 : stat.size, modified: stat.mtime.toISOString() };
-        }),
-      );
-      return entries.filter((e) => e !== null).sort((a, b) => (a.kind === b.kind ? a.path.localeCompare(b.path) : a.kind === "folder" ? -1 : 1));
+      const rel = plain(folder);
+      return inFolder(rel, false, async (dir) => {
+        const entries = await Promise.all(
+          (await readdir(dir.self)).map(async (name): Promise<Entry | null> => {
+            const stat = await lstat(dir.at(name));
+            if (stat.isSymbolicLink()) return null;
+            return {
+              path: [rel, name].filter(Boolean).join("/"),
+              kind: stat.isDirectory() ? "folder" : "file",
+              size: stat.isDirectory() ? 0 : stat.size,
+              modified: stat.mtime.toISOString(),
+            };
+          }),
+        );
+        return entries.filter((e) => e !== null).sort((a, b) => (a.kind === b.kind ? a.path.localeCompare(b.path) : a.kind === "folder" ? -1 : 1));
+      });
     },
     async open(path) {
-      const at = disk(path);
-      if (!existsSync(at) || !lstatSync(at).isFile()) throw missing(path);
-      const data = new Uint8Array(await readFile(at));
-      return { path: plain(path), type: typeOf(at), size: data.length, data };
+      const rel = plain(path);
+      if (rel === "") throw missing(rel);
+      return inParent(rel, false, async (folder, leaf) => {
+        const handle = await openFile(folder, leaf, rel);
+        try {
+          const data = new Uint8Array(await handle.readFile());
+          return { path: rel, type: typeOf(leaf), size: data.length, data };
+        } finally {
+          await handle.close();
+        }
+      });
     },
     async exists(path) {
-      return existsSync(disk(path));
+      const rel = plain(path);
+      if (rel === "") return true;
+      try {
+        return await inParent(rel, false, async (folder, leaf) => {
+          const kind = await kindOf(folder, leaf);
+          if (kind === "link") throw refused(rel);
+          return kind !== "missing";
+        });
+      } catch (error) {
+        if (error instanceof Missing) return false;
+        throw error;
+      }
     },
     async write(path, data, overwrite) {
       const rel = plain(path);
       if (rel === "") throw new WorkspaceError("a file needs a name");
-      const at = disk(rel);
-      if (existsSync(at) && (!overwrite || !lstatSync(at).isFile())) throw new WorkspaceError(`${rel} already exists`);
-      await mkdir(dirname(at), { recursive: true, mode: 0o700 });
-      await writeFile(at, data, { mode: 0o600 });
+      await inParent(rel, true, async (folder, leaf) => {
+        const kind = await kindOf(folder, leaf);
+        if (kind === "link") throw refused(rel);
+        if (kind !== "missing" && (!overwrite || kind !== "file")) throw new WorkspaceError(`${rel} already exists`);
+        // made new, or opened as a plain file and emptied only once it is known to be one
+        const handle = await openFile(folder, leaf, rel, kind === "missing" ? constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL : constants.O_WRONLY);
+        try {
+          await handle.truncate(0);
+          await handle.writeFile(data);
+        } finally {
+          await handle.close();
+        }
+      });
     },
     async move(from, to) {
       const [a, b] = [plain(from), plain(to)];
       if (a === "" || b === "") throw new WorkspaceError("the workspace itself cannot be moved");
       if (b === a || b.startsWith(`${a}/`)) throw new WorkspaceError(`${a} cannot go inside itself`);
-      if (!existsSync(disk(a))) throw missing(a);
-      if (existsSync(disk(b))) throw new WorkspaceError(`${b} already exists`);
-      await mkdir(dirname(disk(b)), { recursive: true, mode: 0o700 });
-      await rename(disk(a), disk(b));
+      await inParent(a, false, (source, was) =>
+        inParent(b, true, async (target, now) => {
+          const [there, taken] = [await kindOf(source, was), await kindOf(target, now)];
+          if (there === "missing") throw missing(a);
+          if (there === "link") throw refused(a);
+          if (taken !== "missing") throw new WorkspaceError(`${b} already exists`);
+          await rename(source.at(was), target.at(now));
+        }),
+      );
       // the chat's files follow them
       sent = Object.fromEntries(
         Object.entries(sent).map(([id, file]) => [id, within(file.attachment.path, a) ? at(file, b + file.attachment.path.slice(a.length)) : file]),
@@ -183,8 +252,12 @@ export function workspace(root: string, index: string): FileStore {
     async remove(path) {
       const rel = plain(path);
       if (rel === "") throw new WorkspaceError("the workspace itself cannot be deleted");
-      if (!existsSync(disk(rel))) throw missing(rel);
-      await rm(disk(rel), { recursive: true });
+      await inParent(rel, false, async (folder, leaf) => {
+        const kind = await kindOf(folder, leaf);
+        if (kind === "missing") throw missing(rel);
+        if (kind === "link") throw refused(rel);
+        await removeTree(folder, leaf);
+      });
       // a sent file that is gone points at nothing
       sent = Object.fromEntries(Object.entries(sent).filter(([, file]) => !within(file.attachment.path, rel)));
       saveIndex();
