@@ -12,7 +12,7 @@
  * it, out of the agent's reach): id → where the file is now, kept up to date
  * when files move and dropped when they are deleted.
  */
-import { constants, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { constants, createWriteStream, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { type FileHandle, lstat, readdir, rename } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import { Readable, Transform } from "node:stream";
@@ -20,7 +20,7 @@ import { pipeline } from "node:stream/promises";
 import { type Entry, type Workspace, WorkspaceError, newId } from "@amuse/core";
 import { Attachment } from "@amuse/protocol";
 import { z } from "zod";
-import { type Folder, Missing, kindOf, openFile, remove as removeTree, walk } from "./descend.ts";
+import { type Folder, Missing, copy, kindOf, openFile, presentSync, remove as removeTree, walk, worded } from "./descend.ts";
 
 /** The largest file the server takes. */
 export const MAX_FILE = 50 * 1024 ** 2;
@@ -71,9 +71,21 @@ export interface FileStore extends Workspace {
   serve(id: string): Promise<{ attachment: Attachment; size: number; handle: FileHandle } | null>;
 }
 
+/**
+ * The folders the sandbox mounts read-only (compose.yaml): what Amuse reads as its own context and instructions, and what the user
+ * sent. They are mount points there, so they must always exist, and are never removed or renamed, nor filled by renaming: a folder
+ * or file the sandbox holds open (its working folder, a descriptor, a second link) stays writable from there wherever it is moved.
+ */
+export const PROTECTED = ["memory", "skills", "user"];
+const isProtected = (rel: string) => PROTECTED.includes(rel.split("/")[0] ?? "");
+
 /** The workspace at `root`; the index of sent files at `index` (outside it). */
 export function workspace(root: string, index: string): FileStore {
   mkdirSync(root, { recursive: true, mode: 0o700 });
+  for (const name of PROTECTED) {
+    if (!lstatSync(join(root, name), { throwIfNoEntry: false })) mkdirSync(join(root, name), { mode: 0o700 });
+    if (!lstatSync(join(root, name)).isDirectory()) throw new Error(`${name} in the workspace is not a folder: it must be one (the sandbox mounts it).`);
+  }
   let sent = existsSync(index) ? Index.parse(JSON.parse(readFileSync(index, "utf8"))) : {};
   const saveIndex = () => {
     const temporary = `${index}.next`;
@@ -98,6 +110,7 @@ export function workspace(root: string, index: string): FileStore {
   };
   const missing = (path: string) => new Missing(`there is no ${plain(path) || "workspace"}`);
   const refused = (path: string) => new WorkspaceError(`"${path}" is not in the workspace`);
+  const kept = (folder: string) => new WorkspaceError(`${folder}/ itself cannot be removed or renamed: what is in it can be deleted or moved one by one`);
 
   /** `name` in `folder`, or "name (2).ext" and so on if that is taken. */
   const unique = async (folder: Folder, name: string) => {
@@ -109,7 +122,23 @@ export function workspace(root: string, index: string): FileStore {
     }
   };
 
-  const store: FileStore = {
+  const shownOf = (path: string) => {
+    try {
+      return plain(path) || "the workspace";
+    } catch {
+      return path;
+    }
+  };
+  /** `work` about `path`, whose failures come out as words about the path (see worded). */
+  const careful = async <T>(path: string, work: () => Promise<T>): Promise<T> => {
+    try {
+      return await work();
+    } catch (error) {
+      throw worded(shownOf(path), error);
+    }
+  };
+
+  const raw: FileStore = {
     find: (id) => (sent[id] ? { attachment: sent[id].attachment } : null),
     async serve(id) {
       const attachment = sent[id]?.attachment;
@@ -119,9 +148,9 @@ export function workspace(root: string, index: string): FileStore {
           const handle = await openFile(folder, leaf, attachment.path);
           return { attachment, size: (await handle.stat()).size, handle };
         });
-      } catch (error) {
-        if (error instanceof WorkspaceError) return null;
-        throw error;
+      } catch {
+        // gone, replaced by a link, or not readable: not there to serve
+        return null;
       }
     },
     async save(name, type, body) {
@@ -234,13 +263,23 @@ export function workspace(root: string, index: string): FileStore {
       const [a, b] = [plain(from), plain(to)];
       if (a === "" || b === "") throw new WorkspaceError("the workspace itself cannot be moved");
       if (b === a || b.startsWith(`${a}/`)) throw new WorkspaceError(`${a} cannot go inside itself`);
+      if (PROTECTED.includes(a)) throw kept(a);
       await inParent(a, false, (source, was) =>
         inParent(b, true, async (target, now) => {
           const [there, taken] = [await kindOf(source, was), await kindOf(target, now)];
           if (there === "missing") throw missing(a);
           if (there === "link") throw refused(a);
+          if (there === "other") throw new WorkspaceError(`${a} is not a file or a folder`);
           if (taken !== "missing") throw new WorkspaceError(`${b} already exists`);
-          await rename(source.at(was), target.at(now));
+          if (!isProtected(b)) return await rename(source.at(was), target.at(now));
+          // into a folder the sandbox sees read-only: a copy, not the same inodes it may still hold (and then the original goes)
+          try {
+            await copy(source, was, a, target, now);
+          } catch (error) {
+            await removeTree(target, now).catch(() => {});
+            throw error;
+          }
+          await removeTree(source, was);
         }),
       );
       // the chat's files follow them
@@ -252,6 +291,7 @@ export function workspace(root: string, index: string): FileStore {
     async remove(path) {
       const rel = plain(path);
       if (rel === "") throw new WorkspaceError("the workspace itself cannot be deleted");
+      if (PROTECTED.includes(rel)) throw kept(rel);
       await inParent(rel, false, async (folder, leaf) => {
         const kind = await kindOf(folder, leaf);
         if (kind === "missing") throw missing(rel);
@@ -269,7 +309,25 @@ export function workspace(root: string, index: string): FileStore {
       saveIndex();
       return attachment;
     },
-    locate: (id) => store.find(id)?.attachment.path ?? null,
+    locate(id) {
+      const attachment = sent[id]?.attachment;
+      try {
+        return attachment && presentSync(root, parts(plain(attachment.path))) ? attachment.path : null;
+      } catch {
+        return null;
+      }
+    },
+  };
+  const store: FileStore = {
+    ...raw,
+    list: (folder) => careful(folder, () => raw.list(folder)),
+    open: (path) => careful(path, () => raw.open(path)),
+    exists: (path) => careful(path, () => raw.exists(path)),
+    write: (path, data, overwrite) => careful(path, () => raw.write(path, data, overwrite)),
+    move: (from, to) => careful(from, () => raw.move(from, to)),
+    remove: (path) => careful(path, () => raw.remove(path)),
+    share: (path) => careful(path, () => raw.share(path)),
+    save: (name, type, body) => careful(name, () => raw.save(name, type, body)),
   };
   return store;
 }

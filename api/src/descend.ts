@@ -10,11 +10,11 @@
  * ever itself (deleted as a link, never followed). Linux only, as the server's
  * container is.
  */
-import { constants } from "node:fs";
+import { closeSync, constants, lstatSync, openSync } from "node:fs";
 import { type FileHandle, lstat, mkdir, open, readdir, rmdir, unlink } from "node:fs/promises";
 import { WorkspaceError } from "@amuse/core";
 
-const { O_DIRECTORY, O_NOFOLLOW, O_NONBLOCK, O_RDONLY } = constants;
+const { O_CREAT, O_DIRECTORY, O_EXCL, O_NOFOLLOW, O_NONBLOCK, O_RDONLY, O_WRONLY } = constants;
 
 /** What is not there. */
 export class Missing extends WorkspaceError {}
@@ -141,4 +141,102 @@ export async function remove(folder: Folder, name: string): Promise<void> {
     await inside.close();
   }
   await rmdir(folder.at(name));
+}
+
+/**
+ * Copy what is at a name in a folder to a name in another, into files and folders of their own: new inodes, which no
+ * process that held the originals open (or linked them elsewhere) has any hold on. Folders are copied with what is in them;
+ * a link, a pipe or anything that is not a plain file or folder is left behind, never followed.
+ */
+export async function copy(from: Folder, name: string, shown: string, to: Folder, target: string): Promise<void> {
+  const kind = await kindOf(from, name);
+  if (kind === "file") {
+    const source = await openFile(from, name, shown);
+    try {
+      const made = await openFile(to, target, shown, O_WRONLY | O_CREAT | O_EXCL, (await source.stat()).mode & 0o777);
+      try {
+        const chunk = Buffer.allocUnsafe(1024 ** 2);
+        for (let at = 0; ;) {
+          const { bytesRead } = await source.read(chunk, 0, chunk.length, at);
+          if (bytesRead === 0) break;
+          await made.write(chunk, 0, bytesRead, at);
+          at += bytesRead;
+        }
+      } finally {
+        await made.close();
+      }
+    } finally {
+      await source.close();
+    }
+  } else if (kind === "folder") {
+    const inside = await enter(from, name, shown);
+    try {
+      await mkdir(to.at(target), { mode: 0o700 }).catch((error: unknown) => {
+        throw codeOf(error) === "EEXIST" ? new WorkspaceError(`${shown} already exists there`) : error;
+      });
+      const into = await enter(to, target, shown);
+      try {
+        for (const child of await readdir(inside.self)) await copy(inside, child, `${shown}/${child}`, into, child);
+      } finally {
+        await into.close();
+      }
+    } finally {
+      await inside.close();
+    }
+  }
+}
+
+/** Whether a plain file is at `parts` below `root` now, found as a walk finds it (no link on the way or at the end), for what must answer at once. */
+export function presentSync(root: string, parts: string[]): boolean {
+  let fd: number | null = null;
+  try {
+    fd = openSync(root, O_RDONLY | O_DIRECTORY);
+    for (const name of parts.slice(0, -1)) {
+      const next = openSync(`/proc/self/fd/${fd}/${part(name)}`, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+      closeSync(fd);
+      fd = next;
+    }
+    return lstatSync(`/proc/self/fd/${fd}/${part(parts.at(-1) ?? "")}`).isFile();
+  } catch {
+    return false;
+  } finally {
+    if (fd !== null) closeSync(fd);
+  }
+}
+
+/**
+ * An error from the walk as words for whoever asked, about `shown` (a path as the user knows it) and never about where it is
+ * on this machine. What is already worded is left as it is.
+ */
+export function worded(shown: string, error: unknown): WorkspaceError {
+  if (error instanceof WorkspaceError) return error;
+  switch (codeOf(error)) {
+    case "ENOENT":
+      return new Missing(`there is no ${shown}`);
+    case "ELOOP":
+      return linked(shown);
+    case "ENOTDIR":
+      return new WorkspaceError(`${shown} is not a folder, or is in one that is not`);
+    case "EISDIR":
+      return new WorkspaceError(`${shown} is a folder`);
+    case "EEXIST":
+      return new WorkspaceError(`${shown} already exists`);
+    case "EACCES":
+    case "EPERM":
+      return new WorkspaceError(`${shown} cannot be used: it is not open to this account`);
+    case "ENOTEMPTY":
+      return new WorkspaceError(`${shown} could not be deleted: something is still being added to it; try again`);
+    case "ENOSPC":
+    case "EDQUOT":
+      return new WorkspaceError(`there is no room left for ${shown}`);
+    case "EXDEV":
+      return new WorkspaceError(`${shown} cannot be moved there`);
+    case "EBUSY":
+      return new WorkspaceError(`${shown} is in use and cannot be changed just now`);
+    case "EMFILE":
+    case "ENFILE":
+      return new WorkspaceError("too many files are open just now; try again");
+    default:
+      return new WorkspaceError(`${shown} could not be reached just now`);
+  }
 }
