@@ -73,7 +73,7 @@ export async function work(cfg: PiConfig, run: RunHandle & { abort(): void }, sy
   try {
     // a helper reads up as the chat agent does
     const skills = catalog(await allSkills(cfg.skills ?? [], cfg.files));
-    session = await openSession(cfg, [system, skills].filter(Boolean).join("\n\n"), toolset);
+    session = await openSession(cfg, [system, skills].filter(Boolean).join("\n\n"), toolset, { codemode: true });
     try {
       let current = "";
       let failure: string | undefined;

@@ -171,21 +171,27 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
       const news = turn.kind === "message" ? skillNews(every) : "";
       const system = [cfg.system, skills, language ? `The user writes in ${language}: reply in ${language}.` : ""].filter(Boolean).join("\n\n");
       if (turn.kind === "message") setUpDefaults(cfg.defaults, agent);
-      const session = await openSession(cfg, system, [
-        // with memory, memory_search looks in the chats as recall did, and in memory/ too
-        ...tools(io, cfg.rules, { files: cfg.files, appsSetup: cfg.appsSetup }).filter((t) => !(cfg.files && t.name === "recall")),
-        ...(cfg.files ? [...memoryReadTools(io, cfg.files), ...memoryWriteTools(io, cfg.files)] : []),
-        ...skillTools(cfg.skills ?? [], cfg.files),
-        ...(cfg.about ? aboutTools(cfg.about) : []),
-        ...chatTools(io),
-        ...scheduleTools(io, cfg.files),
-        ...taskTools(io),
-        ...relayTools(io),
-        ...webTools(io, cfg.rules, cfg.search),
-        ...(cfg.apps ? appTools(io, cfg.apps) : []),
-        ...(cfg.files ? workspaceTools(io, cfg.files) : []),
-        ...(cfg.sandbox ? [...sandboxTools(cfg.sandbox), ...secretTools(io)] : []),
-      ]);
+      const session = await openSession(
+        cfg,
+        system,
+        [
+          // with memory, memory_search looks in the chats as recall did, and in memory/ too
+          ...tools(io, cfg.rules, { files: cfg.files, appsSetup: cfg.appsSetup }).filter((t) => !(cfg.files && t.name === "recall")),
+          ...(cfg.files ? [...memoryReadTools(io, cfg.files), ...memoryWriteTools(io, cfg.files)] : []),
+          ...skillTools(cfg.skills ?? [], cfg.files),
+          ...(cfg.about ? aboutTools(cfg.about) : []),
+          ...chatTools(io),
+          ...scheduleTools(io, cfg.files),
+          ...taskTools(io),
+          ...relayTools(io),
+          ...webTools(io, cfg.rules, cfg.search),
+          ...(cfg.apps ? appTools(io, cfg.apps) : []),
+          ...(cfg.files ? workspaceTools(io, cfg.files) : []),
+          ...(cfg.sandbox ? [...sandboxTools(cfg.sandbox), ...secretTools(io)] : []),
+        ],
+        // many calls in one turn, only what the script returns in its context
+        { codemode: true },
+      );
       lane.session = session;
       const pi = session.session;
       if (!live()) return;

@@ -1,23 +1,28 @@
 /**
  * Opening a Pi session the amuse way: a given model and system prompt, only
- * the tools passed in (no built-ins, MCP, extensions, skills or context
- * files), in memory. The model runtime is created once per credential source;
- * the model is the one chosen when the session opens.
+ * the tools passed in (no built-ins, MCP, skills or context files), in
+ * memory; and, where asked, Pi's codemode, with which the model writes a
+ * short script that calls those same tools (in a QuickJS VM whose only
+ * capability is calling them), so many calls take one turn and only what the
+ * script returns reaches its context. The model runtime is created once per
+ * credential source; the model is the one chosen when the session opens.
  */
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   type AgentSession,
+  DefaultResourceLoader,
   ModelRuntime,
   type ResourceLoader,
   SessionManager,
   SettingsManager,
   type ToolDefinition,
   createAgentSession,
+  createCodemodeExtension,
   createExtensionRuntime,
 } from "@earendil-works/pi-coding-agent";
-import { type CredentialStore, clampThinkingLevel } from "@earendil-works/pi-ai";
+import { type Api, type CredentialStore, type Model, type ModelThinkingLevel, clampThinkingLevel } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "@amuse/protocol";
 import { type KeyFile, environmentCredentials, readOnlyCredentials } from "./credentials.ts";
 
@@ -117,7 +122,27 @@ export interface PiSession {
   close(): void;
 }
 
-export async function openSession(cfg: PiModelConfig, system: string, tools: ToolDefinition[]): Promise<PiSession> {
+/**
+ * Codemode's resources: the system prompt as given, and Pi's codemode extension (`on`: the tools stay
+ * declared as well, each saying how a script calls it), nothing discovered from disk.
+ */
+async function withCodemode(system: string, cwd: string): Promise<ResourceLoader> {
+  const loader = new DefaultResourceLoader({
+    cwd,
+    agentDir: cwd,
+    systemPrompt: system,
+    extensionFactories: [createCodemodeExtension({ mode: "on", models: false })],
+    noSkills: true,
+    noPromptTemplates: true,
+    noThemes: true,
+    noContextFiles: true,
+  });
+  await loader.reload();
+  return loader;
+}
+
+/** `codemode`: give the model Pi's codemode tool too (the chat agent and its helpers; not the browser agent, whose steps are one at a time on a page). */
+export async function openSession(cfg: PiModelConfig, system: string, tools: ToolDefinition[], { codemode = false }: { codemode?: boolean } = {}): Promise<PiSession> {
   const chosen = cfg.model();
   if (chosen === null) throw new NoModel("No model is set up yet: add a provider's key and choose a model in Settings.");
   const spec = parseModel(chosen);
@@ -125,6 +150,17 @@ export async function openSession(cfg: PiModelConfig, system: string, tools: Too
   const models = await runtime(cfg);
   const model = models.getModel(spec.provider, spec.id);
   if (!model) throw new Error(`Model "${chosen}" is not available.`);
+  return sessionOn(models, model, system, tools, { codemode, thinkingLevel: clampThinkingLevel(model, cfg.thinking?.() ?? "off") });
+}
+
+/** A session with `model` from `models` (openSession's own part, apart so a test can give it a model of its own). */
+export async function sessionOn(
+  models: ModelRuntime,
+  model: Model<Api>,
+  system: string,
+  tools: ToolDefinition[],
+  { codemode = false, thinkingLevel = "off" }: { codemode?: boolean; thinkingLevel?: ModelThinkingLevel } = {},
+): Promise<PiSession> {
   // Pi wants a working directory; nothing is read from or written to it.
   const cwd = mkdtempSync(join(tmpdir(), "amuse-pi-"));
   const { session } = await createAgentSession({
@@ -132,15 +168,15 @@ export async function openSession(cfg: PiModelConfig, system: string, tools: Too
     agentDir: cwd,
     modelRuntime: models,
     model,
-    thinkingLevel: clampThinkingLevel(model, cfg.thinking?.() ?? "off"),
+    thinkingLevel,
     sessionManager: SessionManager.inMemory(cwd),
     settingsManager: SettingsManager.inMemory({
       compaction: { enabled: true },
       retry: { enabled: true, maxRetries: 2 },
     }),
-    resourceLoader: bare(system),
+    resourceLoader: codemode ? await withCodemode(system, cwd) : bare(system),
     noTools: "builtin",
-    tools: tools.map((tool) => tool.name),
+    tools: [...tools.map((tool) => tool.name), ...(codemode ? ["codemode"] : [])],
     customTools: tools,
   });
   return {
