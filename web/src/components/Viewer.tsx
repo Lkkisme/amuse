@@ -64,6 +64,8 @@ export function Viewer({
   const viewer = useLastValue(open);
   // phone: every browser open, as cards over the viewer
   const [overview, setOverview] = useState(false);
+  // closing the viewer puts the cards away too
+  if (open === null && overview) setOverview(false);
   if (!mounted || !viewer) return null;
   const browser = viewerRun(conversation, viewer);
   const tabs = viewerTabs(conversation);
@@ -337,7 +339,7 @@ function RunTabs({
 
 /**
  * Phone: every browser open as a card with its page, over the viewer; one
- * picked is shown, and the last, empty card opens a new browser.
+ * picked is shown (that is the way back), and the last, empty card opens a new browser.
  */
 function Overview({
   tabs,
@@ -364,13 +366,6 @@ function Overview({
         >
           Browsers
         </p>
-        <button
-          className="hover-fade h-9 rounded-full px-3 text-[15px] font-medium"
-          style={{ color: "var(--fill-blue)" }}
-          onClick={onClose}
-        >
-          Done
-        </button>
         {/* the corner is the browser button's */}
         <span className="size-11 shrink-0" />
       </header>
