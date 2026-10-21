@@ -393,7 +393,8 @@ export function SettingsModal({
               className="flex-1 truncate text-[20px] font-semibold"
               style={{ color: "var(--text-primary)" }}
             >
-              {ui.app || ui.provider ? "" : title}
+              {/* the section shown (General before one is chosen), not the phone's list title */}
+              {ui.app || ui.provider ? "" : (NAV.find((n) => n.id === shown)?.label ?? "")}
             </p>
             {addLabelled}
             <button
