@@ -126,6 +126,10 @@ class MainActivity : ComponentActivity() {
             state.useDeviceUnlock && !state.pickerSuspended -> lockSession(cancelPrompt = false)
             else -> { denyMicrophonePermission(); webView?.onPause(); cookies.flush() }
         }
+        // Keep a live system-authentication handoff, but invalidate ordinary
+        // asynchronous cookie callbacks when leaving the page. They must not
+        // unlock a new foreground visit using the previous visit's attempt.
+        if (!permissionDialogInFlight && cancellation == null) cancelAuthentication()
         foreground = false
         super.onPause()
     }
