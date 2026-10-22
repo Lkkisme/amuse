@@ -22,7 +22,7 @@ import { relayTools } from "./runs.ts";
 import { taskTools } from "./tasks.ts";
 import { scheduleTools } from "./schedules.ts";
 import { CHAT_LIMITS, sandboxTools, secretTools } from "./sandbox.ts";
-import { silenceTools } from "./silence.ts";
+import { sayTools, silenceTools } from "./silence.ts";
 import { type Apps, appTools, chatTools, tools } from "./tools.ts";
 import { type Search, webTools } from "./web.ts";
 
@@ -108,6 +108,7 @@ export function agentTools(
     ...(cfg.files ? workspaceTools(io, cfg.files) : []),
     ...(cfg.extraTools ?? []),
     ...(cfg.sandbox ? [...sandboxTools(cfg.sandbox, CHAT_LIMITS), ...secretTools(io)] : []),
+    ...sayTools(io),
     ...(silence ? silenceTools(silence.heard, silence.quiet) : []),
   ];
 }
@@ -162,6 +163,7 @@ const toolLabels: Record<string, string> = {
   answer_question: "Passing on your answer",
   stop_run: "Stopping a background task",
   no_reply: "Wrapping up",
+  say: "Writing to you",
 };
 
 type Message = Extract<Turn, { kind: "message" }>;
@@ -236,11 +238,14 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
     const here: AgentIO = {
       ...agent,
       emit: (say) => {
+        // A tool may finish after Stop (for example sharing a file). It must
+        // neither publish old output nor mark a newly read message answered.
+        if (!live()) return;
         if (!blank(say) && say.kind === "upserted" && say.entity.kind === "reply") {
           heard = false;
           read.length = 0;
         }
-        agent.emit(say);
+        emit(say);
       },
     };
     const io = () => here;
@@ -384,7 +389,14 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
  */
 function steer(steering: Steering, turn: Message, files: Workspace | undefined, otherwise: () => void): void {
   const names = attached(turn.attachments);
-  const sent = ["The user, while you were working:", turn.text, names ? `Attached: ${names}` : ""].filter(Boolean).join("\n");
+  const sent = [
+    "The user, while you were working:",
+    turn.text,
+    names ? `Attached: ${names}` : "",
+    "(If you have more to do before your reply, answer them now with `say`, briefly, then go on.)",
+  ]
+    .filter(Boolean)
+    .join("\n");
   const message: Steered = { turn, sent };
   // from now on the end of the turn finds it, if the model never reads it
   steering.unread.push(message);

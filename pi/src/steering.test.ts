@@ -430,3 +430,55 @@ test("messages sent one after another reach the model in the order sent, though 
   assert.match(heard[0] ?? "", /look at this/);
   assert.match(heard[1] ?? "", /and then this/);
 });
+
+test("say answers the user mid-turn and the turn goes on: what it read is answered, so Stop owes them nothing more", async () => {
+  const { tool, running, release } = slow();
+  const second = slow();
+  const { agent, io, faux, conversation, replies } = await chat(
+    [
+      fauxAssistantMessage(fauxToolCall("wait", {}), { stopReason: "toolUse" }),
+      fauxAssistantMessage(fauxToolCall("say", { text: "Yes, installing it now." }), { stopReason: "toolUse" }),
+      fauxAssistantMessage(fauxToolCall("hold", {}), { stopReason: "toolUse" }),
+      fauxAssistantMessage("Never shown"),
+    ],
+    { tools: [tool, defineTool({ ...second.tool, name: "hold" })] },
+  );
+  agent.prompt(message("render the slides"), io);
+  await running;
+  interject(conversation, agent, io, "install mise first");
+  release();
+  await second.running;
+  assert.deepEqual(replies(), ["Yes, installing it now."], "said at once, while the turn goes on");
+  agent.interrupt(io);
+  second.release();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.deepEqual(replies(), ["Yes, installing it now."], "no turn of its own for a message already answered");
+  assert.equal(faux.state.callCount, 3);
+});
+
+test("a tool finishing after Stop neither publishes its old reply nor loses the message read during that turn", { timeout: 5000 }, async () => {
+  const first = slow();
+  let sharing!: () => void;
+  let release!: () => void;
+  const started = new Promise<void>((resolve) => { sharing = resolve; });
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  const files: Workspace = {
+    ...noWorkspace,
+    share: async () => { sharing(); await held; return png; },
+  };
+  const f = await chat([
+    fauxAssistantMessage(fauxToolCall("wait", {}), { stopReason: "toolUse" }),
+    fauxAssistantMessage(fauxToolCall("send_file", { status: "Sending", path: "user/a.png" }), { stopReason: "toolUse" }),
+    fauxAssistantMessage("Here is the answer after Stop."),
+  ], { tools: [first.tool], files });
+  f.agent.prompt({ kind: "note", text: "[task t-1 completed] check the result" }, f.io);
+  await first.running;
+  interject(f.conversation, f.agent, f.io, "send me the picture");
+  first.release();
+  await started;
+  f.agent.interrupt(f.io);
+  release();
+  await f.until(1);
+  assert.deepEqual(f.replies(), ["Here is the answer after Stop."], "no stale attachment reply, and the user is still owed an answer");
+  assert.equal(f.faux.state.callCount, 3);
+});

@@ -105,6 +105,56 @@ test("shared no_reply cannot silence an unanswered user message", async (t) => {
   assert.deepEqual(quiet, ["main"]);
 });
 
+test("shared HTTP say publishes immediately to its own chat without ending the native turn or bypassing helper reporting", async (t) => {
+  const f = await setup(t);
+  const { tools } = await f.main.listTools();
+  assert.ok(tools.some((tool) => tool.name === "say"));
+  assert.ok(tools.some((tool) => tool.name === "list_schedules"));
+  f.host.external.ingest("main", [{ kind: "activity", activity: { kind: "working", label: "Native task is running" } }]);
+  const empty = await f.main.callTool({ name: "say", arguments: { text: "  " } });
+  assert.match(content(empty), /empty/);
+  assert.equal(f.host.external.state("main").entities.filter((entity) => entity.kind === "reply").length, 0);
+  assert.notEqual((await f.main.callTool({ name: "say", arguments: { text: "正在核对，程序继续运行。" } })).isError, true);
+  let replies = f.host.external.state("main").entities.filter((entity) => entity.kind === "reply");
+  assert.equal(replies.length, 1, "progress appears before a native final reply exists");
+  assert.equal(replies[0]?.text, "正在核对，程序继续运行。");
+  assert.equal(f.host.external.state("main").activity?.label, "Native task is running");
+  assert.match(content(await f.main.callTool({ name: "no_reply", arguments: {} })), /user wrote/, "say does not permit dropping an unanswered user request");
+  const side = await f.connect(f.other);
+  await side.callTool({ name: "say", arguments: { text: "Side-chat progress" } });
+  assert.equal(f.host.external.state("main").entities.filter((entity) => entity.kind === "reply").length, 1);
+  assert.equal(f.host.external.state(f.other).entities.filter((entity) => entity.kind === "reply").length, 1);
+  const helper = await f.connect(f.actor());
+  assert.equal((await helper.listTools()).tools.some((tool) => tool.name === "say"), false, "background helpers retain report and muted-goal boundaries");
+  f.host.external.ingest("main", [{ kind: "upserted", entity: { kind: "reply", id: "native-final", at: "2026-10-21T08:01:00Z", text: "核对完成。", streaming: false, attachments: [] } }]);
+  await f.host.call("session.sync", { chat: "main", since: null });
+  await f.host.call("session.sync", { chat: "main", since: null });
+  replies = f.host.external.state("main").entities.filter((entity) => entity.kind === "reply");
+  assert.deepEqual(replies.map((reply) => reply.text), ["正在核对，程序继续运行。", "核对完成。"]);
+});
+
+test("shared HTTP list_schedules uses complete live ids across chats so cancellation reaches the intended schedule", async (t) => {
+  const f = await setup(t);
+  await f.main.callTool({ name: "schedule", arguments: { status: "设置计划", title: "Main reminder", instructions: "Fixture reminder", at: "2027-01-01 08:00", timezone: "UTC" } });
+  const mainSchedule = (await f.host.call("schedules.list", {})).schedules[0]!;
+  const sideSchedule = f.host.agent(f.other).act({ kind: "schedule", title: "Side reminder", instructions: "Fixture paused reminder", when: { kind: "repeat", cron: "0 8 * * *", timezone: "UTC" }, needs: null });
+  assert.ok(sideSchedule.ok);
+  await f.host.call("schedule.control", { id: sideSchedule.id, action: "pause" });
+  const cancelled = f.host.agent("main").act({ kind: "schedule", title: "Cancelled fixture", instructions: "Never run", when: { kind: "once", at: "2027-01-01T09:00:00Z" }, needs: null });
+  assert.ok(cancelled.ok);
+  await f.host.call("schedule.control", { id: cancelled.id, action: "cancel" });
+  const listed = content(await f.main.callTool({ name: "list_schedules", arguments: { status: "查看计划" } }));
+  assert.ok(listed.includes(mainSchedule.id), "the full id from the real core is retained");
+  assert.ok(listed.includes(sideSchedule.id), "paused schedules in another chat remain discoverable");
+  assert.match(listed, /Side reminder.*paused/);
+  assert.equal(listed.includes(cancelled.id), false);
+  const result = await f.main.callTool({ name: "cancel_schedule", arguments: { status: "取消计划", id: sideSchedule.id } });
+  assert.ok(content(result).includes(`Cancelled ${sideSchedule.id}`));
+  const remaining = content(await f.main.callTool({ name: "list_schedules", arguments: { status: "核对计划" } }));
+  assert.ok(remaining.includes(mainSchedule.id));
+  assert.equal(remaining.includes(sideSchedule.id), false);
+});
+
 test("HTTP app tools preserve nested action arguments and still enforce a deny rule", async (t) => {
   let permission: "deny" | "allow" = "deny"; const calls: unknown[] = [];
   const apps: Apps = { accounts: async () => [{ id: "account", label: "fixture@example.test" }], tools: async () => [], permission: async () => permission, kind: async () => "write", remember: async () => {}, call: async (_slug, args) => { calls.push(args); return { ok: true, data: "fixture done" }; } };

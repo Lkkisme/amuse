@@ -23,9 +23,9 @@ import { close, useBack } from "./back.ts";
 
 /** the width the user dragged the viewer to (only that is kept; the default follows the window) */
 const VIEWER_WIDTH = "amuse.viewerDragged";
-/** The viewer is at least 420px; the chat keeps at least 360px (the sidebar gives way first). */
-const clampViewer = (width: number) =>
-  Math.round(Math.max(420, Math.min(width, innerWidth - 360)));
+/** The viewer is at least 420px; the chat keeps at least 360px of `room` (the window; the sidebar gives way first). */
+const clampViewer = (width: number, room = innerWidth) =>
+  Math.round(Math.max(420, Math.min(width, room - 360)));
 /** whether the sidebar is docked where there is room (the user's choice) */
 const SIDEBAR = "amuse.sidebar";
 /** the chat's least width beside a docked sidebar: with less, the sidebar collapses */
@@ -174,10 +174,13 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
     addEventListener("resize", resized);
     return () => removeEventListener("resize", resized);
   }, []);
+  // the width the viewer is shown at: the one chosen, as far as this window leaves the chat its least
+  // (a window made narrower after a drag does not squeeze the chat out; widened again, it comes back)
+  const shownViewer = clampViewer(viewerWidth, width);
   // the right side's share: the browser (docked from lg), or a docked Muse panel
   const right =
     ui.viewer && width >= 1024
-      ? viewerWidth + 8
+      ? shownViewer + 8
       : ui.museOpen && !ui.viewer && width >= 768
         ? 368
         : 0;
@@ -207,9 +210,9 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
     // the browser's share of the window, when it is docked there: what floats over the chat dims all but it
     document.documentElement.style.setProperty(
       "--viewer-room",
-      `${ui.viewer && width >= 1024 ? viewerWidth + 8 : 0}px`,
+      `${ui.viewer && width >= 1024 ? shownViewer + 8 : 0}px`,
     );
-  }, [ui.viewer, width, viewerWidth]);
+  }, [ui.viewer, width, shownViewer]);
   useEffect(() => {
     // read by what floats over the chat (the Muse panel), to keep beside the sidebar
     document.documentElement.style.setProperty(
@@ -220,9 +223,9 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
   useEffect(() => {
     document.documentElement.style.setProperty(
       "--viewer-width",
-      `${viewerWidth}px`,
+      `${shownViewer}px`,
     ); // read by the viewer and the chat beside it
-  }, [viewerWidth]);
+  }, [shownViewer]);
 
   const actions = useMemo<Actions>(() => {
     const patch = (fn: (u: Ui) => Ui) => setUi(fn);

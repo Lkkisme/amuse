@@ -22,6 +22,7 @@ function setup(permission: Permission, answer: Answer = { verdict: "approved", r
   const io: AgentIO = {
     chat: "main",
     chats: () => [],
+    schedules: () => [],
     readChat: () => null,
     emit: () => {},
     act: (action) => (asked.push(action), { ok: true, id: "a1" }),

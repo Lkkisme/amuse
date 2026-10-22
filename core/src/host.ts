@@ -107,6 +107,8 @@ export interface AgentIO {
   recall(query: string, everywhere?: boolean): string;
   /** The chats there are. */
   chats(): ChatInfo[];
+  /** Every schedule there is, whatever its state. */
+  schedules(): Schedule[];
   /** Another chat as the agent would know it, by id; null if there is none. */
   readChat(id: string): string | null;
   /** Resolves when the user decides approval `id` (from an `ask`), or it times out; at once if already settled. */
@@ -633,6 +635,7 @@ export function createHost(ports: Ports, options: HostOptions = {}): Host {
         return found.length > 0 ? found.join("\n\n") : `Nothing in any chat mentions "${query}".`;
       },
       chats: () => ordered().map((c) => ({ id: c.id, title: titled(c), main: c.id === MAIN, updated: c.updated })),
+      schedules: () => [...rooms.values()].flatMap((r) => r.state.entities.filter((e): e is Schedule => e.kind === "schedule")),
       readChat: (id) => {
         const other = rooms.get(id);
         return other ? agentContext(other.state, otherChat, where) || "(nothing said yet)" : null;

@@ -428,7 +428,7 @@ test("background helpers inherit the originating chat's MCP and browser CLI inst
   const actions: Parameters<AgentIO["act"]>[0][] = [];
   const io: AgentIO = {
     chat: "main", emit: () => {}, act: (action) => { actions.push(action); return { ok: true, id: "task-browser" }; },
-    context: () => "originating chat context", recall: () => "", chats: () => [], readChat: () => null,
+    context: () => "originating chat context", recall: () => "", chats: () => [], schedules: () => [], readChat: () => null,
     decision: async () => ({ verdict: "approved", remember: false }), report: () => {},
     time: () => ({ now: at, timezone: "UTC" }), lastWords: () => "", answer: async () => ({ kind: "closed" }), listen: () => () => {},
   };

@@ -8,6 +8,7 @@ function run() {
   const io: AgentIO = {
     chat: "main",
     chats: () => [],
+    schedules: () => [],
     readChat: () => null,
     emit: () => {},
     act: () => ({ ok: true, id: "x" }),

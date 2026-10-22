@@ -7,6 +7,7 @@ What changed in each release of Amuse, for the people who run it. The format fol
 ## [Unreleased]
 
 ### Added
+- Amuse can write to you in the middle of long work: it answers a message you send while it is busy, and says what it is starting before something that takes a while, instead of going quiet until it is done.
 - The browser can run on the chat's model ("Same as chat", now the default), as background work already could; Settings says so when the chat's model cannot see pictures.
 - An Android client shares the web UI and conversations, supports file transfers and microphone access, and allows screenshots; device unlock is optional.
 - Amuse can use an existing Paseo / Codex Qwen environment, showing its saved conversations and running tasks while keeping its model, context size and tools.
@@ -17,8 +18,12 @@ What changed in each release of Amuse, for the people who run it. The format fol
 - Sheets close with the same round button as the rest of the app, and a task's details open in a wider sheet.
 - The terminal's lines are a little taller, so Chinese characters are no longer cut off at the top.
 - The connected-backend status, PIN controls and native browser viewer follow the selected English or Simplified Chinese language.
+- Paseo / Codex shares the new `say` and `list_schedules` tools with Pi; existing conversations learn about them on their next message, while background runs keep their normal reporting and quiet rules.
 
 ### Fixed
+- The chat keeps its least width when the window is made narrower after the browser panel was dragged wide; widened again, the panel comes back to the width it was dragged to.
+- Amuse can cancel a schedule you no longer want: it looks the schedules up with their full ids instead of going by what it remembered of them.
+- A Pi tool that finishes after Stop cannot publish a stale reply or discard a user message it had read but not answered.
 - On a wider screen, the Amuse avatar flies into its panel and back again when the panel opens and closes.
 - Starting Amuse on Windows keeps it running after the launching terminal closes, and can start Docker Desktop when the sandbox is cold, including an explicit owner-configured backend launch.
 - An owner-requested restart restores the browser pages that were open, without reopening pages the owner closed or replacing the saved conversations.
