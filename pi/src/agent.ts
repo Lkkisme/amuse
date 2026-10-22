@@ -126,18 +126,34 @@ const toolLabels: Record<string, string> = {
   no_reply: "Wrapping up",
 };
 
-/** A message of the user's sent while a turn was running: what the model is given of it (`sent`), and the turn to run for it if it is never delivered. */
+type Message = Extract<Turn, { kind: "message" }>;
+
+/** A message of the user's sent while a turn was running: what the model is given of it (`sent`), and the turn to run for it if it is never read. */
 interface Steered {
-  turn: Extract<Turn, { kind: "message" }>;
+  turn: Message;
   sent: string;
+}
+
+/** The turn the model is working on, open to what the user adds meanwhile. */
+interface Steering {
+  session: AgentSession;
+  /** the messages sent meanwhile that the model has not read (they are in the chat already) */
+  unread: Steered[];
+  /** the messages go in one after another, in the order sent */
+  sending: Promise<void>;
 }
 
 /** One chat's agent: its runs one after another, the session of the one in progress, and its interrupt count. */
 interface Lane {
   queue: Promise<void>;
   session: PiSession | undefined;
-  /** While the model works on a turn: the user's messages sent meanwhile that it has not read yet (they are in the chat already). */
-  steering: Steered[] | undefined;
+  /** While the model works on a turn: what the user sends meanwhile goes to it. */
+  steering: Steering | undefined;
+  /**
+   * The user's messages no turn has taken yet (they are in the chat already). A turn starting takes them all, being given the chat
+   * as it stands; a turn queued for one of them that finds none left has nothing to do.
+   */
+  owed: Message[];
   /** Bumped by interrupt: the run in progress says nothing more. Queued prompts and reports still run. */
   epoch: number;
 }
@@ -156,12 +172,15 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
     return news;
   };
   const laneOf = (chat: string): Lane => {
-    const lane = lanes.get(chat) ?? { queue: Promise.resolve(), session: undefined, steering: undefined, epoch: 0 };
+    const lane = lanes.get(chat) ?? { queue: Promise.resolve(), session: undefined, steering: undefined, owed: [], epoch: 0 };
     lanes.set(chat, lane);
     return lane;
   };
 
-  const run = async (turn: Turn, agent: AgentIO, lane: Lane) => {
+  const run = async (turn: Turn, agent: AgentIO, lane: Lane): Promise<void> => {
+    // the user's messages this turn answers: those waiting, and any that come while it sets up
+    const taken = lane.owed.splice(0);
+    if (turn.kind === "message" && taken.length === 0) return;
     const mine = lane.epoch;
     const live = () => mine === lane.epoch;
     const emit: AgentIO["emit"] = (say) => {
@@ -174,6 +193,8 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
     let said = "";
     /** the model chose to say nothing this turn: whatever it writes is dropped */
     let silent = false;
+    /** the user has written and not been answered in this turn yet */
+    let heard = false;
     try {
       // the user's language, said where the model weighs it most: the system prompt of this turn
       const language = scriptOf(agent.lastWords());
@@ -197,7 +218,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
         ...(cfg.apps ? appTools(io, cfg.apps) : []),
         ...(cfg.files ? workspaceTools(io, cfg.files) : []),
         ...(cfg.sandbox ? [...sandboxTools(cfg.sandbox), ...secretTools(io)] : []),
-        ...silenceTools(() => (silent = true)),
+        ...silenceTools(() => heard, () => (silent = true)),
       ];
       // many calls in one turn, only what the script returns in its context
       const session = await (cfg.open ? cfg.open(system, toolset) : openSession(cfg, system, toolset, { codemode: true }));
@@ -218,11 +239,12 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
         } else if (event.type === "message_start" && event.message.role === "user") {
           // a message of the user's reaches the model mid-turn (the brief, the first, is no steered one)
           const text = textOf(event.message.content);
-          const at = lane.steering?.findIndex((m) => m.sent === text) ?? -1;
+          const at = lane.steering?.unread.findIndex((m) => m.sent === text) ?? -1;
           if (at >= 0) {
-            lane.steering?.splice(at, 1);
-            // what the model decided about the turn before was about the turn before
+            lane.steering?.unread.splice(at, 1);
+            // what the model decided about the turn before was about the turn before; the user is to be answered
             silent = false;
+            heard = true;
           }
         } else if (event.type === "message_end" && event.message.role === "assistant") {
           // only what the agent says once it is done is its reply; what it writes on the way to a tool
@@ -231,8 +253,10 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
           const text = said.trim();
           said = "";
           if (stopReason === "error") failure = event.message.errorMessage ?? "The model run failed";
-          else if (text && !silent && stopReason !== "toolUse" && stopReason !== "aborted")
+          else if (text && !silent && stopReason !== "toolUse" && stopReason !== "aborted") {
+            heard = false;
             emit({ kind: "upserted", entity: { kind: "reply", id: newId("r"), at: new Date().toISOString(), text, streaming: false, attachments: [] } });
+          }
         } else if (event.type === "auto_retry_end" && event.success) {
           // the model's service failed and then answered: the failure is no longer one
           failure = undefined;
@@ -240,24 +264,22 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
       });
       try {
         // the images the user just sent are seen with their message
-        const shown = turn.kind === "message" && cfg.files ? await images(cfg.files, turn.attachments) : [];
+        const shown = cfg.files ? await images(cfg.files, taken.flatMap((m) => m.attachments)) : [];
         const remembered = [cfg.files ? await memoryBrief(cfg.files).catch(() => "") : "", news].filter(Boolean).join("\n\n");
-        const told = brief(agent, turn, remembered);
+        // what the user sent while this was set up is in the chat the model is given now
+        for (let more = lane.owed.splice(0); more.length > 0; more = lane.owed.splice(0)) {
+          taken.push(...more);
+          if (cfg.files) shown.push(...(await images(cfg.files, more.flatMap((m) => m.attachments))));
+        }
+        heard = taken.length > 0;
+        const told = brief(agent, turn, remembered, heard);
         // from here the model has the conversation as it stands: what the user adds goes to it as it works
-        lane.steering = [];
+        lane.steering = { session: pi, unread: [], sending: Promise.resolve() };
         await pi.prompt(told, { expandPromptTemplates: false, ...(shown.length > 0 ? { images: shown } : {}) });
       } finally {
         unsubscribe();
       }
-      // the turn is over and nothing more can reach it: a message the model did not get in time is a turn of its own
-      const unread = lane.steering?.splice(0) ?? [];
-      lane.steering = undefined;
       if (failure !== undefined) throw new Error(failure);
-      const last = unread.at(-1);
-      if (live() && last) {
-        const next: Turn = { kind: "message", text: last.turn.text, attachments: unread.flatMap((m) => m.turn.attachments) };
-        lane.queue = lane.queue.then(() => run(next, agent, lane));
-      }
     } catch (error) {
       if (!live()) return;
       const detail = redact(error instanceof Error ? error.message : String(error), secretsOf(cfg));
@@ -270,12 +292,20 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
           at: new Date().toISOString(),
           reason: /content_filter|content filter|safety/i.test(detail) ? "refused" : "failed",
           detail,
-          turn: turn.kind === "message" ? { kind: "message" } : { kind: "note", text: turn.text },
+          // a note turn that took in the user's messages is retried for them
+          turn: turn.kind === "message" || taken.length > 0 ? { kind: "message" } : { kind: "note", text: turn.text },
           status: "open",
         },
       });
     } finally {
+      // the turn is over, and the user's messages the model never read (it failed, was stopped, or ended first) are a turn of their own
+      const unread = lane.steering?.unread.splice(0) ?? [];
       lane.steering = undefined;
+      const last = unread.at(-1);
+      if (last) {
+        lane.owed.push(...unread.map((m) => m.turn));
+        lane.queue = lane.queue.then(() => run(last.turn, agent, lane));
+      }
       lane.session?.close();
       lane.session = undefined;
       emit({ kind: "activity", activity: null });
@@ -285,9 +315,12 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
   return {
     prompt: (turn, agent) => {
       const lane = laneOf(agent.chat);
-      const queued = () => void (lane.queue = lane.queue.then(() => run(turn, agent, lane)));
+      const queued = () => {
+        if (turn.kind === "message") lane.owed.push(turn);
+        lane.queue = lane.queue.then(() => run(turn, agent, lane));
+      };
       // a message from the user while the model is working on a turn of this chat goes to it as it works; otherwise it is the next turn
-      if (turn.kind === "message" && lane.steering && lane.session?.session.isStreaming) void steer(lane.steering, lane.session.session, turn, cfg.files).catch(queued);
+      if (turn.kind === "message" && lane.steering) steer(lane.steering, turn, cfg.files, queued);
       else queued();
     },
     interrupt: (agent) => {
@@ -301,24 +334,26 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
 
 /**
  * The user's message to a turn in progress, as the model reads it among its own steps: said to be new, with its files (images
- * are seen). Resolves when the model has it queued; rejects (and the message is no longer waiting) if it could not be given.
+ * are seen). If it cannot be given, `otherwise` makes it a turn of its own.
  */
-async function steer(waiting: Steered[], session: AgentSession, turn: Extract<Turn, { kind: "message" }>, files: Workspace | undefined): Promise<void> {
+function steer(steering: Steering, turn: Message, files: Workspace | undefined, otherwise: () => void): void {
   const names = attached(turn.attachments);
-  const sent = ["[The user wrote this while you were working; take it into account and go on]", turn.text, names ? `[attached: ${names}]` : ""].filter(Boolean).join("\n");
+  const sent = ["The user, while you were working:", turn.text, names ? `Attached: ${names}` : ""].filter(Boolean).join("\n");
   const message: Steered = { turn, sent };
   // from now on the end of the turn finds it, if the model never reads it
-  waiting.push(message);
-  try {
-    const shown = files ? await images(files, turn.attachments) : [];
-    await session.steer(sent, shown.length > 0 ? shown : undefined);
-  } catch (error) {
-    const at = waiting.indexOf(message);
-    // not found: the turn ended meanwhile and has taken it on
-    if (at < 0) return;
-    waiting.splice(at, 1);
-    throw error;
-  }
+  steering.unread.push(message);
+  steering.sending = steering.sending.then(async () => {
+    try {
+      const shown = files ? await images(files, turn.attachments) : [];
+      await steering.session.steer(sent, shown.length > 0 ? shown : undefined);
+    } catch {
+      const at = steering.unread.indexOf(message);
+      // not found: the turn ended meanwhile and has taken it on
+      if (at < 0) return;
+      steering.unread.splice(at, 1);
+      otherwise();
+    }
+  });
 }
 
 /** The text of a message's content. */
@@ -361,7 +396,7 @@ type Language = "Chinese" | "Japanese" | "Korean";
 const scripts: Record<Language, RegExp> = { Japanese: /[\u3040-\u30ff]/, Korean: /[\uac00-\ud7af]/, Chinese: /[\u4e00-\u9fff]/ };
 
 /** The turn as the model gets it: the conversation, now on the user's clock, then what to do. */
-function brief(agent: AgentIO, turn: Turn, remembered: string): string {
+function brief(agent: AgentIO, turn: Turn, remembered: string, written: boolean): string {
   const { now, timezone } = agent.time();
   const here = agent.chats().find((c) => c.id === agent.chat);
   const where = here?.main
@@ -370,6 +405,6 @@ function brief(agent: AgentIO, turn: Turn, remembered: string): string {
   const task =
     turn.kind === "message"
       ? "Reply to the user's newest message (the last lines above)."
-      : `A note from your background work (not from the user). Tell the user only what they need to hear, in your own words, never that a note came. If nothing needs them (all is well, nothing was waiting, you already told them), call no_reply and write nothing: never explain why you are staying silent.\n${turn.text}`;
+      : `A note from your background work (not from the user). Tell the user only what they need to hear, in your own words, never that a note came. If nothing needs them (all is well, nothing was waiting, you already told them), call no_reply and write nothing: never explain why you are staying silent.${written ? " The user has also written since (their newest message is in the last lines above): reply to them too." : ""}\n${turn.text}`;
   return `${where}\n\n${remembered ? `${remembered}\n\n---\n` : ""}The conversation so far, oldest first (times are the user's, ${timezone}):\n\n${agent.context()}\n\n---\nNow: ${nowIn(now, timezone)}.\n${task}`;
 }
