@@ -247,7 +247,7 @@ test("a chosen speech service is the one used", async () => {
   const http: typeof fetch = async (input) => (asked.push(String(input)), new Response(JSON.stringify({ text: "hi" })));
   await transcriber(store, () => "fireworks", http)(new Uint8Array([1]), "audio/webm");
   await transcriber(store, () => null, http)(new Uint8Array([1]), "audio/webm");
-  assert.deepEqual(asked.map((u) => new URL(u).hostname), ["api.fireworks.ai", "api.groq.com"]);
+  assert.deepEqual(asked.map((u) => new URL(u).hostname), ["audio-turbo.us-virginia-1.direct.fireworks.ai", "api.groq.com"]);
 });
 
 test("the user's own speech server: set up, chosen, called without a key when it has none, and removed", async () => {
