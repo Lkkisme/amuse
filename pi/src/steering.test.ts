@@ -173,24 +173,72 @@ const interjectPicture = (conversation: string[], agent: { prompt(turn: Turn, io
 
 const error = (message: string) => fauxAssistantMessage("", { stopReason: "error", errorMessage: message });
 
-test("a turn that fails after the user wrote does not lose the message: it is answered in a turn of its own", async () => {
+/** A message with a picture comes while the model works on its first step, which then fails before the message is with it. */
+async function failedBeforeRead() {
   const sender: { send?: () => void } = {};
-  const { agent, io, conversation, replies, failures, until } = await chat(
+  const seen: string[][] = [];
+  const made = await chat(
     [
       () => {
-        // written while the model is working on its first step, which fails before the message (a picture takes a moment) is with it
         sender.send?.();
         return error("400 invalid request");
       },
-      fauxAssistantMessage("Here is tomorrow."),
+      (context) => {
+        seen.push(userTexts(context));
+        return fauxAssistantMessage("Here is tomorrow.");
+      },
     ],
     { files: slowFiles },
   );
-  sender.send = () => interjectPicture(conversation, agent, io, "also check tomorrow");
-  agent.prompt(message("check today"), io);
-  await until(2);
+  sender.send = () => interjectPicture(made.conversation, made.agent, made.io, "also check tomorrow");
+  made.agent.prompt(message("check today"), made.io);
+  await made.until(1);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  return { ...made, seen };
+}
+
+test("a turn that fails with the user's message unread shows its card and starts no turn of its own: Retry answers both, once", async () => {
+  const { agent, io, faux, replies, failures, until } = await failedBeforeRead();
   assert.deepEqual(failures(), ["message"]);
+  assert.deepEqual(replies(), []);
+  assert.equal(faux.state.callCount, 1);
+  // Retry sends the user's latest message again
+  agent.prompt({ kind: "message", text: "also check tomorrow", attachments: [png] }, io);
+  await until(2);
+  await new Promise((resolve) => setTimeout(resolve, 50));
   assert.deepEqual(replies(), ["Here is tomorrow."]);
+  assert.equal(faux.state.callCount, 2);
+});
+
+test("nothing is lost if the user does not press Retry but writes again: the next turn takes the message too", async () => {
+  const { agent, io, faux, conversation, replies, until } = await failedBeforeRead();
+  interject(conversation, agent, io, "never mind, are you there?");
+  await until(2);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.deepEqual(replies(), ["Here is tomorrow."]);
+  assert.equal(faux.state.callCount, 2);
+});
+
+test("a retried note turn takes the user's unread message too", async () => {
+  const { agent, io, seen, until } = await failedBeforeRead();
+  agent.prompt({ kind: "note", text: "[task t-1 completed] done" }, io);
+  await until(2);
+  assert.equal(seen.length, 1);
+  assert.match(seen[0]?.[0] ?? "", /also check tomorrow[\s\S]*The user has also written since/, "it took the message in, and was told to answer it");
+});
+
+test("a note turn that read the user's message mid-turn and then fails is recorded as a turn for the user", async () => {
+  const { tool, running, release } = slow();
+  const { agent, io, conversation, failures, until } = await chat(
+    [fauxAssistantMessage(fauxToolCall("wait", {}), { stopReason: "toolUse" }), error("400 invalid request")],
+    { tools: [tool] },
+  );
+  agent.prompt({ kind: "note", text: "[task t-1 completed] done" }, io);
+  await running;
+  interject(conversation, agent, io, "also check tomorrow");
+  release();
+  await until(1);
+  assert.deepEqual(failures(), ["message"]);
 });
 
 test("Stop does not drop a message sent just before it: what the model never read is answered", async () => {
@@ -208,6 +256,63 @@ test("Stop does not drop a message sent just before it: what the model never rea
   await until(1);
   assert.deepEqual(replies(), ["Here is tomorrow."]);
   assert.equal(faux.state.callCount, 2);
+});
+
+test("Stop still answers what the user said last: a message the model had read but not answered too", async () => {
+  const { tool, running, release } = slow();
+  const sender: { stop?: () => void } = {};
+  const { agent, io, faux, conversation, replies, until } = await chat(
+    [
+      fauxAssistantMessage(fauxToolCall("wait", {}), { stopReason: "toolUse" }),
+      () => {
+        // the model has the message and the user presses Stop before it answers
+        sender.stop?.();
+        return fauxAssistantMessage("Never shown");
+      },
+      fauxAssistantMessage("Here is tomorrow."),
+    ],
+    { tools: [tool] },
+  );
+  sender.stop = () => agent.interrupt(io);
+  agent.prompt(message("check today"), io);
+  await running;
+  interject(conversation, agent, io, "also check tomorrow");
+  release();
+  await until(1);
+  assert.deepEqual(replies(), ["Here is tomorrow."]);
+  assert.equal(faux.state.callCount, 3);
+});
+
+test("Stop on a turn nobody added to answers nothing more", async () => {
+  const { tool, running, release } = slow();
+  const { agent, io, faux, replies } = await chat([fauxAssistantMessage(fauxToolCall("wait", {}), { stopReason: "toolUse" }), fauxAssistantMessage("Never shown")], { tools: [tool] });
+  agent.prompt(message("check today"), io);
+  await running;
+  agent.interrupt(io);
+  release();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.deepEqual(replies(), []);
+  assert.equal(faux.state.callCount, 1, "no turn is started for what it was asked");
+});
+
+test("a file sent on its own answers the user: silence is then allowed", async () => {
+  const { tool, running, release } = slow();
+  const files: Workspace = { ...noWorkspace, share: async () => png };
+  const { agent, io, faux, conversation, replies, until } = await chat(
+    [
+      fauxAssistantMessage(fauxToolCall("wait", {}), { stopReason: "toolUse" }),
+      fauxAssistantMessage(fauxToolCall("send_file", { status: "Sending", path: "a.png" }), { stopReason: "toolUse" }),
+      fauxAssistantMessage(fauxToolCall("no_reply", {}), { stopReason: "toolUse" }),
+    ],
+    { tools: [tool], files },
+  );
+  agent.prompt({ kind: "note", text: "[task t-1 completed] done" }, io);
+  await running;
+  interject(conversation, agent, io, "send me the picture");
+  release();
+  await until(1);
+  assert.deepEqual(replies(), [""], "the file, with no words");
+  assert.equal(faux.state.callCount, 3);
 });
 
 test("messages sent while a turn sets up are answered by it, once: not again by turns queued for them", async () => {

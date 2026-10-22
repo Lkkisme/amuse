@@ -7,7 +7,7 @@
  * (the status line says what it is doing). Pi's coding tools, extensions,
  * skills and context files are all off: the model sees only amuse's tools (tools.ts).
  */
-import { type AgentIO, type Ports, type Rules, type Turn, type Workspace, attached, newId, nowIn } from "@amuse/core";
+import { type AgentIO, type Ports, type Rules, type Turn, type Workspace, attached, blank, newId, nowIn } from "@amuse/core";
 import { images, workspaceTools } from "./attachments.ts";
 import { memoryBrief, memoryReadTools, memoryWriteTools } from "./memory.ts";
 import { aboutTools } from "./about.ts";
@@ -186,15 +186,31 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
     const emit: AgentIO["emit"] = (say) => {
       if (live()) agent.emit(say);
     };
-    /** tools act through this run's chat */
-    const io = () => agent;
+    /** the user has written and not been answered in this turn yet */
+    let heard = false;
+    /** the messages the model read mid-turn, since it last replied (they are answered when it does) */
+    const read: Message[] = [];
+    /** whether it read any mid-turn at all */
+    let readAny = false;
+    /** the turn failed (and the user was told) */
+    let failed = false;
+    /** tools act through this run's chat; a file sent on its own is an answer too */
+    const here: AgentIO = {
+      ...agent,
+      emit: (say) => {
+        if (!blank(say) && say.kind === "upserted" && say.entity.kind === "reply") {
+          heard = false;
+          read.length = 0;
+        }
+        agent.emit(say);
+      },
+    };
+    const io = () => here;
     emit({ kind: "activity", activity: { kind: "responding", label: null } });
     /** what the model is writing in its current message */
     let said = "";
     /** the model chose to say nothing this turn: whatever it writes is dropped */
     let silent = false;
-    /** the user has written and not been answered in this turn yet */
-    let heard = false;
     try {
       // the user's language, said where the model weighs it most: the system prompt of this turn
       const language = scriptOf(agent.lastWords());
@@ -240,11 +256,13 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
           // a message of the user's reaches the model mid-turn (the brief, the first, is no steered one)
           const text = textOf(event.message.content);
           const at = lane.steering?.unread.findIndex((m) => m.sent === text) ?? -1;
-          if (at >= 0) {
-            lane.steering?.unread.splice(at, 1);
+          const [steered] = at >= 0 ? (lane.steering?.unread.splice(at, 1) ?? []) : [];
+          if (steered) {
             // what the model decided about the turn before was about the turn before; the user is to be answered
             silent = false;
             heard = true;
+            readAny = true;
+            read.push(steered.turn);
           }
         } else if (event.type === "message_end" && event.message.role === "assistant") {
           // only what the agent says once it is done is its reply; what it writes on the way to a tool
@@ -255,6 +273,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
           if (stopReason === "error") failure = event.message.errorMessage ?? "The model run failed";
           else if (text && !silent && stopReason !== "toolUse" && stopReason !== "aborted") {
             heard = false;
+            read.length = 0;
             emit({ kind: "upserted", entity: { kind: "reply", id: newId("r"), at: new Date().toISOString(), text, streaming: false, attachments: [] } });
           }
         } else if (event.type === "auto_retry_end" && event.success) {
@@ -282,6 +301,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
       if (failure !== undefined) throw new Error(failure);
     } catch (error) {
       if (!live()) return;
+      failed = true;
       const detail = redact(error instanceof Error ? error.message : String(error), secretsOf(cfg));
       // not something Muse said: a failure of its own kind, with the turn kept to try again
       emit({
@@ -292,19 +312,22 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
           at: new Date().toISOString(),
           reason: /content_filter|content filter|safety/i.test(detail) ? "refused" : "failed",
           detail,
-          // a note turn that took in the user's messages is retried for them
-          turn: turn.kind === "message" || taken.length > 0 ? { kind: "message" } : { kind: "note", text: turn.text },
+          // a note turn that took in or read the user's messages is retried for them
+          turn: turn.kind === "message" || taken.length > 0 || readAny ? { kind: "message" } : { kind: "note", text: turn.text },
           status: "open",
         },
       });
     } finally {
-      // the turn is over, and the user's messages the model never read (it failed, was stopped, or ended first) are a turn of their own
-      const unread = lane.steering?.unread.splice(0) ?? [];
+      // the turn is over. The user's messages the model never read are owed a turn: of their own if it ended first or was stopped, and
+      // if it failed, the user's Retry (or their next message) takes them, rather than a turn that would fail the same way beside the card.
+      // Stopped, it still answers what the user said last: the messages it read but did not answer too (not what it took when it began).
+      const unread = lane.steering?.unread.splice(0).map((m) => m.turn) ?? [];
       lane.steering = undefined;
-      const last = unread.at(-1);
+      const owing = live() ? unread : [...read, ...unread];
+      const last = owing.at(-1);
       if (last) {
-        lane.owed.push(...unread.map((m) => m.turn));
-        lane.queue = lane.queue.then(() => run(last.turn, agent, lane));
+        lane.owed.push(...owing);
+        if (!failed) lane.queue = lane.queue.then(() => run(last, agent, lane));
       }
       lane.session?.close();
       lane.session = undefined;
