@@ -39,8 +39,24 @@ if (-not $sandboxConfig.docker) { throw 'The sandbox configuration needs its Doc
 $sandboxDocker = $sandboxConfig.docker
 $sandboxInfo = Invoke-AmuseSandboxDocker -Executable $sandboxDocker -Arguments @('info', '--format', '{{.ServerVersion}}')
 if ($sandboxInfo.ExitCode -ne 0) {
-    if (-not $sandboxConfig.desktop) { throw 'Docker is not running; start Docker Desktop before Amuse.' }
-    Start-Process -FilePath $sandboxConfig.desktop -WindowStyle Hidden | Out-Null
+    if ($sandboxConfig.backend) {
+        # Portable Docker Desktop installations have no registered InstallLocation
+        # for the GUI launcher. An explicit owner-configured official backend can
+        # be hosted by the same persistent, non-elevated scheduler action instead.
+        $sandboxBackend = [string]$sandboxConfig.backend
+        if (-not [System.IO.Path]::IsPathRooted($sandboxBackend) -or ([System.IO.Path]::GetPathRoot($sandboxBackend)).Length -lt 3) {
+            throw 'The optional Docker backend path must be absolute.'
+        }
+        if (-not (Test-Path -LiteralPath $sandboxBackend -PathType Leaf)) { throw 'The configured Docker backend executable does not exist.' }
+        $sandboxLogs = Join-Path $Root '.local\logs'
+        New-Item -ItemType Directory -Path $sandboxLogs -Force | Out-Null
+        $sandboxLaunchStamp = (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssfffZ') + '-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
+        $sandboxBackendProcess = Start-Process -FilePath $sandboxBackend -WorkingDirectory (Split-Path -Parent $sandboxBackend) -WindowStyle Hidden -RedirectStandardOutput (Join-Path $sandboxLogs ('docker-backend-' + $sandboxLaunchStamp + '.stdout.log')) -RedirectStandardError (Join-Path $sandboxLogs ('docker-backend-' + $sandboxLaunchStamp + '.stderr.log')) -PassThru
+        Write-Output ('Started the configured Docker backend (PID ' + $sandboxBackendProcess.Id + ').')
+    } else {
+        if (-not $sandboxConfig.desktop) { throw 'Docker is not running; start Docker Desktop before Amuse.' }
+        Start-Process -FilePath $sandboxConfig.desktop -WindowStyle Hidden | Out-Null
+    }
     $sandboxDeadline = (Get-Date).AddSeconds(90)
     do {
         Start-Sleep -Seconds 2
