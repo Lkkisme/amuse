@@ -1,7 +1,7 @@
 /**
  * Voice: what the user says into the mic, as text for the composer. A
  * provider's speech-to-text does it (an OpenAI-style /audio/transcriptions),
- * with the user's own key: OpenAI, Groq or Fireworks, the first one set up.
+ * with the user's selected local server or their own provider key.
  * Pi does not do speech; this is the one place outside it that calls a
  * provider, and it reads the key from the user's keys like Pi does.
  */
@@ -30,8 +30,8 @@ export function refusal(service: string, status: number, detail: string): string
   return `${who} could not turn that into text (${status}${detail ? `: ${detail}` : ""}).`;
 }
 
-/** The audio a recording gives (webm or ogg with opus, mp4 on Safari), as a file name a service takes. */
-const fileName = (type: string) => `speech.${type.includes("ogg") ? "ogg" : type.includes("mp4") || type.includes("aac") ? "m4a" : type.includes("wav") ? "wav" : "webm"}`;
+/** Preserve the recording's format for local decoders and provider upload validation. */
+const fileName = (type: string) => `speech.${type.includes("ogg") ? "ogg" : type.includes("mp4") || type.includes("aac") ? "m4a" : type.includes("wav") ? "wav" : type.includes("mpeg") || type.includes("mp3") ? "mp3" : "webm"}`;
 
 /** A server's transcription endpoint from its base address (".../v1" or the endpoint itself). */
 export const transcriptionsAt = (url: string) => (/\/audio\/transcriptions\/?$/.test(url) ? url : `${url.replace(/\/+$/, "")}/audio/transcriptions`);

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileCredentials } from "./credentials.ts";
-import { VoiceUnavailable, transcriber } from "./voice.ts";
+import { VoiceUnavailable, transcriber, transcriptionsAt } from "./voice.ts";
 
 const keyed = async (provider: string | null) => {
   const keys = fileCredentials(join(mkdtempSync(join(tmpdir(), "amuse-voice-")), "keys.json"));
@@ -51,4 +51,31 @@ test("a service's refusal reads plainly, says what to do, and never shows the ke
   const other = await said(400, { error: { message: "Audio too short fw_secret_voice_key" } });
   assert.match(other, /^Fireworks could not turn that into text \(400: Audio too short/);
   for (const message of [unauthorized, other]) assert.doesNotMatch(message, /fw_secret_voice_key/);
+});
+
+test("selected local speech uses no cloud key or cloud fallback and preserves browser audio formats", async () => {
+  const keys = await keyed("openai");
+  const calls: { url: string; name: string; model: string; auth: string | null; type: string }[] = [];
+  const http: typeof fetch = async (url, init) => {
+    const form = init?.body as FormData;
+    const file = form.get("file") as File;
+    calls.push({ url: String(url), name: file.name, model: String(form.get("model")), auth: new Headers(init?.headers).get("authorization"), type: file.type });
+    assert.deepEqual(new Uint8Array(await file.arrayBuffer()), audio);
+    return new Response(JSON.stringify({ text: " 本地识别 " }));
+  };
+  const transcribe = transcriber(keys, () => "local", http, () => ({ url: "http://127.0.0.1:7089/v1/", model: "sensevoice-small-int8" }));
+  for (const type of ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/mp4", "audio/wav", "audio/mpeg"])
+    assert.equal(await transcribe(audio, type), "本地识别");
+  assert.deepEqual(calls.map(({ name }) => name), ["speech.webm", "speech.ogg", "speech.m4a", "speech.wav", "speech.mp3"]);
+  assert.ok(calls.every(({ url, auth, model }) => url === "http://127.0.0.1:7089/v1/audio/transcriptions" && auth === null && model === "sensevoice-small-int8"));
+  const down = transcriber(keys, () => "local", async (url) => {
+    assert.equal(url, "http://127.0.0.1:7089/v1/audio/transcriptions");
+    throw new Error("local offline");
+  }, () => ({ url: "http://127.0.0.1:7089/v1", model: "sensevoice-small-int8" }));
+  await assert.rejects(down(audio, "audio/webm"), /local offline/);
+});
+
+test("local speech accepts a full endpoint address", () => {
+  assert.equal(transcriptionsAt("http://127.0.0.1:7089/v1/audio/transcriptions"), "http://127.0.0.1:7089/v1/audio/transcriptions");
+  assert.equal(transcriptionsAt("http://127.0.0.1:7089/v1"), "http://127.0.0.1:7089/v1/audio/transcriptions");
 });
