@@ -228,7 +228,6 @@ export const zhCN = {
     add: "添加",
     serverUnreachable: "无法连接服务器。",
     somethingWrong: "出了点问题，请重试。",
-    all: "全部",
     stop: "停止",
     back: "返回",
     cancel: "取消",

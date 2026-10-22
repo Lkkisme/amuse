@@ -216,7 +216,6 @@ export const en = {
     add: "Add",
     serverUnreachable: "The server cannot be reached.",
     somethingWrong: "Something went wrong. Try again.",
-    all: "All",
     stop: "Stop",
     back: "Back",
     cancel: "Cancel",
