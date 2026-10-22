@@ -181,28 +181,41 @@ const MENU_WIDTH = 176;
 const MARGIN = 12;
 
 /**
- * Touch: a long press on a bubble opens this (Muse): a card over the bubble, from its sender's
- * side, kept on screen; when it was said, and what can be done with it. A tap elsewhere closes it.
+ * Touch: a long press on a bubble selects its words and opens this, as a messaging app does: a card
+ * over the bubble, from its sender's side, kept on screen; what can be done with it. Select keeps the
+ * words selected to adjust (SelectionBar copies them); anything else, or a tap elsewhere, lets go.
  */
 function MessageMenu({
   menu,
   onClose,
+  onSelect,
 }: {
   menu: Menu | null;
   onClose: () => void;
+  /** Select was chosen: the bubble's words stay selected, and the bar to copy them shows */
+  onSelect: (text: string) => void;
 }) {
   const card = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(0);
   useLayoutEffect(() => setHeight(card.current?.offsetHeight ?? 0), [menu]);
   if (!menu) return null;
   const { message, point, bubble } = menu;
-  // where the finger was: beside it, toward the middle of the screen; above it when there is no room below
+  // over the bubble, not on its selected words: above it, else below it, from the side of whoever said it;
+  // a bubble too tall for either has it where the finger was
+  const rect = bubble.getBoundingClientRect();
+  const mine = message.kind === "prompt";
+  const fits = (y: number) => y >= MARGIN && y + height <= innerHeight - MARGIN;
+  const above = rect.top - 8 - height;
+  const under = rect.bottom + 8;
+  const top = fits(above)
+    ? above
+    : fits(under)
+      ? under
+      : Math.max(MARGIN, Math.min(point.y + 8, innerHeight - MARGIN - height));
   const left = Math.min(
-    Math.max(MARGIN, point.x > innerWidth / 2 ? point.x - MENU_WIDTH : point.x),
+    Math.max(MARGIN, mine ? rect.right - MENU_WIDTH : rect.left),
     innerWidth - MENU_WIDTH - MARGIN,
   );
-  const below = point.y + 8 + height <= innerHeight - MARGIN;
-  const top = Math.max(MARGIN, below ? point.y + 8 : point.y - 8 - height);
   const act = (fn: () => void) => () => {
     fn();
     onClose();
@@ -210,7 +223,12 @@ function MessageMenu({
   const row =
     "hover-fade flex h-11 w-full items-center gap-3 rounded-[12px] px-3 text-[15px]";
   return (
-    <div className="fixed inset-0 z-[80]" onClick={onClose}>
+    // the finger still on the glass would go on into the phone's own long press, selecting what is under it, the menu's words: nothing here is selectable
+    <div
+      className="fixed inset-0 z-[80] select-none [-webkit-touch-callout:none]"
+      onClick={onClose}
+      onContextMenu={(e) => e.preventDefault()}
+    >
       <div
         ref={card}
         role="menu"
@@ -237,7 +255,8 @@ function MessageMenu({
           role="menuitem"
           className={row}
           style={{ color: "var(--text-primary)" }}
-          onClick={act(() => selectText(bubble))}
+          // the words stay selected: no closing (that lets go of them), only the menu goes
+          onClick={() => onSelect(message.text)}
         >
           <TextSelect size={18} /> Select
         </button>
@@ -258,9 +277,11 @@ function MessageMenu({
 
 /**
  * Select a bubble's words, for the phone's own handles to adjust: a bubble's text is not selectable
- * on touch (the long press is the menu's), so it is, until the selection is let go of.
+ * on touch (the long press is the menu's), so it is, until the selection is let go of (`ended`).
+ * A phone may show no copy button of its own for a selection a page made (Chrome on Android does
+ * not), so the feed shows its own (SelectionBar).
  */
-function selectText(bubble: HTMLElement) {
+function selectText(bubble: HTMLElement, ended: () => void) {
   const words = bubble.querySelector("[data-words]") ?? bubble;
   bubble.dataset["selecting"] = "";
   const range = document.createRange();
@@ -272,9 +293,52 @@ function selectText(bubble: HTMLElement) {
     if (getSelection()?.isCollapsed === false) return;
     delete bubble.dataset["selecting"];
     document.removeEventListener("selectionchange", letGo);
+    ended();
   };
   // the selection is made before this listens, so only a later change lets go
   setTimeout(() => document.addEventListener("selectionchange", letGo), 0);
+}
+
+/**
+ * While a message's words are selected (Select in its menu): Copy takes what is selected (all of
+ * it, unless the handles were moved), Done lets go. Pressing them keeps the selection.
+ */
+function SelectionBar({ text, onDone }: { text: string; onDone: () => void }) {
+  const done = () => {
+    getSelection()?.removeAllRanges();
+    onDone();
+  };
+  const button = "hover-fade h-11 rounded-full px-5 text-[15px] font-semibold";
+  return (
+    <div className="anim-fade-in fixed inset-x-0 bottom-24 z-[70] flex justify-center select-none">
+      <div
+        className="flex gap-1 rounded-full p-1"
+        style={{
+          background: "var(--fill-primary)",
+          boxShadow: "var(--shadow-sheet)",
+        }}
+        onPointerDown={(e) => e.preventDefault()}
+      >
+        <button
+          className={button}
+          style={{ background: "var(--fill-blue)", color: "white" }}
+          onClick={() => {
+            copyText(getSelection()?.toString().trim() || text);
+            done();
+          }}
+        >
+          Copy
+        </button>
+        <button
+          className={button}
+          style={{ color: "var(--text-primary)" }}
+          onClick={done}
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  );
 }
 
 /** Long press: held this long without moving. */
@@ -285,7 +349,13 @@ function useLongPress(onPress: (point: { x: number; y: number }) => void) {
   const cancel = () => clearTimeout(timer.current);
   return {
     onPointerDown: (e: React.PointerEvent) => {
-      if (e.pointerType !== "touch") return;
+      // while its words are being selected, a long press is the phone's own (to move the selection)
+      if (
+        e.pointerType !== "touch" ||
+        (e.currentTarget instanceof HTMLElement &&
+          "selecting" in e.currentTarget.dataset)
+      )
+        return;
       start.current = { x: e.clientX, y: e.clientY };
       timer.current = setTimeout(() => {
         onPress(start.current);
@@ -550,6 +620,13 @@ export function ChatFeed({
   const total = conversation.earlier + conversation.entities.length;
   /** the message whose long-press menu is open (touch) */
   const [menu, setMenu] = useState<Menu | null>(null);
+  /** the words of the message being selected (after Select in its menu), while they are */
+  const [selecting, setSelecting] = useState<string | null>(null);
+  /** A long press: the message's words are selected at once, as a messaging app does, and its menu opens over them. */
+  const openMenu = (pressed: Menu) => {
+    selectText(pressed.bubble, () => setSelecting(null));
+    setMenu(pressed);
+  };
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -737,7 +814,7 @@ export function ChatFeed({
                 }}
                 thumb={thumb}
                 actions={actions}
-                onMenu={setMenu}
+                onMenu={openMenu}
                 sending={sending.has(entity.id)}
               />
             </div>
@@ -794,7 +871,21 @@ export function ChatFeed({
         {/* Muse-style scroll fade: a mask dissolves the content itself under the
           floating top bar and composer — no solid overlay sits on top. */}
       </div>
-      <MessageMenu menu={menu} onClose={() => setMenu(null)} />
+      <MessageMenu
+        menu={menu}
+        onClose={() => {
+          // the words the press selected are let go of with the menu (Copy, Share, a tap elsewhere)
+          getSelection()?.removeAllRanges();
+          setMenu(null);
+        }}
+        onSelect={(text) => {
+          setMenu(null);
+          setSelecting(text);
+        }}
+      />
+      {selecting !== null && (
+        <SelectionBar text={selecting} onDone={() => setSelecting(null)} />
+      )}
     </div>
   );
 }
