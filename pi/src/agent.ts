@@ -21,7 +21,7 @@ import { statusOf } from "./status.ts";
 import { relayTools } from "./runs.ts";
 import { taskTools } from "./tasks.ts";
 import { scheduleTools } from "./schedules.ts";
-import { sandboxTools, secretTools } from "./sandbox.ts";
+import { CHAT_LIMITS, sandboxTools, secretTools } from "./sandbox.ts";
 import { silenceTools } from "./silence.ts";
 import { type Apps, appTools, chatTools, tools } from "./tools.ts";
 import { type Search, webTools } from "./web.ts";
@@ -233,7 +233,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
         ...webTools(io, cfg.rules, cfg.search),
         ...(cfg.apps ? appTools(io, cfg.apps) : []),
         ...(cfg.files ? workspaceTools(io, cfg.files) : []),
-        ...(cfg.sandbox ? [...sandboxTools(cfg.sandbox), ...secretTools(io)] : []),
+        ...(cfg.sandbox ? [...sandboxTools(cfg.sandbox, CHAT_LIMITS), ...secretTools(io)] : []),
         ...silenceTools(() => heard, () => (silent = true)),
       ];
       // many calls in one turn, only what the script returns in its context
