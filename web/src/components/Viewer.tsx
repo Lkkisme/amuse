@@ -136,7 +136,8 @@ function Switch({ shown, actions }: { shown: Shown; actions: Actions }) {
     { id: "terminal", label: "Terminal", Icon: SquareTerminal },
   ] satisfies { id: Shown; label: string; Icon: typeof Globe }[];
   return (
-    <div className="flex items-center gap-2 py-2 pl-3 pr-3">
+    // centred on the browser button, which sits 12px from the window's top (the viewer is 8px in from lg)
+    <div className="flex items-center gap-2 pb-2 pl-3 pr-3 pt-3 lg:pt-1">
       <div
         role="tablist"
         className="flex rounded-full p-0.5"
