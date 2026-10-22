@@ -163,9 +163,20 @@ export function Composer({ conversation, place, actions }: { conversation: State
           style={{ background: "var(--fill-primary)", boxShadow: "var(--shadow-float)" }}
         >
           {voiceProblem && (
-            <p role="alert" className="px-3 pb-1 pt-1 text-[13px]" style={{ color: "var(--fill-red)" }}>
-              {voiceProblem}
-            </p>
+            // it stays until it is read: closed here, or gone once the user types or tries the mic again
+            <div className="flex items-start gap-1 pb-1 pl-3 pt-1">
+              <p role="alert" className="min-w-0 flex-1 text-[13px]" style={{ color: "var(--fill-red)" }}>
+                {voiceProblem}
+              </p>
+              <button
+                aria-label="Dismiss"
+                className="hover-fade -mt-1 flex size-7 shrink-0 items-center justify-center rounded-full"
+                style={{ color: "var(--icon-secondary)" }}
+                onClick={() => setVoiceProblem(null)}
+              >
+                <X size={14} />
+              </button>
+            </div>
           )}
           {pending.length > 0 && (
             <div className="flex gap-2 overflow-x-auto px-1 pb-2 pt-1.5" aria-label="Files to send">
@@ -206,7 +217,10 @@ export function Composer({ conversation, place, actions }: { conversation: State
               onScroll={look}
               placeholder={place ? `Message in ${place}` : "Message"}
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => {
+                setDraft(e.target.value);
+                setVoiceProblem(null);
+              }}
               onPaste={(e) => {
                 if (!files || e.clipboardData.files.length === 0) return;
                 e.preventDefault();
