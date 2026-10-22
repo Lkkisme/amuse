@@ -5,10 +5,11 @@ import { keys } from "../remote-keys.ts";
 import { TouchSurface } from "./TouchSurface";
 import { useT } from "../i18n/react.ts";
 import { activeT } from "../i18n/language.ts";
+import { changedViewport, contained, frameFits, frameOf, type Frame } from "../native-frames.ts";
 
 type Generation = string | number;
 type Size = { width: number; height: number };
-type Ready = Size & { generation: Generation; url: string; title: string };
+type Ready = Size & { generation: Generation; url: string; title: string; tagged: boolean; viewerFit: boolean };
 type Sender = {
   type(text: string, ctrl?: boolean): void;
   press(syms: number[], ctrl?: boolean): void;
@@ -45,14 +46,16 @@ function readyOf(value: unknown): Ready | null {
     width: value.width, height: value.height, generation: value.generation,
     url: "url" in value && typeof value.url === "string" ? value.url : "",
     title: "title" in value && typeof value.title === "string" ? value.title : "",
+    tagged: "frames" in value && value.frames === "tagged",
+    viewerFit: "viewportControl" in value && value.viewportControl === "viewer",
   };
 }
 
-async function decodedFrame(blob: Blob): Promise<{ image: CanvasImageSource; close(): void }> {
+async function decodedFrame(blob: Blob): Promise<Size & { image: CanvasImageSource; close(): void }> {
   if (typeof createImageBitmap === "function") {
     try {
       const bitmap = await createImageBitmap(blob);
-      return { image: bitmap, close: () => bitmap.close() };
+      return { image: bitmap, width: bitmap.width, height: bitmap.height, close: () => bitmap.close() };
     } catch { /* Some phone browsers need the ordinary image decoder. */ }
   }
   const objectURL = URL.createObjectURL(blob);
@@ -60,7 +63,7 @@ async function decodedFrame(blob: Blob): Promise<{ image: CanvasImageSource; clo
   try {
     image.src = objectURL;
     await image.decode();
-    return { image, close: () => URL.revokeObjectURL(objectURL) };
+    return { image, width: image.naturalWidth, height: image.naturalHeight, close: () => URL.revokeObjectURL(objectURL) };
   } catch (error) {
     URL.revokeObjectURL(objectURL);
     throw error;
@@ -147,7 +150,8 @@ export function NativeLiveView({ url, interactive, onFit, initialSize, renderCon
     let failed = false;
     let decoding = false;
     // At most one frame is decoded and one newer frame waits. Incoming frames replace the waiting one.
-    let pending: { blob: Blob; generation: Generation } | null = null;
+    let pending: { blob: Blob; metadata: Frame } | null = null;
+    let frameMetadata: Frame | null = null;
     const fail = (message: string) => {
       if (left || failed) return;
       failed = true;
@@ -169,15 +173,19 @@ export function NativeLiveView({ url, interactive, onFit, initialSize, renderCon
         decoded = await decodedFrame(frame.blob);
         const current = ready.current;
         const target = canvas.current;
-        if (!left && !failed && current?.generation === frame.generation && target) {
+        if (!left && !failed && current?.generation === frame.metadata.generation &&
+          current.width === frame.metadata.width && current.height === frame.metadata.height &&
+          frameFits(decoded, current) && target) {
           const context = target.getContext("2d");
           if (!context) throw new Error("Canvas is unavailable");
           if (target.width !== current.width) target.width = current.width;
           if (target.height !== current.height) target.height = current.height;
-          context.drawImage(decoded.image, 0, 0, target.width, target.height);
+          const area = contained(decoded, current);
+          context.clearRect(0, 0, target.width, target.height);
+          context.drawImage(decoded.image, area.x, area.y, area.width, area.height);
         }
       } catch {
-        if (ready.current?.generation === frame.generation) fail(activeT().localBrowser.imageFailed);
+        if (ready.current?.generation === frame.metadata.generation) fail(activeT().localBrowser.imageFailed);
       } finally {
         decoded?.close();
         decoding = false;
@@ -189,10 +197,13 @@ export function NativeLiveView({ url, interactive, onFit, initialSize, renderCon
       if (typeof data === "string") {
         let value: unknown;
         try { value = JSON.parse(data); } catch { return fail(activeT().localBrowser.invalidMessage); }
+        const descriptor = frameOf(value);
+        if (descriptor) { frameMetadata = descriptor; return; }
         const next = readyOf(value);
         if (next) {
           if (ready.current?.generation !== next.generation) {
             pending = null;
+            frameMetadata = null;
             heldPointer.current = null;
             heldKeys.current.clear();
             setCursor(null);
@@ -208,7 +219,11 @@ export function NativeLiveView({ url, interactive, onFit, initialSize, renderCon
           fail(typeof reason === "string" ? reason : activeT().localBrowser.reportedError);
         }
       } else if (ready.current && (data instanceof ArrayBuffer || data instanceof Blob)) {
-        pending = { blob: data instanceof Blob ? data : new Blob([data], { type: "image/jpeg" }), generation: ready.current.generation };
+        const current = ready.current;
+        const metadata = frameMetadata ?? (current.tagged ? null : current);
+        frameMetadata = null;
+        if (!metadata || metadata.generation !== current.generation || metadata.width !== current.width || metadata.height !== current.height) return;
+        pending = { blob: data instanceof Blob ? data : new Blob([data], { type: "image/jpeg" }), metadata };
         void draw();
       }
     };
@@ -238,24 +253,29 @@ export function NativeLiveView({ url, interactive, onFit, initialSize, renderCon
   useEffect(() => {
     const target = box.current;
     if (!target) return;
-    let fittedWidth = 0;
+    let fitted: Size | null = null;
     let settle: ReturnType<typeof setTimeout> | undefined;
     const measure = () => {
       const { width, height } = target.getBoundingClientRect();
       if (width <= 0 || height <= 0) return;
-      setViewport({ width, height });
-      if (state !== "live" || Math.abs(width - fittedWidth) < 24) return;
+      const view = { width: Math.max(1, Math.min(8000, Math.round(width))), height: Math.max(1, Math.min(8000, Math.round(height))) };
+      setViewport(view);
+      if (state !== "live" || !interactive || document.visibilityState === "hidden" || !changedViewport(view, fitted)) return;
       clearTimeout(settle);
       settle = setTimeout(() => {
-        fittedWidth = width;
-        fit.current({ width: Math.max(200, Math.min(8000, Math.round(width))), height: Math.max(200, Math.min(8000, Math.round(height))) });
-      }, fittedWidth === 0 ? 0 : 300);
+        if (!latest.current || document.visibilityState === "hidden") return;
+        fitted = view;
+        if (ready.current?.viewerFit) send({ type: "viewport", view });
+        else fit.current(view);
+      }, fitted === null ? 0 : 120);
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(target);
-    return () => { observer.disconnect(); clearTimeout(settle); if (state === "live") fit.current(null); };
-  }, [state]);
+    document.addEventListener("visibilitychange", measure);
+    // Native viewers keep independent sizes; leaving a spectator must not reset another phone.
+    return () => { observer.disconnect(); clearTimeout(settle); document.removeEventListener("visibilitychange", measure); };
+  }, [state, interactive]);
 
   const point = (event: { clientX: number; clientY: number; button: number }): Point | null => {
     const target = canvas.current;

@@ -5,12 +5,13 @@ import { basename, dirname, join, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { chromium, request as browserRequest, type APIRequestContext, type BrowserContext, type Page, type CDPSession } from "playwright-core";
 import { WebSocket } from "ws";
-import { fitted, type Browsers, type FileData, type PageView, type Size, type Step } from "@amuse/browser";
+import { type Browsers, type FileData, type PageView, type Size, type Step } from "@amuse/browser";
 import { browserRulesOf, decideBrowser, hostOf, memoryRules, type Rules, type Host, type Ports, type AgentIO } from "@amuse/core";
 import { permitStep } from "@amuse/pi";
 import type { Browser as BrowserEntity, BrowserAction } from "@amuse/protocol";
 import { z } from "zod";
 import { consumeBrowserCheckpoint } from "./browser-checkpoint.ts";
+import { nativeViewport, sameViewport } from "./native-viewport.ts";
 
 const coordinate = z.number().finite().min(0).max(1);
 const Input = z.discriminatedUnion("type", [
@@ -20,6 +21,7 @@ const Input = z.discriminatedUnion("type", [
   z.object({ type: z.literal("text"), text: z.string().max(131072) }),
   z.object({ type: z.literal("navigate"), url: z.string().max(8192) }),
   z.object({ type: z.literal("history"), action: z.enum(["back", "forward", "reload"]) }),
+  z.object({ type: z.literal("viewport"), view: z.object({ width: z.number().finite().min(1).max(8000), height: z.number().finite().min(1).max(8000) }) }),
 ]);
 export type NativeStep = { kind: string; consequential?: boolean; what?: string; why?: string; ref?: string; selector?: string; text?: string; clear?: boolean; submit?: boolean; key?: string; url?: string; x?: number; y?: number; button?: "left" | "middle" | "right"; clickCount?: number; direction?: "up" | "down"; deltaX?: number; deltaY?: number };
 type Run = { id: string; chat: string; io: AgentIO; page: Page; context: BrowserContext; cdp: CDPSession; held: boolean; generation: number; refs: Set<string>; viewers: Set<WebSocket>; queue: Promise<void>; stream: Promise<void>; streaming: boolean; downloads: FileData[]; closing: boolean; pointer: { x: number; y: number; buttons: number }; keys: Map<string, { key: string; code: string }>; stop: AbortController; granted: Set<string>; policy: Promise<void>; policies: Set<Promise<void>>; downloaded: Set<Promise<void>>; policyError: Error | null; submitGranted: string | null; initialState: LoginState; forgotten: Set<string>; directory: string; preview: APIRequestContext | null; previewSockets: Set<WebSocket>; operationSignal: AbortSignal | undefined };
@@ -54,6 +56,10 @@ export class NativeBrowserManager implements Browsers {
   private migration: Promise<number> | undefined;
   private openingSignals = new Map<string, AbortSignal>();
   private restoration: Promise<{ restored: number; ended: number; migratedProfiles: number }> | undefined;
+  private viewerSizes = new WeakMap<WebSocket, Size>();
+  private viewportOwners = new Map<string, WebSocket>();
+  private layouts = new Map<string, Promise<void>>();
+  private resizing = new Set<string>();
   constructor(options: { executablePath: string; directory: string; maxBrowsers?: number; rules?: Rules; sandboxUrl?: string }) {
     this.options = options;
     this.rules = options.rules ?? memoryRules();
@@ -324,8 +330,39 @@ export class NativeBrowserManager implements Browsers {
     run.queue = result.then(() => {}, () => {});
     return result;
   }
-  private ready(run: Run) { const size = run.page.viewportSize() ?? { width: 1024, height: 768 }; return { type: "ready", transport: "native" as const, ...size, generation: run.generation, url: run.page.url(), title: "Browser" }; }
+  private ready(run: Run) { const size = run.page.viewportSize() ?? { width: 1024, height: 768 }; return { type: "ready", transport: "native" as const, viewportControl: "viewer" as const, frames: "tagged" as const, ...size, generation: run.generation, url: run.page.url(), title: "Browser" }; }
   private notify(run: Run) { const message = JSON.stringify(this.ready(run)); for (const viewer of run.viewers) if (viewer.readyState === WebSocket.OPEN) viewer.send(message); }
+  private frame(run: Run, bytes: Buffer, viewport: Size, generation: number, only?: WebSocket) {
+    if (this.resizing.has(run.id) || run.generation !== generation || !sameViewport(viewport, run.page.viewportSize() ?? { width: 1024, height: 768 })) return;
+    const header = JSON.stringify({ type: "frame", ...viewport, generation });
+    for (const viewer of only ? [only] : run.viewers) if (viewer.readyState === WebSocket.OPEN && viewer.bufferedAmount < 512 * 1024) {
+      // Ordered websocket messages bind each JPEG to its layout, including async decoder work.
+      viewer.send(header); viewer.send(bytes, { binary: true });
+    }
+  }
+  private async snapshot(run: Run, only?: WebSocket) {
+    const metadata = this.ready(run);
+    const image = await run.page.screenshot({ type: "jpeg", quality: 75 });
+    this.frame(run, image, metadata, metadata.generation, only);
+  }
+  private layout(run: Run, viewer: Size | null) {
+    const result = (this.layouts.get(run.id) ?? Promise.resolve()).then(async () => {
+      if (run.closing) return;
+      const size = viewer ? nativeViewport(viewer) : { width: 1024, height: 768 };
+      if (sameViewport(run.page.viewportSize() ?? size, size)) return;
+      this.resizing.add(run.id);
+      try {
+        await this.releaseInput(run);
+        await run.page.setViewportSize(size);
+        run.generation++;
+        this.notify(run);
+      } finally { this.resizing.delete(run.id); }
+      // A static page need not repaint after a resize, so provide an exact fresh frame too.
+      await this.snapshot(run);
+    });
+    this.layouts.set(run.id, result.catch(() => {}));
+    return result;
+  }
   private updateStream(run: Run) {
     const result = run.stream.then(async () => {
       if (run.closing) return;
@@ -356,6 +393,7 @@ export class NativeBrowserManager implements Browsers {
     const entity = state?.entities.find((e) => e.id === run.id);
     if (entity?.kind === "browser") this.host?.external.ingest(run.chat, [{ kind: "upserted", entity: { ...entity, url: run.page.url().startsWith("http") ? run.page.url() : entity.url, title: title || entity.title } }]);
     this.notify(run);
+    if (run.viewers.size) await this.snapshot(run);
   }
   ports(): Pick<Ports, "browse" | "browser" | "job" | "fit"> {
     return {
@@ -364,6 +402,7 @@ export class NativeBrowserManager implements Browsers {
         if (action === "stop") this.cancelled.add(browser.id);
         const run = this.runs.get(browser.id); if (!run) return;
         run.held = action === "take";
+        if (action === "handBack") { this.viewportOwners.delete(run.id); void this.layout(run, null).catch(() => {}); }
         if (run.held || action === "stop") run.stop.abort();
         else run.stop = new AbortController();
         if (action === "stop") { void this.close(browser.id).catch(() => {}); return; }
@@ -412,8 +451,7 @@ export class NativeBrowserManager implements Browsers {
       context.on("page", (extra) => { if (extra !== run.page) void extra.close().catch(() => {}); });
       cdp.on("Page.screencastFrame", (event) => {
         void cdp.send("Page.screencastFrameAck", { sessionId: event.sessionId }).catch(() => {});
-        const frame = Buffer.from(event.data, "base64");
-        for (const viewer of run.viewers) if (viewer.readyState === WebSocket.OPEN && viewer.bufferedAmount < 512 * 1024) viewer.send(frame, { binary: true });
+        this.frame(run, Buffer.from(event.data, "base64"), { width: event.metadata.deviceWidth, height: event.metadata.deviceHeight }, run.generation);
       });
       page.on("framenavigated", (frame) => { if (frame === page.mainFrame()) { run.refs.clear(); run.generation++; void this.metadata(run).catch(() => {}); } });
       page.on("load", () => { void this.metadata(run).catch(() => {}); });
@@ -568,7 +606,12 @@ export class NativeBrowserManager implements Browsers {
       }
     });
   }
-  async fit(id: string, viewer: Size | null) { const run = await this.run(id); const size = viewer ? fitted(viewer) : { width: 1024, height: 768 }; if (JSON.stringify(run.page.viewportSize()) !== JSON.stringify(size)) { await run.page.setViewportSize(size); run.generation++; this.notify(run); } }
+  async fit(id: string, viewer: Size | null) {
+    const run = await this.run(id);
+    // Old read-only web clients use this global RPC. They cannot resize a human's page.
+    if (run.held) return;
+    await this.layout(run, viewer);
+  }
   async close(id: string) { this.cancelled.add(id); const run = this.runs.get(id); if (!run || run.closing) return; run.closing = true; run.stop.abort(); for (const connection of run.previewSockets) connection.terminate(); await run.preview?.dispose().catch(() => {}); for (const viewer of run.viewers) viewer.close(1000, "browser closed"); try { await this.remember(id); } finally { try { await run.context.close(); } finally { this.runs.delete(id); this.opening.delete(id); run.io.act({ kind: "released", id }); await this.eraseProfile(run.directory); } } }
   vnc() { return null; }
   async upload(id: string, ref: string, file: FileData, signal?: AbortSignal) {
@@ -591,18 +634,36 @@ export class NativeBrowserManager implements Browsers {
       if (viewer.readyState !== WebSocket.OPEN) return;
       attached = run; run.viewers.add(viewer); this.notify(run);
       await this.updateStream(run);
-      if (viewer.readyState === WebSocket.OPEN) viewer.send(await run.page.screenshot({ type: "jpeg", quality: 75 }), { binary: true });
+      await this.snapshot(run, viewer);
     }).catch((error) => sendError(error instanceof Error ? error.message : String(error)));
     viewer.on("message", (data, binary) => {
       if (binary || data.toString().length > 256 * 1024) return;
       let input: z.infer<typeof Input>;
       try { input = Input.parse(JSON.parse(data.toString())); } catch { sendError("无效的浏览器输入。"); return; }
       const run = attached; if (!run) return;
+      if (input.type === "viewport") {
+        this.viewerSizes.set(viewer, input.view);
+        if (!controlled() || !run.held) return;
+        const owner = this.viewportOwners.get(id);
+        if (!owner || owner.readyState !== WebSocket.OPEN) this.viewportOwners.set(id, viewer);
+        if (this.viewportOwners.get(id) === viewer) void this.layout(run, input.view).catch((error) => sendError(String(error)));
+        return;
+      }
       // Check when queued AND when executed. A stale UI cannot grant itself control.
       if (!controlled() || !run.held) { sendError("请先点击接管，再操作浏览器。"); return; }
       run.queue = run.queue.then(async () => {
         if (!controlled() || !run.held) return;
         if ("generation" in input && input.generation !== run.generation) return;
+        // Only real user input switches the active viewport. A passive viewer never does.
+        if ((input.type === "pointer" && input.action === "down") || input.type === "text" || input.type === "navigate" || input.type === "history") {
+          const size = this.viewerSizes.get(viewer);
+          if (size && this.viewportOwners.get(id) !== viewer) {
+            this.viewportOwners.set(id, viewer);
+            await this.layout(run, size);
+            // The old pointer coordinates describe the previous layout; require a fresh tap.
+            if (input.type === "pointer") return;
+          }
+        }
         const size = run.page.viewportSize() ?? { width: 1024, height: 768 };
         if (input.type === "pointer") {
           const mask = [1, 4, 2][input.button] ?? 1;
@@ -622,7 +683,14 @@ export class NativeBrowserManager implements Browsers {
         else if (input.type === "history") { if (input.action === "back") await run.page.goBack(); else if (input.action === "forward") await run.page.goForward(); else await run.page.reload(); }
       }).catch((error) => sendError(error instanceof Error ? error.message : String(error)));
     });
-    viewer.on("close", () => { if (!attached) return; const run = attached; run.viewers.delete(viewer); void this.updateStream(run).catch(() => {}); if (run.viewers.size === 0) run.queue = run.queue.then(() => this.releaseInput(run)); });
+    viewer.on("close", () => {
+      if (!attached) return;
+      const run = attached; run.viewers.delete(viewer); this.viewerSizes.delete(viewer);
+      // Leaving a spectator does not reset the remaining human viewer to a desktop size.
+      if (this.viewportOwners.get(id) === viewer) this.viewportOwners.delete(id);
+      void this.updateStream(run).catch(() => {});
+      if (run.viewers.size === 0) run.queue = run.queue.then(() => this.releaseInput(run));
+    });
   };
   async shutdown() { await Promise.allSettled([...this.runs.keys()].map((id) => this.close(id))); }
 }

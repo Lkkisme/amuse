@@ -84,7 +84,7 @@ test("real isolated Edge shares agent/viewer state, enforces takeover and releas
   const manager = new NativeBrowserManager({ executablePath: edge, directory, maxBrowsers: 1, rules });
   const host = createHost({ ...ports(), ...manager.ports() }, { store: memoryChats() });
   manager.bind(host);
-  let fixtureState = { seq: 0, value: "", count: 0, submitted: "", sawDrag: false, shiftDown: false, shiftUps: 0, mouseDowns: 0, mouseUps: 0 };
+  let fixtureState = { seq: 0, value: "", count: 0, submitted: "", sawDrag: false, shiftDown: false, shiftUps: 0, mouseDowns: 0, mouseUps: 0, width: 0, height: 0, mobile: false };
   const http = createServer((req, res) => {
     if (req.url === "/event" && req.method === "POST") {
       let body = "";
@@ -101,7 +101,8 @@ test("real isolated Edge shares agent/viewer state, enforces takeover and releas
     </style></head><body><h1>Shared browser fixture</h1><input id="message" aria-label="Message" autocomplete="off">
     <button id="apply" aria-label="Apply">Apply</button><div id="status">Count: 0; submitted: </div><div id="value">Value: </div>
     <script>let count=0,submitted='',seq=0,sawDrag=false,shiftDown=false,shiftUps=0,mouseDowns=0,mouseUps=0;const field=document.querySelector('#message');
-      function report(){document.querySelector('#status').textContent='Count: '+count+'; submitted: '+submitted;document.querySelector('#value').textContent='Value: '+field.value;fetch('/event',{method:'POST',body:JSON.stringify({seq:++seq,value:field.value,count,submitted,sawDrag,shiftDown,shiftUps,mouseDowns,mouseUps})});}
+      function report(){document.querySelector('#status').textContent='Count: '+count+'; submitted: '+submitted;document.querySelector('#value').textContent='Value: '+field.value;fetch('/event',{method:'POST',body:JSON.stringify({seq:++seq,value:field.value,count,submitted,sawDrag,shiftDown,shiftUps,mouseDowns,mouseUps,width:innerWidth,height:innerHeight,mobile:matchMedia('(max-width:600px)').matches})});}
+      addEventListener('resize',report);
       field.addEventListener('input',report);document.querySelector('#apply').onclick=()=>{count++;submitted=field.value;report();};
       document.addEventListener('mousemove',e=>{if(e.buttons===1)sawDrag=true;report();});
       document.addEventListener('mousedown',()=>{mouseDowns++;report();});document.addEventListener('mouseup',()=>{mouseUps++;report();});
@@ -241,6 +242,27 @@ test("real isolated Edge shares agent/viewer state, enforces takeover and releas
   await until(() => third.frames.length > thirdBefore ? true : undefined, "a reconnected viewer receiving changed-page frames after the last viewer disconnected");
   assert.equal(third.messages.some((message) => message.type === "error"), false);
   t.diagnostic(`Two simultaneous viewers received ready+JPEG without new errors; second viewer kept ${second.frames.length} frames after first closed; third viewer restored ${third.frames.length} frames after last disconnect.`);
+
+  // A human's viewport belongs to the active viewer, not to whichever spectator resizes last.
+  await host.call("browser.control", { id, action: "take" });
+  third.peer.send(JSON.stringify({ type: "viewport", view: { width: 412, height: 650 } }));
+  await until(() => fixtureState.width === 412 && fixtureState.height === 650 && fixtureState.mobile ? true : undefined, "real mobile CSS layout and media query");
+  const portraitFrame = await until(() => third.frames.find((frame) => { const size = jpegSize(frame); return size.width === 412 && size.height === 650; }), "an exact portrait frame");
+  assert.deepEqual(jpegSize(portraitFrame), { width: 412, height: 650 });
+  third.peer.send(JSON.stringify({ type: "viewport", view: { width: 412, height: 300 } }));
+  await until(() => fixtureState.width === 412 && fixtureState.height === 300 ? true : undefined, "keyboard height-only resize");
+  third.peer.send(JSON.stringify({ type: "viewport", view: { width: 760, height: 412 } }));
+  await until(() => fixtureState.width === 760 && fixtureState.height === 412 && !fixtureState.mobile ? true : undefined, "landscape CSS reflow");
+  const spectator = await connectViewer();
+  spectator.peer.send(JSON.stringify({ type: "viewport", view: { width: 1200, height: 800 } }));
+  await manager.fit(id, { width: 1440, height: 900 }); // Legacy spectator RPC.
+  await new Promise<void>((resolve) => setTimeout(resolve, 150));
+  assert.deepEqual(await manager.info(id), { transport: "native", width: 760, height: 412 });
+  await new Promise<void>((resolve) => { spectator.peer.once("close", resolve); spectator.peer.close(); });
+  assert.deepEqual(await manager.info(id), { transport: "native", width: 760, height: 412 }, "closing a spectator preserves the human's layout");
+  await host.call("browser.control", { id, action: "handBack" });
+  await until(async () => (await manager.info(id)).width === 1024 && (await manager.info(id)).height === 768 ? true : undefined, "the agent's standard viewport after hand-back");
+  t.diagnostic("Real Edge verified 412px mobile media queries, keyboard-only height resize, rotation, spectator isolation, and hand-back to 1024x768.");
 
   await manager.finishForChat("main", id, "Shared page fixture completed");
   const entity = host.external.state("main").entities.find((item) => item.id === id);
