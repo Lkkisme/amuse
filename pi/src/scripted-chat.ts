@@ -1,7 +1,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type AgentIO, type Say, memoryRules } from "@amuse/core";
+import { type AgentIO, type Say, type Workspace, memoryRules } from "@amuse/core";
 import { type FauxResponseStep, fauxProvider } from "@earendil-works/pi-ai";
 import { type AgentSession, ModelRuntime, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { piAgent } from "./agent.ts";
@@ -11,7 +11,7 @@ import { sessionOn } from "./session.ts";
  * For tests of the chat agent: it on a scripted model (pi-ai's faux provider), and a chat that records
  * what it says. Not a test itself.
  */
-export async function chat(responses: FauxResponseStep[], { tools = [], opened }: { tools?: ToolDefinition[]; opened?: (session: AgentSession) => void } = {}) {
+export async function chat(responses: FauxResponseStep[], { tools = [], opened, files }: { tools?: ToolDefinition[]; opened?: (session: AgentSession) => void; files?: Workspace } = {}) {
   const models = await ModelRuntime.create({ authPath: join(mkdtempSync(join(tmpdir(), "amuse-auth-")), "auth.json"), modelsPath: null, refreshOnCreate: false });
   const faux = fauxProvider({ provider: "faux", models: [{ id: "scripted" }] });
   models.registerNativeProvider(faux.provider);
@@ -47,6 +47,7 @@ export async function chat(responses: FauxResponseStep[], { tools = [], opened }
     model: () => "faux/scripted",
     auth: { kind: "environment" },
     system: "You are a test.",
+    ...(files ? { files } : {}),
     rules: memoryRules(),
     open: async (system, own) => {
       const made = await sessionOn(models, faux.getModel(), system, [...own, ...tools]);
@@ -61,5 +62,7 @@ export async function chat(responses: FauxResponseStep[], { tools = [], opened }
       wake();
     });
   const replies = () => said.flatMap((s) => (s.kind === "upserted" && s.entity.kind === "reply" ? [s.entity.text] : []));
-  return { agent, io, faux, conversation, replies, until };
+  /** what went wrong, as the cards the chat would show: the turn each was for */
+  const failures = () => said.flatMap((s) => (s.kind === "upserted" && s.entity.kind === "failure" ? [s.entity.turn.kind] : []));
+  return { agent, io, faux, conversation, replies, failures, until };
 }

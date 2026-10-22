@@ -233,6 +233,9 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
           if (stopReason === "error") failure = event.message.errorMessage ?? "The model run failed";
           else if (text && !silent && stopReason !== "toolUse" && stopReason !== "aborted")
             emit({ kind: "upserted", entity: { kind: "reply", id: newId("r"), at: new Date().toISOString(), text, streaming: false, attachments: [] } });
+        } else if (event.type === "auto_retry_end" && event.success) {
+          // the model's service failed and then answered: the failure is no longer one
+          failure = undefined;
         }
       });
       try {
