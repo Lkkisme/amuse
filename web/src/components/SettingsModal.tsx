@@ -336,8 +336,8 @@ export function SettingsModal({
           boxShadow: "var(--shadow-sheet)",
         }}
       >
-        {/* phone: the page's bar, as over the chat — back one level (or out), the page's name, and its action */}
-        <header className="grid shrink-0 grid-cols-[44px_1fr_44px] items-center gap-2 px-3 py-2 sm:hidden">
+        {/* phone: the page's bar, as over the chat (its buttons 12px from the top and sides, where the chat's are) — back one level (or out), the page's name, and its action */}
+        <header className="grid shrink-0 grid-cols-[44px_1fr_44px] items-center gap-2 px-3 pb-2 pt-3 sm:hidden">
           <button
             aria-label={
               !section
@@ -419,8 +419,8 @@ export function SettingsModal({
         <div
           className={`${section ? "flex" : "hidden sm:flex"} relative min-h-0 min-w-0 flex-1 flex-col`}
         >
-          {/* desktop: the section's bar — its name, its action, and close */}
-          <header className="hidden h-16 shrink-0 items-center gap-2 pl-6 pr-4 sm:flex">
+          {/* desktop: the section's bar — its name, its action, and close, 10px in from the card's top and right edges alike */}
+          <header className="hidden h-16 shrink-0 items-center gap-2 pl-6 pr-2.5 sm:flex">
             <p
               className="flex-1 truncate text-[20px] font-semibold"
               style={{ color: "var(--text-primary)" }}
