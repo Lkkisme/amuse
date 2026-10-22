@@ -20,7 +20,7 @@ What changed in each release of Amuse, for the people who run it. The format fol
 
 ### Fixed
 - On a wider screen, the Amuse avatar flies into its panel and back again when the panel opens and closes.
-- Starting Amuse on Windows keeps it running after the launching terminal closes, and can start Docker Desktop when the sandbox is cold, including an explicitly configured backend for portable installations.
+- Starting Amuse on Windows keeps it running after the launching terminal closes, and can start Docker Desktop when the sandbox is cold, including an explicit owner-configured backend launch.
 - An owner-requested restart restores the browser pages that were open, without reopening pages the owner closed or replacing the saved conversations.
 
 ## [0.1.0] - 2026-10-21

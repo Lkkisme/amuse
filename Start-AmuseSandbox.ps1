@@ -32,6 +32,52 @@ function Invoke-AmuseSandboxDocker {
     } finally { $sandboxProcess.Dispose() }
 }
 
+function Start-AmuseSandboxBackend {
+    param([string]$Executable, [string]$WorkingDirectory, [string]$LogDirectory, [hashtable]$Environment = @{})
+    New-Item -ItemType Directory -Path $LogDirectory -Force | Out-Null
+    $stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssfffZ') + '-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
+    $outputPath = Join-Path $LogDirectory ('docker-backend-' + $stamp + '.stdout.log')
+    $errorPath = Join-Path $LogDirectory ('docker-backend-' + $stamp + '.stderr.log')
+    $start = New-Object System.Diagnostics.ProcessStartInfo
+    $start.FileName = $Executable
+    $start.WorkingDirectory = $WorkingDirectory
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    # An optional profile bridge is confined to this child; the scheduler host's
+    # environment and the machine/user environment remain unchanged.
+    foreach ($name in $Environment.Keys) {
+        if ($name -notmatch '^[A-Za-z_][A-Za-z0-9_]*$' -or ([string]$Environment[$name]).Contains([char]0)) { throw 'Invalid Docker backend environment entry.' }
+        $start.EnvironmentVariables[$name] = [string]$Environment[$name]
+    }
+    $backend = New-Object System.Diagnostics.Process
+    $backend.StartInfo = $start
+    $output = $null
+    $errors = $null
+    try {
+        $output = [System.IO.FileStream]::new($outputPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read, 1, $true)
+        $errors = [System.IO.FileStream]::new($errorPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read, 1, $true)
+        if (-not $backend.Start()) { throw 'The configured Docker backend could not be started.' }
+        # Native async copies need no PowerShell callbacks/runspace. The owner
+        # host retains this object so pipes remain drained for the daemon life.
+        [pscustomobject]@{
+            Process = $backend
+            Output = $output
+            Errors = $errors
+            OutputCopy = $backend.StandardOutput.BaseStream.CopyToAsync($output)
+            ErrorCopy = $backend.StandardError.BaseStream.CopyToAsync($errors)
+            OutputPath = $outputPath
+            ErrorPath = $errorPath
+        }
+    } catch {
+        if ($output) { $output.Dispose() }
+        if ($errors) { $errors.Dispose() }
+        $backend.Dispose()
+        throw
+    }
+}
+
 $sandboxSettings = Join-Path $Root '.local\sandbox.json'
 if (-not (Test-Path -LiteralPath $sandboxSettings)) { return }
 $sandboxConfig = Get-Content -LiteralPath $sandboxSettings -Raw | ConvertFrom-Json
@@ -40,19 +86,20 @@ $sandboxDocker = $sandboxConfig.docker
 $sandboxInfo = Invoke-AmuseSandboxDocker -Executable $sandboxDocker -Arguments @('info', '--format', '{{.ServerVersion}}')
 if ($sandboxInfo.ExitCode -ne 0) {
     if ($sandboxConfig.backend) {
-        # Portable Docker Desktop installations have no registered InstallLocation
-        # for the GUI launcher. An explicit owner-configured official backend can
-        # be hosted by the same persistent, non-elevated scheduler action instead.
+        # Installations with missing registration or an explicit owner launcher
+        # can use an owner-configured official backend, hosted by the same
+        # persistent, non-elevated scheduler action. Normal installs keep the GUI.
         $sandboxBackend = [string]$sandboxConfig.backend
         if (-not [System.IO.Path]::IsPathRooted($sandboxBackend) -or ([System.IO.Path]::GetPathRoot($sandboxBackend)).Length -lt 3) {
             throw 'The optional Docker backend path must be absolute.'
         }
         if (-not (Test-Path -LiteralPath $sandboxBackend -PathType Leaf)) { throw 'The configured Docker backend executable does not exist.' }
-        $sandboxLogs = Join-Path $Root '.local\logs'
-        New-Item -ItemType Directory -Path $sandboxLogs -Force | Out-Null
-        $sandboxLaunchStamp = (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssfffZ') + '-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
-        $sandboxBackendProcess = Start-Process -FilePath $sandboxBackend -WorkingDirectory (Split-Path -Parent $sandboxBackend) -WindowStyle Hidden -RedirectStandardOutput (Join-Path $sandboxLogs ('docker-backend-' + $sandboxLaunchStamp + '.stdout.log')) -RedirectStandardError (Join-Path $sandboxLogs ('docker-backend-' + $sandboxLaunchStamp + '.stderr.log')) -PassThru
-        Write-Output ('Started the configured Docker backend (PID ' + $sandboxBackendProcess.Id + ').')
+        $sandboxBackendEnvironment = @{}
+        if ($sandboxConfig.backendEnvironment) { foreach ($entry in $sandboxConfig.backendEnvironment.PSObject.Properties) { $sandboxBackendEnvironment[$entry.Name] = [string]$entry.Value } }
+        $sandboxBackendLifetime = Start-AmuseSandboxBackend -Executable $sandboxBackend -WorkingDirectory (Split-Path -Parent $sandboxBackend) -LogDirectory (Join-Path $Root '.local\logs') -Environment $sandboxBackendEnvironment
+        if (-not (Get-Variable -Name AmuseSandboxBackendLifetimes -Scope Global -ErrorAction SilentlyContinue)) { $global:AmuseSandboxBackendLifetimes = @() }
+        $global:AmuseSandboxBackendLifetimes += $sandboxBackendLifetime
+        Write-Output ('Started the configured Docker backend (PID ' + $sandboxBackendLifetime.Process.Id + ').')
     } else {
         if (-not $sandboxConfig.desktop) { throw 'Docker is not running; start Docker Desktop before Amuse.' }
         Start-Process -FilePath $sandboxConfig.desktop -WindowStyle Hidden | Out-Null
