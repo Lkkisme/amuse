@@ -33,6 +33,7 @@ import {
 import { useState } from "react";
 import type { Browser, State } from "@amuse/protocol";
 import type { Actions, Shown, Ui } from "../ui.ts";
+import { useT } from "../i18n/react.ts";
 import {
   browserLook,
   host,
@@ -131,9 +132,10 @@ export function Viewer({
 
 /** Browser or terminals: what the viewer shows. Its row keeps the corner for the browser button. */
 function Switch({ shown, actions }: { shown: Shown; actions: Actions }) {
+  const t = useT();
   const options = [
-    { id: "browser", label: "Browser", Icon: Globe },
-    { id: "terminal", label: "Terminal", Icon: SquareTerminal },
+    { id: "browser", label: t.viewer.browser, Icon: Globe },
+    { id: "terminal", label: t.viewer.terminal, Icon: SquareTerminal },
   ] satisfies { id: Shown; label: string; Icon: typeof Globe }[];
   return (
     // centred on the browser button, which sits 12px from the window's top (the viewer is 8px in from lg)
@@ -171,6 +173,7 @@ function Switch({ shown, actions }: { shown: Shown; actions: Actions }) {
 
 /** No browser is open now: say so, how one comes, and open one of the user's own. */
 function NoBrowser({ corner, actions }: { corner: boolean; actions: Actions }) {
+  const t = useT();
   return (
     <>
       {corner && (
@@ -184,14 +187,13 @@ function NoBrowser({ corner, actions }: { corner: boolean; actions: Actions }) {
           className="text-[15px] font-semibold"
           style={{ color: "var(--text-primary)" }}
         >
-          No browser open
+          {t.viewer.noBrowser}
         </p>
         <p
           className="max-w-[280px] text-[14px]"
           style={{ color: "var(--text-secondary)" }}
         >
-          When Amuse browses for you, it shows up here to watch or take over. You
-          can open one of your own too.
+          {t.viewer.noBrowserHelp}
         </p>
         <button
           className="hover-fade mt-3 flex h-10 items-center gap-1.5 rounded-full px-4 text-[15px] font-medium"
@@ -201,7 +203,7 @@ function NoBrowser({ corner, actions }: { corner: boolean; actions: Actions }) {
           }}
           onClick={actions.newBrowser}
         >
-          <Plus size={16} /> New browser
+          <Plus size={16} /> {t.viewer.newBrowser}
         </button>
       </div>
     </>
@@ -213,11 +215,12 @@ function NoBrowser({ corner, actions }: { corner: boolean; actions: Actions }) {
  * pointer is captured, so the drag holds over the live desktop too.
  */
 function ResizeEdge({ onResize }: { onResize: (edge: number) => void }) {
+  const t = useT();
   return (
     <div
       role="separator"
       aria-orientation="vertical"
-      aria-label="Resize the browser"
+      aria-label={t.viewer.resize}
       className="absolute inset-y-0 -left-1 z-10 hidden w-2 cursor-col-resize lg:block"
       style={{ touchAction: "none" }}
       onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
@@ -243,15 +246,16 @@ function ViewerHeader({
   onOverview: () => void;
   actions: Actions;
 }) {
+  const t = useT();
   const user = browser.status === "paused";
   const title = user
-    ? "You're in control"
+    ? t.viewer.youControl
     : browser.status === "needs_you"
-      ? "Action required"
+      ? t.viewer.actionRequired
       : browser.title;
   const sub = user
     ? host(browser.url)
-    : `${browserLook(browser).label} · ${host(browser.url)}`;
+    : `${browserLook(browser, t).label} · ${host(browser.url)}`;
   const canTake =
     browser.live && (stoppable(browser) || browser.status === "completed");
 
@@ -276,7 +280,7 @@ function ViewerHeader({
 
       {/* phone: the tabs fold into their count */}
       <button
-        aria-label={`${count} browsers open`}
+        aria-label={t.viewer.browsersOpen(count)}
         className="hover-fade flex size-9 shrink-0 items-center justify-center lg:hidden"
         onClick={onOverview}
       >
@@ -292,12 +296,12 @@ function ViewerHeader({
       </button>
       {stoppable(browser) && (
         <button
-          aria-label="Stop"
+          aria-label={t.common.stop}
           className="hover-fade flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2 text-[14px] font-medium"
           style={{ color: "var(--fill-red)" }}
           onClick={() => actions.control(browser.id, "stop")}
         >
-          <CircleDot size={15} /> <span className="hidden sm:inline">Stop</span>
+          <CircleDot size={15} /> <span className="hidden sm:inline">{t.common.stop}</span>
         </button>
       )}
       {user ? (
@@ -306,7 +310,7 @@ function ViewerHeader({
           style={{ background: "var(--fill-blue)" }}
           onClick={() => actions.control(browser.id, "handBack")}
         >
-          <Check size={15} /> Done
+          <Check size={15} /> {t.common.done}
         </button>
       ) : (
         canTake && (
@@ -315,9 +319,9 @@ function ViewerHeader({
             style={{ background: "var(--fill-blue)" }}
             onClick={() => actions.control(browser.id, "take")}
           >
-            <span className="sm:hidden">Take control</span>
+            <span className="sm:hidden">{t.viewer.takeControl}</span>
             <span className="hidden sm:inline">
-              Take control of the browser
+              {t.viewer.takeControlOfBrowser}
             </span>
           </button>
         )
@@ -344,6 +348,7 @@ function RunTabs({
   activeId: string;
   actions: Actions;
 }) {
+  const t = useT();
   return (
     <div className="hidden items-center gap-1.5 overflow-x-auto px-3 pb-2 [scrollbar-width:none] lg:flex">
       {tabs.map((tab) => {
@@ -373,7 +378,7 @@ function RunTabs({
               <span className="truncate">{host(tab.url)}</span>
             </button>
             <button
-              aria-label={`Close the browser at ${host(tab.url)}`}
+              aria-label={t.viewer.closeBrowserAt(host(tab.url))}
               className="hover-fade flex size-6 shrink-0 items-center justify-center rounded-full"
               onClick={() => actions.closeTab(tab.id)}
             >
@@ -384,7 +389,7 @@ function RunTabs({
       })}
       {/* a browser of the user's own, theirs from the start (it counts against the browsers there are) */}
       <button
-        aria-label="New browser"
+        aria-label={t.viewer.newBrowser}
         className="hover-fade flex size-9 shrink-0 items-center justify-center rounded-[10px]"
         style={{ color: "var(--icon-secondary)" }}
         onClick={actions.newBrowser}
@@ -412,6 +417,7 @@ function Overview({
   onClose: () => void;
   actions: Actions;
 }) {
+  const t = useT();
   return (
     <div
       className="anim-fade-in fixed inset-0 z-10 flex flex-col lg:hidden"
@@ -422,7 +428,7 @@ function Overview({
           className="flex-1 text-[15px] font-semibold"
           style={{ color: "var(--text-primary)" }}
         >
-          Browsers
+          {t.viewer.browsers}
         </p>
         {/* the corner is the browser button's */}
         <span className="size-11 shrink-0" />
@@ -445,7 +451,7 @@ function Overview({
                 }}
               >
                 <button
-                  aria-label={`Show the browser at ${host(tab.url)}`}
+                  aria-label={t.viewer.showBrowserAt(host(tab.url))}
                   className="absolute inset-0"
                   onClick={() => {
                     actions.selectTab(tab.id);
@@ -455,7 +461,7 @@ function Overview({
                   <PagePreview id={tab.id} thumb={thumb} live />
                 </button>
                 <button
-                  aria-label={`Close the browser at ${host(tab.url)}`}
+                  aria-label={t.viewer.closeBrowserAt(host(tab.url))}
                   className="absolute right-1.5 top-1.5 flex size-7 items-center justify-center rounded-full"
                   style={{ background: "rgba(0,0,0,0.55)", color: "#fff" }}
                   onClick={() => actions.closeTab(tab.id)}
@@ -475,7 +481,7 @@ function Overview({
         })}
         <div className="anim-popover-in flex flex-col gap-1.5">
           <button
-            aria-label="New browser"
+            aria-label={t.viewer.newBrowser}
             className="hover-fade flex aspect-[3/4] items-center justify-center rounded-[14px]"
             style={{
               background: "var(--fill-secondary)",
@@ -492,7 +498,7 @@ function Overview({
             className="text-center text-[13px]"
             style={{ color: "var(--text-secondary)" }}
           >
-            New browser
+            {t.viewer.newBrowser}
           </p>
         </div>
       </div>

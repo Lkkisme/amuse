@@ -13,6 +13,8 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { SquareTerminal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useT } from "../i18n/react.ts";
+import type { Messages } from "../i18n/en.ts";
 
 /** Ctrl and Alt held for the next key typed on the phone's keyboard (or the next key of the row). */
 type Mods = { ctrl: boolean; alt: boolean };
@@ -39,30 +41,11 @@ function arrow(letter: "A" | "B" | "C" | "D", application: boolean, mods: Mods):
 type Phase = "opening" | "open" | { closed: number };
 
 /** What the server's close code means, for the user (api/src/terminal.ts). */
-function closedCopy(code: number): { title: string; text: string; again: boolean } {
-  if (code === 4404)
-    return {
-      title: "No terminals here",
-      text: "This Amuse has no sandbox, so there are no terminals to show.",
-      again: false,
-    };
-  if (code === 4429)
-    return {
-      title: "Too many terminals open",
-      text: "Close the terminal on another device or tab, then try again.",
-      again: true,
-    };
-  if (code === 1000)
-    return {
-      title: "Terminal closed",
-      text: "What runs in the terminals keeps running.",
-      again: true,
-    };
-  return {
-    title: "The terminals cannot be reached",
-    text: "The sandbox may be starting or restarting.",
-    again: true,
-  };
+function closedCopy(code: number, t: Messages): { title: string; text: string; again: boolean } {
+  if (code === 4404) return { ...t.viewer.closed.noSandbox, again: false };
+  if (code === 4429) return { ...t.viewer.closed.tooMany, again: true };
+  if (code === 1000) return { ...t.viewer.closed.closed, again: true };
+  return { ...t.viewer.closed.unreachable, again: true };
 }
 
 const encoder = new TextEncoder();
@@ -75,6 +58,7 @@ export function TerminalView({
   /** shown now: it keeps its connection while the viewer shows the browser */
   visible: boolean;
 }) {
+  const t = useT();
   const box = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
   /** what the row's keys type into (the open socket's sender) */
@@ -168,7 +152,7 @@ export function TerminalView({
     if (visible && phase === "open") terminal.current?.focus();
   }, [visible, phase]);
 
-  const closed = typeof phase === "object" ? closedCopy(phase.closed) : null;
+  const closed = typeof phase === "object" ? closedCopy(phase.closed, t) : null;
   return (
     <div
       className={`${visible ? "flex" : "hidden"} relative min-h-0 flex-1 flex-col p-2 pt-0 lg:p-3 lg:pt-0`}
@@ -196,7 +180,7 @@ export function TerminalView({
                 style={{ background: "#3a3a3c", color: "#f2f2f7" }}
                 onClick={() => setAttempt((n) => n + 1)}
               >
-                Open again
+                {t.viewer.openAgain}
               </button>
             )}
           </div>
@@ -233,26 +217,27 @@ function KeyRow({
   /** whether the terminal wants arrows in its application form */
   application: () => boolean;
 }) {
+  const t = useT();
   const keys: { label: string; aria: string; press: () => void; on?: boolean }[] = [
-    { label: "Esc", aria: "Escape", press: () => onKey(modified("\x1b", mods)) },
+    { label: "Esc", aria: t.viewer.keyEscape, press: () => onKey(modified("\x1b", mods)) },
     {
       label: "Ctrl",
-      aria: "Control, for the next key",
+      aria: t.viewer.keyControl,
       on: mods.ctrl,
       press: () => onMods({ ...mods, ctrl: !mods.ctrl }),
     },
     {
       label: "Alt",
-      aria: "Alt, for the next key",
+      aria: t.viewer.keyAlt,
       on: mods.alt,
       press: () => onMods({ ...mods, alt: !mods.alt }),
     },
     { label: "Tab", aria: "Tab", press: () => onKey(modified("\t", mods)) },
-    { label: "^B", aria: "herdr's prefix, Control B", press: () => onKey("\x02") },
-    { label: "←", aria: "Left", press: () => onKey(arrow("D", application(), mods)) },
-    { label: "↑", aria: "Up", press: () => onKey(arrow("A", application(), mods)) },
-    { label: "↓", aria: "Down", press: () => onKey(arrow("B", application(), mods)) },
-    { label: "→", aria: "Right", press: () => onKey(arrow("C", application(), mods)) },
+    { label: "^B", aria: t.viewer.keyHerdr, press: () => onKey("\x02") },
+    { label: "←", aria: t.viewer.keyLeft, press: () => onKey(arrow("D", application(), mods)) },
+    { label: "↑", aria: t.viewer.keyUp, press: () => onKey(arrow("A", application(), mods)) },
+    { label: "↓", aria: t.viewer.keyDown, press: () => onKey(arrow("B", application(), mods)) },
+    { label: "→", aria: t.viewer.keyRight, press: () => onKey(arrow("C", application(), mods)) },
   ];
   return (
     <div className="hidden gap-1.5 overflow-x-auto pt-2 [scrollbar-width:none] pointer-coarse:flex">

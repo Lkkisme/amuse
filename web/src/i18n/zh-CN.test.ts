@@ -60,6 +60,9 @@ const samples: Record<string, unknown[]> = {
   "goals.sinceDay": ["Oct 21"],
   "skills.removeTitle": ["Sample skill"],
   "skills.installMessage": ["a sample"],
+  "viewer.browsersOpen": [2],
+  "viewer.closeBrowserAt": ["example.com"],
+  "viewer.showBrowserAt": ["example.com"],
 };
 
 test("the Chinese catalog has every message the English one has", () => {

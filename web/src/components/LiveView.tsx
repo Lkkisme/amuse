@@ -18,6 +18,7 @@ import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ClipboardPaste, Keyboard, Ke
 import RFB from "@novnc/novnc";
 import { FILLER, edit, keys, runs } from "../remote-keys.ts";
 import { TouchSurface } from "./TouchSurface";
+import { useT } from "../i18n/react.ts";
 
 const touchScreen = () => window.matchMedia("(pointer: coarse)").matches;
 
@@ -26,6 +27,7 @@ const touchScreen = () => window.matchMedia("(pointer: coarse)").matches;
 const REFIT = 24;
 
 export function LiveView({ url, interactive, onFit }: { url: string; interactive: boolean; onFit: (view: { width: number; height: number } | null) => void }) {
+  const t = useT();
   const box = useRef<HTMLDivElement>(null);
   const client = useRef<RFB | null>(null);
   /** the viewer shows only runs whose browser is there, so a dropped or refused connection is tried again */
@@ -164,7 +166,7 @@ export function LiveView({ url, interactive, onFit }: { url: string; interactive
     >
       <div className="relative flex min-h-0 flex-1 items-center justify-center" style={{ touchAction: "none" }}>
         <div ref={box} className="absolute inset-0" data-watching={interactive ? undefined : ""} />
-        {state === "connecting" && <div aria-label="Connecting to the browser" className="skeleton absolute inset-0" />}
+        {state === "connecting" && <div aria-label={t.viewer.keyConnecting} className="skeleton absolute inset-0" />}
         {controls && <TouchSurface screen={box} mode={trackpad ? "trackpad" : zoom ? "pan" : "touch"} />}
       </div>
       {controls && (
@@ -210,6 +212,7 @@ interface Modes {
  * stays up while they are used.
  */
 function TouchControls({ keys: send, trackpad, onTrackpad, zoom, onZoom }: { keys: Sender } & Modes) {
+  const t = useT();
   const field = useRef<HTMLTextAreaElement>(null);
   const [typing, setTyping] = useState(false);
   const [ctrl, setCtrl] = useState(false);
@@ -255,7 +258,7 @@ function TouchControls({ keys: send, trackpad, onTrackpad, zoom, onZoom }: { key
     >
       <textarea
         ref={field}
-        aria-label="Type into the page"
+        aria-label={t.viewer.typeIntoPage}
         autoCapitalize="off"
         autoComplete="off"
         autoCorrect="off"
@@ -289,18 +292,18 @@ function TouchControls({ keys: send, trackpad, onTrackpad, zoom, onZoom }: { key
           send.paste(e.clipboardData.getData("text/plain"));
         }}
       />
-      <Tool label={typing ? "Hide keyboard" : "Show keyboard"} active={typing} onClick={() => (typing ? field.current?.blur() : field.current?.focus())}>
+      <Tool label={typing ? t.viewer.hideKeyboard : t.viewer.showKeyboard} active={typing} onClick={() => (typing ? field.current?.blur() : field.current?.focus())}>
         {typing ? <KeyboardOff size={18} /> : <Keyboard size={18} />}
       </Tool>
-      <Tool label="Paste" onClick={() => void pasteClipboard()}>
+      <Tool label={t.viewer.paste} onClick={() => void pasteClipboard()}>
         <ClipboardPaste size={17} />
       </Tool>
       {!typing && (
         <>
-          <Tool label="Trackpad" active={trackpad} onClick={onTrackpad}>
+          <Tool label={t.viewer.trackpad} active={trackpad} onClick={onTrackpad}>
             <MousePointer2 size={17} />
           </Tool>
-          <Tool label="Actual size" active={zoom} onClick={onZoom}>
+          <Tool label={t.viewer.actualSize} active={zoom} onClick={onZoom}>
             <ZoomIn size={17} />
           </Tool>
         </>
@@ -314,27 +317,27 @@ function TouchControls({ keys: send, trackpad, onTrackpad, zoom, onZoom }: { key
         <>
           {typing && (
             <>
-              <Tool label="Escape" text onClick={() => key(keys.Escape)}>
+              <Tool label={t.viewer.keyEscape} text onClick={() => key(keys.Escape)}>
                 Esc
               </Tool>
               <Tool label="Tab" text onClick={() => key(keys.Tab)}>
                 Tab
               </Tool>
-              <Tool label="Control" text active={ctrl} onClick={() => setCtrl((v) => !v)}>
+              <Tool label={t.viewer.keyControlName} text active={ctrl} onClick={() => setCtrl((v) => !v)}>
                 Ctrl
               </Tool>
             </>
           )}
-          <Tool label="Left" onClick={() => key(keys.Left)}>
+          <Tool label={t.viewer.keyLeft} onClick={() => key(keys.Left)}>
             <ArrowLeft size={16} />
           </Tool>
-          <Tool label="Up" onClick={() => key(keys.Up)}>
+          <Tool label={t.viewer.keyUp} onClick={() => key(keys.Up)}>
             <ArrowUp size={16} />
           </Tool>
-          <Tool label="Down" onClick={() => key(keys.Down)}>
+          <Tool label={t.viewer.keyDown} onClick={() => key(keys.Down)}>
             <ArrowDown size={16} />
           </Tool>
-          <Tool label="Right" onClick={() => key(keys.Right)}>
+          <Tool label={t.viewer.keyRight} onClick={() => key(keys.Right)}>
             <ArrowRight size={16} />
           </Tool>
         </>
