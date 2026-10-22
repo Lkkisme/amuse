@@ -12,16 +12,8 @@ function fake() {
   const done: string[] = [];
   const sandbox: SandboxClient = {
     run: async () => ({ output: "", cut: 0, exitCode: 0, signal: null, timedOut: false }),
-    start: async () => ({ service: { id: "s1", name: "x", command: "x", cwd: "/", startedAt: "", running: true, exitCode: null, signal: null }, output: "" }),
-    services: async () => [],
-    log: async () => ({
-      service: { id: "s1", name: "x", command: "x", cwd: "/", startedAt: "", running: true, exitCode: null, signal: null },
-      output: "",
-      cut: 0,
-    }),
-    stop: async () => ({ id: "s1", name: "x", command: "x", cwd: "/", startedAt: "", running: false, exitCode: 0, signal: null }),
     reset: async () => {},
-    input: async (service, text) => void done.push(`input ${service} ${text}`),
+    typeSecret: async ({ pane, value }) => void done.push(`typed ${pane} ${value}`),
     setEnv: async ({ name, value }) => void done.push(`env ${name}=${value}`),
     setFile: async ({ path, value }) => void done.push(`file ${path}=${value}`),
     forget: async (what) => void done.push(`forget ${"env" in what ? what.env : what.file}`),
@@ -46,8 +38,8 @@ test("credentials go where asked, are listed without values, masked, taken back,
 
   await secrets.give(request("k1", "OpenAI API key", { kind: "env", name: "OPENAI_API_KEY" }), "sk-openai-123");
   await secrets.give(request("k2", "Tool config", { kind: "file", path: ".config/tool/key" }), "file-value-1");
-  await secrets.give(request("k3", "Login code", { kind: "stdin", service: "login" }), "code-4567");
-  assert.deepEqual(done, ["env OPENAI_API_KEY=sk-openai-123", "file .config/tool/key=file-value-1", "input login code-4567"]);
+  await secrets.give(request("k3", "Login code", { kind: "stdin", pane: "w1:p2" }), "code-4567");
+  assert.deepEqual(done, ["env OPENAI_API_KEY=sk-openai-123", "file .config/tool/key=file-value-1", "typed w1:p2 code-4567"]);
   assert.equal(statSync(path).mode & 0o777, 0o600);
 
   const listed = await secrets.secrets();

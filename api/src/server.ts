@@ -1,8 +1,9 @@
 /**
  * The network edge: an HTTP server — the built web app, the way in (/setup,
  * /unlock, /lock, /password), /thumb, /files (uploads and the files themselves)
- * and /connected — with two WebSocket routes: /rpc (one shared Session, one
- * Peer per socket) and /live?id=<run> (a run's live browser view). Requests
+ * and /connected — with three WebSocket routes: /rpc (one shared Session, one
+ * Peer per socket), /live?id=<run> (a run's live browser view) and
+ * /terminal?cols=<n>&rows=<n> (the sandbox's terminals). Requests
  * authenticate with the HttpOnly session cookie the master password opens
  * (access.ts). Browsers may open the sockets, and post to the way in, only
  * from this origin; anything else is refused. So is every request, whatever it
@@ -11,18 +12,22 @@
 import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
 import { pipeline } from "node:stream";
 import type { Session } from "@amuse/protocol";
+import { Cols, Rows } from "@amuse/sandbox";
 import { WebSocketServer } from "ws";
 import { z } from "zod";
 import { type Access, PasswordRejected } from "./access.ts";
 import { type FileStore, shownInline } from "./workspace.ts";
 import { type Live, attach, thumbnail } from "./live.ts";
 import { serve } from "./rpc.ts";
+import { attachTerminal } from "./terminal.ts";
 import { staticFiles } from "./static.ts";
 
 export interface Options {
   session: Session;
   /** Live browser views at /live?id=<run>; off when absent. */
   live?: Live;
+  /** The sandbox's terminals at /terminal?cols=<n>&rows=<n>: where the daemon shows one that size; off when absent. */
+  terminal?: (cols: number, rows: number) => string;
   /** The user's files: POST /files uploads one, GET /files/<id> serves it; off when absent. */
   files?: FileStore;
   /** Directory of the built web app to serve over HTTP; 404 for everything when absent. */
@@ -77,7 +82,7 @@ function parseJson(text: string): unknown {
   }
 }
 
-type Target = { kind: "rpc" } | { kind: "live"; id: string; live: Live };
+type Target = { kind: "rpc" } | { kind: "live"; id: string; live: Live } | { kind: "terminal"; at: string };
 
 /** A running server: where it listens, and how to stop it (sockets included). */
 export interface Listening {
@@ -85,9 +90,14 @@ export interface Listening {
   close(): Promise<void>;
 }
 
-export function listen({ session, live, files: uploads, web, returned, access, refuse, transcribe, port, host }: Options): Promise<Listening> {
+export function listen({ session, live, terminal, files: uploads, web, returned, access, refuse, transcribe, port, host }: Options): Promise<Listening> {
   const route = (url: URL): Target | null => {
     if (url.pathname === "/rpc") return { kind: "rpc" };
+    if (url.pathname === "/terminal" && terminal) {
+      const cols = Cols.safeParse(Number(url.searchParams.get("cols")));
+      const rows = Rows.safeParse(Number(url.searchParams.get("rows")));
+      return { kind: "terminal", at: terminal(cols.success ? cols.data : 80, rows.success ? rows.data : 24) };
+    }
     const id = url.searchParams.get("id");
     return url.pathname === "/live" && live && id ? { kind: "live", id, live } : null;
   };
@@ -326,6 +336,7 @@ export function listen({ session, live, files: uploads, web, returned, access, r
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
       if (target.kind === "live") return attach(ws, target.id, target.live);
+      if (target.kind === "terminal") return attachTerminal(ws, target.at);
       const peer = serve(session, (frame) => ws.send(frame));
       ws.on("message", (data, binary) => void (binary ? undefined : peer.receive(data.toString())));
       ws.on("close", peer.close);

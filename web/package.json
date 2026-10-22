@@ -10,11 +10,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@novnc/novnc": "^1.7.0",
     "@amuse/api": "*",
     "@amuse/core": "*",
     "@amuse/demo": "*",
     "@amuse/protocol": "*",
+    "@novnc/novnc": "^1.7.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "cronstrue": "^3.37.0",
     "lucide-react": "^1.60.0",
     "react": "^18.3.1",

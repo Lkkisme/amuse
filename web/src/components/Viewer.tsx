@@ -12,6 +12,9 @@
  * on a phone they fold into a count that opens them as cards), then
  * the live browser (or, in the demo, a fake Chrome window). A run whose browser is gone is
  * only a card in the chat; with none left, the viewer says so.
+ *
+ * With a sandbox, a switch at the top shows its terminals instead (TerminalView), which stay
+ * connected while the browser is shown.
  */
 import {
   ArrowLeft,
@@ -24,11 +27,12 @@ import {
   Menu,
   Plus,
   RotateCw,
+  SquareTerminal,
   X,
 } from "lucide-react";
 import { useState } from "react";
 import type { Browser, State } from "@amuse/protocol";
-import type { Actions, Ui } from "../ui.ts";
+import type { Actions, Shown, Ui } from "../ui.ts";
 import {
   browserLook,
   host,
@@ -40,6 +44,7 @@ import {
 } from "../view.ts";
 import { PagePreview } from "./cards";
 import { LiveView } from "./LiveView";
+import { TerminalView } from "./TerminalView";
 import { useLastValue, usePresence } from "./usePresence";
 
 export function Viewer({
@@ -47,6 +52,7 @@ export function Viewer({
   viewer: open,
   live,
   thumb,
+  terminal,
   onResize,
   actions,
 }: {
@@ -56,6 +62,8 @@ export function Viewer({
   live: ((id: string) => string) | null;
   /** a screenshot URL for a run, likewise */
   thumb: ((id: string) => string) | null;
+  /** the sandbox's terminals (a websocket URL at a size), when a server is attached; it says whether it has a sandbox */
+  terminal: ((cols: number, rows: number) => string) | null;
   /** desktop: the user drags the left edge; this gets where the edge is (client x) */
   onResize: (edge: number) => void;
   actions: Actions;
@@ -69,6 +77,7 @@ export function Viewer({
   if (!mounted || !viewer) return null;
   const browser = viewerRun(conversation, viewer);
   const tabs = viewerTabs(conversation);
+  const shown: Shown = terminal ? viewer.shown : "browser";
   // with none left, there are no cards to show
   if (!browser && overview) setOverview(false);
 
@@ -79,11 +88,16 @@ export function Viewer({
       className={`${closing ? "anim-panel-out-right pointer-events-none" : "anim-panel-in-right"} fixed inset-0 z-50 flex flex-col bg-[var(--bg-primary)] lg:inset-y-2 lg:left-auto lg:right-2 lg:w-[var(--viewer-width)] lg:overflow-hidden lg:rounded-[24px] lg:bg-[var(--panel)] lg:shadow-[var(--shadow-panel)]`}
     >
       <ResizeEdge onResize={onResize} />
-      {browser ? (
+      {terminal && <Switch shown={shown} actions={actions} />}
+      {terminal && (
+        <TerminalView url={terminal} visible={shown === "terminal"} />
+      )}
+      {shown === "terminal" ? null : browser ? (
         <>
           <ViewerHeader
             browser={browser}
             count={tabs.length}
+            corner={!terminal}
             onOverview={() => setOverview(true)}
             actions={actions}
           />
@@ -109,19 +123,60 @@ export function Viewer({
           )}
         </>
       ) : (
-        <NoBrowser actions={actions} />
+        <NoBrowser corner={!terminal} actions={actions} />
       )}
     </div>
   );
 }
 
+/** Browser or terminals: what the viewer shows. Its row keeps the corner for the browser button. */
+function Switch({ shown, actions }: { shown: Shown; actions: Actions }) {
+  const options = [
+    { id: "browser", label: "Browser", Icon: Globe },
+    { id: "terminal", label: "Terminal", Icon: SquareTerminal },
+  ] satisfies { id: Shown; label: string; Icon: typeof Globe }[];
+  return (
+    <div className="flex items-center gap-2 py-2 pl-3 pr-3">
+      <div
+        role="tablist"
+        className="flex rounded-full p-0.5"
+        style={{ background: "var(--fill-secondary)" }}
+      >
+        {options.map(({ id, label, Icon }) => {
+          const selected = id === shown;
+          return (
+            <button
+              key={id}
+              role="tab"
+              aria-selected={selected}
+              className="flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[14px] font-medium transition-colors"
+              style={{
+                background: selected ? "var(--segment-selected)" : undefined,
+                color: selected ? "var(--text-primary)" : "var(--text-secondary)",
+                boxShadow: selected ? "var(--shadow-float)" : undefined,
+              }}
+              onClick={() => actions.showInViewer(id)}
+            >
+              <Icon size={15} /> {label}
+            </button>
+          );
+        })}
+      </div>
+      <span className="flex-1" />
+      <span className="size-11 shrink-0" />
+    </div>
+  );
+}
+
 /** No browser is open now: say so, how one comes, and open one of the user's own. */
-function NoBrowser({ actions }: { actions: Actions }) {
+function NoBrowser({ corner, actions }: { corner: boolean; actions: Actions }) {
   return (
     <>
-      <header className="flex justify-end pr-3 pt-2">
-        <span className="size-11" />
-      </header>
+      {corner && (
+        <header className="flex justify-end pr-3 pt-2">
+          <span className="size-11" />
+        </header>
+      )}
       <div className="flex flex-1 flex-col items-center justify-center gap-2 px-8 text-center">
         <Globe size={28} style={{ color: "var(--icon-secondary)" }} />
         <p
@@ -175,12 +230,15 @@ function ResizeEdge({ onResize }: { onResize: (edge: number) => void }) {
 function ViewerHeader({
   browser,
   count,
+  corner,
   onOverview,
   actions,
 }: {
   browser: Browser;
   /** how many browsers are open */
   count: number;
+  /** whether its row keeps the corner for the browser button (else the switch's row does) */
+  corner: boolean;
   onOverview: () => void;
   actions: Actions;
 }) {
@@ -264,7 +322,7 @@ function ViewerHeader({
         )
       )}
       {/* the corner is the browser button's (it stays put and collapses the viewer) */}
-      <span className="size-11 shrink-0" />
+      {corner && <span className="size-11 shrink-0" />}
     </header>
   );
 }

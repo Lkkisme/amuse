@@ -136,7 +136,7 @@ const where = (deliver: SecretInfo["deliver"]) =>
     ? `As $${deliver.name}`
     : deliver.kind === "file"
       ? `In ~/${deliver.path.replace(/^~?\/?/, "")}`
-      : `Typed into ${deliver.service}`;
+      : `Typed into terminal ${deliver.pane}`;
 
 function Credentials({ session }: { session: Session }) {
   const [secrets, setSecrets] = useState<SecretInfo[] | null>(null);

@@ -16,6 +16,8 @@ export type Connection =
       rpc: string;
       live: (id: string) => string;
       thumb: (id: string) => string;
+      /** the sandbox's terminals, a websocket, at a size */
+      terminal: (cols: number, rows: number) => string;
     };
 
 /** A route next to /rpc on the same server, for a run id (ws for /live, http for /thumb). */
@@ -33,6 +35,12 @@ function server(rpc: string): Connection {
     rpc,
     live: (id) => route(rpc, "/live", id, false),
     thumb: (id) => route(rpc, "/thumb", id, true),
+    terminal: (cols, rows) => {
+      const url = new URL(rpc);
+      url.pathname = "/terminal";
+      url.search = new URLSearchParams({ cols: String(cols), rows: String(rows) }).toString();
+      return url.toString();
+    },
   };
 }
 

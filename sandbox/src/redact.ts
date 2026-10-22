@@ -40,21 +40,5 @@ export function masking(client: SandboxClient, secrets: () => readonly Masked[])
         const ran = await client.run(request, signal);
         return { ...ran, output: clean(ran.output) };
       }),
-    start: (request) =>
-      guarded(async () => {
-        const started = await client.start(request);
-        return { service: { ...started.service, command: clean(started.service.command) }, output: clean(started.output) };
-      }),
-    services: () => guarded(async () => (await client.services()).map((s) => ({ ...s, command: clean(s.command) }))),
-    log: (service, lines) =>
-      guarded(async () => {
-        const log = await client.log(service, lines);
-        return { ...log, service: { ...log.service, command: clean(log.service.command) }, output: clean(log.output) };
-      }),
-    stop: (service) =>
-      guarded(async () => {
-        const stopped = await client.stop(service);
-        return { ...stopped, command: clean(stopped.command) };
-      }),
   };
 }

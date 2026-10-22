@@ -31,7 +31,7 @@ test("a SKILL.md is its front matter's name and description, and the rest", () =
 
 test("the built-in skills ship with Amuse, each saying what it covers", () => {
   const names = builtInSkills().map((s) => s.name);
-  assert.deepEqual([...names].sort(), ["amuse", "apps", "browser", "delegation", "files", "goals", "memory", "sandbox", "schedules"]);
+  assert.deepEqual([...names].sort(), ["amuse", "apps", "browser", "delegation", "files", "goals", "herdr", "memory", "sandbox", "schedules"]);
   for (const skill of builtInSkills()) assert.ok(skill.description.length > 20 && skill.body.length > 200, skill.name);
 });
 

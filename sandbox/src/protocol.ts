@@ -3,9 +3,9 @@
  * over HTTP, checked with these schemas on both sides. What the daemon says is
  * not taken for trusted (a process in the sandbox could stand in for it), so
  * what could carry words into the agent's context is held to a plain shape. A command is run to
- * completion (`POST /run`) or kept running as a service (`/services`, which
- * can be typed into); the daemon also keeps credentials the user gave for the
- * sandbox (`/secrets`) and empties the sandbox's home on request (`POST /reset`).
+ * completion (`POST /run`); what goes on running is in herdr's terminals (`/terminal`, for the user to see).
+ * The daemon also keeps credentials the user gave for the sandbox (`/secrets`) and empties the sandbox's
+ * home on request (`POST /reset`).
  */
 import { z } from "zod";
 
@@ -39,33 +39,6 @@ export const Ran = z.object({
 });
 export type Ran = z.infer<typeof Ran>;
 
-export const Start = z.object({ name: z.string().trim().min(1).max(60), command: z.string().min(1).max(100_000), cwd: z.string().max(4096).optional() });
-export type Start = z.infer<typeof Start>;
-
-export const Service = z.object({
-  id: z.string().regex(/^s\d{1,9}$/),
-  name: z.string().max(60),
-  command: z.string(),
-  cwd: z.string(),
-  startedAt: z.string(),
-  running: z.boolean(),
-  exitCode: z.int().nullable(),
-  signal: Signal.nullable(),
-});
-export type Service = z.infer<typeof Service>;
-
-/** A service just started, with what it printed in its first moments (a crash on start shows there). */
-export const Started = z.object({ service: Service, output: z.string() });
-export type Started = z.infer<typeof Started>;
-
-export const Services = z.object({ services: z.array(Service) });
-
-/** A service's recent output: its last lines. */
-export const Log = z.object({ service: Service, output: z.string(), cut: z.int().min(0) });
-export type Log = z.infer<typeof Log>;
-
-export const Stopped = z.object({ service: Service });
-
 /** Why a request was not done, in the daemon's words (which the client does not pass on as its own). */
 export const Failure = z.object({ error: z.string() });
 
@@ -85,5 +58,20 @@ export type SecretFile = z.infer<typeof SecretFile>;
 export const Forget = z.union([z.object({ env: EnvName }), z.object({ file: z.string().min(1).max(1024) })]);
 export type Forget = z.infer<typeof Forget>;
 
-/** A line typed into a running service (a CLI waiting for a code). */
-export const Input = z.object({ text: z.string().max(20_000) });
+/** A terminal of herdr's, by its pane's id (w1:p2). */
+export const PaneId = z.string().regex(/^w\d{1,6}:p\d{1,6}$/);
+
+/** A credential typed once into a terminal, with Enter after it (a CLI waiting for a code). */
+export const SecretTyped = z.object({ pane: PaneId, value: z.string().min(1).max(20_000) });
+export type SecretTyped = z.infer<typeof SecretTyped>;
+
+/**
+ * A terminal: a websocket at `/terminal?cols=<n>&rows=<n>` that shows herdr's own interface (the terminals Amuse
+ * and the user share). Binary messages are bytes both ways (what is typed, what the terminal shows); a text
+ * message from the viewer is one of these.
+ */
+export const TERMINAL_PATH = "/terminal";
+export const Cols = z.int().min(1).max(1000);
+export const Rows = z.int().min(1).max(500);
+export const TerminalMessage = z.object({ type: z.literal("resize"), cols: Cols, rows: Rows });
+export type TerminalMessage = z.infer<typeof TerminalMessage>;

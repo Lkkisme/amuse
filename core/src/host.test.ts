@@ -471,7 +471,7 @@ test("a credential the user gives goes to the sandbox alone: not the chat, its r
   await host.call("chat.send", { chat: "main", text: "log in to the CLI", timezone: "UTC", attachments: [] });
   const agent = io();
   assert.ok(agent);
-  const asked = agent.act({ kind: "askSecret", name: "Login code", why: "the CLI waits for it", deliver: { kind: "stdin", service: "login" } });
+  const asked = agent.act({ kind: "askSecret", name: "Login code", why: "the CLI waits for it", deliver: { kind: "stdin", pane: "w1:p2" } });
   assert.ok(asked.ok);
   await host.call("secret.answer", { id: asked.id, value: "code-very-secret" });
   assert.deepEqual(given, [{ name: "Login code", value: "code-very-secret" }]);

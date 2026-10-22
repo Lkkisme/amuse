@@ -104,12 +104,22 @@ export const Connection = z.object({
   status: z.enum(["pending", "connected", "dismissed"]),
 });
 
-/** Where a credential the user gives for Amuse's sandbox goes: an environment variable every command there gets, a file in its home, or the input of a running service (a CLI waiting for a code). */
-export const SecretDestination = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("env"), name: z.string().regex(/^[A-Z_][A-Z0-9_]{0,63}$/) }),
-  z.object({ kind: z.literal("file"), path: z.string().min(1).max(1024) }),
-  z.object({ kind: z.literal("stdin"), service: z.string().min(1).max(60) }),
-]);
+/**
+ * Where a credential the user gives for Amuse's sandbox goes: an environment variable every command there gets, a file
+ * in its home, or typed into a terminal (a pane of herdr's, w1:p2, where a CLI waits for a code). Typing went to a
+ * running service's input before terminals were herdr's: such a `service` is read as the pane it names (none, now).
+ */
+export const SecretDestination = z.preprocess(
+  (raw) =>
+    typeof raw === "object" && raw !== null && "kind" in raw && raw.kind === "stdin" && "service" in raw && !("pane" in raw)
+      ? { kind: "stdin", pane: raw.service }
+      : raw,
+  z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("env"), name: z.string().regex(/^[A-Z_][A-Z0-9_]{0,63}$/) }),
+    z.object({ kind: z.literal("file"), path: z.string().min(1).max(1024) }),
+    z.object({ kind: z.literal("stdin"), pane: z.string().min(1).max(60) }),
+  ]),
+);
 export type SecretDestination = z.infer<typeof SecretDestination>;
 
 /**

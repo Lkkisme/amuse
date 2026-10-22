@@ -83,6 +83,12 @@ leaves it, and deleting or overwriting the files you sent, still needs your word
 - It holds no keys or password, has no Docker socket, is not privileged, has only the capabilities sudo and
   apt need, and sees only the workspace of Amuse's data. The Amuse server also turns away every request from
   the sandbox's network, and the browsers cannot reach it.
+- Terminals: [herdr](https://github.com/herdrdev/herdr) runs there, and its terminals are shared by
+  Amuse and you. Amuse runs what goes on (servers, logins that ask for a code, coding agents such as
+  Claude Code) in them; open the viewer on the right and pick Terminal to see herdr's own interface,
+  pick a workspace or pane with the mouse or its keys (`ctrl+b`), and type there too. On a phone a row
+  of keys (Esc, Ctrl, Alt, Tab, arrows) sits under it. Closing the view, or herdr's detach
+  (`ctrl+b q`), only leaves: what runs there goes on.
 - Two folders of the workspace are read-only there: `memory/`, which Amuse reads as its own context, and
   `user/`, what you sent. Amuse edits its memory with its own tools, not from a shell; to work on a file
   you sent, it makes a copy elsewhere. `skills/` is writable and is also `~/.agents/skills`, so

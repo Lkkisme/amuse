@@ -8,22 +8,7 @@
  * `detail`, to be shown only as untrusted text.
  */
 import type { z } from "zod";
-import {
-  DEFAULT_TIMEOUT,
-  Failure,
-  type Forget,
-  Log,
-  Nothing,
-  Ran,
-  type Run,
-  type SecretEnv,
-  type SecretFile,
-  type Service,
-  Services,
-  type Start,
-  Started,
-  Stopped,
-} from "./protocol.ts";
+import { DEFAULT_TIMEOUT, Failure, type Forget, Nothing, Ran, type Run, type SecretEnv, type SecretFile, type SecretTyped, TERMINAL_PATH } from "./protocol.ts";
 
 /** A request the sandbox could not do, or could not be asked: why, in words of our own. */
 export class SandboxError extends Error {
@@ -38,16 +23,10 @@ export class SandboxError extends Error {
 export interface SandboxClient {
   /** Run a command to completion; `signal` ends it early (the command is stopped). */
   run(request: Run, signal?: AbortSignal): Promise<Ran>;
-  /** Start a command that goes on running. */
-  start(request: Start): Promise<Started>;
-  services(): Promise<Service[]>;
-  /** The last `lines` lines a service printed; `service` is its name or id. */
-  log(service: string, lines?: number): Promise<Log>;
-  stop(service: string): Promise<Service>;
   /** Stop everything and empty the home folder back to its skeleton; the workspace stays. */
   reset(): Promise<void>;
-  /** Type a line into a running service (a CLI waiting for a code). */
-  input(service: string, text: string): Promise<void>;
+  /** Type a credential into a terminal of herdr's, with Enter after it (a CLI waiting for a code). */
+  typeSecret(secret: SecretTyped): Promise<void>;
   /** Keep a credential as an environment variable every command gets. */
   setEnv(secret: SecretEnv): Promise<void>;
   /** Keep a credential as a file of the user's in the home folder. */
@@ -117,17 +96,20 @@ export function sandboxClient(
     if (!answer.success) throw new SandboxError("The sandbox gave an answer that could not be understood.");
     return answer.data;
   };
-  const named = (service: string) => `/services/${encodeURIComponent(service)}`;
   return {
     run: (run, signal) => call("POST", "/run", Ran, (run.timeout ?? DEFAULT_TIMEOUT) * 1000 + margin, run, signal),
-    start: (start) => call("POST", "/services", Started, quick, start),
-    services: async () => (await call("GET", "/services", Services, quick)).services,
-    log: (service, lines) => call("GET", `${named(service)}/log${lines === undefined ? "" : `?lines=${lines}`}`, Log, quick),
-    stop: async (service) => (await call("POST", `${named(service)}/stop`, Stopped, quick, {})).service,
     reset: async () => void (await call("POST", "/reset", Nothing, quick)),
-    input: async (service, text) => void (await call("POST", `${named(service)}/input`, Nothing, quick, { text })),
+    typeSecret: async (secret) => void (await call("POST", "/secrets/type", Nothing, quick, secret)),
     setEnv: async (secret) => void (await call("POST", "/secrets/env", Nothing, quick, secret)),
     setFile: async (secret) => void (await call("POST", "/secrets/file", Nothing, quick, secret)),
     forget: async (what) => void (await call("POST", "/secrets/forget", Nothing, quick, what)),
   };
+}
+
+/** Where the daemon at `url` shows a terminal `cols` wide and `rows` high: a websocket (protocol.ts). */
+export function terminalAt(url: string, cols: number, rows: number): string {
+  const at = new URL(TERMINAL_PATH, url);
+  at.protocol = at.protocol === "https:" ? "wss:" : "ws:";
+  at.search = new URLSearchParams({ cols: String(cols), rows: String(rows) }).toString();
+  return at.toString();
 }

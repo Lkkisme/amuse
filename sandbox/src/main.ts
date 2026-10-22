@@ -7,12 +7,16 @@
  *   AMUSE_SANDBOX_CONTAINER  1 in the sandbox's own container (the image sets it): a reset may end every process there
  *   AMUSE_SANDBOX_READY  the file sandbox-net puts once its network rules are in (ready.ts): nothing is started before it is there,
  *                 and the daemon ends if it goes; without it (outside the container), no waiting
+ *   AMUSE_SANDBOX_HERDR  herdr's binary, for the terminals Amuse and the user share; default /usr/local/bin/herdr when it is
+ *                 there (the image puts it), else no terminals
  * Started as root (as in the container), commands run as the user `amuse`, uid and gid 1000.
  *
  * This daemon is the container's only process, and nothing in the sandbox starts by itself: no cron, no init
- * scripts, nothing read from the home folder at start. Whatever runs there was asked for through the daemon, so
- * while this waits for the rules, nothing in the sandbox can open a connection. Keep it that way.
+ * scripts, nothing read from the home folder before the rules are in. Whatever runs there was asked for through the
+ * daemon, or is herdr's server, which the daemon starts once they are; so while this waits for the rules, nothing in the
+ * sandbox can open a connection. Keep it that way.
  */
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { PORT } from "./protocol.ts";
 import { type Listening, serve } from "./daemon.ts";
@@ -41,6 +45,7 @@ if (ready) {
 }
 
 const home = process.env["AMUSE_SANDBOX_HOME"] ?? "/home/amuse";
+const herdr = process.env["AMUSE_SANDBOX_HERDR"] ?? (existsSync("/usr/local/bin/herdr") ? "/usr/local/bin/herdr" : undefined);
 server = await serve({
   home,
   workspace: process.env["AMUSE_SANDBOX_WORKSPACE"] ?? join(home, "workspace"),
@@ -49,6 +54,7 @@ server = await serve({
   host: process.env["AMUSE_SANDBOX_HOST"] ?? "0.0.0.0",
   ...(process.getuid?.() === 0 ? { user: { uid: 1000, gid: 1000, name: "amuse" } } : {}),
   isolated: container,
+  ...(herdr ? { herdr } : {}),
 });
 const listening = server;
 // docker stop reaches the daemon through the container's init: end cleanly, commands with it

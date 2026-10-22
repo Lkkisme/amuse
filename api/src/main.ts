@@ -22,7 +22,7 @@
 import { dirname, join } from "node:path";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { SandboxError, masking, sandboxClient } from "@amuse/sandbox";
+import { SandboxError, masking, sandboxClient, terminalAt } from "@amuse/sandbox";
 import { ComposioError, NoComposioKey, composio, composioApps, composioGuide, composioConnector, composioDirectory, keyedComposio } from "@amuse/composio";
 import { fileChats } from "./journal.ts";
 import { workspace } from "./workspace.ts";
@@ -187,7 +187,7 @@ const none = async <T>(read: () => Promise<T[]>): Promise<T[]> => {
   }
 };
 /** the skills that ship with Amuse (pi/skills/); the user's own are read from the workspace each turn */
-const skills = builtInSkills().filter((skill) => sandbox || skill.name !== "sandbox");
+const skills = builtInSkills().filter((skill) => sandbox || (skill.name !== "sandbox" && skill.name !== "herdr"));
 /** the composer's mic: speech to text with the user's own key (pi/src/voice.ts) */
 const toText = transcriber(credentials, () => keys.voiceChoice(), fetch, () => keys.localVoiceService());
 const speech = async (audio: Uint8Array, type: string) => {
@@ -341,6 +341,7 @@ await listen({
   session,
   files,
   ...(live ? { live } : {}),
+  ...(sandboxUrl ? { terminal: (cols: number, rows: number) => terminalAt(sandboxUrl, cols, rows) } : {}),
   ...(web ? { web } : {}),
   returned: connector.returned,
   access,

@@ -316,7 +316,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           patch((u) => ({
             ...u,
             museOpen: false,
-            viewer: { browserId },
+            viewer: { browserId, shown: "browser" },
           }));
         // only a docked Muse panel's avatar has somewhere to travel; otherwise the viewer just slides in
         // (a transition would lift the avatar over the viewer, then drop it at the end)
@@ -328,6 +328,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         patch((u) =>
           u.viewer ? { ...u, viewer: { ...u.viewer, browserId } } : u,
         ),
+      showInViewer: (shown) =>
+        patch((u) => (u.viewer ? { ...u, viewer: { ...u.viewer, shown } } : u)),
       // closing a tab closes its browser; the viewer moves to another open one, or goes
       closeTab: (browserId) => {
         call("browser.control", { id: browserId, action: "stop" });
@@ -337,10 +339,11 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
             .filter((b) => b.id !== browserId)
             .at(-1);
           // the last one closed: the viewer stays, saying none is open
-          if (!last) return { ...u, viewer: { browserId: null } };
+          if (!last) return { ...u, viewer: { ...u.viewer, browserId: null } };
           return {
             ...u,
             viewer: {
+              ...u.viewer,
               browserId:
                 u.viewer.browserId === browserId ? last.id : u.viewer.browserId,
             },
@@ -358,7 +361,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
               patch((u) => ({
                 ...u,
                 museOpen: false,
-                viewer: { browserId: id },
+                viewer: { browserId: id, shown: "browser" },
               })),
             (error: unknown) =>
               patch((u) => ({
@@ -572,6 +575,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           viewer={ui.viewer}
           live={where.kind === "server" ? where.live : null}
           thumb={where.kind === "server" ? where.thumb : null}
+          terminal={where.kind === "server" ? where.terminal : null}
           onResize={(edge) => {
             const width = clampViewer(innerWidth - 8 - edge);
             localStorage.setItem(VIEWER_WIDTH, String(width));

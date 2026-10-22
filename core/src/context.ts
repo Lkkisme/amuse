@@ -79,7 +79,7 @@ export function line(entity: Entity, detail: Detail, zone: string, where: Where 
       return `[${at}] Connect ${entity.title}: ${entity.status}`;
     case "secret": {
       // what and where only: the value never reaches the agent
-      const where = entity.deliver.kind === "env" ? `$${entity.deliver.name}` : entity.deliver.kind === "file" ? entity.deliver.path : `the input of service ${entity.deliver.service}`;
+      const where = entity.deliver.kind === "env" ? `$${entity.deliver.name}` : entity.deliver.kind === "file" ? entity.deliver.path : `terminal ${entity.deliver.pane}`;
       return `[${at}] Asked the user for a credential, ${entity.name}, for ${where} in your sandbox: ${entity.status}`;
     }
     case "failure":

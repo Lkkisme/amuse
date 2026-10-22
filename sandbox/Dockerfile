@@ -17,6 +17,30 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
     && ln -s ../lib/node_modules/corepack/dist/corepack.js /usr/local/bin/corepack
 
+# herdr, the terminals Amuse and the user share (the daemon keeps its server running): pinned, and checked against the
+# release's digest. Its config is the image's: no first-run setup, and no version checks (an update comes with the
+# image, as the skill that goes with it does: pi/skills/herdr).
+ARG TARGETARCH
+ARG HERDR_VERSION=0.9.5
+RUN set -eu; \
+    case "$TARGETARCH" in \
+        amd64) arch=x86_64; herdr=14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d ;; \
+        arm64) arch=aarch64; herdr=17d7536f2da50859523680ef279dffcac8e4a235f4e46fe8da6c2ec44141897c ;; \
+        *) echo "no herdr for $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /usr/local/bin/herdr "https://github.com/herdrdev/herdr/releases/download/v${HERDR_VERSION}/herdr-linux-${arch}"; \
+    echo "$herdr  /usr/local/bin/herdr" | sha256sum -c -; \
+    chmod 0755 /usr/local/bin/herdr; \
+    mkdir -p /etc/herdr; \
+    printf '%s\n' 'onboarding = false' '' '[update]' 'version_check = false' > /etc/herdr/config.toml
+# a shell started in a terminal gets the credentials the user gave for the sandbox as they are then (commands the
+# daemon runs get them from it); the file is the user's alone, kept by the daemon
+RUN printf '%s\n' '' \
+        '# credentials the user gave for the sandbox, through Amuse' \
+        'if [ -r "$HOME/.config/amuse/secrets.json" ]; then' \
+        '  eval "$(jq -r '"'"'to_entries[] | select(.key | test("^[A-Z_][A-Z0-9_]*$")) | "export \(.key)=\(.value | @sh)"'"'"' "$HOME/.config/amuse/secrets.json" 2>/dev/null)"' \
+        'fi' >> /etc/bash.bashrc
+
 RUN groupadd --gid 1000 amuse \
     && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash amuse \
     && printf '%s\n' 'amuse ALL=(ALL) NOPASSWD:ALL' 'Defaults env_keep += "DEBIAN_FRONTEND"' > /etc/sudoers.d/amuse \
@@ -36,6 +60,7 @@ ENV PATH=/home/amuse/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bi
     NPM_CONFIG_PREFIX=/home/amuse/.local \
     PIP_BREAK_SYSTEM_PACKAGES=1 \
     DEBIAN_FRONTEND=noninteractive \
+    HERDR_CONFIG_PATH=/etc/herdr/config.toml \
     AMUSE_SANDBOX_CONTAINER=1
 EXPOSE 7070
 CMD ["node", "/opt/amuse/sandbox/src/main.ts"]

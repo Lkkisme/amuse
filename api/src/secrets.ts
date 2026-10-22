@@ -18,7 +18,7 @@ type Kept = z.infer<typeof Kept>;
 /** What the sandbox could not do, in our words (never what it said). */
 const worded = (error: unknown) => (error instanceof SandboxError ? new Rejected({ kind: "unsound", reason: error.message }) : error);
 
-/** The same place: one variable, one file (a code typed into a service is never the same as another). */
+/** The same place: one variable, one file (a code typed into a terminal is never the same as another). */
 const samePlace = (a: SecretDestination, b: SecretDestination) =>
   (a.kind === "env" && b.kind === "env" && a.name === b.name) || (a.kind === "file" && b.kind === "file" && a.path === b.path);
 
@@ -34,7 +34,7 @@ export function sandboxSecrets(path: string, sandbox: SandboxClient, now: () => 
   const place = async (deliver: SecretDestination, value: string) => {
     if (deliver.kind === "env") await sandbox.setEnv({ name: deliver.name, value });
     else if (deliver.kind === "file") await sandbox.setFile({ path: deliver.path, value });
-    else await sandbox.input(deliver.service, value);
+    else await sandbox.typeSecret({ pane: deliver.pane, value });
   };
 
   return {
@@ -69,7 +69,7 @@ export function sandboxSecrets(path: string, sandbox: SandboxClient, now: () => 
       write(all.filter((k) => k.id !== id));
     },
 
-    /** After a reset emptied the sandbox's home: the variables and files again (a code typed into a service was for it alone). */
+    /** After a reset emptied the sandbox's home: the variables and files again (a code typed into a terminal was for it alone). */
     async again(): Promise<void> {
       for (const k of read()) if (k.deliver.kind !== "stdin") await place(k.deliver, k.value).catch(() => {});
     },

@@ -13,6 +13,9 @@ import type { Theme } from "./theme.ts";
 
 export type { Theme };
 
+/** What the viewer on the right shows. */
+export type Shown = "browser" | "terminal";
+
 export interface Ui {
   theme: Theme;
   /** the chat on screen: MAIN or a side chat's id */
@@ -32,8 +35,8 @@ export interface Ui {
   /** section null: on a phone, the list of sections (on a desktop, the first one) */
   /** `app`, `provider`: a connector's or a key provider's page, open over its section */
   settings: { open: boolean; section: SettingsSection | null; app: App | null; provider: KeyProvider | null };
-  /** browser viewer: active tab, and tabs the user closed (every other run is a tab) */
-  viewer: { browserId: string | null } | null;
+  /** the viewer on the right: the browser (its active tab) or the sandbox's terminals */
+  viewer: { browserId: string | null; shown: Shown } | null;
   /** connection whose pre-connect explainer is open */
   explainer: string | null;
   /** task whose detail sheet is open */
@@ -74,6 +77,8 @@ export interface Actions {
   openViewer(browserId: string | null): void;
   closeViewer(): void;
   selectTab(browserId: string): void;
+  /** what the viewer shows: the browser or the terminals */
+  showInViewer(shown: Shown): void;
   /** close a browser (its tab): its agent stops, its logins are kept, its place is given up */
   closeTab(browserId: string): void;
   /** open a browser of the user's own, held by them from the start, and show it */

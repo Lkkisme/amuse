@@ -7,7 +7,7 @@ const api = process.env["AMUSE_API"];
 const routes = ["/files", "/thumb", "/transcribe", "/unlock", "/setup", "/lock", "/password", "/connected"];
 const proxy = api
   ? {
-      ...Object.fromEntries(["/rpc", "/live"].map((path) => [path, { target: api, ws: true }])),
+      ...Object.fromEntries(["/rpc", "/live", "/terminal"].map((path) => [path, { target: api, ws: true }])),
       ...Object.fromEntries(routes.map((path) => [path, { target: api }])),
     }
   : undefined;

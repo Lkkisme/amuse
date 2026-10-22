@@ -6,28 +6,33 @@
  * can always stop what it started and clean up after it, but every command it
  * starts runs as the normal user (`user`), never as root unless it says sudo.
  *
- * A command is a process group of its own: run to completion (output kept
- * within bounds, a timeout, stopped if the asker goes away) or kept as a
- * service (its recent output to read, stopped as a whole). A command is over
- * when its own process is; whatever it left running in its group is stopped
- * with it (what should go on running is a service), and a process that got
- * away (setsid, a daemon) no longer holds the answer back. Reset stops
+ * A command runs to completion in a process group of its own (output kept
+ * within bounds, a timeout, stopped if the asker goes away). It is over when
+ * its own process is; whatever it left running in its group is stopped with
+ * it, and a process that got away (setsid, a daemon) no longer holds the
+ * answer back. What should go on running, or be typed into, goes in one of
+ * the terminals Amuse and the user share, which are herdr's: the daemon keeps
+ * `herdr server` running as the user, and a websocket at /terminal shows
+ * herdr's own interface in a pseudo-terminal (terminal.ts). Reset stops
  * everything and empties the home folder back to its skeleton, never touching
- * the workspace.
+ * the workspace; herdr's server is started again on it.
  *
  * Credentials the user gave for the sandbox (through the Amuse server, never
  * the agent) are kept here: as environment variables every command gets (a
  * file of them, the user's only), or as files of the user's in the home
- * folder; and a service can be typed into (a CLI waiting for a code).
+ * folder; or typed once into a terminal (a CLI waiting for a code).
  */
 import { spawn } from "node:child_process";
 import { cpSync, existsSync, readFileSync, statSync } from "node:fs";
 import { chmod, lchown, lstat, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
+import { type WebSocket, WebSocketServer } from "ws";
 import { dirname, join, relative, resolve } from "node:path";
 import { z } from "zod";
-import { Clip, endOf, lastLines } from "./output.ts";
-import { DEFAULT_TIMEOUT, Forget, Input, Run, SecretEnv, SecretFile, type Service, Start } from "./protocol.ts";
+import { HerdrError, herdrCall } from "./herdr.ts";
+import { Clip } from "./output.ts";
+import { Cols, DEFAULT_TIMEOUT, Forget, Rows, Run, SecretEnv, SecretFile, SecretTyped, TERMINAL_PATH } from "./protocol.ts";
+import { relayTerminal } from "./terminal.ts";
 
 export interface Options {
   /** the user's home: emptied by a reset */
@@ -42,8 +47,8 @@ export interface Options {
   user?: { uid: number; gid: number; name: string };
   /** whether this is the sandbox's own container, where a reset may end every process there is (never on a machine that is not) */
   isolated?: boolean;
-  /** how long a service just started is watched for an early end before it is reported (ms) */
-  settle?: number;
+  /** herdr's binary: kept running as its server, and what a terminal shows; without it, no terminals */
+  herdr?: string;
 }
 
 /** A running daemon: where it listens, and how to stop it (what it runs too). */
@@ -55,19 +60,16 @@ export interface Listening {
 /** Output of a command that runs to completion: how much is kept at each end. */
 const FIRST = 6_000;
 const LAST = 24_000;
-/** A service's output kept for reading, and the lines a look at it gives by default and at most. */
-const KEPT = 200_000;
-const LINES = 100;
-const MOST_LINES = 1_000;
-/** Services running at once, and ended ones remembered (for their logs). */
-const RUNNING = 10;
-const REMEMBERED = 20;
 /** Largest request taken. */
 const MAX_BODY = 1024 ** 2;
 /** A long command is kept from looking idle to whoever waits for it. */
 const BEAT_MS = 20_000;
 /** After a command's process ends, how long its output is still waited for, from pipes something else may hold open. */
 const GRACE_MS = 300;
+/** Terminals open at once; how long one waits for herdr's server to be there (ms); and how soon a server that ended is started again. */
+const TERMINALS = 8;
+const SERVER_WAIT_MS = 10_000;
+const RESTART_MS = 2_000;
 
 /** A request that cannot be done, with why in words. */
 class Refused extends Error {
@@ -91,16 +93,17 @@ interface Job {
   signal(name: NodeJS.Signals): void;
   /** ask the group to end, then force it after `grace` ms */
   stop(grace: number): void;
-  /** type into it (a service only: a command's input is empty); false when it takes no more */
-  type(text: string): boolean;
 }
+
+/** `text` as one word for bash. */
+const quoted = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
 
 const said = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /** What was wrong with a request, as a sentence. */
 const wrong = (error: z.ZodError) => error.issues.map((i) => `${i.path.join(".") || "request"}: ${i.message}`).join("; ");
 
-export function serve({ home, workspace, skeleton, port, host, user, isolated = false, settle = 1_000 }: Options): Promise<Listening> {
+export function serve({ home, workspace, skeleton, port, host, user, isolated = false, herdr }: Options): Promise<Listening> {
   /** Everything started and not yet ended, so a reset or a shutdown can stop it. */
   const jobs = new Set<Job>();
   // the user's own groups only, not root's, for what it starts
@@ -120,13 +123,16 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
     }
   };
 
-  /** `command` in a bash of its own, in `cwd`, its output going to `clip`; a service's input stays open to type into. */
-  const launch = (command: string, cwd: string, clip: Clip, typed = false): Job => {
+  /**
+   * `command` in a bash of its own, in `cwd`, its output going to `clip`. It gets the credentials as they are now,
+   * unless it is `lasting` (herdr's server: its shells read them as they start).
+   */
+  const launch = (command: string, cwd: string, clip: Clip, { lasting = false } = {}): Job => {
     const child = spawn("bash", ["-c", command], {
       cwd,
       detached: true,
-      stdio: [typed ? "pipe" : "ignore", "pipe", "pipe"],
-      env: { ...environment, ...secrets() },
+      stdio: ["ignore", "pipe", "pipe"],
+      env: lasting ? environment : { ...environment, ...secrets() },
       ...(user ? { uid: user.uid, gid: user.gid } : {}),
     });
     const group = child.pid;
@@ -138,7 +144,7 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
         // the group is gone already
       }
     };
-    // both are pipes (the stdio above); only the input is left out for a command
+    // both are pipes (the stdio above)
     const outputs = [child.stdout, child.stderr].filter((stream) => stream !== null);
     for (const stream of outputs) {
       stream.setEncoding("utf8");
@@ -162,12 +168,6 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
     const job: Job = {
       ended,
       signal,
-      type: (text) => {
-        const input = child.stdin;
-        if (!input || input.destroyed || !input.writable) return false;
-        input.write(text);
-        return true;
-      },
       stop(grace) {
         signal("SIGTERM");
         const force = setTimeout(() => signal("SIGKILL"), grace);
@@ -228,88 +228,54 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
     res.end(JSON.stringify({ ...clip.result(), ...end, timedOut }));
   };
 
-  /* ---------- services ---------- */
+  /* ---------- terminals ---------- */
 
-  interface Kept {
-    id: string;
-    name: string;
-    command: string;
-    cwd: string;
-    startedAt: string;
-    clip: Clip;
-    job: Job;
-    end: End | null;
-  }
-  const services = new Map<string, Kept>();
-  let counter = 0;
-
-  const describe = (s: Kept): Service => ({
-    id: s.id,
-    name: s.name,
-    // only the start of it: a long command is no reason for a long answer
-    command: s.command.slice(0, 200),
-    cwd: s.cwd,
-    startedAt: s.startedAt,
-    running: s.end === null,
-    exitCode: s.end?.exitCode ?? null,
-    signal: s.end?.signal ?? null,
-  });
-
-  /** A service by id or name (a name: the one running, else the latest). */
-  const find = (ref: string): Kept => {
-    const all = [...services.values()];
-    const found = all.find((s) => s.id === ref) ?? all.findLast((s) => s.name === ref && s.end === null) ?? all.findLast((s) => s.name === ref);
-    if (!found) throw new Refused(`There is no service ${ref}. The ones there are: ${all.map((s) => s.name).join(", ") || "none"}.`, 404);
-    return found;
-  };
-
-  const start = async (request: Start) => {
-    const running = [...services.values()].filter((s) => s.end === null);
-    const clash = running.find((s) => s.name === request.name);
-    if (clash) throw new Refused(`A service called ${request.name} is running already; stop it first or choose another name.`, 409);
-    if (running.length >= RUNNING) throw new Refused(`${RUNNING} services are running; stop one first.`, 409);
-    const cwd = folder(request.cwd);
-    const clip = new Clip(0, KEPT);
-    const service: Kept = {
-      id: `s${++counter}`,
-      name: request.name,
-      command: request.command,
-      cwd,
-      startedAt: new Date().toISOString(),
-      clip,
-      job: launch(request.command, cwd, clip, true),
-      end: null,
+  /** herdr's server, while it runs; kept running while `tending` (not during a reset, nor once closed). */
+  let keeper: Job | null = null;
+  let tending = herdr !== undefined;
+  const herdrSocket = join(home, ".config", "herdr", "herdr.sock");
+  const tend = () => {
+    if (!herdr || !tending || keeper) return;
+    const job = launch(`exec ${quoted(herdr)} server`, workspace, new Clip(0, 20_000), { lasting: true });
+    keeper = job;
+    const again = () => {
+      keeper = null;
+      if (tending) setTimeout(tend, RESTART_MS).unref();
     };
-    service.job.ended.then(
-      (end) => void (service.end = end),
-      (error) => {
-        clip.append(`Could not start the command: ${said(error)}`);
-        service.end = { exitCode: null, signal: null };
-      },
-    );
-    services.set(service.id, service);
-    // the oldest ended ones go, past what is remembered
-    const ended = [...services.values()].filter((s) => s.end !== null);
-    for (const old of ended.slice(0, Math.max(0, ended.length - REMEMBERED))) services.delete(old.id);
-    // a command that fails at once shows it now
-    await Promise.race([service.job.ended.catch(() => {}), new Promise((done) => setTimeout(done, settle))]);
-    return { service: describe(service), output: endOf(lastLines(clip.result().output, 40)) };
+    job.ended.then(again, again);
   };
 
-  const stop = async (ref: string) => {
-    const service = find(ref);
-    if (service.end === null) {
-      service.job.stop(5_000);
-      await service.job.ended.catch(() => {});
+  let terminals = 0;
+  /** Show herdr's interface on `ws`, once its server is there. */
+  const openTerminal = async (ws: WebSocket, url: URL) => {
+    if (resetting) await resetting.catch(() => {});
+    if (!herdr) return ws.close(4404, "There are no terminals here.");
+    if (terminals >= TERMINALS) return ws.close(4429, `${TERMINALS} terminals are open; close one first.`);
+    for (const start = Date.now(); !existsSync(herdrSocket); ) {
+      if (Date.now() - start > SERVER_WAIT_MS || ws.readyState !== ws.OPEN) return ws.close(4503, "The terminals are not running just now.");
+      await new Promise((done) => setTimeout(done, 100));
     }
-    return { service: describe(service) };
-  };
-
-  /** A line typed into a running service: what a waiting CLI reads (a code), never kept here. */
-  const type = (ref: string, text: string) => {
-    const service = find(ref);
-    if (service.end !== null || !service.job.type(`${text}\n`)) throw new Refused(`The service ${service.name} is not running, or takes no input.`, 409);
-    return {};
+    const cols = Cols.safeParse(Number(url.searchParams.get("cols")));
+    const rows = Rows.safeParse(Number(url.searchParams.get("rows")));
+    terminals++;
+    const terminal = relayTerminal(ws, {
+      command: [herdr],
+      cols: cols.success ? cols.data : 80,
+      rows: rows.success ? rows.data : 24,
+      cwd: workspace,
+      env: environment,
+      ...(user ? { user } : {}),
+    });
+    const job: Job = {
+      ended: terminal.ended.then(() => ({ exitCode: null, signal: null })),
+      signal: terminal.signal,
+      stop: () => terminal.signal("SIGKILL"),
+    };
+    jobs.add(job);
+    void job.ended.then(() => {
+      terminals--;
+      jobs.delete(job);
+    });
   };
 
   /* ---------- credentials ---------- */
@@ -346,18 +312,23 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
     return {};
   };
 
+  /** A credential typed into a terminal (a CLI waiting for a code) and Enter after it: typed once, never kept here. */
+  const typeSecret = async ({ pane, value }: SecretTyped) => {
+    if (!herdr) throw new Refused("There are no terminals here.", 404);
+    try {
+      await herdrCall(herdrSocket, "pane.send_input", { pane_id: pane, text: value, keys: ["enter"] });
+    } catch (error) {
+      throw new Refused(error instanceof HerdrError ? `It could not be typed into ${pane}: ${error.message}` : `It could not be typed into ${pane}.`, 409);
+    }
+    return {};
+  };
+
   const forget = async (what: Forget) => {
     if ("env" in what) {
       const rest = Object.fromEntries(Object.entries(secrets()).filter(([name]) => name !== what.env));
       await keep(secretsFile, JSON.stringify(rest));
     } else await rm(homePath(what.file), { force: true });
     return {};
-  };
-
-  const log = (ref: string, lines: number) => {
-    const service = find(ref);
-    const { output, cut } = service.clip.result();
-    return { service: describe(service), output: endOf(lastLines(output, lines)), cut };
   };
 
   /* ---------- reset ---------- */
@@ -405,12 +376,18 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
   };
 
   const reset = async () => {
-    await stopAll();
-    services.clear();
-    await empty(home, workspace, (await lstat(home)).dev);
-    if (existsSync(skeleton)) {
-      cpSync(skeleton, home, { recursive: true, force: true });
-      for (const name of await readdir(skeleton)) await give(join(home, name));
+    // herdr's server goes with everything else, and is started again on the emptied home
+    tending = false;
+    try {
+      await stopAll();
+      await empty(home, workspace, (await lstat(home)).dev);
+      if (existsSync(skeleton)) {
+        cpSync(skeleton, home, { recursive: true, force: true });
+        for (const name of await readdir(skeleton)) await give(join(home, name));
+      }
+    } finally {
+      tending = herdr !== undefined;
+      tend();
     }
   };
   /** The reset in progress: whatever is asked meanwhile waits for it. */
@@ -444,30 +421,19 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
   const handle = async (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://local");
     const path = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
-    // a service's name or id is the part after /services
-    const route = `${req.method} /${path.map((part, i) => (i === 1 && path[0] === "services" ? ":service" : part)).join("/")}`;
+    const route = `${req.method} /${path.join("/")}`;
     if (resetting && route !== "POST /reset") await resetting.catch(() => {});
     switch (route) {
       case "GET /health":
         return json(res, 200, {});
       case "POST /run":
         return await run(await asked(req, Run), res);
-      case "POST /services":
-        return json(res, 200, await start(await asked(req, Start)));
-      case "GET /services":
-        return json(res, 200, { services: [...services.values()].map(describe) });
-      case "GET /services/:service/log": {
-        const lines = Number(url.searchParams.get("lines") ?? LINES);
-        return json(res, 200, log(path[1] ?? "", Number.isInteger(lines) && lines > 0 ? Math.min(lines, MOST_LINES) : LINES));
-      }
-      case "POST /services/:service/stop":
-        return json(res, 200, await stop(path[1] ?? ""));
-      case "POST /services/:service/input":
-        return json(res, 200, type(path[1] ?? "", (await asked(req, Input)).text));
       case "POST /secrets/env":
         return json(res, 200, await setEnv(await asked(req, SecretEnv)));
       case "POST /secrets/file":
         return json(res, 200, await setFile(await asked(req, SecretFile)));
+      case "POST /secrets/type":
+        return json(res, 200, await typeSecret(await asked(req, SecretTyped)));
       case "POST /secrets/forget":
         return json(res, 200, await forget(await asked(req, Forget)));
       case "POST /reset":
@@ -487,15 +453,27 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
     });
   });
 
+  const sockets = new WebSocketServer({ noServer: true });
+  http.on("upgrade", (req, socket, head) => {
+    const url = new URL(req.url ?? "/", "http://local");
+    if (url.pathname !== TERMINAL_PATH) return void socket.end("HTTP/1.1 404 Not Found\r\n\r\n");
+    sockets.handleUpgrade(req, socket, head, (ws) => {
+      openTerminal(ws, url).catch(() => ws.close(1011, "The terminal could not be opened."));
+    });
+  });
+
   return new Promise((done, failed) => {
     http.once("error", failed);
     http.listen(port, host, () => {
       http.off("error", failed);
+      tend();
       const address = http.address();
       done({
         port: address !== null && typeof address === "object" ? address.port : port,
         close: () =>
           new Promise<void>((closed) => {
+            tending = false;
+            for (const ws of sockets.clients) ws.terminate();
             for (const job of jobs) job.signal("SIGKILL");
             http.closeAllConnections();
             http.close(() => closed());

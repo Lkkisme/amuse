@@ -348,7 +348,7 @@ const destination = (deliver: SecretRequest["deliver"]) =>
     ? `For Amuse's computer, as $${deliver.name}`
     : deliver.kind === "file"
       ? `For Amuse's computer, in ~/${deliver.path.replace(/^~?\/?/, "")}`
-      : `Typed into ${deliver.service} on Amuse's computer`;
+      : `Typed into terminal ${deliver.pane} on Amuse's computer`;
 
 /**
  * Amuse asking for a credential its computer needs: typed here, it goes to

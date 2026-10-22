@@ -17,7 +17,7 @@ before(async () => {
   mkdirSync(workspace, { recursive: true });
   mkdirSync(skeleton);
   writeFileSync(join(skeleton, ".profile"), "# fresh\n");
-  daemon = await serve({ home, workspace, skeleton, port: 0, host: "127.0.0.1", settle: 300 });
+  daemon = await serve({ home, workspace, skeleton, port: 0, host: "127.0.0.1" });
   sandbox = sandboxClient(`http://127.0.0.1:${daemon.port}`);
 });
 after(() => daemon.close());
@@ -89,39 +89,6 @@ test("a command is stopped when whoever asked for it goes away", async () => {
   assert.ok(await until(() => !alive(pid)), "the command goes on");
 });
 
-test("a service runs on, its output can be read, and stopping it stops the whole group", async () => {
-  const file = join(root, "service-pids");
-  const { service, output } = await sandbox.start({ name: "ticker", command: `(sleep 60 & echo $! >> ${file}; while true; do echo tick; sleep 0.2; done)` });
-  assert.equal(service.running, true);
-  assert.match(output, /^tick/, "what it printed in its first moments comes with it");
-  assert.match(await failure(sandbox.start({ name: "ticker", command: "sleep 1" })), /running already/);
-  assert.ok(await until(() => existsSync(file)));
-  const child = Number(readFileSync(file, "utf8"));
-  assert.ok(alive(child));
-  const seen = await sandbox.log("ticker", 3);
-  assert.match(seen.output, /^(tick\n?){1,3}$/);
-  assert.equal((await sandbox.log(service.id, 1)).service.id, service.id);
-  assert.deepEqual(
-    (await sandbox.services()).map((s) => [s.name, s.running]),
-    [["ticker", true]],
-  );
-
-  const stopped = await sandbox.stop("ticker");
-  assert.equal(stopped.running, false);
-  assert.ok(await until(() => !alive(child)), "the service's child is still there");
-  assert.match((await sandbox.log("ticker")).output, /tick/, "its log is still there to read");
-  // the name is free again
-  await sandbox.stop((await sandbox.start({ name: "ticker", command: "sleep 30" })).service.id);
-});
-
-test("a service that fails at once says so in what it printed", async () => {
-  const { service, output } = await sandbox.start({ name: "broken", command: "echo cannot bind port; exit 3" });
-  assert.equal(service.running, false);
-  assert.equal(service.exitCode, 3);
-  assert.equal(output, "cannot bind port");
-  assert.match(await failure(sandbox.log("nothing")), /no service nothing/);
-});
-
 test("a reset stops everything and empties the home folder to its skeleton, never the workspace", async () => {
   writeFileSync(join(workspace, "mine.txt"), "keep");
   mkdirSync(join(workspace, "deep"));
@@ -132,7 +99,6 @@ test("a reset stops everything and empties the home folder to its skeleton, neve
   const outside = join(root, "outside.txt");
   writeFileSync(outside, "not the sandbox's");
   symlinkSync(root, join(home, "link-out"));
-  const { service } = await sandbox.start({ name: "web", command: "sleep 60" });
 
   await sandbox.reset();
 
@@ -141,8 +107,6 @@ test("a reset stops everything and empties the home folder to its skeleton, neve
   assert.equal(readFileSync(join(workspace, "mine.txt"), "utf8"), "keep");
   assert.ok(existsSync(join(workspace, "deep")));
   assert.equal(readFileSync(outside, "utf8"), "not the sandbox's", "a link out of the home is removed, not followed");
-  assert.deepEqual(await sandbox.services(), []);
-  assert.match(await failure(sandbox.stop(service.id)), /no service/);
 });
 
 test("when the daemon cannot be reached, the client says so in words", async () => {
@@ -165,23 +129,6 @@ test("a process that gets away from a command does not hold its answer back", as
   }
 });
 
-test("a service that spawns something that gets away still ends when its own process does", async () => {
-  const file = join(root, "escaped-pid");
-  await sandbox.start({ name: "forker", command: `setsid sleep 20 & echo $! > ${file}; echo started; sleep 0.1; exit 4` });
-  try {
-    let service = (await sandbox.services()).find((s) => s.name === "forker");
-    for (let waited = 0; service?.running && waited < 40; waited++) {
-      await new Promise((r) => setTimeout(r, 50));
-      service = (await sandbox.services()).find((s) => s.name === "forker");
-    }
-    assert.equal(service?.running, false);
-    assert.equal(service?.exitCode, 4);
-    assert.match((await sandbox.log("forker")).output, /started/);
-  } finally {
-    process.kill(Number(readFileSync(file, "utf8")), "SIGKILL");
-  }
-});
-
 test("a request made during a reset waits for it", async () => {
   mkdirSync(join(home, "stale"), { recursive: true });
   const resetting = sandbox.reset();
@@ -189,26 +136,6 @@ test("a request made during a reset waits for it", async () => {
   await resetting;
   const ran = await listing;
   assert.ok(!ran.output.includes("stale"), ran.output);
-});
-
-test("what a service printed fits the answer however it escapes, and a list of long commands does too", async () => {
-  // 150 000 NUL bytes: six bytes each as JSON, far past a megabyte if sent whole
-  const { service } = await sandbox.start({ name: "noisy", command: "head -c 150000 /dev/zero; sleep 30" });
-  await new Promise((r) => setTimeout(r, 400));
-  const raw = await fetch(`http://127.0.0.1:${daemon.port}/services/noisy/log?lines=1000`);
-  const body = await raw.text();
-  assert.ok(body.length < 1024 ** 2 / 2, String(body.length));
-  const log = await sandbox.log("noisy", 1000);
-  assert.ok(log.output.length > 10_000 && log.output.length < 150_000, String(log.output.length));
-  assert.equal(log.service.id, service.id);
-  await sandbox.stop("noisy");
-  // many services, each with the longest command there may be
-  const long = `sleep 30 # ${"x".repeat(99_000)}`;
-  for (let i = 0; i < 8; i++) await sandbox.start({ name: `long${i}`, command: long });
-  const listed = await (await fetch(`http://127.0.0.1:${daemon.port}/services`)).text();
-  assert.ok(listed.length < 100_000, String(listed.length));
-  assert.equal((await sandbox.services()).filter((s) => s.name.startsWith("long")).length, 8);
-  for (let i = 0; i < 8; i++) await sandbox.stop(`long${i}`);
 });
 
 test("a credential given as an environment variable is in every command after, for the user alone, and goes when taken back", async () => {
@@ -236,15 +163,4 @@ test("a credential file goes in the home folder, never the workspace or out of h
   assert.match(await failure(sandbox.setFile({ path: "../outside", value: "x" })), /home folder/);
   await sandbox.forget({ file: ".config/tool/key" });
   assert.equal(existsSync(written), false);
-});
-
-test("a running service can be typed into, as a CLI waiting for a code reads it", async () => {
-  await sandbox.start({ name: "waiting", command: 'read code; echo "got $code"; sleep 30' });
-  await sandbox.input("waiting", "abc-123");
-  // the line is read and answered in a moment
-  await new Promise((done) => setTimeout(done, 300));
-  const log = await sandbox.log("waiting");
-  assert.match(log.output, /got abc-123/);
-  await sandbox.stop("waiting");
-  assert.match(await failure(sandbox.input("waiting", "late")), /not running/);
 });
