@@ -293,6 +293,9 @@ export const zhCN = {
     model: "模型",
     thinking: "思考",
     thinkingFor: (role) => `${role}思考`,
+    thinkingNoModel: "先选择模型",
+    thinkingNone: "此模型不支持",
+    browserBlind: "聊天模型看不了图片，而浏览器需要看图：请给浏览器单独选一个模型。",
     levels: {
       off: "关闭",
       minimal: "最低",

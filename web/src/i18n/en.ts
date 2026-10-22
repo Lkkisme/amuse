@@ -282,6 +282,9 @@ export const en = {
     model: "Model",
     thinking: "Thinking",
     thinkingFor: (role: string) => `${role} thinking`,
+    thinkingNoModel: "Choose a model first",
+    thinkingNone: "Not offered by this model",
+    browserBlind: "The chat's model does not see pictures, which the browser needs: choose a browser model of its own.",
     levels: {
       off: "Off",
       minimal: "Minimal",

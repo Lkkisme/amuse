@@ -141,8 +141,16 @@ async function withCodemode(system: string, cwd: string): Promise<ResourceLoader
   return loader;
 }
 
-/** `codemode`: give the model Pi's codemode tool too (the chat agent and its helpers; not the browser agent, whose steps are one at a time on a page). */
-export async function openSession(cfg: PiModelConfig, system: string, tools: ToolDefinition[], { codemode = false }: { codemode?: boolean } = {}): Promise<PiSession> {
+/**
+ * `codemode`: give the model Pi's codemode tool too (the chat agent and its helpers; not the browser agent, whose steps
+ * are one at a time on a page). `images`: the model must see pictures (the browser's, which may be the chat's).
+ */
+export async function openSession(
+  cfg: PiModelConfig,
+  system: string,
+  tools: ToolDefinition[],
+  { codemode = false, images = false }: { codemode?: boolean; images?: boolean } = {},
+): Promise<PiSession> {
   const chosen = cfg.model();
   if (chosen === null) throw new NoModel("No model is set up yet: add a provider's key and choose a model in Settings.");
   const spec = parseModel(chosen);
@@ -150,6 +158,8 @@ export async function openSession(cfg: PiModelConfig, system: string, tools: Too
   const models = await runtime(cfg);
   const model = models.getModel(spec.provider, spec.id);
   if (!model) throw new Error(`Model "${chosen}" is not available.`);
+  if (images && !model.input.includes("image"))
+    throw new NoModel(`${model.name} does not see pictures, which the browser needs: choose a browser model in Settings.`);
   return sessionOn(models, model, system, tools, { codemode, thinkingLevel: clampThinkingLevel(model, cfg.thinking?.() ?? "off") });
 }
 

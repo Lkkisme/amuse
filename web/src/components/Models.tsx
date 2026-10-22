@@ -1,6 +1,6 @@
 /**
- * Settings › Models: the model Muse chats with and the one that works in the
- * browser (it must see pictures), among those of the providers set up with
+ * Settings › Models: the model Muse chats with, the one that works in the
+ * browser (it must see pictures; the chat's unless chosen), among those of the providers set up with
  * the user's own API keys; the providers set up (only the end of a key
  * shows), each with a page of its own to test, replace or remove its key; and
  * every other one to add.
@@ -151,7 +151,7 @@ export function Models({
             />
             <ThinkingPicker
               title={t.models.chat}
-              levels={models.find((m) => m.id === state.chat)?.thinking ?? []}
+              levels={models.find((m) => m.id === state.chat)?.thinking}
               value={state.thinking.chat}
               onChange={(level) => think("chat", level)}
             />
@@ -168,17 +168,25 @@ export function Models({
               value={state.browser}
               options={models.filter((m) => m.images)}
               names={names}
+              unset={t.models.sameAsChat}
               onChange={(m) => choose("browser", m)}
             />
             <ThinkingPicker
               title={t.models.browser}
               levels={
-                models.find((m) => m.id === state.browser)?.thinking ?? []
+                models.find((m) => m.id === (state.browser ?? state.chat))
+                  ?.thinking
               }
               value={state.thinking.browser}
               onChange={(level) => think("browser", level)}
             />
           </div>
+          {/* the browser on the chat's model, which cannot do its work */}
+          {state.browser === null && state.chat !== null && models.find((m) => m.id === state.chat)?.images === false && (
+            <p className="mt-2 px-1 text-[13px] leading-snug" style={{ color: "var(--fill-red)" }}>
+              {t.models.browserBlind}
+            </p>
+          )}
           {/* scheduled work: memory upkeep, reflection, the user's schedules */}
           <p className={label} style={{ color: "var(--text-secondary)" }}>
             {t.models.background}
@@ -199,7 +207,7 @@ export function Models({
               title={t.models.background}
               levels={
                 models.find((m) => m.id === (state.background ?? state.chat))
-                  ?.thinking ?? []
+                  ?.thinking
               }
               value={state.thinking.background}
               onChange={(level) => think("background", level)}
@@ -489,7 +497,10 @@ function ProviderPage({
   );
 }
 
-/** How much a role's model thinks; only for a model that can (it takes more than "off"). */
+/**
+ * How much a role's model thinks. The row is always there, so it is plain where it is; it can be changed only for a
+ * model that thinks (it takes more than "off"), and says why not otherwise.
+ */
 function ThinkingPicker({
   title,
   levels,
@@ -497,12 +508,20 @@ function ThinkingPicker({
   onChange,
 }: {
   title: string;
-  levels: ThinkingLevel[];
+  /** the levels the role's model takes; undefined: no model yet */
+  levels: ThinkingLevel[] | undefined;
   value: ThinkingLevel;
   onChange: (level: ThinkingLevel) => void;
 }) {
   const t = useT();
-  if (levels.length < 2) return null;
+  if (!levels || levels.length < 2)
+    return (
+      <Row name={t.models.thinking}>
+        <span className="min-w-0 flex-1 truncate text-right text-[15px]" style={{ color: "var(--text-tertiary)" }}>
+          {levels ? t.models.thinkingNone : t.models.thinkingNoModel}
+        </span>
+      </Row>
+    );
   return (
     <Row name={t.models.thinking}>
       <select
@@ -654,7 +673,7 @@ function LocalVoiceSheet({
 /**
  * One role's model, as rows of its group: its provider (when more than one has models: the same model can be at two),
  * then one of that provider's models. None chosen yet: said so. A provider picked shows its models; the role's model
- * changes only once one of them is picked.
+ * changes only once one of them is picked. A role that can follow the chat's model (`unset`) offers that first in both.
  */
 function ModelPicker({
   title,
@@ -677,7 +696,9 @@ function ModelPicker({
   const providers = [...new Set(options.map((o) => o.provider))];
   const current = options.find((o) => o.id === value)?.provider ?? null;
   const [picked, setPicked] = useState<string | null>(null);
-  const provider = picked ?? current ?? providers[0] ?? null;
+  // a role on the chat's model has no provider of its own: the provider row says so too, until one is picked
+  const following = unset !== undefined && value === null && picked === null && providers.length > 1;
+  const provider = following ? null : (picked ?? current ?? providers[0] ?? null);
   const shown = options.filter((o) => o.provider === provider);
   // the role's model is this provider's: it is the one shown chosen; else, until one is picked, nothing is
   const chosen = value !== null && shown.some((o) => o.id === value) ? value : "";
@@ -690,8 +711,12 @@ function ModelPicker({
             className={pick}
             style={{ color: "var(--text-secondary)" }}
             value={provider ?? ""}
-            onChange={(e) => setPicked(e.target.value)}
+            onChange={(e) => {
+              setPicked(e.target.value || null);
+              if (!e.target.value && value !== null) onChange(null);
+            }}
           >
+            {unset && <option value="">{unset}</option>}
             {providers.map((id) => (
               <option key={id} value={id}>
                 {names.get(id) ?? id}

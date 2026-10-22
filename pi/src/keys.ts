@@ -189,8 +189,8 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
     }));
   };
 
-  /** The model `role` runs on: its own, or (scheduled work) the chat's when it has none. */
-  const runs = (role: ModelRole): string | null => (role === "background" ? (choice.background ?? choice.chat) : choice[role]);
+  /** The model `role` runs on: its own, or (the browser, scheduled work) the chat's when it has none. */
+  const runs = (role: ModelRole): string | null => (role === "chat" ? choice.chat : (choice[role] ?? choice.chat));
   /** The level `role`'s model thinks at: the one chosen, or the nearest it takes (some cannot be off). */
   const inEffect = async (role: ModelRole): Promise<ThinkingLevel> => {
     const ref = runs(role);
@@ -393,8 +393,8 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
 
     async choose(role, model) {
       if (model === null) {
-        if (role !== "background") throw new Rejected({ kind: "unsound", reason: `The ${role} needs a model of its own.` });
-        return choose({ ...choice, background: null });
+        if (role === "chat") throw new Rejected({ kind: "unsound", reason: "The chat needs a model of its own." });
+        return choose({ ...choice, [role]: null });
       }
       const option = (await available()).find((m) => m.id === model);
       if (!option) throw new Rejected({ kind: "unsound", reason: `${model} is not offered by a provider set up with a key.` });
@@ -491,7 +491,7 @@ export async function adoptEnvironment({
   if (!existsSync(choicePath) && chat) {
     const choice: Choice = {
       chat,
-      browser: env["AMUSE_PI_BROWSER_MODEL"]?.trim() || chat,
+      browser: env["AMUSE_PI_BROWSER_MODEL"]?.trim() || null,
       background: null,
       voice: null,
       localVoice: null,

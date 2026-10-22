@@ -202,7 +202,7 @@ test("each role's model thinks as much as chosen, within what the model takes; a
   assert.ok(always.thinking.includes(shown), `${shown} is one of ${always.thinking.join(",")}`);
 });
 
-test("scheduled work runs on the chat's model until it has one of its own, and goes back to it", async () => {
+test("the browser and scheduled work run on the chat's model until they have one of their own, and go back to it", async () => {
   const { keys } = setup();
   const first = await keys.login("fireworks");
   if (first.kind !== "prompt") return assert.fail("expected a prompt");
@@ -216,6 +216,12 @@ test("scheduled work runs on the chat's model until it has one of its own, and g
   assert.equal((await keys.list()).background, b.id);
   await keys.choose("background", null);
   assert.equal(keys.model("background"), a.id);
+  assert.equal(keys.model("browser"), a.id);
+  await keys.choose("browser", b.id);
+  assert.equal(keys.model("browser"), b.id);
+  await keys.choose("browser", null);
+  assert.equal(keys.model("browser"), a.id);
+  assert.equal((await keys.list()).browser, null);
   await assert.rejects(keys.choose("chat", null), /needs a model/);
 });
 
