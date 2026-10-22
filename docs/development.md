@@ -22,6 +22,9 @@ docs/      UI spec, measured design tokens, reference notes
 - No Meta assets (icons, images, fonts, sounds) may be copied from the APK into this repo.
   Recreate shapes and values in code.
 - Every screen must render and be navigable in the demo (no server, scripted ports).
+- Every change someone running Amuse would notice goes in `CHANGELOG.md` under Unreleased, in the same
+  commit: what it does for them, in a line, not how it was done. A release moves Unreleased under its version
+  and date, tags it (`vX.Y.Z`) and publishes the section as the GitHub release's notes.
 
 ## Develop
 
