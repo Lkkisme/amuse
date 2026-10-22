@@ -170,7 +170,7 @@ export function Connectors({
   );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col px-5 sm:px-6">
+    <div className="px-5 sm:px-6">
       <label
         className="flex h-10 shrink-0 items-center gap-2 rounded-full px-3"
         style={{ background: "var(--fill-secondary)" }}
@@ -209,7 +209,7 @@ export function Connectors({
       </div>
       {errorLine}
 
-      <div className="mt-4 min-h-0 flex-1 overflow-y-auto pb-5">
+      <div className="mt-4 pb-5">
         {tab === "available" ? (
           found === null ? (
             <Note>{t.connections.loadingApps}</Note>
@@ -281,8 +281,8 @@ function AppPage({
       .call("apps.permit", { app: app.id, kind, permission })
       .then(load, load);
   return (
-    // a block, not a flex column: a flex column would squeeze its rows to fit instead of scrolling them
-    <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6 pt-3 sm:px-6">
+    // Settings owns the single scroll surface; account and permission rows keep their height.
+    <div className="px-5 pb-6 pt-3 sm:px-6">
       <button
         aria-label={t.common.back}
         // a desktop's way back to the apps (a phone's is in the settings' own bar)

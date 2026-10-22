@@ -324,7 +324,9 @@ export function SettingsModal({
             </button>
           </header>
           {shown === "connectors" && (
-            <>
+            // One scroll surface includes the status cards, app list and setup help.
+            // A keyboard must not squeeze the only scrollable list between fixed blocks.
+            <div className="min-h-0 flex-1 overflow-y-auto" data-connections-scroll>
               {paseo && <p className="mx-5 mb-4 shrink-0 rounded-xl px-4 py-3 text-[13px] leading-relaxed sm:mx-6"
                 style={{ background: "var(--fill-secondary)", color: "var(--text-secondary)" }}>
                 {t.backend.connectionsHelp}
@@ -335,7 +337,7 @@ export function SettingsModal({
                 viewing={ui.app}
                 onView={actions.openApp}
               />
-            </>
+            </div>
           )}
           {shown === "permissions" && (
             <>
