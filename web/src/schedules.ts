@@ -50,25 +50,23 @@ export function moment(instant: string, now = new Date(), language: Language = a
   return t.time.onDay(dayName, time);
 }
 
-export const outcomes: Record<RunOutcome, string> = {
-  reported: "Reported",
-  quiet: "Nothing to report",
-  failed: "Failed",
-  missed: "Missed",
-  stopped: "Stopped by Amuse",
-};
+/** How a run went, in words. */
+export function outcomeLabel(outcome: RunOutcome, language: Language = activeLanguage()): string {
+  return catalogOf(language).schedule.outcomes[outcome];
+}
 
 /** The line under a schedule's title: what it is doing or will do next. */
-export function scheduleState(schedule: Schedule): string {
-  if (schedule.running) return "Running now";
+export function scheduleState(schedule: Schedule, language: Language = activeLanguage()): string {
+  const t = catalogOf(language).schedule.state;
+  if (schedule.running) return t.running;
   switch (schedule.status) {
     case "active":
-      return schedule.next ? `Next: ${moment(schedule.next)}` : "Active";
+      return schedule.next ? t.next(moment(schedule.next, new Date(), language)) : t.active;
     case "paused":
-      return "Paused";
+      return t.paused;
     case "done":
-      return "Done";
+      return t.done;
     case "cancelled":
-      return "Cancelled";
+      return t.cancelled;
   }
 }

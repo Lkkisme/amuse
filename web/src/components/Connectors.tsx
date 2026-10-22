@@ -18,6 +18,7 @@ import type {
 } from "@amuse/protocol";
 import { AppLogo } from "./AppLogo";
 import { PermissionSelect } from "./PermissionSelect";
+import { useT } from "../i18n/react.ts";
 
 type Tab = "available" | "connected";
 const TABS: Tab[] = ["available", "connected"];
@@ -35,6 +36,7 @@ export function Connectors({
   viewing: App | null;
   onView: (app: App | null) => void;
 }) {
+  const t = useT();
   const [tab, setTab] = useState<Tab>("available");
   const [query, setQuery] = useState("");
   const [found, setFound] = useState<{
@@ -175,7 +177,7 @@ export function Connectors({
         <input
           className="w-full bg-transparent text-[15px] outline-none"
           style={{ color: "var(--text-primary)" }}
-          placeholder="Search"
+          placeholder={t.connections.search}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -184,12 +186,12 @@ export function Connectors({
         className="mt-3 grid h-9 shrink-0 grid-cols-2 rounded-full p-[3px]"
         style={{ background: "var(--fill-secondary)" }}
       >
-        {TABS.map((t) => (
+        {TABS.map((option) => (
           <button
-            key={t}
+            key={option}
             className="rounded-full text-[14px] font-medium"
             style={
-              tab === t
+              tab === option
                 ? {
                     background: "var(--segment-selected)",
                     color: "var(--text-primary)",
@@ -197,9 +199,9 @@ export function Connectors({
                   }
                 : { color: "var(--text-secondary)" }
             }
-            onClick={() => setTab(t)}
+            onClick={() => setTab(option)}
           >
-            {t === "available" ? "Available" : "Connected"}
+            {option === "available" ? t.connections.available : t.connections.connected}
           </button>
         ))}
       </div>
@@ -208,9 +210,9 @@ export function Connectors({
       <div className="mt-4 min-h-0 flex-1 overflow-y-auto pb-5">
         {tab === "available" ? (
           found === null ? (
-            <Note>Loading connections…</Note>
+            <Note>{t.connections.loadingApps}</Note>
           ) : found.apps.length === 0 ? (
-            <Note>No connection matches “{query}”.</Note>
+            <Note>{t.connections.noMatch(query)}</Note>
           ) : (
             <>
               <Group>{found.apps.map(row)}</Group>
@@ -220,18 +222,16 @@ export function Connectors({
                   style={{ color: "var(--fill-blue)" }}
                   onClick={more}
                 >
-                  Show more
+                  {t.connections.showMore}
                 </button>
               )}
             </>
           )
         ) : accounts === null ? (
-          <Note>Loading…</Note>
+          <Note>{t.connections.loading}</Note>
         ) : shownConnected.length === 0 ? (
           <Note>
-            {query
-              ? `No connection matches “${query}”.`
-              : "Nothing connected yet. Connect under Available, or ask Amuse to."}
+            {query ? t.connections.noMatch(query) : t.connections.nothingConnected}
           </Note>
         ) : (
           <Group>{shownConnected.map(row)}</Group>
@@ -261,6 +261,7 @@ function AppPage({
   onConnect: () => void;
   onDisconnect: (accounts: string[]) => void;
 }) {
+  const t = useT();
   /** the account whose options are open */
   const [options, setOptions] = useState<string | null>(null);
   const [rules, setRules] = useState<KindRule[] | null>(null);
@@ -281,7 +282,7 @@ function AppPage({
     // a block, not a flex column: a flex column would squeeze its rows to fit instead of scrolling them
     <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6 pt-3 sm:px-6">
       <button
-        aria-label="Back"
+        aria-label={t.common.back}
         // a desktop's way back to the apps (a phone's is in the settings' own bar)
         className="hover-fade hidden size-8 shrink-0 items-center justify-center rounded-full sm:flex"
         style={{
@@ -305,7 +306,7 @@ function AppPage({
           className="mt-0.5 max-w-[360px] text-[13px]"
           style={{ color: "var(--text-secondary)" }}
         >
-          {app.description || "Amuse can use the accounts you connect."}
+          {app.description || t.connections.useAccounts}
         </p>
       </div>
       {error}
@@ -318,7 +319,7 @@ function AppPage({
               style={{ color: "var(--fill-red)" }}
               onClick={() => onDisconnect(accounts.map((a) => a.id))}
             >
-              Disconnect
+              {t.connections.disconnect}
             </button>
           </li>
         </Group>
@@ -330,7 +331,7 @@ function AppPage({
           style={{ background: "var(--fill-blue)" }}
           onClick={onConnect}
         >
-          Connect
+          {t.connections.connect}
         </button>
       ) : (
         <Group className="mt-3">
@@ -361,13 +362,13 @@ function AppPage({
                     style={{ color: "var(--fill-orange)" }}
                   >
                     {account.status === "expired"
-                      ? "Expired: connect it again"
-                      : "Failed: connect it again"}
+                      ? t.connections.expired
+                      : t.connections.failed}
                   </span>
                 )}
               </span>
               <button
-                aria-label={`Options for ${account.label ?? app.name}`}
+                aria-label={t.connections.optionsFor(account.label ?? app.name)}
                 className="hover-fade flex size-8 items-center justify-center rounded-full"
                 style={{
                   background: "var(--fill-primary)",
@@ -395,7 +396,7 @@ function AppPage({
                         onConnect();
                       }}
                     >
-                      Connect again
+                      {t.connections.connectAgain}
                     </MenuItem>
                   )}
                   <MenuItem
@@ -405,7 +406,7 @@ function AppPage({
                       onDisconnect([account.id]);
                     }}
                   >
-                    Disconnect this account
+                    {t.connections.disconnectAccount}
                   </MenuItem>
                 </div>
               )}
@@ -417,7 +418,7 @@ function AppPage({
               style={{ color: "var(--fill-blue)" }}
               onClick={onConnect}
             >
-              Add account
+              {t.connections.addAccount}
             </button>
           </li>
         </Group>
@@ -430,7 +431,7 @@ function AppPage({
                 className="mb-1.5 mt-5 px-4 text-[13px] font-medium"
                 style={{ color: "var(--text-secondary)" }}
               >
-                {kindTitle[rule.kind]}
+                {t.connections.kinds[rule.kind]}
               </p>
               <Group>
                 <li className="flex items-center gap-3 py-3">
@@ -438,7 +439,7 @@ function AppPage({
                     className="min-w-0 flex-1 text-[15px]"
                     style={{ color: "var(--text-primary)" }}
                   >
-                    {kindLine[rule.kind](app.name)}
+                    {t.connections.kindLines[rule.kind](app.name)}
                   </span>
                   <PermissionSelect
                     value={rule.permission}
@@ -458,7 +459,7 @@ function AppPage({
                   .forEach((r) => permit(r.kind, null))
               }
             >
-              Reset to defaults
+              {t.connections.resetDefaults}
             </button>
           )}
         </>
@@ -467,16 +468,6 @@ function AppPage({
   );
 }
 
-const kindTitle: Record<ToolKind, string> = {
-  read: "Read permissions",
-  write: "Write permissions",
-  destructive: "Delete permissions",
-};
-const kindLine: Record<ToolKind, (app: string) => string> = {
-  read: (app) => `Read ${app} content`,
-  write: (app) => `Change ${app} content`,
-  destructive: (app) => `Delete or cancel in ${app}`,
-};
 /** Rows in one rounded box, divided by hairlines (Muse's lists). */
 const Group = ({
   className = "",
@@ -506,6 +497,7 @@ function Row({
   connected: boolean;
   onOpen: () => void;
 }) {
+  const t = useT();
   return (
     <li style={{ borderColor: "var(--fill-divider)" }}>
       <button
@@ -523,7 +515,7 @@ function Row({
           className="shrink-0 px-1 text-[15px]"
           style={{ color: "var(--fill-blue)" }}
         >
-          {connected ? "View" : "Connect"}
+          {connected ? t.connections.view : t.connections.connect}
         </span>
       </button>
     </li>

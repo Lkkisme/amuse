@@ -10,8 +10,11 @@ import { useCallback, useEffect, useState } from "react";
 import { KeyRound, Terminal } from "lucide-react";
 import type { SecretInfo, Session } from "@amuse/protocol";
 import { Sheet } from "./Sheet";
+import { useT } from "../i18n/react.ts";
+import type { Messages } from "../i18n/en.ts";
 
 export function Sandbox({ session }: { session: Session }) {
+  const t = useT();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,9 +42,7 @@ export function Sandbox({ session }: { session: Session }) {
         className="text-[13px] leading-snug"
         style={{ color: "var(--text-secondary)" }}
       >
-        Amuse has a computer of its own, where it runs programs and installs
-        what it needs. Your files in the workspace are shared with it. Reset it
-        to stop what runs there and wipe its home folder; your files are kept.
+        {t.sandbox.description}
       </p>
       {error && (
         <p
@@ -58,7 +59,7 @@ export function Sandbox({ session }: { session: Session }) {
           className="mt-2 text-[13px]"
           style={{ color: "var(--text-secondary)" }}
         >
-          The sandbox is reset.
+          {t.sandbox.resetDone}
         </p>
       )}
       <ul
@@ -71,7 +72,7 @@ export function Sandbox({ session }: { session: Session }) {
             className="min-w-0 flex-1 truncate text-[16px]"
             style={{ color: "var(--text-primary)" }}
           >
-            Reset the sandbox
+            {t.sandbox.resetRow}
           </span>
           <button
             disabled={busy}
@@ -79,7 +80,7 @@ export function Sandbox({ session }: { session: Session }) {
             style={{ color: "var(--fill-red)" }}
             onClick={() => setConfirming(true)}
           >
-            Reset
+            {t.common.reset}
           </button>
         </li>
       </ul>
@@ -98,16 +99,13 @@ export function Sandbox({ session }: { session: Session }) {
             className="mt-4 text-[20px] font-semibold"
             style={{ color: "var(--text-primary)" }}
           >
-            Reset the sandbox?
+            {t.sandbox.resetTitle}
           </p>
           <p
             className="mt-1 text-[14px]"
             style={{ color: "var(--text-secondary)" }}
           >
-            What runs there is stopped, and its home folder is wiped: what Amuse
-            installed or saved there is gone. Software installed for the whole
-            machine and changes to its system settings stay until the container
-            is recreated. Your files in the workspace are kept.
+            {t.sandbox.resetHelp}
           </p>
           <button
             disabled={busy}
@@ -115,14 +113,14 @@ export function Sandbox({ session }: { session: Session }) {
             style={{ background: "var(--fill-red)" }}
             onClick={reset}
           >
-            Reset
+            {t.common.reset}
           </button>
           <button
             className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
             style={{ color: "var(--text-primary)" }}
             onClick={() => setConfirming(false)}
           >
-            Cancel
+            {t.common.cancel}
           </button>
         </div>
       </Sheet>
@@ -131,14 +129,14 @@ export function Sandbox({ session }: { session: Session }) {
 }
 
 /** Where a credential went, as the user reads it. */
-const where = (deliver: SecretInfo["deliver"]) =>
-  deliver.kind === "env"
-    ? `As $${deliver.name}`
-    : deliver.kind === "file"
-      ? `In ~/${deliver.path.replace(/^~?\/?/, "")}`
-      : `Typed into terminal ${deliver.pane}`;
+function where(deliver: SecretInfo["deliver"], t: Messages): string {
+  if (deliver.kind === "env") return t.sandbox.deliverEnv(deliver.name);
+  if (deliver.kind === "file") return t.sandbox.deliverFile(deliver.path.replace(/^~?\/?/, ""));
+  return t.sandbox.deliverPane(deliver.pane);
+}
 
 function Credentials({ session }: { session: Session }) {
+  const t = useT();
   const [secrets, setSecrets] = useState<SecretInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<SecretInfo | null>(null);
@@ -174,7 +172,7 @@ function Credentials({ session }: { session: Session }) {
         className="mb-2 text-[13px] font-semibold"
         style={{ color: "var(--text-secondary)" }}
       >
-        Credentials
+        {t.sandbox.credentials}
       </p>
       {error && (
         <p
@@ -199,8 +197,7 @@ function Credentials({ session }: { session: Session }) {
             className="py-3 text-[14px]"
             style={{ color: "var(--text-secondary)" }}
           >
-            When Amuse needs an API key or a login code for its computer, it
-            asks on a card. What you give shows here, never its value.
+            {t.sandbox.noCredentials}
           </li>
         )}
         {secrets?.map((s) => (
@@ -217,7 +214,7 @@ function Credentials({ session }: { session: Session }) {
                 className="block truncate text-[13px]"
                 style={{ color: "var(--text-secondary)" }}
               >
-                {where(s.deliver)}
+                {where(s.deliver, t)}
               </span>
             </span>
             <button
@@ -225,7 +222,7 @@ function Credentials({ session }: { session: Session }) {
               style={{ color: "var(--fill-red)" }}
               onClick={() => setRemoving(s)}
             >
-              Remove
+              {t.common.remove}
             </button>
           </li>
         ))}
@@ -243,14 +240,13 @@ function Credentials({ session }: { session: Session }) {
             className="mt-4 text-[20px] font-semibold"
             style={{ color: "var(--text-primary)" }}
           >
-            Remove {removing?.name}?
+            {t.sandbox.removeTitle(removing?.name ?? "")}
           </p>
           <p
             className="mt-1 text-[14px]"
             style={{ color: "var(--text-secondary)" }}
           >
-            It is taken off Amuse's computer, and Amuse asks again if it needs
-            it. A code typed into a program is not taken back from it.
+            {t.sandbox.removeHelp}
           </p>
           <button
             disabled={busy}
@@ -258,14 +254,14 @@ function Credentials({ session }: { session: Session }) {
             style={{ background: "var(--fill-red)" }}
             onClick={() => removing && remove(removing)}
           >
-            Remove
+            {t.common.remove}
           </button>
           <button
             className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
             style={{ color: "var(--text-primary)" }}
             onClick={() => setRemoving(null)}
           >
-            Cancel
+            {t.common.cancel}
           </button>
         </div>
       </Sheet>

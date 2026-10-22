@@ -5,62 +5,30 @@ import type {
   SiteActions,
   SiteEntry,
 } from "@amuse/protocol";
+import { type Language, activeLanguage, catalogOf } from "./i18n/language.ts";
 
-export const ACTIONS: {
-  id: BrowserAction;
-  name: string;
-  short: string;
-  about: string;
-  options: Permission[];
-}[] = [
-  {
-    id: "visit",
-    name: "Visit websites",
-    short: "Visit",
-    about: "Open a page, or read one",
-    options: ["allow", "ask", "deny"],
-  },
-  {
-    id: "submit",
-    name: "Submit forms",
-    short: "Submit",
-    about: "Steps that send, order, apply or post",
-    options: ["allow", "ask", "deny"],
-  },
-  {
-    id: "download",
-    name: "Download files",
-    short: "Download",
-    about: "Keep what a page downloads in your files",
-    options: ["allow", "ask", "deny"],
-  },
+/** Each kind of action, with the permissions it may be set to (names are in the catalog). */
+export const ACTIONS: { id: BrowserAction; options: Permission[] }[] = [
+  { id: "visit", options: ["allow", "ask", "deny"] },
+  { id: "submit", options: ["allow", "ask", "deny"] },
+  { id: "download", options: ["allow", "ask", "deny"] },
   // asked about or denied, never allowed
-  {
-    id: "upload",
-    name: "Upload files",
-    short: "Upload",
-    about: "Put a file of yours on a page",
-    options: ["ask", "deny"],
-  },
+  { id: "upload", options: ["ask", "deny"] },
 ];
 
-const permissionName: Record<Permission, string> = {
-  allow: "Allow",
-  ask: "Ask",
-  deny: "Deny",
-};
-
 /** A website's exceptions in a line: "Never", or "Visit: Allow · Submit: Allow". */
-export const summary = (rule: {
-  never: boolean;
-  actions: SiteActions;
-}): string =>
-  rule.never
-    ? "Never"
+export function summary(
+  rule: { never: boolean; actions: SiteActions },
+  language: Language = activeLanguage(),
+): string {
+  const t = catalogOf(language).permissions;
+  return rule.never
+    ? t.never
     : ACTIONS.flatMap((a) => {
         const set = rule.actions[a.id];
-        return set ? [`${a.short}: ${permissionName[set]}`] : [];
+        return set ? [t.pair(t.actions[a.id].short, t.permission[set])] : [];
       }).join(" · ");
+}
 
 /**
  * What adding a website that may have exceptions already leaves: its Never stays (adding cannot lift it), and each action set now

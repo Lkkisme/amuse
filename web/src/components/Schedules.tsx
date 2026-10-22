@@ -7,17 +7,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { CalendarClock } from "lucide-react";
 import type { Needs, Schedule, Session } from "@amuse/protocol";
-import { moment, outcomes, repeats, scheduleState } from "../schedules.ts";
+import { moment, outcomeLabel, repeats, scheduleState } from "../schedules.ts";
+import { useT } from "../i18n/react.ts";
 
 type Control = "pause" | "resume" | "cancel";
 
-/** What a run waits for besides its time, said after when it runs. */
-const waits: Record<Needs, string> = {
-  conversation: "when there was conversation",
-  lull: "after a conversation goes quiet",
-};
-
 export function Schedules({ session }: { session: Session }) {
+  const t = useT();
   const [schedules, setSchedules] = useState<Schedule[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const load = useCallback(
@@ -61,16 +57,14 @@ export function Schedules({ session }: { session: Session }) {
         className="text-[13px] leading-snug"
         style={{ color: "var(--text-secondary)" }}
       >
-        Work Amuse runs on its own at set times, like a morning briefing. Each
-        run works in the background with the same permissions as Amuse and tells
-        you only what is worth telling. Ask Amuse in the chat to set one up.
+        {t.schedule.description}
       </p>
       {schedules && standing.length === 0 && (
         <p
           className="mt-6 text-center text-[14px]"
           style={{ color: "var(--text-secondary)" }}
         >
-          No schedules yet.
+          {t.schedule.none}
         </p>
       )}
       {standing.length > 0 && <List schedules={standing} control={control} />}
@@ -94,6 +88,7 @@ function List({
   schedules: Schedule[];
   control: (id: string, action: Control) => void;
 }) {
+  const t = useT();
   return (
     <ul
       className="mt-3 divide-y divide-[var(--fill-divider)] rounded-[18px] px-4"
@@ -119,18 +114,22 @@ function List({
                 style={{ color: "var(--text-secondary)" }}
               >
                 {repeats(s.when)}
-                {s.needs ? ` ${waits[s.needs]}` : ""} · {scheduleState(s)}
-                {s.preset ? " · Built in" : ""}
+                {s.needs ? ` ${t.schedule.waits[s.needs]}` : ""} ·{" "}
+                {scheduleState(s)}
+                {s.preset ? ` · ${t.schedule.builtIn}` : ""}
               </p>
               {s.last && (
                 <p
                   className="mt-0.5 text-[13px]"
                   style={{ color: "var(--text-secondary)" }}
                 >
-                  Last run {moment(s.last.at)}: {outcomes[s.last.outcome]}
-                  {s.last.outcome !== "missed" && s.last.summary
-                    ? ` — ${s.last.summary}`
-                    : ""}
+                  {t.schedule.lastRun(
+                    moment(s.last.at),
+                    outcomeLabel(s.last.outcome),
+                    s.last.outcome !== "missed" && s.last.summary
+                      ? s.last.summary
+                      : null,
+                  )}
                 </p>
               )}
               <details className="mt-1">
@@ -138,7 +137,7 @@ function List({
                   className="cursor-pointer text-[13px]"
                   style={{ color: "var(--text-secondary)" }}
                 >
-                  Instructions
+                  {t.schedule.instructions}
                 </summary>
                 <p
                   className="mt-1 whitespace-pre-wrap text-[13px]"
@@ -156,10 +155,10 @@ function List({
                   control(s.id, s.status === "active" ? "pause" : "resume")
                 }
               >
-                {s.status === "active" ? "Pause" : "Resume"}
+                {s.status === "active" ? t.schedule.pause : t.schedule.resume}
               </Pill>
               <Pill danger onClick={() => control(s.id, "cancel")}>
-                Delete
+                {t.schedule.delete}
               </Pill>
             </div>
           )}

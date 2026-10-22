@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { SiteActions } from "@amuse/protocol";
 import { ACTIONS, mergedEntry, summary } from "./browserRules.ts";
+import { setChoice } from "./i18n/language.ts";
+
+setChoice("en");
 
 test("a website's exceptions are summed up in a line: Never, or each action set, in the order the browser lists them", () => {
   assert.equal(summary({ never: true, actions: {} }), "Never");
@@ -19,6 +22,11 @@ test("a website's exceptions are summed up in a line: Never, or each action set,
     "Download: Ask · Upload: Deny",
   );
   assert.equal(summary({ never: false, actions: {} }), "");
+});
+
+test("the exceptions' line is said in the language of the screen", () => {
+  assert.equal(summary({ never: true, actions: {} }, "zh-CN"), "永不访问");
+  assert.equal(summary({ never: false, actions: { upload: "deny", download: "ask" } }, "zh-CN"), "下载：询问 · 上传：拒绝");
 });
 
 test("the four actions are listed, and an upload cannot be allowed", () => {

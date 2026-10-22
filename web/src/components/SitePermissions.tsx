@@ -22,6 +22,7 @@ import {
 import { ACTIONS, mergedEntry, summary } from "../browserRules.ts";
 import { ActionSelect, PermissionSelect } from "./PermissionSelect";
 import { Sheet } from "./Sheet";
+import { useT } from "../i18n/react.ts";
 
 /** What the user typed, as a site: "https://www.Bank.com/login" and "bank.com" are both bank.com. */
 const asSite = (input: string): string | null => {
@@ -38,6 +39,7 @@ function RuleEditor({
   entry: SiteEntry | null;
   onChange: (next: SiteEntry | null) => void;
 }) {
+  const t = useT();
   const never = entry?.never ?? false;
   return (
     <div
@@ -45,11 +47,13 @@ function RuleEditor({
       style={{ background: "var(--field)" }}
     >
       <div className="flex items-center justify-between py-2.5 text-[16px]">
-        <span style={{ color: "var(--text-primary)" }}>Never visit</span>
+        <span style={{ color: "var(--text-primary)" }}>
+          {t.permissions.neverVisit}
+        </span>
         <button
           role="switch"
           aria-checked={never}
-          aria-label="Never visit"
+          aria-label={t.permissions.neverVisit}
           className="relative h-[26px] w-[44px] rounded-full transition-colors"
           style={{
             background: never ? "var(--fill-red)" : "var(--fill-tertiary)",
@@ -78,8 +82,7 @@ function RuleEditor({
             color: "var(--text-secondary)",
           }}
         >
-          Amuse does not go there and does not ask. This wins over everything
-          else.
+          {t.permissions.neverHelp}
         </p>
       ) : (
         ACTIONS.map((a) => (
@@ -91,7 +94,7 @@ function RuleEditor({
               color: "var(--text-primary)",
             }}
           >
-            {a.name}
+            {t.permissions.actions[a.id].name}
             <ActionSelect
               value={entry?.actions[a.id] ?? null}
               options={a.options}
@@ -123,6 +126,7 @@ export function SitePermissions({
   const [editing, setEditing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const t = useT();
   const said = (e: unknown) =>
     setError(e instanceof Error ? e.message : String(e));
   const load = useCallback(
@@ -167,9 +171,8 @@ export function SitePermissions({
   };
   const add = () => {
     const site = asSite(draft);
-    if (!site) return setError(`“${draft}” is not a website address.`);
-    if (!fresh)
-      return setError("Choose Never visit, or set at least one action.");
+    if (!site) return setError(t.permissions.notAddress(draft));
+    if (!fresh) return setError(t.permissions.chooseOne);
     // a website that has exceptions already keeps them (a Never above all): what is set here is added to them
     void permit(
       site,
@@ -185,8 +188,7 @@ export function SitePermissions({
         className="text-[13px] leading-snug"
         style={{ color: "var(--text-secondary)" }}
       >
-        What Amuse may do in the browser, for every website, and exceptions for
-        some. Deny is a hard no: Amuse does not even ask.
+        {t.permissions.description}
       </p>
       {error && !adding && (
         <p
@@ -202,7 +204,7 @@ export function SitePermissions({
         className="mb-2 mt-5 px-1 text-[13px] font-medium"
         style={{ color: "var(--text-secondary)" }}
       >
-        Browser
+        {t.permissions.browser}
       </p>
       <ul
         className="divide-y divide-[var(--fill-divider)] rounded-[18px] px-4"
@@ -215,13 +217,13 @@ export function SitePermissions({
                 className="block truncate text-[16px]"
                 style={{ color: "var(--text-primary)" }}
               >
-                {a.name}
+                {t.permissions.actions[a.id].name}
               </span>
               <span
                 className="block truncate text-[13px]"
                 style={{ color: "var(--text-secondary)" }}
               >
-                {a.about}
+                {t.permissions.actions[a.id].about}
               </span>
             </span>
             {browser ? (
@@ -252,13 +254,13 @@ export function SitePermissions({
             className="mt-4 text-[20px] font-semibold"
             style={{ color: "var(--text-primary)" }}
           >
-            Add a website
+            {t.settings.addWebsite}
           </p>
           <p
             className="mt-1 text-[14px]"
             style={{ color: "var(--text-secondary)" }}
           >
-            What Amuse may do there, for it and its subdomains
+            {t.permissions.addHelp}
           </p>
           <div
             className="mt-5 w-full overflow-hidden rounded-[18px] text-left"
@@ -266,10 +268,10 @@ export function SitePermissions({
           >
             <input
               autoFocus
-              aria-label="Website"
+              aria-label={t.permissions.website}
               className="w-full bg-transparent px-4 py-3.5 text-[16px] outline-none"
               style={{ color: "var(--text-primary)" }}
-              placeholder="Website, like news.ycombinator.com"
+              placeholder={t.permissions.websitePlaceholder}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
             />
@@ -292,14 +294,14 @@ export function SitePermissions({
             style={{ background: "var(--fill-blue)" }}
             onClick={add}
           >
-            Add
+            {t.permissions.add}
           </button>
           <button
             className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
             style={{ color: "var(--text-primary)" }}
             onClick={cancel}
           >
-            Cancel
+            {t.common.cancel}
           </button>
         </div>
       </Sheet>
@@ -323,7 +325,7 @@ export function SitePermissions({
             className="mt-1 text-[14px]"
             style={{ color: "var(--text-secondary)" }}
           >
-            For it and its subdomains. Default follows the browser's setting.
+            {t.permissions.exceptionsHelp}
           </p>
           <div className="mt-5 w-full">
             <RuleEditor
@@ -342,14 +344,14 @@ export function SitePermissions({
               setEditing(null);
             }}
           >
-            Remove these exceptions
+            {t.permissions.removeExceptions}
           </button>
           <button
             className="hover-fade h-11 w-full rounded-full text-[16px] font-medium"
             style={{ color: "var(--text-primary)" }}
             onClick={() => setEditing(null)}
           >
-            Done
+            {t.common.done}
           </button>
         </div>
       </Sheet>
@@ -358,7 +360,7 @@ export function SitePermissions({
         className="mb-2 mt-6 px-1 text-[13px] font-medium"
         style={{ color: "var(--text-secondary)" }}
       >
-        Websites
+        {t.permissions.websites}
       </p>
       <ul
         className="divide-y divide-[var(--fill-divider)] rounded-[18px] px-4"
@@ -369,7 +371,7 @@ export function SitePermissions({
             className="py-3.5 text-[15px]"
             style={{ color: "var(--text-secondary)" }}
           >
-            No exceptions yet. Add a website with +.
+            {t.permissions.noExceptions}
           </li>
         )}
         {rules?.map((rule) => (

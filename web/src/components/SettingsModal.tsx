@@ -24,7 +24,6 @@ import {
 } from "lucide-react";
 import type { Session } from "@amuse/protocol";
 import type { Actions, SettingsSection, Theme, Ui } from "../ui.ts";
-import { THEMES } from "../theme.ts";
 import type { Choice } from "../i18n/language.ts";
 import { useLanguageChoice, useT } from "../i18n/react.ts";
 import { usePresence } from "./usePresence";
@@ -37,23 +36,17 @@ import { Logins } from "./Logins";
 import { Sandbox } from "./Sandbox";
 import { changePassword, lock } from "../connection.ts";
 
-const NAV: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
-  { id: "general", label: "General", icon: <SettingsIcon size={18} /> },
-  { id: "models", label: "Models", icon: <Sparkles size={18} /> },
-  { id: "connectors", label: "Connections", icon: <LayoutGrid size={18} /> },
-  { id: "permissions", label: "Permissions", icon: <Shield size={18} /> },
-  { id: "logins", label: "Saved logins", icon: <KeyRound size={18} /> },
-  { id: "schedules", label: "Schedules", icon: <CalendarClock size={18} /> },
-  { id: "sandbox", label: "Sandbox", icon: <Terminal size={18} /> },
+const NAV: { id: SettingsSection; icon: React.ReactNode }[] = [
+  { id: "general", icon: <SettingsIcon size={18} /> },
+  { id: "models", icon: <Sparkles size={18} /> },
+  { id: "connectors", icon: <LayoutGrid size={18} /> },
+  { id: "permissions", icon: <Shield size={18} /> },
+  { id: "logins", icon: <KeyRound size={18} /> },
+  { id: "schedules", icon: <CalendarClock size={18} /> },
+  { id: "sandbox", icon: <Terminal size={18} /> },
 ];
 
 /* ---------------- General ---------------- */
-
-const themeName: Record<Theme, string> = {
-  system: "Match system",
-  light: "Light",
-  dark: "Dark",
-};
 
 function GeneralSection({
   theme,
@@ -67,8 +60,13 @@ function GeneralSection({
 }) {
   const t = useT();
   const [language, setLanguage] = useLanguageChoice();
+  const themes: { value: Theme; label: string }[] = [
+    { value: "system", label: t.settings.general.matchSystem },
+    { value: "light", label: t.settings.general.light },
+    { value: "dark", label: t.settings.general.dark },
+  ];
   const languages = [
-    { value: "system", label: t.settings.languageSystem },
+    { value: "system", label: t.settings.general.languageSystem },
     { value: "en", label: "English" },
     { value: "zh-CN", label: "简体中文" },
   ] satisfies { value: Choice; label: string }[];
@@ -78,18 +76,14 @@ function GeneralSection({
         className="mb-2 text-[15px] font-semibold"
         style={{ color: "var(--text-primary)" }}
       >
-        Appearance
+        {t.settings.general.appearance}
       </p>
-      <OptionList
-        options={THEMES.map((t) => ({ value: t, label: themeName[t] }))}
-        value={theme}
-        onPick={actions.setTheme}
-      />
+      <OptionList options={themes} value={theme} onPick={actions.setTheme} />
       <p
         className="mb-2 mt-6 text-[15px] font-semibold"
         style={{ color: "var(--text-primary)" }}
       >
-        {t.settings.language}
+        {t.settings.general.language}
       </p>
       <OptionList
         options={languages}
@@ -139,6 +133,7 @@ function OptionList<T extends string>({
 
 /** The master password: change it (every other device then needs the new one), or lock this device. */
 function PasswordGroup() {
+  const t = useT();
   const [changing, setChanging] = useState(false);
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
@@ -152,7 +147,7 @@ function PasswordGroup() {
         className="mb-2 mt-6 text-[15px] font-semibold"
         style={{ color: "var(--text-primary)" }}
       >
-        Password
+        {t.settings.general.password}
       </p>
       <div
         className="overflow-hidden rounded-xl"
@@ -169,7 +164,7 @@ function PasswordGroup() {
                     ? { ok: false, text: why }
                     : {
                         ok: true,
-                        text: "Changed. Other devices need the new password.",
+                        text: t.settings.general.changed,
                       },
                 );
                 if (!why) {
@@ -184,8 +179,8 @@ function PasswordGroup() {
               autoFocus
               type="password"
               autoComplete="current-password"
-              aria-label="Current password"
-              placeholder="Current password"
+              aria-label={t.settings.general.currentPassword}
+              placeholder={t.settings.general.currentPassword}
               className={field}
               style={{ color: "var(--text-primary)" }}
               value={current}
@@ -194,8 +189,8 @@ function PasswordGroup() {
             <input
               type="password"
               autoComplete="new-password"
-              aria-label="New password"
-              placeholder="New password"
+              aria-label={t.settings.general.newPassword}
+              placeholder={t.settings.general.newPassword}
               className={field}
               style={{
                 color: "var(--text-primary)",
@@ -214,7 +209,7 @@ function PasswordGroup() {
                 style={{ color: "var(--text-primary)" }}
                 onClick={() => setChanging(false)}
               >
-                Cancel
+                {t.common.cancel}
               </button>
               <button
                 type="submit"
@@ -222,7 +217,7 @@ function PasswordGroup() {
                 className="h-9 rounded-full px-4 text-[14px] font-semibold text-white disabled:opacity-40"
                 style={{ background: "var(--fill-blue)" }}
               >
-                Change
+                {t.settings.general.change}
               </button>
             </div>
           </form>
@@ -235,7 +230,7 @@ function PasswordGroup() {
               setChanging(true);
             }}
           >
-            Change password
+            {t.settings.general.changePassword}
           </button>
         )}
         <button
@@ -246,7 +241,7 @@ function PasswordGroup() {
           }}
           onClick={() => void lock()}
         >
-          Lock this device
+          {t.settings.general.lockDevice}
         </button>
       </div>
       {said && (
@@ -281,6 +276,7 @@ export function SettingsModal({
   demo: boolean;
   actions: Actions;
 }) {
+  const t = useT();
   const { mounted, closing, onAnimationEnd } = usePresence(ui.open);
   // adding (a website rule, a login) starts from the bar's +, and ends with the section
   const [adding, setAdding] = useState(false);
@@ -292,13 +288,13 @@ export function SettingsModal({
   const round = "flex size-8 shrink-0 items-center justify-center rounded-full";
   // the page's bar: what it is, and its one action (adding, where there is something to add)
   const title = !section
-    ? "Settings"
+    ? t.settings.title
     : ui.app
       ? ui.app.name
       : ui.provider
         ? ui.provider.name
-        : (NAV.find((n) => n.id === section)?.label ?? "");
-  const adds = !ui.app && shown === "permissions" ? "Add a website" : null;
+        : t.settings.sections[section];
+  const adds = !ui.app && shown === "permissions" ? t.settings.addWebsite : null;
   // a phone's bar has the chat's round buttons; a desktop's has small labelled ones, the height of its close button
   const add = adds && (
     <button
@@ -345,12 +341,12 @@ export function SettingsModal({
           <button
             aria-label={
               !section
-                ? "Close settings"
+                ? t.settings.closeSettings
                 : ui.app
-                  ? "All connections"
+                  ? t.settings.allConnections
                   : ui.provider
-                    ? "All providers"
-                    : "All settings"
+                    ? t.settings.allProviders
+                    : t.settings.allSettings
             }
             className={barButton}
             style={barButtonLook}
@@ -384,7 +380,7 @@ export function SettingsModal({
             className="hidden px-2 pb-2 text-[19px] font-semibold sm:block"
             style={{ color: "var(--text-primary)" }}
           >
-            Settings
+            {t.settings.title}
           </p>
           {NAV.filter((n) => !demo || n.id !== "sandbox").map((n) => (
             <button
@@ -400,7 +396,7 @@ export function SettingsModal({
               onClick={() => actions.openSettings(n.id)}
             >
               {n.icon}
-              <span className="flex-1">{n.label}</span>
+              <span className="flex-1">{t.settings.sections[n.id]}</span>
               <ChevronRight
                 size={16}
                 className="sm:hidden"
@@ -414,7 +410,7 @@ export function SettingsModal({
               style={{ color: "var(--text-secondary)" }}
               onClick={() => actions.reset()}
             >
-              Reset demo
+              {t.settings.resetDemo}
             </button>
           )}
         </nav>
@@ -430,11 +426,11 @@ export function SettingsModal({
               style={{ color: "var(--text-primary)" }}
             >
               {/* the section shown (General before one is chosen), not the phone's list title */}
-              {ui.app || ui.provider ? "" : (NAV.find((n) => n.id === shown)?.label ?? "")}
+              {ui.app || ui.provider ? "" : t.settings.sections[shown]}
             </p>
             {addLabelled}
             <button
-              aria-label="Close settings"
+              aria-label={t.settings.closeSettings}
               className={barButton}
               style={barButtonLook}
               onClick={() => actions.closeSettings()}
