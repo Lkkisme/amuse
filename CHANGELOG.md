@@ -7,6 +7,7 @@ What changed in each release of Amuse, for the people who run it. The format fol
 ## [Unreleased]
 
 ### Changed
+- Settings › Models gives each role (chat, browser, background) a group of its own, with a row for its provider, its model and its thinking, each named; the provider is chosen first, so the same model from two providers is no longer listed twice.
 - Sheets close with the same round button as the rest of the app, and a task's details open in a wider sheet.
 - The terminal's lines are a little taller, so Chinese characters are no longer cut off at the top.
 

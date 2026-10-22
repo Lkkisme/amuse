@@ -289,6 +289,8 @@ export const zhCN = {
     chooseModel: "选择模型",
     modelFor: (role) => `${role}模型`,
     providerFor: (role) => `${role}模型的服务商`,
+    provider: "服务商",
+    model: "模型",
     thinking: "思考",
     thinkingFor: (role) => `${role}思考`,
     levels: {

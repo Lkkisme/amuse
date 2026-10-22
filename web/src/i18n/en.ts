@@ -278,6 +278,8 @@ export const en = {
     chooseModel: "Choose a model",
     modelFor: (role: string) => `${role} model`,
     providerFor: (role: string) => `${role} model's provider`,
+    provider: "Provider",
+    model: "Model",
     thinking: "Thinking",
     thinkingFor: (role: string) => `${role} thinking`,
     levels: {

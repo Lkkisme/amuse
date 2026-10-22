@@ -5,7 +5,7 @@
  * shows), each with a page of its own to test, replace or remove its key; and
  * every other one to add.
  */
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, KeyRound, Search } from "lucide-react";
 import type {
   KeyProvider,
@@ -134,8 +134,9 @@ export function Models({
 
       {mine.length > 0 && state && (
         <>
+          {/* each role a group of its own, a row for each thing chosen and what it is: provider, model, thinking */}
           <p className={label} style={{ color: "var(--text-secondary)" }}>
-            {t.models.models}
+            {t.models.chat}
           </p>
           <div
             className={group}
@@ -154,6 +155,14 @@ export function Models({
               value={state.thinking.chat}
               onChange={(level) => think("chat", level)}
             />
+          </div>
+          <p className={label} style={{ color: "var(--text-secondary)" }}>
+            {t.models.browser}
+          </p>
+          <div
+            className={group}
+            style={{ background: "var(--fill-secondary)" }}
+          >
             <ModelPicker
               title={t.models.browser}
               value={state.browser}
@@ -169,7 +178,15 @@ export function Models({
               value={state.thinking.browser}
               onChange={(level) => think("browser", level)}
             />
-            {/* scheduled work: memory upkeep, reflection, the user's schedules */}
+          </div>
+          {/* scheduled work: memory upkeep, reflection, the user's schedules */}
+          <p className={label} style={{ color: "var(--text-secondary)" }}>
+            {t.models.background}
+          </p>
+          <div
+            className={group}
+            style={{ background: "var(--fill-secondary)" }}
+          >
             <ModelPicker
               title={t.models.background}
               value={state.background}
@@ -487,13 +504,10 @@ function ThinkingPicker({
   const t = useT();
   if (levels.length < 2) return null;
   return (
-    <label className="flex items-center gap-3 py-2.5 pl-4">
-      <span className="text-[15px]" style={{ color: "var(--text-secondary)" }}>
-        {t.models.thinking}
-      </span>
+    <Row name={t.models.thinking}>
       <select
         aria-label={t.models.thinkingFor(title)}
-        className="min-w-0 flex-1 bg-transparent text-right text-[15px] outline-none"
+        className={pick}
         style={{ color: "var(--text-secondary)" }}
         value={value}
         onChange={(e) => {
@@ -507,7 +521,7 @@ function ThinkingPicker({
           </option>
         ))}
       </select>
-    </label>
+    </Row>
   );
 }
 
@@ -638,9 +652,9 @@ function LocalVoiceSheet({
 }
 
 /**
- * One role's model: first its provider (when more than one has models: the same model can be at two), then one of
- * that provider's models. None chosen yet: said so. A provider picked shows its models; the role's model changes only
- * once one of them is picked.
+ * One role's model, as rows of its group: its provider (when more than one has models: the same model can be at two),
+ * then one of that provider's models. None chosen yet: said so. A provider picked shows its models; the role's model
+ * changes only once one of them is picked.
  */
 function ModelPicker({
   title,
@@ -667,50 +681,61 @@ function ModelPicker({
   const shown = options.filter((o) => o.provider === provider);
   // the role's model is this provider's: it is the one shown chosen; else, until one is picked, nothing is
   const chosen = value !== null && shown.some((o) => o.id === value) ? value : "";
-  const select = "min-w-0 truncate bg-transparent text-right text-[15px] outline-none [text-align-last:right]";
   return (
-    // in columns, so the rows' pickers line up: the role's name, its provider (when there is a choice), its model
-    <div
-      className={`grid items-center gap-3 py-2.5 ${providers.length > 1 ? "grid-cols-[5.5rem_minmax(0,1fr)_minmax(0,1.3fr)] sm:grid-cols-[6.5rem_minmax(0,1fr)_minmax(0,1.6fr)]" : "grid-cols-[auto_minmax(0,1fr)]"}`}
-    >
-      <span className="truncate text-[16px]" style={{ color: "var(--text-primary)" }}>
-        {title}
-      </span>
+    <>
       {providers.length > 1 && (
+        <Row name={t.models.provider}>
+          <select
+            aria-label={t.models.providerFor(title)}
+            className={pick}
+            style={{ color: "var(--text-secondary)" }}
+            value={provider ?? ""}
+            onChange={(e) => setPicked(e.target.value)}
+          >
+            {providers.map((id) => (
+              <option key={id} value={id}>
+                {names.get(id) ?? id}
+              </option>
+            ))}
+          </select>
+        </Row>
+      )}
+      <Row name={t.models.model}>
         <select
-          aria-label={t.models.providerFor(title)}
-          className={`${select} w-full`}
-          style={{ color: "var(--text-secondary)" }}
-          value={provider ?? ""}
-          onChange={(e) => setPicked(e.target.value)}
+          aria-label={t.models.modelFor(title)}
+          className={pick}
+          style={{
+            color: chosen || (unset && value === null) ? "var(--text-secondary)" : "var(--fill-blue)",
+          }}
+          value={chosen}
+          onChange={(e) => {
+            if (e.target.value) onChange(e.target.value);
+            else if (unset) onChange(null);
+          }}
         >
-          {providers.map((id) => (
-            <option key={id} value={id}>
-              {names.get(id) ?? id}
+          {unset ? <option value="">{unset}</option> : !chosen && <option value="">{t.models.chooseModel}</option>}
+          {value && !options.some((o) => o.id === value) && <option value={value}>{value}</option>}
+          {shown.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name}
             </option>
           ))}
         </select>
-      )}
-      <select
-        aria-label={t.models.modelFor(title)}
-        className={`${select} w-full`}
-        style={{
-          color: chosen || (unset && value === null) ? "var(--text-secondary)" : "var(--fill-blue)",
-        }}
-        value={chosen}
-        onChange={(e) => {
-          if (e.target.value) onChange(e.target.value);
-          else if (unset) onChange(null);
-        }}
-      >
-        {unset ? <option value="">{unset}</option> : !chosen && <option value="">{t.models.chooseModel}</option>}
-        {value && !options.some((o) => o.id === value) && <option value={value}>{value}</option>}
-        {shown.map((o) => (
-          <option key={o.id} value={o.id}>
-            {o.name}
-          </option>
-        ))}
-      </select>
-    </div>
+      </Row>
+    </>
+  );
+}
+
+/** A picker as a role's row: what it is, then the choice at the end. */
+const pick = "min-w-0 flex-1 truncate bg-transparent text-right text-[15px] outline-none [text-align-last:right]";
+
+function Row({ name, children }: { name: string; children: ReactNode }) {
+  return (
+    <label className="flex items-center gap-3 py-2.5">
+      <span className="shrink-0 text-[16px]" style={{ color: "var(--text-primary)" }}>
+        {name}
+      </span>
+      {children}
+    </label>
   );
 }
