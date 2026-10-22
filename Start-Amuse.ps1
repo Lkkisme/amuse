@@ -14,6 +14,7 @@ if (Test-Path -LiteralPath $amusePidFile) {
 }
 $amuseListener = Get-NetTCPConnection -State Listen -LocalPort 8081 -ErrorAction SilentlyContinue
 if ($amuseListener) { throw 'Port 8081 is already occupied. No process was stopped.' }
+& (Join-Path $amuseRoot 'Start-AmuseSandbox.ps1') -Root $amuseRoot
 $env:AMUSE_HOST = '127.0.0.1'
 $env:AMUSE_PORT = '8081'
 $amuseNetworkFile = Join-Path $amuseLocal 'network.json'
