@@ -138,11 +138,12 @@ function Switch({ shown, actions }: { shown: Shown; actions: Actions }) {
     { id: "terminal", label: t.viewer.terminal, Icon: SquareTerminal },
   ] satisfies { id: Shown; label: string; Icon: typeof Globe }[];
   return (
-    // centred on the browser button, which sits 12px from the window's top (the viewer is 8px in from lg)
-    <div className="flex items-center gap-2 pb-2 pl-3 pr-3 pt-3 lg:pt-1">
+    // 44px and centred on the browser button, 12px from the window's top; from lg (the viewer 8px in) it sits in the
+    // panel's corner as that button does in the other, 4px in from both edges, so its round end follows the 24px corner
+    <div className="flex items-center gap-2 pb-2 pl-3 pr-3 pt-3 lg:pl-1 lg:pt-1">
       <div
         role="tablist"
-        className="flex rounded-full p-0.5"
+        className="flex rounded-full p-1"
         style={{ background: "var(--fill-secondary)" }}
       >
         {options.map(({ id, label, Icon }) => {
