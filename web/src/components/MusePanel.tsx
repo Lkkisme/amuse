@@ -174,6 +174,7 @@ export function MusePanel({ open, conversation, session, mode: asked, actions }:
         <div className="flex flex-col items-center px-4 pt-12">
           <span className="relative">
             <span
+              data-muse-avatar=""
               className="flex size-[100px] items-center justify-center rounded-full text-[38px] font-semibold"
               style={{
                 ...museAvatar,

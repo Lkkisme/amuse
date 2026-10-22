@@ -25,7 +25,7 @@ export function TopBar({ conversation, museOpen, actions }: { conversation: Stat
           Amuse avatar bubble, drawn over the top of its name badge (Amuse: 52px avatar, badge tucked 4px under).
           Its shadow is a layer of its own under the badge, so it falls on the chat, not on the badge. */}
       {!museOpen && (
-        <div className="pointer-events-none absolute left-1/2 top-3 z-10 flex -translate-x-1/2 flex-col items-center">
+        <div data-muse-avatar-group="" className="pointer-events-none absolute left-1/2 top-3 z-10 flex -translate-x-1/2 flex-col items-center">
           <span
             aria-hidden
             className="absolute top-0 size-[52px] rounded-full"
@@ -34,6 +34,7 @@ export function TopBar({ conversation, museOpen, actions }: { conversation: Stat
           <button
             aria-label="Amuse"
             className="pointer-events-auto relative z-[2] flex size-[52px] items-center justify-center rounded-full text-[20px] font-semibold"
+            data-muse-avatar=""
             style={{ ...museAvatar, background: "var(--avatar-fill)", color: "var(--avatar-text)" }}
             onClick={() => actions.setMuse(true)}
           >

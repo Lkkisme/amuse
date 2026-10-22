@@ -18,7 +18,7 @@ import { Unlock } from "./components/Unlock";
 import { type Actions, type Ui, initialUi } from "./ui.ts";
 import { viewerTabs } from "./view.ts";
 import { type Outgoing, outgoingIn } from "./outgoing.ts";
-import { transition } from "./transition.ts";
+import { flyAvatar, transition, travels } from "./transition.ts";
 import { close, useBack } from "./back.ts";
 
 /** the width the user dragged the viewer to (only that is kept; the default follows the window) */
@@ -407,8 +407,11 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         patch((u) => (u.chat === id ? { ...u, chat: MAIN, viewer: null } : u));
       },
       // the avatar travels between the top and the panel
+      // the avatar travels with the change: a view transition on a phone, a flight of its own on a wider screen
       setMuse: (museOpen) =>
-        transition(() => patch((u) => ({ ...u, museOpen }))),
+        (travels() ? transition : flyAvatar)(() =>
+          patch((u) => ({ ...u, museOpen })),
+        ),
       openSettings: (section) =>
         patch((u) => ({
           ...u,
