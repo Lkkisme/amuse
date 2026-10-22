@@ -344,6 +344,12 @@ export const en = {
     watchBody: "Amuse may take unexpected actions. Monitor it carefully.",
     connect: "Connect",
   },
+  task: {
+    result: "Result",
+    steps: "Steps",
+    asked: "Asked",
+    stop: "Stop task",
+  },
   status: {
     browser: {
       queued: "Queued",

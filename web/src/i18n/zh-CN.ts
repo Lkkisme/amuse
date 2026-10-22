@@ -352,6 +352,12 @@ export const zhCN = {
     watchBody: "Amuse 可能会执行意料之外的操作，请留心关注。",
     connect: "连接",
   },
+  task: {
+    result: "结果",
+    steps: "步骤",
+    asked: "你的请求",
+    stop: "停止任务",
+  },
   status: {
     browser: {
       queued: "排队中",

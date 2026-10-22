@@ -10,6 +10,7 @@ import type { Actions } from "../ui.ts";
 import { byId, taskStatus } from "../view.ts";
 import { Sheet } from "./Sheet";
 import { useLastValue } from "./usePresence";
+import { useT } from "../i18n/react.ts";
 
 export function TaskDetailSheet({
   conversation,
@@ -20,11 +21,12 @@ export function TaskDetailSheet({
   open: string | null;
   actions: Actions;
 }) {
+  const t = useT();
   // keep showing the last task while the sheet animates out
   const task = byId(conversation, "task", useLastValue(open));
   if (!task) return null;
   const close = () => actions.openTaskDetail(null);
-  const meta = taskStatus(task.status);
+  const meta = taskStatus(task.status, t);
   const running =
     task.status === "queued" ||
     task.status === "working" ||
@@ -57,7 +59,7 @@ export function TaskDetailSheet({
               className="mt-5 text-[13px] font-semibold"
               style={{ color: "var(--text-secondary)" }}
             >
-              Result
+              {t.task.result}
             </p>
             <div
               className="mt-1.5 text-[15px] leading-[22px]"
@@ -73,7 +75,7 @@ export function TaskDetailSheet({
             className="mt-5 text-[13px] font-semibold"
             style={{ color: "var(--text-secondary)" }}
           >
-            Steps
+            {t.task.steps}
           </p>
         )}
         <ul className="mt-2 space-y-2.5">
@@ -113,7 +115,7 @@ export function TaskDetailSheet({
               className="mt-5 text-[13px] font-semibold"
               style={{ color: "var(--text-secondary)" }}
             >
-              Asked
+              {t.task.asked}
             </p>
             <p
               className="mt-1.5 whitespace-pre-wrap text-[14px] leading-snug"
@@ -136,7 +138,7 @@ export function TaskDetailSheet({
               close();
             }}
           >
-            Stop task
+            {t.task.stop}
           </button>
         )}
       </div>
