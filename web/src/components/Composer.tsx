@@ -43,13 +43,25 @@ export function Composer({ conversation, place, actions }: { conversation: State
   /** the box grows with what is written, a line at a time, up to MAX_HEIGHT; past one line the pill becomes a card */
   const box = useRef<HTMLTextAreaElement>(null);
   const [lines, setLines] = useState(false);
+  /** past its height, the box fades at the end where more is written (above, below) */
+  const [more, setMore] = useState({ above: false, below: false });
+  const look = () => {
+    const el = box.current;
+    if (!el) return;
+    // within its padding of an end is at it (scrolling to the caret leaves the padding out)
+    const above = el.scrollTop > 12;
+    const below = el.scrollTop + el.clientHeight < el.scrollHeight - 12;
+    setMore((m) => (m.above === above && m.below === below ? m : { above, below }));
+  };
   useLayoutEffect(() => {
     const el = box.current;
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT)}px`;
     setLines(el.scrollHeight > LINE + 2);
+    look();
   }, [draft]);
+  const fade = `linear-gradient(to bottom, ${more.above ? "transparent 0, #000 20px" : "#000 0"}, ${more.below ? "#000 calc(100% - 20px), transparent 100%" : "#000 100%"})`;
   // previews are let go of with the composer
   const previews = useRef(new Set<string>());
   useEffect(() => () => previews.current.forEach((url) => URL.revokeObjectURL(url)), []);
@@ -190,7 +202,8 @@ export function Composer({ conversation, place, actions }: { conversation: State
               ref={box}
               rows={1}
               className={`min-w-0 flex-1 resize-none bg-transparent py-[7px] text-[15px] leading-[22px] outline-none ${files ? "" : "pl-3"}`}
-              style={{ color: "var(--text-primary)", maxHeight: MAX_HEIGHT }}
+              style={{ color: "var(--text-primary)", maxHeight: MAX_HEIGHT, maskImage: fade, WebkitMaskImage: fade }}
+              onScroll={look}
               placeholder={place ? `Message in ${place}` : "Message"}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
