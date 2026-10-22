@@ -12,7 +12,7 @@
  * (images as thumbnails) until the message goes; it goes once every file is
  * up. Where no server keeps files (the demo) there is no '+'.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowUp, CircleAlert, File as FileIcon, LoaderCircle, Mic, Plus, Square, X } from "lucide-react";
 import type { Attachment, State } from "@amuse/protocol";
 import { size } from "@amuse/core";
@@ -30,12 +30,26 @@ interface Pending {
 }
 
 /** `place`: a side chat's title, said in the placeholder ("Message in …"); null in the main chat. */
+/** One line of the box, and the most it grows to (about seven lines) before it scrolls. */
+const LINE = 36;
+const MAX_HEIGHT = 166;
+
 export function Composer({ conversation, place, actions }: { conversation: State; place: string | null; actions: Actions }) {
   const working = busy(conversation);
   const files = useFiles();
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState<Pending[]>([]);
   const picker = useRef<HTMLInputElement>(null);
+  /** the box grows with what is written, a line at a time, up to MAX_HEIGHT; past one line the pill becomes a card */
+  const box = useRef<HTMLTextAreaElement>(null);
+  const [lines, setLines] = useState(false);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT)}px`;
+    setLines(el.scrollHeight > LINE + 2);
+  }, [draft]);
   // previews are let go of with the composer
   const previews = useRef(new Set<string>());
   useEffect(() => () => previews.current.forEach((url) => URL.revokeObjectURL(url)), []);
@@ -133,7 +147,7 @@ export function Composer({ conversation, place, actions }: { conversation: State
       />
       <div className="relative mx-auto max-w-3xl px-4 pb-5 pt-1">
         <div
-          className={`pointer-events-auto flex flex-col px-2 py-2 ${pending.length > 0 || voiceProblem ? "rounded-[26px]" : "rounded-full"}`}
+          className={`pointer-events-auto flex flex-col px-2 py-2 ${pending.length > 0 || voiceProblem || lines ? "rounded-[26px]" : "rounded-full"}`}
           style={{ background: "var(--fill-primary)", boxShadow: "var(--shadow-float)" }}
         >
           {voiceProblem && (
@@ -148,7 +162,7 @@ export function Composer({ conversation, place, actions }: { conversation: State
               ))}
             </div>
           )}
-          <div className="flex min-h-[36px] items-center gap-2">
+          <div className={`flex min-h-[36px] gap-2 ${lines ? "items-end" : "items-center"}`}>
             {/* end buttons are 36px at an 8px inset: concentric with the pill's 26px-radius ends */}
             {files && (
               <>
@@ -172,9 +186,11 @@ export function Composer({ conversation, place, actions }: { conversation: State
                 />
               </>
             )}
-            <input
-              className={`min-w-0 flex-1 bg-transparent text-[15px] outline-none ${files ? "" : "pl-3"}`}
-              style={{ color: "var(--text-primary)" }}
+            <textarea
+              ref={box}
+              rows={1}
+              className={`min-w-0 flex-1 resize-none bg-transparent py-[7px] text-[15px] leading-[22px] outline-none ${files ? "" : "pl-3"}`}
+              style={{ color: "var(--text-primary)", maxHeight: MAX_HEIGHT }}
               placeholder={place ? `Message in ${place}` : "Message"}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
@@ -184,7 +200,11 @@ export function Composer({ conversation, place, actions }: { conversation: State
                 add(e.clipboardData.files);
               }}
               onKeyDown={(e) => {
-                if (e.key === "Enter") submit();
+                // Enter sends where there is a keyboard of keys (Shift+Enter: a new line); on a phone it is a new line, and the
+                // button sends; never while an input method is still choosing the words
+                if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing || matchMedia("(hover: none)").matches) return;
+                e.preventDefault();
+                submit();
               }}
             />
             {files && (
