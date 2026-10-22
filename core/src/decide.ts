@@ -579,7 +579,7 @@ export function recover(state: State, now: string): Change[] {
         return e.running ? { ...e, running: false, last: { at: now, outcome: "failed", summary: "cut short by a restart" } } : null; // ended now, as far as anyone can tell
       case "prompt":
       case "connection":
-      case "secret": // still to be answered after a restart (a service waiting for it may be gone: then the answer says so)
+      case "secret": // still to be answered after a restart (what waited for it may be gone: then the answer says so)
         return null;
     }
   };

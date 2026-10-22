@@ -118,15 +118,22 @@ export function TerminalView({
     const send = (bytes: Uint8Array) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(bytes);
     };
-    ws.onopen = () => setPhase("open");
+    ws.onopen = () => {
+      setPhase("open");
+      // the size it was opened at may be out of date (it was hidden, or the window moved)
+      fitted();
+      ws.send(
+        JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }),
+      );
+    };
     ws.onmessage = (event) => {
       if (event.data instanceof ArrayBuffer) term.write(new Uint8Array(event.data));
     };
     ws.onclose = (event) => setPhase({ closed: event.code });
-    // what is typed, with Ctrl or Alt from the row for one key
+    // what is typed, with Ctrl or Alt from the row for one key (a key: one character, not a mouse report or a paste)
     const type = (data: string) => {
       const mods = held.current;
-      if (mods.ctrl || mods.alt) {
+      if ((mods.ctrl || mods.alt) && data.length === 1) {
         hold(NONE);
         send(encoder.encode(modified(data, mods)));
       } else send(encoder.encode(data));

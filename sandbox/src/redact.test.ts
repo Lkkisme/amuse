@@ -12,6 +12,17 @@ test("credentials are masked by name, the longest first; values too short to be 
   assert.equal(mask("a sk-123456-extra and sk-123456, abc", secrets), "a ‹LONG› and ‹KEY›, abc");
 });
 
+test("a credential is masked when a terminal wrapped it over lines or coloured part of it", () => {
+  const secrets = [{ name: "OPENAI_API_KEY", value: "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789" }];
+  assert.equal(mask("key=sk-proj-abcdefghij\nklmnopqrstuvwxyz\r\n0123456789 done", secrets), "key=‹OPENAI_API_KEY› done");
+  assert.equal(mask("\x1b[32msk-proj-abcdefghijklm\x1b[0mnopqrstuvwxyz0123456789", secrets), "\x1b[32m‹OPENAI_API_KEY›");
+  // a value with what patterns read as special is matched as it is
+  assert.equal(mask("a.b*c+d?(e) x", [{ name: "ODD", value: "a.b*c+d?(e)" }]), "‹ODD› x");
+  assert.equal(mask("aXb*c+d?(e) x", [{ name: "ODD", value: "a.b*c+d?(e)" }]), "aXb*c+d?(e) x");
+  // a name is put in as it is, whatever it holds
+  assert.equal(mask("token-123456", [{ name: "$& and $1", value: "token-123456" }]), "‹$& and $1›");
+});
+
 test("what the sandbox brings back, output and errors alike, comes masked", async () => {
   const leaky: SandboxClient = {
     run: async ({ command }) => {

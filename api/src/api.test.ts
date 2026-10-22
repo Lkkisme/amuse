@@ -221,13 +221,20 @@ async function guarded() {
     });
   const cookieOf = (response: Response) => (response.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
   const { WebSocket: Ws } = await import("ws");
-  const opens = (headers: Record<string, string>) =>
+  const opens = (headers: Record<string, string>, path = "/rpc") =>
     new Promise((resolve) => {
-      const ws = new Ws(`ws://127.0.0.1:${server.port}/rpc`, { headers });
+      const ws = new Ws(`ws://127.0.0.1:${server.port}${path}`, { headers });
       ws.on("open", () => (ws.close(), resolve("open")));
       ws.on("error", () => resolve("refused"));
     });
-  return { http, post, cookieOf, opens, close: () => server.close() };
+  /** How a socket at `path` ended: refused, or the close code the server gave. */
+  const ends = (headers: Record<string, string>, path: string) =>
+    new Promise((resolve) => {
+      const ws = new Ws(`ws://127.0.0.1:${server.port}${path}`, { headers });
+      ws.on("close", (code) => resolve(code));
+      ws.on("error", () => resolve("refused"));
+    });
+  return { http, post, cookieOf, opens, ends, close: () => server.close() };
 }
 
 test("the first visit sets the master password; then only the password opens a session, an HttpOnly cookie that alone opens the socket", async () => {
@@ -334,6 +341,18 @@ test("pages from another origin cannot open the sockets, even with a valid sessi
     const cookie = cookieOf(await post("/setup", { password: "correct horse" }));
     assert.equal(await opens({ cookie, origin: "https://evil.example" }), "refused");
     assert.equal(await opens({ cookie, origin: http }), "open"); // same origin
+  } finally {
+    await close();
+  }
+});
+
+test("the terminals' socket is the session's and this origin's alone; without a sandbox it says there are none", async () => {
+  const { post, cookieOf, ends, http, close } = await guarded();
+  try {
+    const cookie = cookieOf(await post("/setup", { password: "correct horse" }));
+    assert.equal(await ends({}, "/terminal?cols=80&rows=24"), "refused");
+    assert.equal(await ends({ cookie, origin: "https://evil.example" }, "/terminal"), "refused");
+    assert.equal(await ends({ cookie, origin: http }, "/terminal?cols=80&rows=24"), 4404);
   } finally {
     await close();
   }

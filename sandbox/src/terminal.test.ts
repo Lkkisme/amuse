@@ -106,7 +106,7 @@ test("a reset stops the terminals and herdr's server, empties home, and starts t
   assert.ok(await until(() => starts() === 1));
 });
 
-test("a credential is typed into a terminal through herdr's socket, with Enter, and herdr's refusal comes back in words", async () => {
+test("a credential is typed into a terminal through herdr's socket, with Enter; not into a shell at its prompt; herdr's refusal comes back in words", async () => {
   const { createServer } = await import("node:net");
   const own = mkdtempSync(join(tmpdir(), "amuse-type-test-"));
   const ownHome = join(own, "home");
@@ -122,10 +122,13 @@ test("a credential is typed into a terminal through herdr's socket, with Enter, 
     connection.on("data", (line: string) => {
       const request = JSON.parse(line);
       asked.push(request);
+      const pane = request.params.pane_id;
+      // w1:p2 runs a login (its own process group), w1:p3 is at the shell's prompt
+      const running = { pane_id: pane, shell_pid: 100, foreground_process_group_id: pane === "w1:p3" ? 100 : 200, foreground_processes: [] };
       connection.write(
-        request.params.pane_id === "w9:p9"
+        pane === "w9:p9"
           ? `${JSON.stringify({ id: request.id, error: { code: "pane_not_found", message: "no pane w9:p9" } })}\n`
-          : `${JSON.stringify({ id: request.id, result: { type: "ok" } })}\n`,
+          : `${JSON.stringify({ id: request.id, result: request.method === "pane.process_info" ? { type: "process_info", process_info: running } : { type: "ok" } })}\n`,
       );
     });
   });
@@ -134,11 +137,17 @@ test("a credential is typed into a terminal through herdr's socket, with Enter, 
   try {
     const client = sandboxClient(`http://127.0.0.1:${typing.port}`);
     await client.typeSecret({ pane: "w1:p2", value: "code-123" });
-    assert.deepEqual(asked, [{ id: "amuse", method: "pane.send_input", params: { pane_id: "w1:p2", text: "code-123", keys: ["enter"] } }]);
+    assert.deepEqual(asked, [
+      { id: "amuse", method: "pane.process_info", params: { pane_id: "w1:p2" } },
+      { id: "amuse", method: "pane.send_input", params: { pane_id: "w1:p2", text: "code-123", keys: ["enter"] } },
+    ]);
+    await assert.rejects(client.typeSecret({ pane: "w1:p3", value: "late-code" }), (e: unknown) => e instanceof Error && "detail" in e && /shell prompt/.test(String(e.detail)));
+    assert.ok(!asked.some((a) => JSON.stringify(a).includes("late-code")), "nothing typed into the shell");
     await assert.rejects(client.typeSecret({ pane: "w9:p9", value: "x" }), (e: unknown) => e instanceof Error && "detail" in e && /no pane w9:p9/.test(String(e.detail)));
     // not a pane's id: refused before herdr is asked
+    const before = asked.length;
     await assert.rejects(client.typeSecret({ pane: "w1:p2; rm", value: "x" }));
-    assert.equal(asked.length, 2);
+    assert.equal(asked.length, before);
   } finally {
     await typing.close();
     socket.close();
@@ -188,5 +197,47 @@ test("a terminal opened with no workspace in herdr opens one in the workspace fo
   } finally {
     await first.close();
     socket.close();
+  }
+});
+
+test("a viewer that leaves while the daemon waits for herdr's server leaves nothing running, and holds no slot", async () => {
+  const own = mkdtempSync(join(tmpdir(), "amuse-wait-test-"));
+  const ownHome = join(own, "home");
+  mkdirSync(join(ownHome, "workspace"), { recursive: true });
+  // a server whose socket comes late; an interface that says it started
+  const slow = join(own, "herdr");
+  writeFileSync(
+    slow,
+    `#!/usr/bin/env bash
+if [ "$1" = server ]; then sleep 0.4; mkdir -p "$HOME/.config/herdr" && touch "$HOME/.config/herdr/herdr.sock"; exec sleep 1000; fi
+echo started >> "$HOME/interfaces"; exec sleep 1000
+`,
+  );
+  chmodSync(slow, 0o755);
+  const waiting = await serve({ home: ownHome, workspace: join(ownHome, "workspace"), skeleton: join(own, "skel"), port: 0, host: "127.0.0.1", herdr: slow });
+  try {
+    const open = () => new WebSocket(`ws://127.0.0.1:${waiting.port}/terminal`);
+    // eight leave at once, before the server is there
+    const leaving = Array.from({ length: 8 }, open);
+    await Promise.all(leaving.map((ws) => new Promise((done) => ws.once("open", done))));
+    for (const ws of leaving) ws.close();
+    await new Promise((done) => setTimeout(done, 1_000));
+    assert.equal(existsSync(join(ownHome, "interfaces")), false, "an interface was started for a viewer that had left");
+    // the slots are free: one more opens, and a ninth at once is turned away
+    const views = Array.from({ length: 9 }, open);
+    const codes = await Promise.all(
+      views.map(
+        (ws) =>
+          new Promise<number | "open">((done) => {
+            ws.once("close", (code) => done(code));
+            setTimeout(() => done("open"), 1_500);
+          }),
+      ),
+    );
+    assert.equal(codes.filter((c) => c === 4429).length, 1, String(codes));
+    assert.equal(codes.filter((c) => c === "open").length, 8, String(codes));
+    for (const ws of views) ws.close();
+  } finally {
+    await waiting.close();
   }
 });

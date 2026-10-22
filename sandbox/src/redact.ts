@@ -12,12 +12,29 @@ export interface Masked {
   value: string;
 }
 
-/** `text` with every value in `secrets` (the longest first, so one inside another goes whole) shown as its name. */
+/**
+ * What may come between a value's characters as a terminal shows it: a line break where the screen wrapped it (a
+ * terminal's reading of its screen, herdr's, keeps those), and the codes that colour or move what is shown.
+ */
+const GAP = String.raw`(?:\r|\n|\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\))*`;
+/** Each value's pattern, made once (a value can be long). */
+const patterns = new Map<string, RegExp>();
+const patternOf = (value: string) => {
+  let pattern = patterns.get(value);
+  if (!pattern) {
+    pattern = new RegExp(value.split("").map((c) => c.replace(/[.*+?^${}()|[\]\\/-]/g, "\\$&")).join(GAP), "g");
+    if (patterns.size > 200) patterns.clear();
+    patterns.set(value, pattern);
+  }
+  return pattern;
+};
+
+/** `text` with every value in `secrets` (the longest first, so one inside another goes whole) shown as its name, even wrapped over lines. */
 export function mask(text: string, secrets: readonly Masked[]): string {
   let out = text;
   for (const { name, value } of [...secrets].sort((a, b) => b.value.length - a.value.length)) {
     // a value too short to be one would mask ordinary words
-    if (value.length >= 6) out = out.split(value).join(`\u2039${name}\u203a`);
+    if (value.length >= 6) out = out.replace(patternOf(value), () => `\u2039${name}\u203a`);
   }
   return out;
 }

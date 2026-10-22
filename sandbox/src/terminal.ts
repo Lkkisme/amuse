@@ -30,7 +30,24 @@ export interface Terminal {
 
 export function relayTerminal(
   ws: WebSocket,
-  { command, cols, rows, cwd, env, user }: { command: string[]; cols: number; rows: number; cwd: string; env: NodeJS.ProcessEnv; user?: { uid: number; gid: number } },
+  {
+    command,
+    cols,
+    rows,
+    cwd,
+    env,
+    user,
+    early = [],
+  }: {
+    command: string[];
+    cols: number;
+    rows: number;
+    cwd: string;
+    env: NodeJS.ProcessEnv;
+    user?: { uid: number; gid: number };
+    /** what the viewer sent before the terminal was there, in order */
+    early?: { data: RawData; binary: boolean }[];
+  },
 ): Terminal {
   const child = spawn("python3", ["-I", RELAY, String(cols), String(rows), ...command], {
     cwd,
@@ -62,7 +79,7 @@ export function relayTerminal(
   // writes after the terminal has ended go nowhere
   for (const stream of [typed, sizes]) stream?.on("error", () => {});
 
-  ws.on("message", (data: RawData, binary: boolean) => {
+  const received = (data: RawData, binary: boolean) => {
     const bytes = Buffer.isBuffer(data) ? data : Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data);
     if (binary) return void typed?.write(bytes);
     let parsed: unknown;
@@ -73,7 +90,9 @@ export function relayTerminal(
     }
     const message = TerminalMessage.safeParse(parsed);
     if (message.success && sizes instanceof Writable && sizes.writable) sizes.write(`${message.data.cols} ${message.data.rows}\n`);
-  });
+  };
+  for (const { data, binary } of early) received(data, binary);
+  ws.on("message", received);
 
   const ended = new Promise<void>((done) => {
     child.once("error", () => done());
@@ -82,11 +101,14 @@ export function relayTerminal(
   void ended.then(() => {
     if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) ws.close(1000, "the terminal ended");
   });
-  ws.on("close", () => {
-    // the relay hangs its terminal up when its input ends; one that does not end is killed
+  // the relay hangs its terminal up when its input ends; one that does not end is killed
+  const hangUp = () => {
     typed?.end();
     const force = setTimeout(() => signal("SIGKILL"), GRACE_MS);
     void ended.then(() => clearTimeout(force));
-  });
+  };
+  // a viewer already gone gets no close event
+  if (ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) hangUp();
+  else ws.on("close", hangUp);
   return { pid: group, ended, signal };
 }

@@ -19,7 +19,7 @@ import { type Access, PasswordRejected } from "./access.ts";
 import { type FileStore, shownInline } from "./workspace.ts";
 import { type Live, attach, thumbnail } from "./live.ts";
 import { serve } from "./rpc.ts";
-import { attachTerminal } from "./terminal.ts";
+import { TERMINAL_CLOSED, attachTerminal } from "./terminal.ts";
 import { staticFiles } from "./static.ts";
 
 export interface Options {
@@ -82,7 +82,7 @@ function parseJson(text: string): unknown {
   }
 }
 
-type Target = { kind: "rpc" } | { kind: "live"; id: string; live: Live } | { kind: "terminal"; at: string };
+type Target = { kind: "rpc" } | { kind: "live"; id: string; live: Live } | { kind: "terminal"; at: string | null };
 
 /** A running server: where it listens, and how to stop it (sockets included). */
 export interface Listening {
@@ -93,10 +93,11 @@ export interface Listening {
 export function listen({ session, live, terminal, files: uploads, web, returned, access, refuse, transcribe, port, host }: Options): Promise<Listening> {
   const route = (url: URL): Target | null => {
     if (url.pathname === "/rpc") return { kind: "rpc" };
-    if (url.pathname === "/terminal" && terminal) {
+    // without a sandbox the socket opens only to say so (the viewer shows "no terminals here")
+    if (url.pathname === "/terminal") {
       const cols = Cols.safeParse(Number(url.searchParams.get("cols")));
       const rows = Rows.safeParse(Number(url.searchParams.get("rows")));
-      return { kind: "terminal", at: terminal(cols.success ? cols.data : 80, rows.success ? rows.data : 24) };
+      return { kind: "terminal", at: terminal ? terminal(cols.success ? cols.data : 80, rows.success ? rows.data : 24) : null };
     }
     const id = url.searchParams.get("id");
     return url.pathname === "/live" && live && id ? { kind: "live", id, live } : null;
@@ -336,7 +337,7 @@ export function listen({ session, live, terminal, files: uploads, web, returned,
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
       if (target.kind === "live") return attach(ws, target.id, target.live);
-      if (target.kind === "terminal") return attachTerminal(ws, target.at);
+      if (target.kind === "terminal") return target.at === null ? ws.close(TERMINAL_CLOSED.none, "no terminals") : attachTerminal(ws, target.at);
       const peer = serve(session, (frame) => ws.send(frame));
       ws.on("message", (data, binary) => void (binary ? undefined : peer.receive(data.toString())));
       ws.on("close", peer.close);

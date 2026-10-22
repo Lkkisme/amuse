@@ -88,3 +88,22 @@ test("a daemon that cannot be reached closes the viewer as away", async () => {
   viewers.close();
   server.close();
 });
+
+test("a frame from the sandbox larger than a screenful is not taken: the viewer is closed as away", async () => {
+  const daemon = new WebSocketServer({ port: 0 });
+  daemon.on("connection", (ws) => ws.send(Buffer.alloc(300 * 1024), { binary: true }));
+  await new Promise((done) => daemon.once("listening", done));
+  const server = createServer();
+  const viewers = new WebSocketServer({ server });
+  viewers.on("connection", (ws) => attachTerminal(ws, `ws://127.0.0.1:${portOf(daemon.address())}/terminal`));
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  const viewer = new WebSocket(`ws://127.0.0.1:${portOf(server.address())}`);
+  let shown = 0;
+  viewer.on("message", (data: Buffer) => void (shown += data.length));
+  const code = await new Promise<number>((done) => viewer.once("close", done));
+  assert.equal(code, TERMINAL_CLOSED.away);
+  assert.equal(shown, 0);
+  daemon.close();
+  viewers.close();
+  server.close();
+});

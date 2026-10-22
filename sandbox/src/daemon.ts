@@ -26,7 +26,7 @@ import { spawn } from "node:child_process";
 import { cpSync, existsSync, readFileSync, statSync } from "node:fs";
 import { chmod, lchown, lstat, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
-import { type WebSocket, WebSocketServer } from "ws";
+import { type RawData, type WebSocket, WebSocketServer } from "ws";
 import { dirname, join, relative, resolve } from "node:path";
 import { z } from "zod";
 import { HerdrError, herdrCall } from "./herdr.ts";
@@ -70,6 +70,8 @@ const GRACE_MS = 300;
 const TERMINALS = 8;
 const SERVER_WAIT_MS = 10_000;
 const RESTART_MS = 2_000;
+/** A server that keeps ending is started again less and less often, up to this (ms); one that ran this long starts the count over. */
+const LONGEST_RESTART_MS = 60_000;
 
 /** A request that cannot be done, with why in words. */
 class Refused extends Error {
@@ -97,6 +99,10 @@ interface Job {
 
 /** What herdr says its workspaces are (only how many matters here). */
 const Listed = z.object({ workspaces: z.array(z.unknown()) });
+/** What runs in a pane, as herdr says: whether the shell itself is in the foreground (at its prompt). */
+const Running = z.object({
+  process_info: z.object({ shell_pid: z.int().nullable().default(null), foreground_process_group_id: z.int().nullable().default(null) }),
+});
 
 /** `text` as one word for bash. */
 const quoted = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
@@ -237,13 +243,16 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
   let keeper: Job | null = null;
   let tending = herdr !== undefined;
   const herdrSocket = join(home, ".config", "herdr", "herdr.sock");
+  let restartIn = RESTART_MS;
   const tend = () => {
     if (!herdr || !tending || keeper) return;
     const job = launch(`exec ${quoted(herdr)} server`, workspace, new Clip(0, 20_000), { lasting: true });
     keeper = job;
+    const started = Date.now();
     const again = () => {
       keeper = null;
-      if (tending) setTimeout(tend, RESTART_MS).unref();
+      restartIn = Date.now() - started >= LONGEST_RESTART_MS ? RESTART_MS : Math.min(restartIn * 2, LONGEST_RESTART_MS);
+      if (tending) setTimeout(tend, restartIn).unref();
     };
     job.ended.then(again, again);
   };
@@ -251,11 +260,22 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
   let terminals = 0;
   /** Show herdr's interface on `ws`, once its server is there. */
   const openTerminal = async (ws: WebSocket, url: URL) => {
-    if (resetting) await resetting.catch(() => {});
     if (!herdr) return ws.close(4404, "There are no terminals here.");
     if (terminals >= TERMINALS) return ws.close(4429, `${TERMINALS} terminals are open; close one first.`);
+    // the slot is taken now, before any wait, and given back if the terminal never opens
+    terminals++;
+    // what the viewer sends meanwhile (its size, the first keys) is kept for the terminal
+    const early: { data: RawData; binary: boolean }[] = [];
+    const keep = (data: RawData, binary: boolean) => void early.push({ data, binary });
+    ws.on("message", keep);
+    const give = (code: number, reason: string) => {
+      terminals--;
+      ws.off("message", keep);
+      ws.close(code, reason);
+    };
+    if (resetting) await resetting.catch(() => {});
     for (const start = Date.now(); !existsSync(herdrSocket); ) {
-      if (Date.now() - start > SERVER_WAIT_MS || ws.readyState !== ws.OPEN) return ws.close(4503, "The terminals are not running just now.");
+      if (Date.now() - start > SERVER_WAIT_MS || ws.readyState !== ws.OPEN) return give(4503, "The terminals are not running just now.");
       await new Promise((done) => setTimeout(done, 100));
     }
     // the user sees something to work in: with no workspace there (a fresh home, or every one closed), one in the workspace folder
@@ -266,10 +286,13 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
           : undefined,
       )
       .catch(() => {});
+    // the viewer may have gone while this waited
+    if (ws.readyState !== ws.OPEN) return give(1000, "The viewer left.");
+    ws.off("message", keep);
     const cols = Cols.safeParse(Number(url.searchParams.get("cols")));
     const rows = Rows.safeParse(Number(url.searchParams.get("rows")));
-    terminals++;
     const terminal = relayTerminal(ws, {
+      early,
       command: [herdr],
       cols: cols.success ? cols.data : 80,
       rows: rows.success ? rows.data : 24,
@@ -323,12 +346,20 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
     return {};
   };
 
-  /** A credential typed into a terminal (a CLI waiting for a code) and Enter after it: typed once, never kept here. */
+  /**
+   * A credential typed into a terminal (a CLI waiting for a code) and Enter after it: typed once, never kept here. Not
+   * into a shell at its prompt: whatever asked for it is gone (a card can be answered long after), and the shell would
+   * run it as a command, keep it in its history and show it.
+   */
   const typeSecret = async ({ pane, value }: SecretTyped) => {
     if (!herdr) throw new Refused("There are no terminals here.", 404);
     try {
+      const info = Running.safeParse(await herdrCall(herdrSocket, "pane.process_info", { pane_id: pane })).data?.process_info;
+      if (info && info.shell_pid !== null && info.shell_pid === info.foreground_process_group_id)
+        throw new Refused(`Nothing in ${pane} is waiting for it: the terminal is at its shell prompt.`, 409);
       await herdrCall(herdrSocket, "pane.send_input", { pane_id: pane, text: value, keys: ["enter"] });
     } catch (error) {
+      if (error instanceof Refused) throw error;
       throw new Refused(error instanceof HerdrError ? `It could not be typed into ${pane}: ${error.message}` : `It could not be typed into ${pane}.`, 409);
     }
     return {};
