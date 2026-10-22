@@ -1,10 +1,38 @@
 /**
  * Tiny rich-markdown renderer for agent bubbles: **bold**, `inline code`
- * chips, [links](https://…), "# " headings (as bold lines), "- " bullets and
- * ``` code blocks (as they are, in a mono box).
+ * chips, [links](https://…) and bare web addresses, "# " headings (as bold
+ * lines), "- " bullets and ``` code blocks (as they are, in a mono box).
  * Hand-parsed (no dangerouslySetInnerHTML); a link goes only to http(s).
  */
 import type { ReactNode } from "react";
+import { addressesIn } from "../addresses";
+
+const linkStyle = { color: "var(--fill-blue)" };
+
+/** `text` with its web addresses as links, the rest as it is; `plain`: in the text's own colour (on the user's blue bubble). */
+export function linked(text: string, keyBase: string, plain = false): ReactNode[] {
+  const parts: ReactNode[] = [];
+  let last = 0;
+  let i = 0;
+  for (const { at, address } of addressesIn(text)) {
+    if (at > last) parts.push(text.slice(last, at));
+    parts.push(
+      <a
+        key={`${keyBase}-a${i++}`}
+        href={address}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline"
+        style={plain ? undefined : linkStyle}
+      >
+        {address}
+      </a>,
+    );
+    last = at + address.length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts;
+}
 
 function renderInline(text: string, keyBase: string): ReactNode[] {
   const parts: ReactNode[] = [];
@@ -13,7 +41,7 @@ function renderInline(text: string, keyBase: string): ReactNode[] {
   let m: RegExpExecArray | null;
   let i = 0;
   while ((m = regex.exec(text)) !== null) {
-    if (m.index > last) parts.push(text.slice(last, m.index));
+    if (m.index > last) parts.push(...linked(text.slice(last, m.index), `${keyBase}-t${i}`));
     const tok = m[0];
     const key = `${keyBase}-i${i++}`;
     if (tok.startsWith("**")) {
@@ -38,7 +66,7 @@ function renderInline(text: string, keyBase: string): ReactNode[] {
     }
     last = m.index + tok.length;
   }
-  if (last < text.length) parts.push(text.slice(last));
+  if (last < text.length) parts.push(...linked(text.slice(last), `${keyBase}-t${i}`));
   return parts;
 }
 

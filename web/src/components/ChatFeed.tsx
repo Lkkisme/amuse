@@ -27,7 +27,7 @@ import {
   ScheduleCard,
   TaskCard,
 } from "./cards";
-import { RichText } from "./markdown";
+import { RichText, linked } from "./markdown";
 import { type Place, type Side, corners } from "./shape.ts";
 
 type Message = Prompt | Reply;
@@ -421,7 +421,8 @@ function Bubble({
           ref={bubble}
           // 16px text on 22px lines; 12px above and below (15px to the eye, with the leading) to 20px at the sides, 4:3;
           // a line is 46px high, a pill with the 22px corners
-          className="msg relative w-fit max-w-[88%] sm:max-w-[78%] px-5 py-3 text-[16px] leading-[22px]"
+          // a long run with no space (a web address) breaks where it must, inside the bubble
+          className="msg relative w-fit max-w-[88%] sm:max-w-[78%] px-5 py-3 text-[16px] leading-[22px] [overflow-wrap:anywhere]"
           style={{
             ...corners(isUser ? "user" : "muse", place),
             background: isUser
@@ -431,7 +432,7 @@ function Bubble({
           }}
         >
           {item.kind === "prompt" ? (
-            <span data-words>{item.text}</span>
+            <span data-words>{linked(item.text, item.id, true)}</span>
           ) : (
             <div
               data-words
