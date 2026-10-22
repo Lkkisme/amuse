@@ -154,11 +154,13 @@ export function TerminalView({
 
   const closed = typeof phase === "object" ? closedCopy(phase.closed, t) : null;
   return (
+    // the terminal fills the viewer under its switch, edge to edge, as the browser's page does (the panel's corners
+    // round it off); its words keep a margin of their own
     <div
-      className={`${visible ? "flex" : "hidden"} relative min-h-0 flex-1 flex-col p-2 pt-0 lg:p-3 lg:pt-0`}
+      className={`${visible ? "flex" : "hidden"} relative min-h-0 flex-1 flex-col`}
     >
       <div
-        className="relative min-h-0 flex-1 overflow-hidden rounded-[16px] p-2"
+        className="relative min-h-0 flex-1 overflow-hidden px-3 py-2"
         style={{ background: "#1c1c1e" }}
       >
         <div ref={box} className="size-full" />
@@ -240,7 +242,7 @@ function KeyRow({
     { label: "→", aria: t.viewer.keyRight, press: () => onKey(arrow("C", application(), mods)) },
   ];
   return (
-    <div className="hidden gap-1.5 overflow-x-auto pt-2 [scrollbar-width:none] pointer-coarse:flex">
+    <div className="hidden gap-1.5 overflow-x-auto px-2 py-2 [scrollbar-width:none] pointer-coarse:flex">
       {keys.map(({ label, aria, press, on }) => (
         <button
           key={label}
