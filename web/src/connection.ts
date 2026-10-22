@@ -58,12 +58,17 @@ async function reason(response: Response): Promise<string> {
   return response.status === 401 ? "That is not the password." : "Something went wrong. Try again.";
 }
 
+/** How far starting has got, for the page that says why it could not start (index.html). */
+export const startedTo = (stage: string) => void (document.documentElement.dataset["amuse"] = stage);
+
 export async function connection(): Promise<Connection> {
   const explicit = import.meta.env["VITE_AMUSE_URL"];
   if (typeof explicit === "string" && explicit) return server(explicit);
   if (import.meta.env["VITE_AMUSE_MODE"] !== "same-origin") return { kind: "demo" };
 
+  startedTo("asking the server (/unlock)");
   const unlocked = await fetch("/unlock").catch(() => null);
+  startedTo(unlocked ? `the server answered /unlock (${unlocked.status})` : "/unlock could not be reached");
   if (unlocked?.status !== 204) {
     const said: unknown = await unlocked?.json().catch(() => null);
     const ready = typeof said === "object" && said !== null && "ready" in said ? said.ready !== false : true;

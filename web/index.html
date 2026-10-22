@@ -47,7 +47,19 @@
           text.textContent = "Try updating the browser, or open Amuse in another one. What went wrong:";
           var detail = document.createElement("pre");
           detail.style.cssText = "white-space:pre-wrap;word-break:break-word;font-size:12px;margin:0";
-          detail.textContent = (errors.length ? errors.join("\n") : "It did not start in time (nothing failed that the page could see).") + "\n\n" + navigator.userAgent;
+          var stage = document.documentElement.getAttribute("data-amuse") || "the app's script never ran";
+          var loads = (performance.getEntriesByType ? performance.getEntriesByType("resource") : [])
+            .filter(function (entry) {
+              return /\/(assets|unlock|rpc)/.test(entry.name);
+            })
+            .map(function (entry) {
+              return entry.name.replace(location.origin, "") + ": " + Math.round(entry.duration) + " ms, " + (entry.responseStatus || "?") + ", " + (entry.transferSize || 0) + " bytes";
+            });
+          detail.textContent =
+            (errors.length ? errors.join("\n") : "Nothing failed that the page could see.") +
+            "\nGot as far as: " + stage +
+            "\n" + loads.join("\n") +
+            "\n\n" + navigator.userAgent;
           box.append(title, text, detail);
           root.append(box);
         }, 10000);

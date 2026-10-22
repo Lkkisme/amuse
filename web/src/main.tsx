@@ -2,6 +2,9 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App";
+import { startedTo } from "./connection";
+
+startedTo("the app's script ran");
 
 // The keyboard should shrink the app, not push it up out of view. Chrome does so for
 // interactive-widget=resizes-content (index.html); Safari ignores that, so follow the visible
