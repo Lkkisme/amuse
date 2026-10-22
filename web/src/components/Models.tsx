@@ -78,6 +78,8 @@ export function Models({
       (!words || p.name.toLowerCase().includes(words) || p.id.includes(words)),
   );
   const models = state?.models ?? [];
+  /** a provider's name by its id, for the pickers */
+  const names = new Map(providers.map((p) => [p.id, p.name]));
   // the page shows the provider as it is now (its key may have been replaced)
   const open =
     viewing && (providers.find((p) => p.id === viewing.id) ?? viewing);
@@ -143,6 +145,7 @@ export function Models({
               title={t.models.chat}
               value={state.chat}
               options={models}
+              names={names}
               onChange={(m) => choose("chat", m)}
             />
             <ThinkingPicker
@@ -155,6 +158,7 @@ export function Models({
               title={t.models.browser}
               value={state.browser}
               options={models.filter((m) => m.images)}
+              names={names}
               onChange={(m) => choose("browser", m)}
             />
             <ThinkingPicker
@@ -170,6 +174,7 @@ export function Models({
               title={t.models.background}
               value={state.background}
               options={models}
+              names={names}
               unset={t.models.sameAsChat}
               onChange={(m) => choose("background", m)}
             />
@@ -632,52 +637,80 @@ function LocalVoiceSheet({
   );
 }
 
-/** One role's model: the providers' models to choose from (none chosen yet: said so). */
+/**
+ * One role's model: first its provider (when more than one has models: the same model can be at two), then one of
+ * that provider's models. None chosen yet: said so. A provider picked shows its models; the role's model changes only
+ * once one of them is picked.
+ */
 function ModelPicker({
   title,
   value,
   options,
+  names,
   unset,
   onChange,
 }: {
   title: string;
   value: string | null;
   options: KeysState["models"];
+  /** a provider's name by its id */
+  names: ReadonlyMap<string, string>;
   /** what no choice means, where it means something ("Same as chat"); else one must be chosen */
   unset?: string;
   onChange: (model: string | null) => void;
 }) {
   const t = useT();
+  const providers = [...new Set(options.map((o) => o.provider))];
+  const current = options.find((o) => o.id === value)?.provider ?? null;
+  const [picked, setPicked] = useState<string | null>(null);
+  const provider = picked ?? current ?? providers[0] ?? null;
+  const shown = options.filter((o) => o.provider === provider);
+  // the role's model is this provider's: it is the one shown chosen; else, until one is picked, nothing is
+  const chosen = value !== null && shown.some((o) => o.id === value) ? value : "";
+  const select = "min-w-0 truncate bg-transparent text-right text-[15px] outline-none [text-align-last:right]";
   return (
-    <label className="flex items-center gap-3 py-2.5">
-      <span className="text-[16px]" style={{ color: "var(--text-primary)" }}>
+    // in columns, so the rows' pickers line up: the role's name, its provider (when there is a choice), its model
+    <div
+      className={`grid items-center gap-3 py-2.5 ${providers.length > 1 ? "grid-cols-[5.5rem_minmax(0,1fr)_minmax(0,1.3fr)] sm:grid-cols-[6.5rem_minmax(0,1fr)_minmax(0,1.6fr)]" : "grid-cols-[auto_minmax(0,1fr)]"}`}
+    >
+      <span className="truncate text-[16px]" style={{ color: "var(--text-primary)" }}>
         {title}
       </span>
+      {providers.length > 1 && (
+        <select
+          aria-label={t.models.providerFor(title)}
+          className={`${select} w-full`}
+          style={{ color: "var(--text-secondary)" }}
+          value={provider ?? ""}
+          onChange={(e) => setPicked(e.target.value)}
+        >
+          {providers.map((id) => (
+            <option key={id} value={id}>
+              {names.get(id) ?? id}
+            </option>
+          ))}
+        </select>
+      )}
       <select
         aria-label={t.models.modelFor(title)}
-        className="min-w-0 flex-1 truncate bg-transparent text-right text-[15px] outline-none"
+        className={`${select} w-full`}
         style={{
-          color: value || unset ? "var(--text-secondary)" : "var(--fill-blue)",
+          color: chosen || (unset && value === null) ? "var(--text-secondary)" : "var(--fill-blue)",
         }}
-        value={value ?? ""}
-        onChange={(e) =>
-          e.target.value ? onChange(e.target.value) : unset && onChange(null)
-        }
+        value={chosen}
+        onChange={(e) => {
+          if (e.target.value) onChange(e.target.value);
+          else if (unset) onChange(null);
+        }}
       >
-        {unset ? (
-          <option value="">{unset}</option>
-        ) : (
-          !value && <option value="">{t.models.chooseModel}</option>
-        )}
-        {value && !options.some((o) => o.id === value) && (
-          <option value={value}>{value}</option>
-        )}
-        {options.map((o) => (
+        {unset ? <option value="">{unset}</option> : !chosen && <option value="">{t.models.chooseModel}</option>}
+        {value && !options.some((o) => o.id === value) && <option value={value}>{value}</option>}
+        {shown.map((o) => (
           <option key={o.id} value={o.id}>
             {o.name}
           </option>
         ))}
       </select>
-    </label>
+    </div>
   );
 }

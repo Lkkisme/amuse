@@ -288,6 +288,7 @@ export const zhCN = {
     sameAsChat: "与聊天相同",
     chooseModel: "选择模型",
     modelFor: (role) => `${role}模型`,
+    providerFor: (role) => `${role}模型的服务商`,
     thinking: "思考",
     thinkingFor: (role) => `${role}思考`,
     levels: {

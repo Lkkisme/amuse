@@ -27,6 +27,7 @@ const samples: Record<string, unknown[]> = {
   "connections.kindLines.destructive": ["Sample"],
   "keys.keyHint": ["ak_1234"],
   "models.modelFor": ["Chat"],
+  "models.providerFor": ["Chat"],
   "models.thinkingFor": ["Chat"],
   "models.usedFor": [["chat", "the browser"]],
   "logins.signOutOf": ["example.com"],
