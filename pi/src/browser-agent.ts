@@ -619,7 +619,11 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers, rules: Ru
           run.held?.settle();
           run.held = null;
           // back to its job, or idle (between jobs, or the user's own with none yet)
-          if (browser.status === "idle") standIdle(run);
+          if (browser.status === "idle") {
+            standIdle(run);
+            const note = handedBack(browser);
+            if (note) io.report(note);
+          }
           return;
         case "stop":
           return close(browser.id, io);
@@ -629,6 +633,15 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers, rules: Ru
       void browsers.fit(id, viewer).catch(() => {}); // a desktop that keeps its size is still usable
     },
   };
+}
+
+/**
+ * What the chat hears when the user hands back a browser that is idle: nothing for one that never had a task (the user's own); for one
+ * whose task was over (it brought them to a login, say), that they may have done the step it stopped at, so it goes on if there is more.
+ */
+export function handedBack(browser: Browser): string | null {
+  if (browser.outcome === null) return null;
+  return `[browser task "${browser.title}" (${browser.id})] The user took over this browser after its task was over, and has handed it back (they may have logged in, or done the step it stopped at). If what they asked needs more, go on in it: browse with browser ${browser.id}. If not, call no_reply.`;
 }
 
 /**

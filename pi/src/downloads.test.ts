@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Workspace, WorkspaceError, noWorkspace } from "@amuse/core";
+import { Browser } from "@amuse/protocol";
 import { freePath } from "./browser-agent.ts";
 
 /** A workspace where these paths are files, and these are links the workspace will not look at. */
@@ -30,4 +31,23 @@ test("when nothing can be looked at, it stops looking rather than go on for ever
     },
   };
   assert.match(await freePath(broken, "downloads", "a.txt"), /^downloads\/a \(999\)\.txt$/);
+});
+
+test("handing back a browser whose task was over tells the chat to go on in it; the user's own browser, never given a task, tells nothing", async () => {
+  const { handedBack } = await import("./browser-agent.ts");
+  const browser = Browser.parse({
+    kind: "browser",
+    id: "b-1",
+    at: "2026-10-21T00:00:00Z",
+    title: "Log in to Care26",
+    url: "https://students.care26.com",
+    status: "idle",
+    instructions: "Go to the UCSD login and fill in the user name",
+    result: "At the UCSD login, user name filled in",
+    step: null,
+    live: true,
+    outcome: "completed",
+  });
+  assert.match(handedBack(browser) ?? "", /handed it back.*browse with browser b-1.*no_reply/s);
+  assert.equal(handedBack({ ...browser, outcome: null }), null);
 });
