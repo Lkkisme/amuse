@@ -41,6 +41,9 @@ const describe = (where: Where) => (a: Attachment) => {
   return `${a.name} (${a.type}, ${size(a.size)}) ${now === null ? "since deleted" : `at ${now}`}`;
 };
 
+/** Sent files as the agent knows them, in a line ("" for none). */
+export const attached = (attachments: Attachment[], where: Where = asSent): string => attachments.map(describe(where)).join(", ");
+
 const repeats = (when: When, zone: string) => (when.kind === "repeat" ? `cron "${when.cron}" in ${when.timezone}` : `once at ${localTime(when.at, zone)}`);
 
 /** One entity as a line (or a few), in full or in brief, its times on the user's clock (`zone`); null for what the agent need not see. */
@@ -49,7 +52,7 @@ export function line(entity: Entity, detail: Detail, zone: string, where: Where 
   const at = localTime(entity.at, zone);
   switch (entity.kind) {
     case "prompt": {
-      const files = entity.attachments.map(describe(where)).join(", ");
+      const files = attached(entity.attachments, where);
       const said = full ? entity.text : clip(entity.text, 240);
       return `[${at}] User: ${said}${files ? `${said ? " " : ""}[attached: ${files}]` : ""}`;
     }

@@ -7,7 +7,7 @@
  * (the status line says what it is doing). Pi's coding tools, extensions,
  * skills and context files are all off: the model sees only amuse's tools (tools.ts).
  */
-import { type AgentIO, type Ports, type Rules, type Turn, type Workspace, nowIn, newId } from "@amuse/core";
+import { type AgentIO, type Ports, type Rules, type Turn, type Workspace, attached, newId, nowIn } from "@amuse/core";
 import { images, workspaceTools } from "./attachments.ts";
 import { memoryBrief, memoryReadTools, memoryWriteTools } from "./memory.ts";
 import { aboutTools } from "./about.ts";
@@ -15,7 +15,7 @@ import { type Skill, allSkills, catalog, skillTools } from "./skills.ts";
 import type { Needs } from "@amuse/protocol";
 import type { SandboxClient } from "@amuse/sandbox";
 import { redact } from "./redact.ts";
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { AgentSession, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { type PiModelConfig, type PiSession, openSession, secretsOf } from "./session.ts";
 import { statusOf } from "./status.ts";
 import { relayTools } from "./runs.ts";
@@ -126,10 +126,18 @@ const toolLabels: Record<string, string> = {
   no_reply: "Wrapping up",
 };
 
+/** A message of the user's sent while a turn was running: what the model is given of it (`sent`), and the turn to run for it if it is never delivered. */
+interface Steered {
+  turn: Extract<Turn, { kind: "message" }>;
+  sent: string;
+}
+
 /** One chat's agent: its runs one after another, the session of the one in progress, and its interrupt count. */
 interface Lane {
   queue: Promise<void>;
   session: PiSession | undefined;
+  /** While the model works on a turn: the user's messages sent meanwhile that it has not read yet (they are in the chat already). */
+  steering: Steered[] | undefined;
   /** Bumped by interrupt: the run in progress says nothing more. Queued prompts and reports still run. */
   epoch: number;
 }
@@ -148,7 +156,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
     return news;
   };
   const laneOf = (chat: string): Lane => {
-    const lane = lanes.get(chat) ?? { queue: Promise.resolve(), session: undefined, epoch: 0 };
+    const lane = lanes.get(chat) ?? { queue: Promise.resolve(), session: undefined, steering: undefined, epoch: 0 };
     lanes.set(chat, lane);
     return lane;
   };
@@ -207,6 +215,15 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
         } else if (event.type === "tool_execution_end") {
           if (debugTools) console.log(`[tool] ${event.toolName}${event.isError ? " (error)" : ""}: ${JSON.stringify(event.result).slice(0, 600)}`);
           emit({ kind: "activity", activity: { kind: "responding", label: null } });
+        } else if (event.type === "message_start" && event.message.role === "user") {
+          // a message of the user's reaches the model mid-turn (the brief, the first, is no steered one)
+          const text = textOf(event.message.content);
+          const at = lane.steering?.findIndex((m) => m.sent === text) ?? -1;
+          if (at >= 0) {
+            lane.steering?.splice(at, 1);
+            // what the model decided about the turn before was about the turn before
+            silent = false;
+          }
         } else if (event.type === "message_end" && event.message.role === "assistant") {
           // only what the agent says once it is done is its reply; what it writes on the way to a tool
           // is its own thinking aloud (often in another language), and the status line already says what it does
@@ -222,11 +239,22 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
         // the images the user just sent are seen with their message
         const shown = turn.kind === "message" && cfg.files ? await images(cfg.files, turn.attachments) : [];
         const remembered = [cfg.files ? await memoryBrief(cfg.files).catch(() => "") : "", news].filter(Boolean).join("\n\n");
-        await pi.prompt(brief(agent, turn, remembered), { expandPromptTemplates: false, ...(shown.length > 0 ? { images: shown } : {}) });
+        const told = brief(agent, turn, remembered);
+        // from here the model has the conversation as it stands: what the user adds goes to it as it works
+        lane.steering = [];
+        await pi.prompt(told, { expandPromptTemplates: false, ...(shown.length > 0 ? { images: shown } : {}) });
       } finally {
         unsubscribe();
       }
+      // the turn is over and nothing more can reach it: a message the model did not get in time is a turn of its own
+      const unread = lane.steering?.splice(0) ?? [];
+      lane.steering = undefined;
       if (failure !== undefined) throw new Error(failure);
+      const last = unread.at(-1);
+      if (live() && last) {
+        const next: Turn = { kind: "message", text: last.turn.text, attachments: unread.flatMap((m) => m.turn.attachments) };
+        lane.queue = lane.queue.then(() => run(next, agent, lane));
+      }
     } catch (error) {
       if (!live()) return;
       const detail = redact(error instanceof Error ? error.message : String(error), secretsOf(cfg));
@@ -244,6 +272,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
         },
       });
     } finally {
+      lane.steering = undefined;
       lane.session?.close();
       lane.session = undefined;
       emit({ kind: "activity", activity: null });
@@ -253,7 +282,10 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
   return {
     prompt: (turn, agent) => {
       const lane = laneOf(agent.chat);
-      lane.queue = lane.queue.then(() => run(turn, agent, lane));
+      const queued = () => void (lane.queue = lane.queue.then(() => run(turn, agent, lane)));
+      // a message from the user while the model is working on a turn of this chat goes to it as it works; otherwise it is the next turn
+      if (turn.kind === "message" && lane.steering && lane.session?.session.isStreaming) void steer(lane.steering, lane.session.session, turn, cfg.files).catch(queued);
+      else queued();
     },
     interrupt: (agent) => {
       const lane = laneOf(agent.chat);
@@ -263,6 +295,31 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
     title: (text) => title(cfg, text),
   };
 }
+
+/**
+ * The user's message to a turn in progress, as the model reads it among its own steps: said to be new, with its files (images
+ * are seen). Resolves when the model has it queued; rejects (and the message is no longer waiting) if it could not be given.
+ */
+async function steer(waiting: Steered[], session: AgentSession, turn: Extract<Turn, { kind: "message" }>, files: Workspace | undefined): Promise<void> {
+  const names = attached(turn.attachments);
+  const sent = ["[The user wrote this while you were working; take it into account and go on]", turn.text, names ? `[attached: ${names}]` : ""].filter(Boolean).join("\n");
+  const message: Steered = { turn, sent };
+  // from now on the end of the turn finds it, if the model never reads it
+  waiting.push(message);
+  try {
+    const shown = files ? await images(files, turn.attachments) : [];
+    await session.steer(sent, shown.length > 0 ? shown : undefined);
+  } catch (error) {
+    const at = waiting.indexOf(message);
+    // not found: the turn ended meanwhile and has taken it on
+    if (at < 0) return;
+    waiting.splice(at, 1);
+    throw error;
+  }
+}
+
+/** The text of a message's content. */
+const textOf = (content: string | ({ type: string; text?: string })[]): string => (typeof content === "string" ? content : content.map((c) => (c.type === "text" ? (c.text ?? "") : "")).join(""));
 
 /** A few words naming a chat after its first message, in that message's language. */
 async function title(cfg: PiModelConfig, text: string): Promise<string> {

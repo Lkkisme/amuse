@@ -1,7 +1,8 @@
 /**
  * Composer pill (surface 1): '+' icon left, 'Message' placeholder, mic icon
  * right. The trailing button exists only when it has a job: send while there
- * is a draft, stop while the assistant works; otherwise it is not rendered
+ * is a draft (also while the assistant works: the message reaches it as it
+ * goes), stop while it works and there is none; otherwise it is not rendered
  * (Muse shows just the mic).
  *
  * The mic records what the user says; the server turns it into text (their
@@ -80,7 +81,7 @@ export function Composer({ conversation, place, actions }: { conversation: State
   const ready = pending.flatMap((p) => (p.state.kind === "ready" ? [p.state.attachment] : []));
   const uploading = pending.some((p) => p.state.kind === "uploading");
   const sendable = !uploading && (draft.trim() !== "" || ready.length > 0);
-  const trailing: "stop" | "send" | null = working ? "stop" : sendable ? "send" : null;
+  const trailing: "stop" | "send" | null = sendable ? "send" : working ? "stop" : null;
 
   const add = (chosen: Iterable<File>) => {
     if (!files) return;
@@ -107,7 +108,7 @@ export function Composer({ conversation, place, actions }: { conversation: State
     });
 
   const submit = () => {
-    if (!sendable || working) return;
+    if (!sendable) return;
     const text = draft.trim();
     const sent = pending.filter((p) => p.state.kind === "ready");
     setDraft("");

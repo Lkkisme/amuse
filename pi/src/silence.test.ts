@@ -32,7 +32,7 @@ test("what the model writes after no_reply in the same turn is dropped too", asy
   // a tool that does not end the turn alongside it: the model is called again, and what it then writes is not shown
   const { agent, io, replies, until } = await chat(
     [fauxAssistantMessage([fauxToolCall("no_reply", {}), fauxToolCall("lookup", {})], { stopReason: "toolUse" }), fauxAssistantMessage("Nothing new for you.")],
-    [lookup],
+    { tools: [lookup] },
   );
   agent.prompt(note, io);
   await until(1);
