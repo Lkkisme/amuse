@@ -7,8 +7,8 @@ import { isLocalGitHubAccount, isLocalGitHubAction, LOCAL_GITHUB_APP, LocalGitHu
 
 /** Available services are not connected accounts; their real OAuth still runs. */
 const pendingCloud: App[] = [
-  { id: "gmail", name: "Gmail", description: "Connect Gmail through your Composio account. Google authorization is required before mail can be read or sent.", logo: null },
-  { id: "googlecalendar", name: "Google Calendar", description: "Connect Google Calendar through your Composio account. Google authorization is required before calendars can be read or changed.", logo: null },
+  { id: "gmail", name: "Gmail", description: "通过你的 Composio 账号连接 Gmail。完成 Google 授权后，才能读取或发送邮件。", logo: null },
+  { id: "googlecalendar", name: "Google 日历", description: "通过你的 Composio 账号连接 Google 日历。完成 Google 授权后，才能读取或更改日程。", logo: null },
 ];
 const aliases: Record<string, string> = { gmail: "邮箱 邮件 谷歌 gmail", googlecalendar: "日历 日程 谷歌 calendar googlecalendar" };
 

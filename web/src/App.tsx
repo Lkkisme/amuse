@@ -9,6 +9,7 @@ import { createHost, realTimers } from "@amuse/core";
 import { demoPorts, seed } from "@amuse/demo";
 import { MAIN, type Method, type Params, type Session } from "@amuse/protocol";
 import { type Connection, connection } from "./connection.ts";
+import { connectionNeedsAppsKey, isLocalConnection } from "./connection-access.ts";
 import { useChats, useConversation } from "./session.ts";
 import { applyTheme, storedTheme } from "./theme.ts";
 import { activeT } from "./i18n/language.ts";
@@ -285,10 +286,10 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         void (await session.call("secret.answer", { id, value })),
       resolveApproval: (id, resolution) =>
         call("approval.resolve", { id, resolution }),
-      // before apps are set up, a Connect card goes straight to where their key goes
+      // Cloud cards go to key setup; the computer's existing Git login needs no cloud key.
       openExplainer: (explainer) =>
         patch((u) =>
-          explainer !== null && needsAppsKeyRef.current
+          connectionNeedsAppsKey(conversationRef.current.entities, explainer, needsAppsKeyRef.current)
             ? {
                 ...u,
                 settings: {
@@ -301,8 +302,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
             : { ...u, explainer },
         ),
       connect: (id) => {
-        // apps are not set up yet: the card leads to where their key goes
-        if (needsAppsKeyRef.current)
+        // Keep cloud setup intact while letting known local cards use the existing login.
+        if (connectionNeedsAppsKey(conversationRef.current.entities, id, needsAppsKeyRef.current))
           return patch((u) => ({
             ...u,
             explainer: null,
@@ -314,11 +315,13 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
             },
           }));
         patch((u) => ({ ...u, explainer: null }));
-        // open the tab now, inside the click, so mobile browsers do not block it; point it at the link once known
-        const tab = window.open("about:blank", "_blank");
+        // Cloud OAuth opens on the click to avoid popup blocking. Local reconnect stays here.
+        const local = isLocalConnection(conversationRef.current.entities, id);
+        const tab = local ? null : window.open("about:blank", "_blank");
         session.call("connection.begin", { id }).then(
-          ({ url }) =>
-            tab ? tab.location.replace(url) : window.location.assign(url),
+          ({ url }) => {
+            if (!local) tab ? tab.location.replace(url) : window.location.assign(url);
+          },
           (error: unknown) => {
             tab?.close();
             patch((u) => ({

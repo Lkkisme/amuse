@@ -99,14 +99,16 @@ export function Connectors({
       }, fail);
   };
 
-  /** Open the provider's page in a new tab. The tab opens on the tap itself, or it would be blocked as a popup. */
+  /** Cloud OAuth opens on the tap; local reconnect verifies the existing login and stays here. */
   const connect = (app: string) => {
-    const opened = window.open("", "_blank");
+    const local = app === "local-github";
+    const opened = local ? null : window.open("", "_blank");
     setBusy(app);
     setError(null);
     session
       .call("apps.connect", { app })
       .then(({ url }) => {
+        if (local) return loadAccounts();
         if (opened) opened.location.href = url;
         else window.location.href = url;
       })

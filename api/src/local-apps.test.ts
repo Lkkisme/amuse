@@ -58,7 +58,10 @@ function agent() {
 test("without a cloud key the directory shows local GitHub and pending Google apps, never fake Google accounts", async (t) => {
   const { composite, called } = setup(t);
   assert.deepEqual((await composite.directory.search("", null)).apps.map((app) => app.id), ["local-github", "gmail", "googlecalendar"]);
-  assert.deepEqual((await composite.directory.search("日历", null)).apps.map((app) => app.id), ["googlecalendar"]);
+  const calendars = (await composite.directory.search("日历", null)).apps;
+  assert.deepEqual(calendars.map((app) => app.id), ["googlecalendar"]);
+  assert.equal(calendars[0]?.name, "Google 日历");
+  assert.match(calendars[0]!.description, /完成 Google 授权后/);
   const accounts = await composite.directory.accounts();
   assert.deepEqual(accounts.map((account) => account.id), ["local-github:fixture"]);
   assert.deepEqual(called, []);
