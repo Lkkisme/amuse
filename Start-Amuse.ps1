@@ -57,7 +57,7 @@ if (-not $Foreground -and -not $Service) {
     # with another account, stored credentials, or a higher run level.
     Register-ScheduledTask -TaskPath '\' -TaskName $amuseTaskName -InputObject $amuseTask -Force -ErrorAction Stop | Out-Null
     Start-ScheduledTask -TaskPath '\' -TaskName $amuseTaskName -ErrorAction Stop
-    $amuseDeadline = (Get-Date).AddSeconds(90)
+    $amuseDeadline = (Get-Date).AddSeconds(180)
     do {
         Start-Sleep -Milliseconds 500
         if (Test-Path -LiteralPath $amusePidFile) {
@@ -73,7 +73,7 @@ if (-not $Foreground -and -not $Service) {
         $amuseHostState = Get-ScheduledTask -TaskPath '\' -TaskName $amuseTaskName
         if ($amuseHostState.State -ne 'Running') { throw ('The Amuse service host stopped before the API was ready. Check ' + (Join-Path $amuseLogs 'service-error.log')) }
     } while ((Get-Date) -lt $amuseDeadline)
-    throw ('Amuse has not opened port 8081 within 90 seconds. The host was left running; check ' + $amuseLogs)
+    throw ('Amuse has not opened port 8081 within 180 seconds. The host was left running; check ' + $amuseLogs)
 }
 
 try {
