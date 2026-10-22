@@ -56,7 +56,7 @@ export const zhCN = {
     title: "技能",
     add: "添加技能",
     yours: "我的技能",
-    yoursNone: "Amuse 为你保存的工作方式：你安装的技能，以及 Amuse 根据你反复提出的要求编写的技能。",
+    yoursNone: "Amuse 为你保存的工作方式：你安装的，以及它根据你反复提出的要求写下的。",
     builtIn: "内置",
     builtInReplaced: "内置 · 已被你的版本替换",
     replaced: "已被你的版本替换",
@@ -155,7 +155,7 @@ export const zhCN = {
     optionsFor: (name) => `${name} 的选项`,
     ago: {
       now: "刚刚",
-      minutes: (n) => `${n}分`,
+      minutes: (n) => `${n}分钟`,
       hours: (n) => `${n}小时`,
       days: (n) => `${n}天`,
     },
@@ -424,7 +424,7 @@ export const zhCN = {
     openBrowser: "打开浏览器",
   },
   permissions: {
-    description: "Amuse 在浏览器中可以做什么，对所有网站生效，并可为个别网站单独设置。拒绝是绝对禁止，Amuse 甚至不会询问。",
+    description: "Amuse 在浏览器中可以做什么，对所有网站生效，并可为个别网站单独设置。拒绝即绝对禁止，Amuse 甚至不会询问。",
     browser: "浏览器",
     websites: "网站",
     permissionLabel: "权限",
