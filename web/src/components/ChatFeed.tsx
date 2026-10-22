@@ -12,7 +12,6 @@ import {
   Copy,
   File as FileIcon,
   Share,
-  TextSelect,
 } from "lucide-react";
 import type { Attachment, Entity, Prompt, Reply, State } from "@amuse/protocol";
 import { size } from "@amuse/core";
@@ -169,8 +168,7 @@ function ActionRow({ mine, text }: { mine: boolean; text: string }) {
   );
 }
 
-/** A message's long-press menu, and the bubble it came from (where it sits on screen). */
-/** A long-pressed message: where the finger was, and its bubble (for selecting its text). */
+/** A tapped message: where the finger was, and its bubble (where it sits on screen). */
 type Menu = {
   message: Message;
   point: { x: number; y: number };
@@ -181,19 +179,16 @@ const MENU_WIDTH = 176;
 const MARGIN = 12;
 
 /**
- * Touch: a long press on a bubble selects its words and opens this, as a messaging app does: a card
- * over the bubble, from its sender's side, kept on screen; what can be done with it. Select keeps the
- * words selected to adjust (SelectionBar copies them); anything else, or a tap elsewhere, lets go.
+ * Touch: a tap on a bubble opens this: a card over the bubble (above it, else below), from its
+ * sender's side, kept on screen; what can be done with it. A tap elsewhere closes it. A long press
+ * is the phone's own: it selects words, with the phone's handles and its copy button.
  */
 function MessageMenu({
   menu,
   onClose,
-  onSelect,
 }: {
   menu: Menu | null;
   onClose: () => void;
-  /** Select was chosen: the bubble's words stay selected, and the bar to copy them shows */
-  onSelect: (text: string) => void;
 }) {
   const card = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(0);
@@ -223,7 +218,7 @@ function MessageMenu({
   const row =
     "hover-fade flex h-11 w-full items-center gap-3 rounded-[12px] px-3 text-[15px]";
   return (
-    // the finger still on the glass would go on into the phone's own long press, selecting what is under it, the menu's words: nothing here is selectable
+    // a press held on the menu is no selection of its words
     <div
       className="fixed inset-0 z-[80] select-none [-webkit-touch-callout:none]"
       onClick={onClose}
@@ -251,15 +246,6 @@ function MessageMenu({
         >
           <Copy size={18} /> Copy
         </button>
-        <button
-          role="menuitem"
-          className={row}
-          style={{ color: "var(--text-primary)" }}
-          // the words stay selected: no closing (that lets go of them), only the menu goes
-          onClick={() => onSelect(message.text)}
-        >
-          <TextSelect size={18} /> Select
-        </button>
         {canShare() && (
           <button
             role="menuitem"
@@ -273,120 +259,6 @@ function MessageMenu({
       </div>
     </div>
   );
-}
-
-/**
- * Select a bubble's words, for the phone's own handles to adjust: a bubble's text is not selectable
- * on touch (the long press is the menu's), so it is, until the selection is let go of (`ended`).
- * A phone may show no copy button of its own for a selection a page made (Chrome on Android does
- * not), so the feed shows its own (SelectionBar).
- */
-function selectText(bubble: HTMLElement, ended: () => void) {
-  const words = bubble.querySelector("[data-words]") ?? bubble;
-  bubble.dataset["selecting"] = "";
-  const range = document.createRange();
-  range.selectNodeContents(words);
-  const selection = getSelection();
-  selection?.removeAllRanges();
-  selection?.addRange(range);
-  const letGo = () => {
-    if (getSelection()?.isCollapsed === false) return;
-    delete bubble.dataset["selecting"];
-    document.removeEventListener("selectionchange", letGo);
-    ended();
-  };
-  // the selection is made before this listens, so only a later change lets go
-  setTimeout(() => document.addEventListener("selectionchange", letGo), 0);
-}
-
-/**
- * While a message's words are selected (Select in its menu): Copy takes what is selected (all of
- * it, unless the handles were moved), Done lets go. Pressing them keeps the selection.
- */
-function SelectionBar({ text, onDone }: { text: string; onDone: () => void }) {
-  const done = () => {
-    getSelection()?.removeAllRanges();
-    onDone();
-  };
-  const button = "hover-fade h-11 rounded-full px-5 text-[15px] font-semibold";
-  return (
-    <div className="anim-fade-in fixed inset-x-0 bottom-24 z-[70] flex justify-center select-none">
-      <div
-        className="flex gap-1 rounded-full p-1"
-        style={{
-          background: "var(--fill-primary)",
-          boxShadow: "var(--shadow-sheet)",
-        }}
-        onPointerDown={(e) => e.preventDefault()}
-      >
-        <button
-          className={button}
-          style={{ background: "var(--fill-blue)", color: "white" }}
-          onClick={() => {
-            copyText(getSelection()?.toString().trim() || text);
-            done();
-          }}
-        >
-          Copy
-        </button>
-        <button
-          className={button}
-          style={{ color: "var(--text-primary)" }}
-          onClick={done}
-        >
-          Done
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/** Long press: held this long without moving. */
-const PRESS_MS = 450;
-function useLongPress(onPress: (point: { x: number; y: number }) => void) {
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const start = useRef({ x: 0, y: 0 });
-  const cancel = () => clearTimeout(timer.current);
-  return {
-    onPointerDown: (e: React.PointerEvent) => {
-      // while its words are being selected, a long press is the phone's own (to move the selection)
-      if (
-        e.pointerType !== "touch" ||
-        (e.currentTarget instanceof HTMLElement &&
-          "selecting" in e.currentTarget.dataset)
-      )
-        return;
-      start.current = { x: e.clientX, y: e.clientY };
-      timer.current = setTimeout(() => {
-        onPress(start.current);
-        // lifting the finger clicks where it is, which is now the menu's backdrop: that click is the press's own
-        const swallow = (click: MouseEvent) => {
-          click.stopPropagation();
-          click.preventDefault();
-        };
-        window.addEventListener("click", swallow, {
-          capture: true,
-          once: true,
-        });
-        setTimeout(
-          () => window.removeEventListener("click", swallow, { capture: true }),
-          600,
-        );
-      }, PRESS_MS);
-    },
-    onPointerMove: (e: React.PointerEvent) => {
-      if (
-        Math.hypot(e.clientX - start.current.x, e.clientY - start.current.y) > 8
-      )
-        cancel();
-    },
-    onPointerUp: cancel,
-    onPointerCancel: cancel,
-    onContextMenu: (e: React.MouseEvent) => {
-      if (timer.current !== undefined && matchMedia("(hover: none)").matches)
-        e.preventDefault();
-    },
-  };
 }
 
 /** Files sent with a message, above its words: images and videos shown, anything else as a file to open or download. */
@@ -515,10 +387,21 @@ function Bubble({
 }) {
   const isUser = item.kind === "prompt";
   const bubble = useRef<HTMLDivElement>(null);
-  const press = useLongPress((point) => {
-    if (bubble.current)
-      onMenu({ message: item, point, bubble: bubble.current });
-  });
+  /** A tap (touch only: with a mouse, the row under the bubble has these) opens the menu; not one on a link, nor one ending a selection. */
+  const tap = (e: React.MouseEvent) => {
+    if (!matchMedia("(hover: none)").matches || !bubble.current) return;
+    if (
+      e.target instanceof Element &&
+      e.target.closest("a, button, img, video")
+    )
+      return;
+    if (getSelection()?.isCollapsed === false) return;
+    onMenu({
+      message: item,
+      point: { x: e.clientX, y: e.clientY },
+      bubble: bubble.current,
+    });
+  };
   const { attachments } = item;
   return (
     <div
@@ -529,7 +412,7 @@ function Bubble({
       )}
       {(item.text !== "" || attachments.length === 0) && (
         <div
-          {...press}
+          onClick={tap}
           ref={bubble}
           // 16px text on 22px lines; 12px above and below (15px to the eye, with the leading) to 20px at the sides, 4:3;
           // a line is 46px high, a pill with the 22px corners
@@ -618,15 +501,8 @@ export function ChatFeed({
   );
   /** messages in the whole feed: what "new" is counted against, so pages fetched back are not new */
   const total = conversation.earlier + conversation.entities.length;
-  /** the message whose long-press menu is open (touch) */
+  /** the message whose menu is open (touch: tapped) */
   const [menu, setMenu] = useState<Menu | null>(null);
-  /** the words of the message being selected (after Select in its menu), while they are */
-  const [selecting, setSelecting] = useState<string | null>(null);
-  /** A long press: the message's words are selected at once, as a messaging app does, and its menu opens over them. */
-  const openMenu = (pressed: Menu) => {
-    selectText(pressed.bubble, () => setSelecting(null));
-    setMenu(pressed);
-  };
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -814,7 +690,7 @@ export function ChatFeed({
                 }}
                 thumb={thumb}
                 actions={actions}
-                onMenu={openMenu}
+                onMenu={setMenu}
                 sending={sending.has(entity.id)}
               />
             </div>
@@ -871,21 +747,7 @@ export function ChatFeed({
         {/* Muse-style scroll fade: a mask dissolves the content itself under the
           floating top bar and composer — no solid overlay sits on top. */}
       </div>
-      <MessageMenu
-        menu={menu}
-        onClose={() => {
-          // the words the press selected are let go of with the menu (Copy, Share, a tap elsewhere)
-          getSelection()?.removeAllRanges();
-          setMenu(null);
-        }}
-        onSelect={(text) => {
-          setMenu(null);
-          setSelecting(text);
-        }}
-      />
-      {selecting !== null && (
-        <SelectionBar text={selecting} onDone={() => setSelecting(null)} />
-      )}
+      <MessageMenu menu={menu} onClose={() => setMenu(null)} />
     </div>
   );
 }

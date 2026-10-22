@@ -295,13 +295,10 @@
     opacity: 1;
   }
 }
-/* Touch: no row; a long press on the bubble opens its menu (ChatFeed), so the press is not the
-   phone's own text selection */
+/* Touch: no row; a tap on the bubble opens its menu (ChatFeed), and a long press selects its words
+   as the phone does anywhere */
 @media (hover: none) {
   .msg-actions { display: none; }
-  .msg { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
-  /* …until Select in its menu: its words can be selected, with the phone's own handles */
-  .msg[data-selecting] { user-select: text; -webkit-user-select: text; }
 }
 
 /* Buttons show they can be pressed (Tailwind's base resets them to the arrow) */
