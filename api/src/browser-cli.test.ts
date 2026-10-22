@@ -31,6 +31,12 @@ test("browser CLI maps every command and reads action JSON from an absolute file
   assert.deepEqual(parseBrowserCli([...prefix, "act", "b-one", '{"kind":"press","key":"Enter"}']).arguments, { id: "b-one", step: { kind: "press", key: "Enter" } });
 });
 
+test("Windows UTF-8 BOM JSON files work for both browser actions and shared tools", () => {
+  const file = join(tmpdir(), "powershell.json");
+  assert.deepEqual(parseBrowserCli(["--chat", "c-one", "act", "b-one", "--json-file", file], () => '\uFEFF{"kind":"press","key":"Enter"}').arguments, { id: "b-one", step: { kind: "press", key: "Enter" } });
+  assert.deepEqual(parseBrowserCli(["--chat", "c-one", "call", "amuse_status", "--json-file", file], () => '\uFEFF{"status":"Checking"}').arguments, { status: "Checking" });
+});
+
 test("browser CLI rejects ambiguous or invalid arguments before reading credentials", () => {
   for (const args of [[], ["list"], ["--chat", "c-one", "--chat", "c-two", "list"], ["--chat", "c-one", "open", "file:///secret"], ["--chat", "c-one", "act", "b-one", "--json-file", "relative.json"], ["--chat", "c-one", "act", "b-one", "{}"], ["--chat", "c-one", "act", "b-one", "not-json"]])
     assert.throws(() => parseBrowserCli(args));

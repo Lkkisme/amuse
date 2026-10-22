@@ -9,6 +9,8 @@ import { BrowserMcpStepSchema } from "./browser-mcp.ts";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const help = "用法：AMUSE-BROWSER.cmd --chat <聊天ID> open <URL>|list|observe <浏览器ID>|act <浏览器ID> <JSON>|screenshot <浏览器ID>|finish <浏览器ID> <结果>；AMUSE-TOOLS.cmd --chat <聊天ID> tools 或 call <工具名称> --json-file <参数JSON绝对路径>。";
+// Windows PowerShell 5 writes UTF-8 JSON with a BOM by default.
+const inputJson = (value: string): unknown => JSON.parse(value.replace(/^\uFEFF/, ""));
 export interface BrowserCliCall { chat: string; name: string; arguments: Record<string, unknown> }
 
 export function parseBrowserCli(argv: string[], read = (path: string) => readFileSync(path, "utf8")): BrowserCliCall {
@@ -30,7 +32,7 @@ export function parseBrowserCli(argv: string[], read = (path: string) => readFil
   if (command === "tools" && !id) return { chat, name: "$tools", arguments: {} };
   if (command === "call" && id && /^[A-Za-z_][A-Za-z0-9_-]{0,95}$/.test(id) && (jsonFile || extra.length === 1)) {
     let value: unknown;
-    try { value = JSON.parse(jsonFile ? read(jsonFile) : extra[0]!); } catch { throw new Error("工具参数必须是 JSON 对象。"); }
+    try { value = inputJson(jsonFile ? read(jsonFile) : extra[0]!); } catch { throw new Error("工具参数必须是 JSON 对象。"); }
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("工具参数必须是 JSON 对象。");
     return { chat, name: id, arguments: value as Record<string, unknown> };
   }
@@ -45,7 +47,7 @@ export function parseBrowserCli(argv: string[], read = (path: string) => readFil
     return { chat, name: `browser_${command}`, arguments: { id } };
   if (command === "act" && id && (jsonFile || extra.length === 1)) {
     let step: unknown;
-    try { step = JSON.parse(jsonFile ? read(jsonFile) : extra[0]!); }
+    try { step = inputJson(jsonFile ? read(jsonFile) : extra[0]!); }
     catch { throw new Error("浏览器动作必须是有效的 JSON；复杂内容请使用 --json-file 绝对路径。"); }
     const checked = BrowserMcpStepSchema.safeParse(step);
     if (!checked.success) throw new Error(`浏览器动作无效：${checked.error.issues[0]?.message ?? "请检查 kind 和参数。"}`);

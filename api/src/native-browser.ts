@@ -10,6 +10,7 @@ import { browserRulesOf, decideBrowser, hostOf, memoryRules, type Rules, type Ho
 import { permitStep } from "@amuse/pi";
 import type { Browser as BrowserEntity, BrowserAction } from "@amuse/protocol";
 import { z } from "zod";
+import { consumeBrowserCheckpoint } from "./browser-checkpoint.ts";
 
 const coordinate = z.number().finite().min(0).max(1);
 const Input = z.discriminatedUnion("type", [
@@ -124,6 +125,18 @@ export class NativeBrowserManager implements Browsers {
     if (host) this.bind(host);
     if (!this.host) throw new Error("Browser host is not ready.");
     this.restoration ??= (async () => {
+      const checkpoint = consumeBrowserCheckpoint(this.options.directory);
+      if (checkpoint) for (const entry of checkpoint.browsers) {
+        let state;
+        try { state = this.host!.external.state(entry.chat); } catch { continue; }
+        const current = state.entities.find((entity): entity is BrowserEntity => entity.kind === "browser" && entity.id === entry.browser.id);
+        const saved = entry.browser;
+        // Only shutdown/recovery changes (live/status/step/title) may be undone.
+        // A user stop, a new navigation/job/result or a rolled-back journal is
+        // authoritative and can never be revived by an old owner checkpoint.
+        if (!current || state.seq < entry.seq || !["paused", "idle"].includes(current.status) || current.at !== saved.at || current.url !== saved.url || current.instructions !== saved.instructions || current.result !== saved.result || current.outcome !== saved.outcome || JSON.stringify(current.files) !== JSON.stringify(saved.files)) continue;
+        this.host!.external.ingest(entry.chat, [{ kind: "upserted", entity: { ...current, ...saved, live: true } }]);
+      }
       const recorded = await this.recordedBrowsers();
       const live = recorded.filter(({ browser }) => browser.live);
       let restored = 0, ended = 0;

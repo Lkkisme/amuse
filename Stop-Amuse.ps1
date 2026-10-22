@@ -5,6 +5,15 @@ $amuseSaved = Get-Content -LiteralPath $amusePidFile -Raw | ConvertFrom-Json
 $amuseProcess = Get-CimInstance Win32_Process -Filter "ProcessId = $($amuseSaved.pid)" -ErrorAction SilentlyContinue
 if ($amuseProcess) {
     if ($amuseProcess.ExecutablePath -ne $amuseSaved.node -or !$amuseProcess.CommandLine.Contains($PSScriptRoot)) { throw 'The saved PID belongs to a different process. Nothing was stopped.' }
+    $amuseBrowserConfigPath = Join-Path $PSScriptRoot '.local\native-browser.json'
+    $amuseCheckpoint = Join-Path $PSScriptRoot 'api\src\browser-checkpoint.ts'
+    if ((Test-Path -LiteralPath $amuseBrowserConfigPath) -and (Test-Path -LiteralPath $amuseCheckpoint)) {
+        $amuseBrowserConfig = Get-Content -LiteralPath $amuseBrowserConfigPath -Raw | ConvertFrom-Json
+        $amuseBrowserDirectory = if ([IO.Path]::IsPathRooted($amuseBrowserConfig.directory)) { $amuseBrowserConfig.directory } else { Join-Path $PSScriptRoot $amuseBrowserConfig.directory }
+        $amuseBrowserDirectory = [IO.Path]::GetFullPath($amuseBrowserDirectory)
+        & $amuseSaved.node $amuseCheckpoint --journal (Join-Path $PSScriptRoot '.local\data\events.jsonl') --directory $amuseBrowserDirectory --owner-pid $amuseSaved.pid
+        if ($LASTEXITCODE -ne 0) { throw 'The browser recovery checkpoint could not be saved. Amuse was not stopped.' }
+    }
     # Stop only this instance's descendants, including its Windows MCP subprocess.
     & taskkill.exe /PID $amuseSaved.pid /T /F | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Amuse could not be stopped.' }

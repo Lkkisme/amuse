@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chromium } from "playwright-core";
 import { existsSync, mkdtempSync, realpathSync, rmSync, readdirSync } from "node:fs";
@@ -6,9 +7,12 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { test, type TestContext } from "node:test";
+import { promisify } from "node:util";
 import { createHost, memoryChats, memoryRules, noKeys, noLogins, noSandbox, noWorkspace, type Host, type Ports, type Rules } from "@amuse/core";
 import { WebSocketServer } from "ws";
 import { NativeBrowserManager } from "./native-browser.ts";
+import { fileChats } from "./journal.ts";
+import { snapshotBrowsers } from "./browser-checkpoint.ts";
 
 const edge = process.env["AMUSE_TEST_EDGE"] ?? "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe";
 const nodeModel = () => { throw new Error("Native browser policy tests must never call a model."); };
@@ -91,9 +95,9 @@ async function fixture(t: TestContext) {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address(); assert.ok(address && typeof address !== "string"); port = address.port;
   const url = `http://127.0.0.1:${port}`;
-  const create = (rules: Rules, maxBrowsers = 2, sandboxUrl?: string) => {
+  const create = (rules: Rules, maxBrowsers = 2, sandboxUrl?: string, store = memoryChats()) => {
     const manager = new NativeBrowserManager({ executablePath: edge, directory, maxBrowsers, rules, ...(sandboxUrl ? { sandboxUrl } : {}) });
-    const host = createHost({ ...ports(rules), ...manager.ports() }, { store: memoryChats(), timers: { set: (ms, fn) => setTimeout(fn, ms).unref(), clear: clearTimeout } });
+    const host = createHost({ ...ports(rules), ...manager.ports() }, { store, timers: { set: (ms, fn) => setTimeout(fn, ms).unref(), clear: clearTimeout } });
     manager.bind(host); managers.push(manager); return { manager, host };
   };
   t.after(async () => {
@@ -246,6 +250,64 @@ test("native Edge previews sandbox ports through the daemon with logical URLs, i
 
 
 const oldBrowser = (id: string, url: string, status: "paused" | "idle" | "working" = "paused") => ({ kind: "browser" as const, id, at: "2026-10-21T12:00:00.000Z", title: "Saved browser", url, status, instructions: status === "working" ? "Old task must not be replayed." : "", result: null, outcome: null, step: null, live: true, files: [] });
+
+test("owner stop checkpoint survives real Edge termination and core recovery, then cannot revive a user-closed page", { skip: !existsSync(edge) || process.platform !== "win32", timeout: 90000 }, async (t) => {
+  const { create, url, directory, requestPaths } = await fixture(t);
+  const data = join(directory, "data"), journalPath = join(data, "events.jsonl");
+  const store = () => fileChats(data, journalPath);
+  const rules = memoryRules(); await rules.setBrowser("visit", "allow");
+  const original = create(rules, 1, undefined, store());
+  const { id } = await original.manager.openForChat("main", `${url}/held-owner-page`);
+  original.host.external.ingest("main", [
+    { kind: "upserted", entity: oldBrowser("user-stopped-after-checkpoint", `${url}/must-not-revive-stop`) },
+    { kind: "upserted", entity: oldBrowser("new-job-after-checkpoint", `${url}/must-not-replay-job`) },
+    { kind: "upserted", entity: oldBrowser("new-url-after-checkpoint", `${url}/old-url`) },
+  ]);
+  const checkpoint = snapshotBrowsers({ journalPath, directory, ownerPid: process.pid });
+  assert.equal(checkpoint.browsers.length, 4);
+  const saved = checkpoint.browsers.find((entry) => entry.browser.id === id)!.browser;
+  assert.equal(saved.status, "paused"); assert.equal(saved.live, true);
+  original.host.external.ingest("main", [
+    { kind: "upserted", entity: { ...oldBrowser("user-stopped-after-checkpoint", `${url}/must-not-revive-stop`), status: "stopped", live: false } },
+    { kind: "upserted", entity: oldBrowser("new-job-after-checkpoint", `${url}/must-not-replay-job`, "working") },
+    { kind: "upserted", entity: { ...oldBrowser("new-url-after-checkpoint", `${url}/changed-url`), live: false } },
+  ]);
+
+  // Identify only the root Edge process whose command line contains this
+  // freshly-created unique profile. No production or user browser is touched.
+  const profile = join(directory, "profiles", createHash("sha256").update(id).digest("hex").slice(0, 24));
+  assert.equal(dirname(dirname(profile)), directory);
+  const literal = profile.replaceAll("'", "''");
+  const powershell = join(process.env["SystemRoot"] ?? "C:/Windows", "System32/WindowsPowerShell/v1.0/powershell.exe");
+  const execute = promisify(execFile);
+  const script = `$owned = @(Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" | Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf('${literal}', [StringComparison]::OrdinalIgnoreCase) -ge 0 -and $_.CommandLine -notmatch '--type=' }); ConvertTo-Json -Compress -InputObject @($owned | ForEach-Object { [int]$_.ProcessId })`;
+  const discovery = await execute(powershell, ["-NoProfile", "-NonInteractive", "-Command", script], { windowsHide: true, timeout: 10000 });
+  const pids = JSON.parse(discovery.stdout.trim()) as number[];
+  assert.equal(pids.length, 1, "exactly one owned Edge root is targeted");
+  assert.ok(Number.isSafeInteger(pids[0]) && pids[0]! > 0);
+  await execute(join(process.env["SystemRoot"] ?? "C:/Windows", "System32/taskkill.exe"), ["/PID", String(pids[0]), "/T", "/F"], { windowsHide: true, timeout: 15000 });
+  await until(() => original.host.external.state("main").entities.find((entity) => entity.id === id && entity.kind === "browser" && !entity.live), "old page.close handler recording released after Edge death");
+  await until(() => !existsSync(profile) ? true : undefined, "old owned browser profile cleanup");
+
+  const restarted = create(rules, 1, undefined, store());
+  const recovered = restarted.host.external.state("main").entities.find((entity) => entity.id === id);
+  assert.ok(recovered?.kind === "browser"); assert.equal(recovered.live, false, "core recovery also clears live before native restoration");
+  const restored = await restarted.manager.restoreExisting();
+  assert.deepEqual(restored, { restored: 1, ended: 0, migratedProfiles: 0 });
+  const page = restarted.host.external.state("main").entities.find((entity) => entity.id === id);
+  assert.ok(page?.kind === "browser"); assert.equal(page.status, "paused"); assert.equal(page.live, true); assert.equal(page.url, saved.url);
+  assert.equal(restarted.manager.list("main").find((browser) => browser.id === id)?.controlledBy, "user");
+  assert.ok((await restarted.manager.screenshot(id)).length > 1000, "the original page has an actual restored viewer image");
+  assert.equal(requestPaths.some((path) => /must-not-revive|must-not-replay|changed-url/.test(path)), false, "a user stop, changed job and new URL remain authoritative");
+  assert.equal(readdirSync(directory).filter((name) => name.startsWith("resume.consumed.")).length, 1);
+  assert.equal(existsSync(join(directory, "resume.json")), false);
+  await restarted.host.call("browser.control", { id, action: "stop" });
+  await until(() => !existsSync(profile) ? true : undefined, "user-close profile cleanup");
+  const third = create(rules, 1, undefined, store());
+  assert.deepEqual(await third.manager.restoreExisting(), { restored: 0, ended: 0, migratedProfiles: 0 });
+  assert.equal(await third.manager.stillOpen(id), false, "a consumed checkpoint never revives a later user close");
+  t.diagnostic("Killed only the temporary owned Edge tree; its actual close event cleared live, the one-use owner checkpoint restored the original paused viewer after journal/core recovery, and a later user stop stayed closed.");
+});
 
 test("native restart migrates legacy per-run login profiles and restores saved paused/idle pages without replaying work", { skip: !existsSync(edge), timeout: 120000 }, async (t) => {
   const { create, url, directory, requestPaths } = await fixture(t);
