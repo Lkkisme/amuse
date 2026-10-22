@@ -5,6 +5,15 @@
  * can put them in its own order and plural forms.
  */
 export const en = {
+  localServices: {
+    title: "Local services",
+    voice: "Speech to text",
+    voiceHelp: "Recordings are transcribed on your computer",
+    search: "Web search",
+    searchHelp: "Local search service querying public websites online",
+    cloudHelp: "GitHub can use this computer's existing Git login. Gmail and Google Calendar require a Composio key and Google authorization.",
+    states: { ready: "Ready", unavailable: "Unavailable", unconfigured: "Not configured", configured: "Configured" },
+  },
   chat: {
     share: "Share",
     copy: "Copy",

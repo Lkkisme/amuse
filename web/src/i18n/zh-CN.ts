@@ -19,6 +19,15 @@
 import type { Messages } from "./en.ts";
 
 export const zhCN = {
+  localServices: {
+    title: "本地服务",
+    voice: "语音转文字",
+    voiceHelp: "录音在电脑上识别",
+    search: "网页搜索",
+    searchHelp: "本地检索服务，联网查询公开网页",
+    cloudHelp: "GitHub 可使用电脑已有的 Git 登录。Gmail 与 Google 日历需要添加 Composio key，并完成 Google 授权。",
+    states: { ready: "已就绪", unavailable: "暂不可用", unconfigured: "未配置", configured: "已配置" },
+  },
   chat: {
     share: "分享",
     copy: "复制",

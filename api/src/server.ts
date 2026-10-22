@@ -21,6 +21,7 @@ import { type Live, attach, thumbnail } from "./live.ts";
 import { serve } from "./rpc.ts";
 import { TERMINAL_CLOSED, attachTerminal } from "./terminal.ts";
 import { staticFiles } from "./static.ts";
+import type { LocalServicesStatus } from "./local-services-status.ts";
 
 export interface Options {
   session: Session;
@@ -41,6 +42,8 @@ export interface Options {
   refuse?: (address: string | undefined) => boolean;
   /** Speech to text for the composer's mic (POST /transcribe); off when absent. The reason, in words, when it cannot. */
   transcribe?: (audio: Uint8Array, type: string) => Promise<{ text: string } | { reason: string }>;
+  /** Owner-only local speech/search availability; contains no service credentials. */
+  serviceStatus?: () => Promise<LocalServicesStatus>;
   port: number;
   host: string;
 }
@@ -92,7 +95,7 @@ export interface Listening {
   close(): Promise<void>;
 }
 
-export function listen({ session, live, terminal, files: uploads, web, returned, browserMcp, access, refuse, transcribe, port, host }: Options): Promise<Listening> {
+export function listen({ session, live, terminal, files: uploads, web, returned, browserMcp, access, refuse, transcribe, serviceStatus, port, host }: Options): Promise<Listening> {
   const route = (url: URL): Target | null => {
     if (url.pathname === "/rpc") return { kind: "rpc" };
     // without a sandbox the socket opens only to say so (the viewer shows "no terminals here")
@@ -257,6 +260,13 @@ export function listen({ session, live, terminal, files: uploads, web, returned,
     if (!ours(req)) return void res.writeHead(403).end();
     return browserMcp(req, res);
   };
+  const services = async (req: IncomingMessage, res: ServerResponse) => {
+    if (!allowed(req)) return void res.writeHead(401).end();
+    if (!ours(req)) return void res.writeHead(403).end();
+    if (req.method !== "GET") return void res.writeHead(405).end();
+    if (!serviceStatus) return void res.writeHead(404).end();
+    json(res,200,await serviceStatus());
+  };
   /**
    * POST /files (the bytes as the body; the name in X-File-Name, URI-encoded; the
    * type in Content-Type) → the Attachment, to send with a message.
@@ -330,6 +340,8 @@ export function listen({ session, live, terminal, files: uploads, web, returned,
         ? thumb(req, url, res)
         : url.pathname === "/browser-view"
           ? browserView(req, url, res)
+          : url.pathname === "/local-services"
+            ? services(req, res)
           : url.pathname === "/mcp/browser"
             ? scopedBrowserMcp(req, res)
         : url.pathname === "/transcribe"

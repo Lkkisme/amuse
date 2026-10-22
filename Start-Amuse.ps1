@@ -78,6 +78,14 @@ if (-not $Foreground -and -not $Service) {
 
 try {
 & (Join-Path $amuseRoot 'Start-AmuseSandbox.ps1') -Root $amuseRoot
+if (Test-Path -LiteralPath (Join-Path $amuseLocal 'local-services.json')) {
+    # The scheduler launches optional CPU services with inherited log files;
+    # they keep running across an API update without a parent pipe reader.
+    try {
+        & $amuseRuntime.node (Join-Path $amuseRoot 'scripts\start-local-services.mjs') $amuseRoot
+        if ($LASTEXITCODE -ne 0) { Write-Warning 'An optional local service is unavailable; the chat backend will still start. Check the local service logs.' }
+    } catch { Write-Warning 'An optional local service is unavailable; the chat backend will still start. Check the local service logs.' }
+}
 $env:AMUSE_HOST = '127.0.0.1'
 $env:AMUSE_PORT = '8081'
 $amuseNetworkFile = Join-Path $amuseLocal 'network.json'
@@ -92,6 +100,7 @@ $env:AMUSE_DESKTOP_CONFIG = Join-Path $amuseLocal 'desktop.json'
 $env:AMUSE_BACKEND = 'paseo'
 $env:AMUSE_PASEO_CONFIG = Join-Path $amuseLocal 'paseo.json'
 $env:AMUSE_NATIVE_BROWSER_CONFIG = Join-Path $amuseLocal 'native-browser.json'
+$env:AMUSE_LOCAL_SEARCH_CONFIG = Join-Path $amuseLocal 'local-search.json'
 $amuseSandboxFile = Join-Path $amuseLocal 'sandbox.json'
 if (Test-Path -LiteralPath $amuseSandboxFile) {
     $amuseSandbox = Get-Content -LiteralPath $amuseSandboxFile -Raw | ConvertFrom-Json

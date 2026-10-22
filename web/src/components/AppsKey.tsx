@@ -1,19 +1,28 @@
-/**
- * Settings › Connections, behind their own key: services are connected through
- * Composio, with the user's Composio API key. Without one, the page asks for
- * it; with one, it shows the connections, and below them the key (only its
- * end), which opens what can be done with it: test, replace, remove.
- */
+/** Settings connections include existing local logins and optional cloud OAuth. */
 import { useCallback, useEffect, useState } from "react";
-import { ChevronRight, KeyRound, LayoutGrid } from "lucide-react";
+import { ChevronRight, KeyRound } from "lucide-react";
 import type { App, KeyProvider, Session } from "@amuse/protocol";
 import { Connectors } from "./Connectors";
 import { KeyLine, KeyLogin, useKeyTests } from "./KeyLogin";
 import { Sheet } from "./Sheet";
 import { useT } from "../i18n/react.ts";
+import { LocalServicesPanel } from "./LocalServicesPanel";
+
+type Props = {
+  session: Session;
+  demo: boolean;
+  viewing: App | null;
+  onView: (app: App | null) => void;
+};
+export function AppsKey(props: Props) {
+  return <>
+    {!props.demo && !props.viewing && <LocalServicesPanel />}
+    <AppsConnections {...props} />
+  </>;
+}
 
 /** `demo`: the in-browser demo, whose connectors are scripted and need no key. */
-export function AppsKey({
+function AppsConnections({
   session,
   demo,
   viewing,
@@ -74,76 +83,15 @@ export function AppsKey({
     );
   if (key === null || !key.connected)
     return (
-      <div className="flex flex-1 flex-col items-center justify-center px-8 pb-10 text-center">
-        <LayoutGrid size={28} style={{ color: "var(--icon-secondary)" }} />
-        <p
-          className="mt-3 text-[16px] font-semibold"
-          style={{ color: "var(--text-primary)" }}
-        >
-          {t.connections.connectTitle}
-        </p>
-        <p
-          className="mt-1 max-w-[300px] text-[14px]"
-          style={{ color: "var(--text-secondary)" }}
-        >
-          {t.connections.connectHelp}
-        </p>
-        <p
-          className="mt-2 max-w-[300px] text-[14px]"
-          style={{ color: "var(--text-secondary)" }}
-        >
-          {t.connections.ownAccount}
-        </p>
-        {/* where the key is, per Composio's docs */}
-        <ol
-          className="mt-5 w-full max-w-[320px] space-y-2.5 rounded-[18px] px-4 py-3.5 text-left text-[14px]"
-          style={{
-            background: "var(--fill-secondary)",
-            color: "var(--text-primary)",
-          }}
-        >
-          {[
-            <>
-              {t.connections.steps.signIn}
-              <a
-                href="https://dashboard.composio.dev/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline"
-                style={{ color: "var(--fill-blue)" }}
-              >
-                dashboard.composio.dev
-              </a>
-              {t.connections.steps.signInAfter}
-            </>,
-            <>{t.connections.steps.openSettings}</>,
-            <>{t.connections.steps.copyKey}</>,
-          ].map((step, i) => (
-            <li key={i} className="flex gap-3">
-              <span
-                className="flex size-5 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold"
-                style={{
-                  background: "var(--fill-primary)",
-                  color: "var(--text-secondary)",
-                }}
-              >
-                {i + 1}
-              </span>
-              <span>{step}</span>
-            </li>
-          ))}
-        </ol>
-        {key && (
-          <button
-            className="mt-5 h-11 rounded-full px-5 text-[15px] font-semibold text-white"
-            style={{ background: "var(--fill-blue)" }}
-            onClick={() => setSetting(key)}
-          >
-            {t.connections.addKey}
-          </button>
-        )}
-        {sheet}
-      </div>
+      <>
+      <Connectors session={session} viewing={viewing} onView={onView} />
+      {!viewing&&<div className="shrink-0 border-t px-5 py-3 sm:px-6" style={{borderColor:"var(--fill-divider)"}}>
+        <p className="text-[13px]" style={{color:"var(--text-secondary)"}}>{t.localServices.cloudHelp}</p>
+        <a href="https://dashboard.composio.dev/" target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-[13px] underline" style={{color:"var(--fill-blue)"}}>Composio</a>
+        {key&&<button className="ml-4 text-[13px] font-medium" style={{color:"var(--fill-blue)"}} onClick={()=>setSetting(key)}>{t.connections.addKey}</button>}
+      </div>}
+      {sheet}
+      </>
     );
   return (
     <>
@@ -151,17 +99,12 @@ export function AppsKey({
       {/* the key: one row; what can be done with it opens over it */}
       {!viewing && (
         <button
-          className="flex shrink-0 items-center gap-3 border-t px-5 py-3 text-left sm:px-6"
+          className="flex w-full shrink-0 items-center gap-3 border-t px-5 py-3 text-left sm:px-6"
           style={{ borderColor: "var(--fill-divider)" }}
           onClick={() => setManaging(true)}
         >
           <span className="min-w-0 flex-1">
-            <span
-              className="block text-[15px]"
-              style={{ color: "var(--text-primary)" }}
-            >
-              Composio
-            </span>
+            <span className="block text-[15px]" style={{ color: "var(--text-primary)" }}>Composio</span>
             <KeyLine hint={key.hint} test={tests[key.id]} brief />
           </span>
           <ChevronRight size={16} style={{ color: "var(--icon-secondary)" }} />

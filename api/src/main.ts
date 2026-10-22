@@ -24,7 +24,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { SandboxError, masking, sandboxClient, terminalAt } from "@amuse/sandbox";
-import { ComposioError, NoComposioKey, composio, composioApps, composioGuide, composioConnector, composioDirectory, keyedComposio } from "@amuse/composio";
+import { ComposioError, NoComposioKey, composio, composioApps, composioConnector, composioDirectory, keyedComposio } from "@amuse/composio";
 import { fileChats } from "./journal.ts";
 import { workspace } from "./workspace.ts";
 import { browserPool, controller } from "@amuse/browser";
@@ -43,6 +43,10 @@ import { createBrowserMcp, browserMcpTools, type BrowserMcpActions } from "./bro
 import { refusing } from "./sandbox.ts";
 import { sandboxSecrets } from "./secrets.ts";
 import { sharedAmuseTools } from "./shared-tools.ts";
+import { localGitHub } from "./local-github.ts";
+import { localApps } from "./local-apps.ts";
+import { loadLocalSearchConfig, createLocalSearch, localSearchDescription } from "./local-search.ts";
+import { localServicesStatus } from "./local-services-status.ts";
 
 const port = Number(process.env["AMUSE_PORT"] ?? 8797);
 const host = process.env["AMUSE_HOST"] ?? "127.0.0.1";
@@ -267,12 +271,18 @@ const browsers = nativeBrowser ?? pool;
  * set up (no model, no Composio key, no browsers) fails plainly, saying what
  * is needed, instead of falling back to a script.
  */
-const apps = composioApps(composioClient, composioUser, rules);
-const directory = composioDirectory(composioClient, {
+const cloudApps = composioApps(composioClient, composioUser, rules);
+const localSearchConfig = loadLocalSearchConfig(process.env["AMUSE_LOCAL_SEARCH_CONFIG"] ?? join(dataDir, "local-search.json"));
+const search = localSearchConfig ? createLocalSearch(localSearchConfig) : cloudApps.search;
+const serviceStatus = localServicesStatus(() => keys.localVoiceService(), localSearchConfig);
+const cloudDirectory = composioDirectory(composioClient, {
   userId: composioUser,
   rules,
   ...(publicUrl ? { callbackUrl: new URL("/connected", publicUrl).href } : {}),
 });
+const local = localGitHub({ rules, statePath: join(dataDir, "local-github.json"), git: { cwd: process.cwd() }, connectedUrl: publicUrl ? new URL("/", publicUrl).href : "http://127.0.0.1:8081/" });
+const connectedApps = localApps({ local, cloudApps, cloudDirectory, cloudConnect: connector.connect, hasCloudKey: () => !!keys.appKey("composio") });
+const { apps, directory } = connectedApps;
 /** What went wrong with Composio, as the user is told it (the app shows a rejection's words; anything else is an internal error). */
 const composioSaid = (error: unknown): unknown => {
   if (error instanceof NoComposioKey) return new Rejected({ kind: "unsound", reason: "Connections are not set up yet: add a Composio key in Settings › Connections." });
@@ -314,7 +324,7 @@ const speech = async (audio: Uint8Array, type: string) => {
 /** How this instance is set up right now, for the agent (`amuse_status`): never a key, only whether there is one. */
 const about = async (): Promise<string> => {
   const chat = keys.model("chat");
-  const accounts = keys.appKey("composio") ? await directory.accounts().catch(() => null) : null;
+  const accounts = await directory.accounts().catch(() => null);
   const connected = accounts?.filter((a) => a.status === "active").map((a) => `${a.app.name}${a.label ? ` (${a.label})` : ""}`) ?? [];
   const voice = keys.voiceChoice();
   return [
@@ -324,14 +334,11 @@ const about = async (): Promise<string> => {
       `Background model (scheduled work): ${keys.model("background") ?? "the chat model"}, thinking ${keys.thinking("background")}.`,
     ]),
     `Speech to text: ${voice === "local" ? "the user's own server" : (voice ?? "the first service with a key, if any")}.`,
+    ...(localSearchConfig ? [localSearchDescription(localSearchConfig)] : []),
     `Connections: ${
-      !keys.appKey("composio")
-        ? "not set up (no Composio key yet: Settings › Connections)"
-        : accounts === null
-          ? "set up; the connected accounts cannot be read just now"
-          : connected.length > 0
-            ? `set up; connected: ${connected.join(", ")}`
-            : "set up; nothing connected yet"
+      accounts === null ? "connected accounts cannot be read just now"
+        : connected.length > 0 ? `connected: ${connected.join(", ")}` : "nothing connected yet"
+    }${!keys.appKey("composio") ? "; Gmail / Google Calendar need a Composio key and Google authorization (Settings › Connections)" : ""
     }.`,
     `Browsers: ${nativeBrowser ? `native Edge, ${nativeBrowserConfig!.maxBrowsers} at a time; shared phone/computer view and takeover` : nodes.length > 0 ? `${nodes.length} at a time` : "none on this instance"}.`,
     `Sandbox: ${sandbox ? "on" : "off on this instance"}.`,
@@ -340,7 +347,7 @@ const about = async (): Promise<string> => {
 };
 
 const ports: Ports = {
-  ...piAgent({ model, thinking: () => keys.thinking("chat"), auth, ...modelOptions, ...desktopOptions, system, rules, files, ...(sandbox ? { sandbox } : {}), apps, search: apps.search, appsSetup: () => (keys.appKey("composio") ? null : composioGuide), skills, about, defaults: fileDefaults(join(dataDir, "defaults.json")) }),
+  ...piAgent({ model, thinking: () => keys.thinking("chat"), auth, ...modelOptions, ...desktopOptions, system, rules, files, ...(sandbox ? { sandbox } : {}), apps, search, appsSetup: connectedApps.setup, skills, about, defaults: fileDefaults(join(dataDir, "defaults.json")) }),
   // scheduled work runs on the background model (the chat's when none is chosen)
   ...piScheduleRunner({
     model: () => keys.model("background"),
@@ -355,7 +362,7 @@ const ports: Ports = {
     files,
     ...(sandbox ? { sandbox } : {}),
     apps,
-    search: apps.search,
+    search,
   }),
   ...piTaskRunner({
     model,
@@ -370,7 +377,7 @@ const ports: Ports = {
     files,
     ...(sandbox ? { sandbox } : {}),
     apps,
-    search: apps.search,
+    search,
   }),
   files,
   keys,
@@ -418,7 +425,7 @@ const ports: Ports = {
   rules,
   approval: () => {}, // waiting agents get the verdict through AgentIO.decision
   // a card from before the key was removed: the user hears where to add one
-  connect: said((connection, io) => connector.connect(connection, io)),
+  connect: said((connection, io) => connectedApps.connect(connection, io)),
   apps: {
     search: said(directory.search),
     connect: said(directory.connect),
@@ -446,7 +453,7 @@ nativeBrowser?.bind(nativeSession);
 const session = bridge ? await bridge.attach(nativeSession) : nativeSession;
 if (bridge) sharedTools = sharedAmuseTools({
   host: () => nativeSession, context: (scope) => bridge.toolContext(scope),
-  config: { rules, files, apps, search: apps.search, skills, about, appsSetup: () => keys.appKey("composio") ? null : composioGuide, ...(sandbox ? { sandbox } : {}) },
+  config: { rules, files, apps, search, skills, about, appsSetup: connectedApps.setup, ...(sandbox ? { sandbox } : {}) },
   directory: join(dataDir, "codemode"),
   ...(nativeActions ? { browserTools: (scope: string) => browserMcpTools(nativeActions, scope) } : {}),
 });
@@ -485,6 +492,7 @@ await listen({
   access,
   ...(refuse ? { refuse } : {}),
   transcribe: speech,
+  serviceStatus,
   port,
   host,
 });
