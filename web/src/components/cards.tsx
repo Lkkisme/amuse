@@ -24,6 +24,8 @@ import type {
 } from "@amuse/protocol";
 import { repeats, scheduleState } from "../schedules.ts";
 import type { Actions } from "../ui.ts";
+import { useT } from "../i18n/react.ts";
+import type { Messages } from "../i18n/en.ts";
 import { type Place, alone, corners } from "./shape.ts";
 import { AppLogo } from "./AppLogo";
 import { useEffect, useState } from "react";
@@ -54,7 +56,8 @@ export function TaskCard({
   place?: Place;
   actions: Actions;
 }) {
-  const meta = taskStatus[task.status];
+  const t = useT();
+  const meta = taskStatus(task.status, t);
   const done = task.steps.filter((s) => s.done).length;
   return (
     <div {...shell(place, "w-full max-w-[340px] p-4")}>
@@ -77,7 +80,7 @@ export function TaskCard({
               {task.title}
             </p>
             <button
-              aria-label="Open task details"
+              aria-label={t.cards.openTask}
               className="hover-fade shrink-0 rounded p-0.5"
               style={{ color: "var(--icon-secondary)" }}
               onClick={() => actions.openTaskDetail(task.id)}
@@ -150,20 +153,6 @@ export function TaskCard({
 
 /* ---------- Approval ---------- */
 
-const approvalOutcome = {
-  approved: {
-    label: "Approved",
-    color: "var(--fill-green)",
-    Icon: CircleCheck,
-  },
-  denied: { label: "Denied", color: "var(--fill-red)", Icon: CircleAlert },
-  timed_out: {
-    label: "Timed out",
-    color: "var(--icon-secondary)",
-    Icon: CircleAlert,
-  },
-} as const;
-
 export function ApprovalCard({
   approval,
   place = alone,
@@ -173,6 +162,12 @@ export function ApprovalCard({
   place?: Place;
   actions: Actions;
 }) {
+  const t = useT();
+  const outcome = {
+    approved: { label: t.cards.approved, color: "var(--fill-green)", Icon: CircleCheck },
+    denied: { label: t.cards.denied, color: "var(--fill-red)", Icon: CircleAlert },
+    timed_out: { label: t.cards.timedOut, color: "var(--icon-secondary)", Icon: CircleAlert },
+  };
   return (
     <div {...shell(place, "w-full max-w-[340px] p-4")}>
       <div className="flex items-start gap-3">
@@ -226,7 +221,7 @@ export function ApprovalCard({
               style={{ background: "var(--fill-blue)" }}
               onClick={() => actions.resolveApproval(approval.id, "allow_once")}
             >
-              Allow once
+              {t.cards.allowOnce}
             </button>
             {approval.remember && (
               <button
@@ -239,7 +234,7 @@ export function ApprovalCard({
                   actions.resolveApproval(approval.id, "allow_always")
                 }
               >
-                Always allow
+                {t.cards.alwaysAllow}
               </button>
             )}
             <button
@@ -250,12 +245,12 @@ export function ApprovalCard({
               }}
               onClick={() => actions.resolveApproval(approval.id, "deny")}
             >
-              Deny
+              {t.cards.deny}
             </button>
           </div>
         </>
       ) : (
-        <Outcome {...approvalOutcome[approval.status]} />
+        <Outcome {...outcome[approval.status]} />
       )}
     </div>
   );
@@ -296,10 +291,11 @@ export function ConnectionCard({
   place?: Place;
   actions: Actions;
 }) {
+  const t = useT();
   const label = {
-    pending: "Connect",
-    connected: "Connected",
-    dismissed: "Not now",
+    pending: t.cards.connect,
+    connected: t.cards.connected,
+    dismissed: t.cards.notNow,
   }[connection.status];
   return (
     <div {...shell(place, "w-full max-w-[260px] p-2.5", 18)}>
@@ -317,7 +313,7 @@ export function ConnectionCard({
             {connection.title}
           </p>
           <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
-            Connection
+            {t.cards.connection}
           </p>
         </div>
       </div>
@@ -343,12 +339,11 @@ export function ConnectionCard({
 /* ---------- Credential ---------- */
 
 /** Where a credential goes, as the user reads it. */
-const destination = (deliver: SecretRequest["deliver"]) =>
-  deliver.kind === "env"
-    ? `For Amuse's computer, as $${deliver.name}`
-    : deliver.kind === "file"
-      ? `For Amuse's computer, in ~/${deliver.path.replace(/^~?\/?/, "")}`
-      : `Typed into terminal ${deliver.pane} on Amuse's computer`;
+function destination(deliver: SecretRequest["deliver"], t: Messages): string {
+  if (deliver.kind === "env") return t.cards.destinationEnv(deliver.name);
+  if (deliver.kind === "file") return t.cards.destinationFile(deliver.path.replace(/^~?\/?/, ""));
+  return t.cards.destinationPane(deliver.pane);
+}
 
 /**
  * Amuse asking for a credential its computer needs: typed here, it goes to
@@ -363,6 +358,7 @@ export function SecretCard({
   place?: Place;
   actions: Actions;
 }) {
+  const t = useT();
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -400,7 +396,7 @@ export function SecretCard({
             className="truncate text-[12px]"
             style={{ color: "var(--text-secondary)" }}
           >
-            {destination(secret.deliver)}
+            {destination(secret.deliver, t)}
           </p>
         </div>
       </div>
@@ -418,7 +414,7 @@ export function SecretCard({
             type="password"
             autoComplete="off"
             aria-label={secret.name}
-            placeholder="Paste or type it here"
+            placeholder={t.cards.secretPlaceholder}
             className="mt-2.5 h-10 w-full rounded-[12px] px-3 text-[14px] outline-none"
             style={{ background: "var(--field)", color: "var(--text-primary)" }}
             value={value}
@@ -431,8 +427,7 @@ export function SecretCard({
             className="mt-1.5 text-[12px]"
             style={{ color: "var(--text-tertiary)" }}
           >
-            It goes to Amuse's computer, not into the chat. Programs there can
-            read it.
+            {t.cards.secretNote}
           </p>
           {error && (
             <p
@@ -453,7 +448,7 @@ export function SecretCard({
               }}
               onClick={() => answer(null)}
             >
-              Decline
+              {t.cards.decline}
             </button>
             <button
               disabled={busy || !value}
@@ -461,7 +456,7 @@ export function SecretCard({
               style={{ background: "var(--fill-blue)" }}
               onClick={() => answer(value)}
             >
-              Provide
+              {t.cards.provide}
             </button>
           </div>
         </>
@@ -476,7 +471,7 @@ export function SecretCard({
           }}
         >
           {secret.status === "provided" && <Check size={15} />}
-          {secret.status === "provided" ? "Provided" : "Declined"}
+          {secret.status === "provided" ? t.cards.provided : t.cards.declined}
         </p>
       )}
     </div>
@@ -484,11 +479,6 @@ export function SecretCard({
 }
 
 /* ---------- Failure ---------- */
-
-const failed: Record<Failure["reason"], string> = {
-  refused: "The model's provider refused this reply (its content filter).",
-  failed: "The model's service had a problem.",
-};
 
 /** Muse could not reply: a notice of its own (not Muse's words), with the provider's words and a way to try again. */
 export function FailureCard({
@@ -500,6 +490,7 @@ export function FailureCard({
   place?: Place;
   actions: Actions;
 }) {
+  const t = useT();
   return (
     <div {...shell(place, "w-full max-w-[340px] px-4 py-3", 18)} role="status">
       <div className="flex items-start gap-2.5">
@@ -513,20 +504,20 @@ export function FailureCard({
             className="text-[14px] font-semibold"
             style={{ color: "var(--text-primary)" }}
           >
-            Amuse couldn't reply
+            {t.cards.couldntReply}
           </p>
           <p
             className="mt-0.5 text-[13px] leading-snug"
             style={{ color: "var(--text-secondary)" }}
           >
-            {failed[failure.reason]}
+            {t.cards.failedReason[failure.reason]}
           </p>
           <details className="mt-1">
             <summary
               className="cursor-pointer text-[12px]"
               style={{ color: "var(--text-tertiary)" }}
             >
-              Details
+              {t.cards.details}
             </summary>
             <p
               className="mt-1 break-words text-[12px]"
@@ -546,14 +537,14 @@ export function FailureCard({
           }}
           onClick={() => actions.retry(failure.id)}
         >
-          Try again
+          {t.cards.tryAgain}
         </button>
       ) : (
         <p
           className="mt-2 text-[12px]"
           style={{ color: "var(--text-tertiary)" }}
         >
-          Tried again
+          {t.cards.triedAgain}
         </p>
       )}
     </div>
@@ -572,6 +563,7 @@ export function ScheduleCard({
   place?: Place;
   actions: Actions;
 }) {
+  const t = useT();
   const over = schedule.status === "done" || schedule.status === "cancelled";
   return (
     <button
@@ -580,7 +572,7 @@ export function ScheduleCard({
         "flex w-full max-w-[320px] items-center gap-3 p-3 text-left",
         18,
       )}
-      aria-label={`Schedule: ${schedule.title}`}
+      aria-label={t.cards.scheduleLabel(schedule.title)}
       onClick={() => actions.openSettings("schedules")}
     >
       <span
@@ -705,6 +697,7 @@ function EndedBrowserCard({
   browser: Browser;
   place: Place;
 }) {
+  const t = useT();
   return (
     <div {...shell(place, "flex w-full max-w-[314px] items-center gap-3 p-4")}>
       <span
@@ -721,13 +714,13 @@ function EndedBrowserCard({
           className="text-[14px] font-medium"
           style={{ color: "var(--text-primary)" }}
         >
-          Browser
+          {t.cards.browser}
         </p>
         <p
           className="truncate text-[13px]"
           style={{ color: "var(--text-secondary)" }}
         >
-          {browserLook(browser).label} · {browser.title}
+          {browserLook(browser, t).label} · {browser.title}
         </p>
       </div>
     </div>
@@ -749,7 +742,8 @@ export function BrowserCard({
   place?: Place;
   actions: Actions;
 }) {
-  const meta = browserLook(browser);
+  const t = useT();
+  const meta = browserLook(browser, t);
   const open = () => actions.openViewer(browser.id);
   if (!browser.live)
     return <EndedBrowserCard browser={browser} place={place} />;
@@ -770,7 +764,7 @@ export function BrowserCard({
             className="text-[14px] font-medium"
             style={{ color: "var(--text-primary)" }}
           >
-            Browser
+            {t.cards.browser}
           </p>
           <p
             className="truncate text-[13px]"
@@ -782,7 +776,7 @@ export function BrowserCard({
       </div>
 
       <button
-        aria-label="Open browser viewer"
+        aria-label={t.cards.openViewer}
         className="mt-3 block h-[178px] w-full overflow-hidden rounded-[10px] text-left"
         style={{
           background: "var(--fill-primary)",
@@ -809,7 +803,7 @@ export function BrowserCard({
         }}
         onClick={open}
       >
-        Open browser
+        {t.cards.openBrowser}
       </button>
     </div>
   );

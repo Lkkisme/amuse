@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { usePresence } from "./usePresence";
+import { useT } from "../i18n/react.ts";
 
 /** `bare`: no close button (the content has its own Cancel), and a handle on top on a phone, as Muse's input sheets. */
 export function Sheet({
@@ -21,6 +22,7 @@ export function Sheet({
   children: ReactNode;
   bare?: boolean;
 }) {
+  const t = useT();
   const { mounted, closing, onAnimationEnd } = usePresence(open);
   if (!mounted) return null;
   // at the top of the page: inside another layer (settings, which animates and clips) a fixed sheet would be held to it
@@ -48,7 +50,7 @@ export function Sheet({
           />
         ) : (
           <button
-            aria-label="Close"
+            aria-label={t.common.close}
             className="absolute right-3 top-3 z-10 flex size-8 items-center justify-center rounded-full"
             style={{
               background: "var(--fill-secondary)",

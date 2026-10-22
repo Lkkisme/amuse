@@ -38,6 +38,16 @@ const samples: Record<string, unknown[]> = {
   "permissions.pair": ["Visit", "Allow"],
   "explainer.dataTitle": ["Sample app"],
   "explainer.dataBody": ["Sample app"],
+  "chat.openFile": ["photo.png"],
+  "chat.newMessages": [2],
+  "chat.messageIn": ["Side chat"],
+  "chat.removeFile": ["photo.png"],
+  "chat.notSent": ["Sample reason"],
+  "viewer.browserWith": ["Working"],
+  "cards.destinationEnv": ["API_KEY"],
+  "cards.destinationFile": [".config/tool/token"],
+  "cards.destinationPane": ["1"],
+  "cards.scheduleLabel": ["Sample schedule"],
 };
 
 test("the Chinese catalog has every message the English one has", () => {

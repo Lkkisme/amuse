@@ -11,6 +11,8 @@ import { MAIN, type Method, type Params, type Session } from "@amuse/protocol";
 import { type Connection, connection } from "./connection.ts";
 import { useChats, useConversation } from "./session.ts";
 import { applyTheme, storedTheme } from "./theme.ts";
+import { activeT } from "./i18n/language.ts";
+import { useT } from "./i18n/react.ts";
 import { Files, serverFiles } from "./files.ts";
 import { Unlock } from "./components/Unlock";
 import { type Actions, type Ui, initialUi } from "./ui.ts";
@@ -71,6 +73,7 @@ export default function App() {
 }
 
 function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
+  const t = useT();
   const [link, setLink] = useState(() => openSession(where));
   const { session } = link;
   const chats = useChats(session);
@@ -254,8 +257,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
                 ...u,
                 notice:
                   reason === "disconnected"
-                    ? "Not sent: Amuse could not be reached. Your message is back in the box."
-                    : `Not sent: ${reason}`,
+                    ? activeT().chat.notSentUnreachable
+                    : activeT().chat.notSent(reason),
               }));
               throw error;
             },
@@ -524,7 +527,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
               }}
               onClick={() => actions.openSettings("models")}
             >
-              Choose a model to start chatting
+              {t.chat.chooseModel}
             </button>
           )}
           <Composer
@@ -532,7 +535,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
             place={
               ui.chat === MAIN
                 ? null
-                : chats.find((c) => c.id === ui.chat)?.title || "New chat"
+                : chats.find((c) => c.id === ui.chat)?.title || t.chat.newChat
             }
             actions={actions}
           />

@@ -4,30 +4,50 @@
  * the conversation; nothing here is state.
  */
 import type { Activity, Browser, BrowserStatus, Entity, State, TaskStatus } from "@amuse/protocol";
-import { activeLocale } from "./i18n/language.ts";
+import type { Messages } from "./i18n/en.ts";
+import { activeLocale, activeT } from "./i18n/language.ts";
 
-export const browserStatus: Record<BrowserStatus, { label: string; color: string }> = {
-  queued: { label: "Queued", color: "var(--icon-secondary)" },
-  working: { label: "Working", color: "var(--fill-blue)" },
-  waiting: { label: "Waiting for you", color: "var(--fill-orange)" },
-  needs_you: { label: "Waiting for you", color: "var(--fill-orange)" },
-  paused: { label: "Paused", color: "var(--fill-orange)" },
-  idle: { label: "Ready", color: "var(--icon-secondary)" },
-  completed: { label: "Completed", color: "var(--fill-green)" },
-  failed: { label: "Failed", color: "var(--fill-red)" },
-  stopped: { label: "Stopped", color: "var(--icon-secondary)" },
+const BROWSER_COLOR: Record<BrowserStatus, string> = {
+  queued: "var(--icon-secondary)",
+  working: "var(--fill-blue)",
+  waiting: "var(--fill-orange)",
+  needs_you: "var(--fill-orange)",
+  paused: "var(--fill-orange)",
+  idle: "var(--icon-secondary)",
+  completed: "var(--fill-green)",
+  failed: "var(--fill-red)",
+  stopped: "var(--icon-secondary)",
 };
+
+const TASK_COLOR: Record<TaskStatus, string> = {
+  queued: "var(--icon-secondary)",
+  working: "var(--fill-orange)",
+  waiting: "var(--fill-orange)",
+  completed: "var(--fill-green)",
+  failed: "var(--fill-red)",
+  stopped: "var(--icon-secondary)",
+};
+
+/** A browser's status, as its label and color on screen. */
+export function browserStatus(status: BrowserStatus, t: Messages = activeT()): { label: string; color: string } {
+  return { label: t.status.browser[status], color: BROWSER_COLOR[status] };
+}
 
 /**
  * How a browser reads: its status, but between jobs how the last one went
  * (Done, Couldn't finish, or Ready when it has had none), and Closed once its
  * browser is gone.
  */
-export function browserLook(b: Browser): { label: string; color: string } {
-  if (b.status === "idle" && !b.live) return { label: "Closed", color: "var(--icon-secondary)" };
-  if (b.status === "idle" && b.outcome === "completed") return { label: "Done", color: "var(--fill-green)" };
-  if (b.status === "idle" && b.outcome === "failed") return { label: "Couldn't finish", color: "var(--fill-red)" };
-  return browserStatus[b.status];
+export function browserLook(b: Browser, t: Messages = activeT()): { label: string; color: string } {
+  if (b.status === "idle" && !b.live) return { label: t.status.closed, color: "var(--icon-secondary)" };
+  if (b.status === "idle" && b.outcome === "completed") return { label: t.status.done, color: "var(--fill-green)" };
+  if (b.status === "idle" && b.outcome === "failed") return { label: t.status.couldntFinish, color: "var(--fill-red)" };
+  return browserStatus(b.status, t);
+}
+
+/** A task's status, as its label and color on screen. */
+export function taskStatus(status: TaskStatus, t: Messages = activeT()): { label: string; color: string } {
+  return { label: t.status.task[status], color: TASK_COLOR[status] };
 }
 
 /** Muse shows the task banner only while a run is in flight. */
@@ -37,33 +57,16 @@ export const bannerActive = (b: Browser) =>
 /** Runs that can still be stopped. */
 export const stoppable = (b: Browser) => b.status !== "completed" && b.status !== "failed" && b.status !== "stopped";
 
-export const taskStatus: Record<TaskStatus, { label: string; color: string }> = {
-  queued: { label: "Queued", color: "var(--icon-secondary)" },
-  working: { label: "Working", color: "var(--fill-orange)" },
-  waiting: { label: "Waiting for you", color: "var(--fill-orange)" },
-  completed: { label: "Completed", color: "var(--fill-green)" },
-  failed: { label: "Failed", color: "var(--fill-red)" },
-  stopped: { label: "Stopped", color: "var(--icon-secondary)" },
-};
-
-const activityLabel: Record<Activity["kind"], string> = {
-  responding: "is responding",
-  working: "Working",
-  making: "Making",
-  compacting: "Working",
-  waiting_for_agents: "Waiting for agents",
-};
-
 /** The line under the agent's name: its activity, or "Needs approval" while one is pending. */
 export type AgentLine = { icon: "list" | "tool" | "approval"; text: string };
 
-export function agentLine(state: State): AgentLine | null {
+export function agentLine(state: State, t: Messages = activeT()): AgentLine | null {
   const { activity } = state;
-  if (activity) return { icon: activity.kind === "responding" ? "list" : "tool", text: activity.label ?? activityLabel[activity.kind] };
+  if (activity) return { icon: activity.kind === "responding" ? "list" : "tool", text: activity.label ?? t.status.activity[activity.kind] };
   // the chat agent is idle: what a browser run's agent is doing, newest first
   const stepping = browsers(state).findLast((b) => b.live && b.step !== null);
   if (stepping?.step) return { icon: "tool", text: stepping.step };
-  return state.entities.some((e) => e.kind === "approval" && e.status === "pending") ? { icon: "approval", text: "Needs approval" } : null;
+  return state.entities.some((e) => e.kind === "approval" && e.status === "pending") ? { icon: "approval", text: t.status.needsApproval } : null;
 }
 
 /** Thinking dots: the chat agent is at work on a reply (thinking, or using a tool) and no reply text is coming in yet. */

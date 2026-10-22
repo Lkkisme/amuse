@@ -52,7 +52,7 @@ function done(entity: Entity): Done | null {
       return {
         id: entity.id,
         title: entity.title,
-        sub: `${taskStatus[entity.status].label} · ${steps} of ${entity.steps.length} steps`,
+        sub: `${taskStatus(entity.status).label} · ${steps} of ${entity.steps.length} steps`,
         time: at,
         done: entity.status === "completed",
         icon: ListTodo,

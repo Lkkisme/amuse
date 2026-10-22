@@ -17,6 +17,7 @@ import type { Attachment, Entity, Prompt, Reply, State } from "@amuse/protocol";
 import { size } from "@amuse/core";
 import { useFiles } from "../files.ts";
 import type { Actions } from "../ui.ts";
+import { useT } from "../i18n/react.ts";
 import { thinking, time } from "../view.ts";
 import {
   ApprovalCard,
@@ -147,13 +148,14 @@ const shareText = (text: string) =>
 
 /** Desktop: a message's actions, beside its bubble while the pointer is on it or its side (index.css: .msg-actions). */
 function ActionRow({ mine, text }: { mine: boolean; text: string }) {
+  const t = useT();
   return (
     <div
       className={`msg-actions ${mine ? "msg-actions-mine" : ""} flex items-center gap-0.5`}
     >
       {canShare() && (
         <button
-          aria-label="Share"
+          aria-label={t.chat.share}
           className="hover-fade rounded-full p-1.5"
           style={{ color: "var(--icon-secondary)" }}
           onClick={() => shareText(text)}
@@ -162,7 +164,7 @@ function ActionRow({ mine, text }: { mine: boolean; text: string }) {
         </button>
       )}
       <button
-        aria-label="Copy"
+        aria-label={t.chat.copy}
         className="hover-fade rounded-full p-1.5"
         style={{ color: "var(--icon-secondary)" }}
         onClick={() => copyText(text)}
@@ -195,6 +197,7 @@ function MessageMenu({
   menu: Menu | null;
   onClose: () => void;
 }) {
+  const t = useT();
   const card = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(0);
   useLayoutEffect(() => setHeight(card.current?.offsetHeight ?? 0), [menu]);
@@ -249,7 +252,7 @@ function MessageMenu({
           style={{ color: "var(--text-primary)" }}
           onClick={act(() => copyText(message.text))}
         >
-          <Copy size={18} /> Copy
+          <Copy size={18} /> {t.chat.copy}
         </button>
         {canShare() && (
           <button
@@ -258,7 +261,7 @@ function MessageMenu({
             style={{ color: "var(--text-primary)" }}
             onClick={act(() => shareText(message.text))}
           >
-            <Share size={18} /> Share
+            <Share size={18} /> {t.chat.share}
           </button>
         )}
       </div>
@@ -299,6 +302,7 @@ function Sent({
 
 /** A picture or video; once its file is gone from the workspace, a card saying so. */
 function Media({ file, single }: { file: Attachment; single: boolean }) {
+  const t = useT();
   const files = useFiles();
   const [gone, setGone] = useState(false);
   if (gone) return <FileCard file={file} gone />;
@@ -321,7 +325,7 @@ function Media({ file, single }: { file: Attachment; single: boolean }) {
       href={files?.url(file.id)}
       target="_blank"
       rel="noreferrer"
-      aria-label={`Open ${file.name}`}
+      aria-label={t.chat.openFile(file.name)}
     >
       <img
         src={files?.url(file.id)}
@@ -337,6 +341,7 @@ function Media({ file, single }: { file: Attachment; single: boolean }) {
 
 /** A file as a card: its name and size, to open or download; or that it was deleted. */
 function FileCard({ file, gone }: { file: Attachment; gone: boolean }) {
+  const t = useT();
   const files = useFiles();
   const body = (
     <>
@@ -354,7 +359,7 @@ function FileCard({ file, gone }: { file: Attachment; gone: boolean }) {
           className="block text-[12px]"
           style={{ color: "var(--text-secondary)" }}
         >
-          {gone ? "Deleted" : size(file.size)}
+          {gone ? t.chat.deleted : size(file.size)}
         </span>
       </span>
     </>
@@ -390,6 +395,7 @@ function Bubble({
   onMenu: (menu: Menu) => void;
   sending: boolean;
 }) {
+  const t = useT();
   const isUser = item.kind === "prompt";
   const bubble = useRef<HTMLDivElement>(null);
   /** A tap (touch only: with a mouse, the row under the bubble has these) opens the menu; not one on a link, nor one ending a selection. */
@@ -449,7 +455,7 @@ function Bubble({
           className="activity-indicator-fade px-1 text-[12px]"
           style={{ color: "var(--text-tertiary)" }}
         >
-          Sending…
+          {t.chat.sending}
         </span>
       )}
     </div>
@@ -496,6 +502,7 @@ export function ChatFeed({
   thumb,
   actions,
 }: Props) {
+  const t = useT();
   // what is on its way goes at the end, as it will be once the server has it
   const feed = useMemo(
     () => [...conversation.entities.filter(shown), ...outgoing.sending],
@@ -715,7 +722,7 @@ export function ChatFeed({
               <div
                 className="flex w-fit items-center gap-1.5 rounded-[22px] px-4 py-3.5"
                 style={{ background: "var(--fill-secondary)" }}
-                aria-label="Amuse is thinking"
+                aria-label={t.chat.thinking}
               >
                 {[0, 1, 2].map((i) => (
                   <span
@@ -742,12 +749,12 @@ export function ChatFeed({
               }}
               onClick={scrollToBottom}
             >
-              {pendingCount} {pendingCount === 1 ? "message" : "messages"}
+              {t.chat.newMessages(pendingCount)}
               <ChevronDown size={14} />
             </button>
           ) : (
             <button
-              aria-label="Scroll to bottom"
+              aria-label={t.chat.scrollToBottom}
               className="absolute bottom-[86px] left-1/2 z-30 flex size-9 -translate-x-1/2 items-center justify-center rounded-full"
               style={{
                 background: "var(--fill-primary)",

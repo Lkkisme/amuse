@@ -24,7 +24,7 @@ export function TaskDetailSheet({
   const task = byId(conversation, "task", useLastValue(open));
   if (!task) return null;
   const close = () => actions.openTaskDetail(null);
-  const meta = taskStatus[task.status];
+  const meta = taskStatus(task.status);
   const running =
     task.status === "queued" ||
     task.status === "working" ||

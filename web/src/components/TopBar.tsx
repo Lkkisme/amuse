@@ -8,6 +8,7 @@ import type { State } from "@amuse/protocol";
 import type { Actions } from "../ui.ts";
 import { type AgentLine, agentLine } from "../view.ts";
 import { museAvatar } from "../transition.ts";
+import { useT } from "../i18n/react.ts";
 
 const LINE_ICONS = { list: List, tool: Wrench, approval: ShieldAlert } as const;
 
@@ -81,11 +82,12 @@ function AvatarBadge({ line }: { line: AgentLine | null }) {
  * same curve the sidebar moves on.
  */
 export function MenuButton({ open, left, onClick }: { open: boolean; left: number; onClick: () => void }) {
+  const t = useT();
   const icon = "absolute transition-all duration-200 ease-out";
   const ease = "0.24s cubic-bezier(0.2, 0, 0, 1)";
   return (
     <button
-      aria-label={open ? "Close sidebar" : "Open menu"}
+      aria-label={open ? t.chat.closeSidebar : t.chat.openMenu}
       aria-expanded={open}
       className="hover-fade fixed top-3 z-[45] flex size-11 items-center justify-center rounded-full"
       style={{

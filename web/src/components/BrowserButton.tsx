@@ -11,16 +11,18 @@ import { Monitor, PanelRightClose, X } from "lucide-react";
 import type { State } from "@amuse/protocol";
 import type { Actions } from "../ui.ts";
 import { browserLook, pillBrowser } from "../view.ts";
+import { useT } from "../i18n/react.ts";
 
 export function BrowserButton({ conversation, open, actions }: { conversation: State; open: boolean; actions: Actions }) {
+  const t = useT();
   const run = pillBrowser(conversation);
-  const meta = run && !open ? browserLook(run) : null;
+  const meta = run && !open ? browserLook(run, t) : null;
   const waiting = run?.status === "waiting" || run?.status === "needs_you";
   const icon = "absolute transition-all duration-200 ease-out";
 
   return (
     <button
-      aria-label={open ? "Close browser" : meta ? `Browser: ${meta.label}` : "Browser"}
+      aria-label={open ? t.viewer.closeBrowser : meta ? t.viewer.browserWith(meta.label) : t.viewer.browser}
       aria-expanded={open}
       // above the viewer while open; under what covers the chat (the Muse page on a phone) while not
       className={`${open ? "z-[60]" : "z-30"} fixed top-3 flex size-11 items-center justify-center rounded-full`}
