@@ -25,6 +25,8 @@ export function staticFiles(root: string) {
     const path = decodeURIComponent(new URL(req.url ?? "/", "http://local").pathname);
     const file = normalize(join(base, path));
     const found = file.startsWith(base) ? await read(file).catch(() => null) : null;
+    // a missing asset (an old build's, say) is missing: the app's page in its place would only fail as a script
+    if (!found && path.startsWith("/assets/")) return void res.writeHead(404, { "cache-control": "no-cache" }).end();
     const { body, type } = found ?? (await read(join(base, "index.html")));
     // hashed assets never change; the shell must always be fresh
     const cache = found && path.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "no-cache";
