@@ -430,3 +430,28 @@ test("messages sent one after another reach the model in the order sent, though 
   assert.match(heard[0] ?? "", /look at this/);
   assert.match(heard[1] ?? "", /and then this/);
 });
+
+test("say answers the user mid-turn and the turn goes on: what it read is answered, so Stop owes them nothing more", async () => {
+  const { tool, running, release } = slow();
+  const second = slow();
+  const { agent, io, faux, conversation, replies } = await chat(
+    [
+      fauxAssistantMessage(fauxToolCall("wait", {}), { stopReason: "toolUse" }),
+      fauxAssistantMessage(fauxToolCall("say", { text: "Yes, installing it now." }), { stopReason: "toolUse" }),
+      fauxAssistantMessage(fauxToolCall("hold", {}), { stopReason: "toolUse" }),
+      fauxAssistantMessage("Never shown"),
+    ],
+    { tools: [tool, defineTool({ ...second.tool, name: "hold" })] },
+  );
+  agent.prompt(message("render the slides"), io);
+  await running;
+  interject(conversation, agent, io, "install mise first");
+  release();
+  await second.running;
+  assert.deepEqual(replies(), ["Yes, installing it now."], "said at once, while the turn goes on");
+  agent.interrupt(io);
+  second.release();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.deepEqual(replies(), ["Yes, installing it now."], "no turn of its own for a message already answered");
+  assert.equal(faux.state.callCount, 3);
+});

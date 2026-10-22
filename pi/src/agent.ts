@@ -22,7 +22,7 @@ import { relayTools } from "./runs.ts";
 import { taskTools } from "./tasks.ts";
 import { scheduleTools } from "./schedules.ts";
 import { CHAT_LIMITS, sandboxTools, secretTools } from "./sandbox.ts";
-import { silenceTools } from "./silence.ts";
+import { sayTools, silenceTools } from "./silence.ts";
 import { type Apps, appTools, chatTools, tools } from "./tools.ts";
 import { type Search, webTools } from "./web.ts";
 
@@ -124,6 +124,7 @@ const toolLabels: Record<string, string> = {
   answer_question: "Passing on your answer",
   stop_run: "Stopping a background task",
   no_reply: "Wrapping up",
+  say: "Writing to you",
 };
 
 type Message = Extract<Turn, { kind: "message" }>;
@@ -234,6 +235,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
         ...(cfg.apps ? appTools(io, cfg.apps) : []),
         ...(cfg.files ? workspaceTools(io, cfg.files) : []),
         ...(cfg.sandbox ? [...sandboxTools(cfg.sandbox, CHAT_LIMITS), ...secretTools(io)] : []),
+        ...sayTools(io),
         ...silenceTools(() => heard, () => (silent = true)),
       ];
       // many calls in one turn, only what the script returns in its context
@@ -361,7 +363,14 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
  */
 function steer(steering: Steering, turn: Message, files: Workspace | undefined, otherwise: () => void): void {
   const names = attached(turn.attachments);
-  const sent = ["The user, while you were working:", turn.text, names ? `Attached: ${names}` : ""].filter(Boolean).join("\n");
+  const sent = [
+    "The user, while you were working:",
+    turn.text,
+    names ? `Attached: ${names}` : "",
+    "(If you have more to do before your reply, answer them now with `say`, briefly, then go on.)",
+  ]
+    .filter(Boolean)
+    .join("\n");
   const message: Steered = { turn, sent };
   // from now on the end of the turn finds it, if the model never reads it
   steering.unread.push(message);

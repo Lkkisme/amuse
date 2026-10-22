@@ -7,6 +7,7 @@ What changed in each release of Amuse, for the people who run it. The format fol
 ## [Unreleased]
 
 ### Added
+- Amuse can write to you in the middle of long work: it answers a message you send while it is busy, and says what it is starting before something that takes a while, instead of going quiet until it is done.
 - The browser can run on the chat's model ("Same as chat", now the default), as background work already could; Settings says so when the chat's model cannot see pictures.
 
 ### Changed
