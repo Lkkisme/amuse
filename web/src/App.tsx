@@ -324,6 +324,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         else open();
       },
       closeViewer: () => patch((u) => ({ ...u, viewer: null })),
+      notify: (message) => patch((u) => ({ ...u, notice: message })),
       selectTab: (browserId) =>
         patch((u) =>
           u.viewer ? { ...u, viewer: { ...u.viewer, browserId } } : u,
@@ -431,12 +432,12 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
     layer === "muse" ? actions.setMuse(false) : setUi((u) => close(u, layer)),
   );
 
-  // a notice shows for a few seconds
+  // a notice shows for a few seconds, a longer one a little longer (a tap closes it sooner)
   useEffect(() => {
     if (!ui.notice) return;
     const timer = setTimeout(
       () => setUi((u) => ({ ...u, notice: null })),
-      4000,
+      Math.min(9000, 4000 + ui.notice.length * 40),
     );
     return () => clearTimeout(timer);
   }, [ui.notice]);
@@ -502,7 +503,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           {ui.notice && (
             <p
               role="status"
-              className="anim-fade-in absolute inset-x-0 bottom-[86px] z-30 mx-auto w-fit max-w-[90%] rounded-full px-4 py-2 text-[13px]"
+              onClick={() => setUi((u) => ({ ...u, notice: null }))}
+              className="anim-fade-in absolute inset-x-0 bottom-[86px] z-30 mx-auto w-fit max-w-[90%] rounded-[18px] px-4 py-2 text-[13px]"
               style={{
                 background: "var(--fill-primary)",
                 color: "var(--fill-red)",

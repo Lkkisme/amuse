@@ -68,18 +68,16 @@ export function Composer({ conversation, place, actions }: { conversation: State
 
   // the mic: recorded here, turned into text on the server (with the user's own key), put in the draft to edit
   const [voice, setVoice] = useState<"idle" | "recording" | "transcribing">("idle");
-  const [voiceProblem, setVoiceProblem] = useState<string | null>(null);
   const recorder = useRef<MediaRecorder | null>(null);
   // browsers keep the mic from pages on plain http: there the mic is off, and says why
   const secure = window.isSecureContext && !!navigator.mediaDevices?.getUserMedia;
   const listen = async () => {
-    setVoiceProblem(null);
-    if (!secure) return setVoiceProblem("Voice needs Amuse on https (see the README: Other devices).");
+    if (!secure) return actions.notify("Voice needs Amuse on https (see the README: Other devices).");
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
-      return setVoiceProblem("The microphone was not allowed.");
+      return actions.notify("The microphone was not allowed.");
     }
     const recording = new MediaRecorder(stream);
     const chunks: Blob[] = [];
@@ -93,9 +91,9 @@ export function Composer({ conversation, place, actions }: { conversation: State
           const said: unknown = await response.json().catch(() => null);
           const field = (key: string) => (typeof said === "object" && said !== null && key in said ? String(Reflect.get(said, key)) : "");
           if (response.ok && field("text")) setDraft((d) => (d.trim() ? `${d.trim()} ${field("text")}` : field("text")));
-          else setVoiceProblem(field("reason") || (response.ok ? "Nothing was heard." : "That could not be turned into text."));
+          else actions.notify(field("reason") || (response.ok ? "Nothing was heard." : "That could not be turned into text."));
         })
-        .catch(() => setVoiceProblem("The server cannot be reached."))
+        .catch(() => actions.notify("The server cannot be reached."))
         .finally(() => setVoice("idle"));
     };
     recorder.current = recording;
@@ -159,25 +157,9 @@ export function Composer({ conversation, place, actions }: { conversation: State
       />
       <div className="relative mx-auto max-w-3xl px-4 pb-5 pt-1">
         <div
-          className={`pointer-events-auto flex flex-col px-2 py-2 ${pending.length > 0 || voiceProblem || lines ? "rounded-[26px]" : "rounded-full"}`}
+          className={`pointer-events-auto flex flex-col px-2 py-2 ${pending.length > 0 || lines ? "rounded-[26px]" : "rounded-full"}`}
           style={{ background: "var(--fill-primary)", boxShadow: "var(--shadow-float)" }}
         >
-          {voiceProblem && (
-            // it stays until it is read: closed here, or gone once the user types or tries the mic again
-            <div className="flex items-start gap-1 pb-1 pl-3 pt-1">
-              <p role="alert" className="min-w-0 flex-1 text-[13px]" style={{ color: "var(--fill-red)" }}>
-                {voiceProblem}
-              </p>
-              <button
-                aria-label="Dismiss"
-                className="hover-fade -mt-1 flex size-7 shrink-0 items-center justify-center rounded-full"
-                style={{ color: "var(--icon-secondary)" }}
-                onClick={() => setVoiceProblem(null)}
-              >
-                <X size={14} />
-              </button>
-            </div>
-          )}
           {pending.length > 0 && (
             <div className="flex gap-2 overflow-x-auto px-1 pb-2 pt-1.5" aria-label="Files to send">
               {pending.map((p) => (
@@ -217,10 +199,7 @@ export function Composer({ conversation, place, actions }: { conversation: State
               onScroll={look}
               placeholder={place ? `Message in ${place}` : "Message"}
               value={draft}
-              onChange={(e) => {
-                setDraft(e.target.value);
-                setVoiceProblem(null);
-              }}
+              onChange={(e) => setDraft(e.target.value)}
               onPaste={(e) => {
                 if (!files || e.clipboardData.files.length === 0) return;
                 e.preventDefault();

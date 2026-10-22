@@ -76,6 +76,8 @@ export interface Actions {
   /** null: whichever browser is newest (or none, said so) */
   openViewer(browserId: string | null): void;
   closeViewer(): void;
+  /** a short message about something that did not work, shown for a moment */
+  notify(message: string): void;
   selectTab(browserId: string): void;
   /** what the viewer shows: the browser or the terminals */
   showInViewer(shown: Shown): void;
