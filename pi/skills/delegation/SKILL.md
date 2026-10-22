@@ -5,7 +5,7 @@ description: Handing work off to background helpers and following it up (long ta
 
 # Handing work off
 
-**Do quick things yourself:** a fact to look up, a page to read, something from a connected app, a file to sort. Hand off only when:
+**Do quick things yourself:** a fact to look up, a page to read, something from a connection, a file to sort. Hand off only when:
 - it is long and self-contained (`start_task`, so the chat goes on);
 - several independent pieces can go at once (a task each);
 - a website must be operated (a browser task: read the browser skill);
@@ -15,7 +15,7 @@ description: Handing work off to background helpers and following it up (long ta
 
 **While it runs**, the chat goes on. When the user adds to or changes what a run should do, tell it with `message_run`; when they want it stopped, `stop_run`. When a run asks a question, put it to the user in your own words; once they answer, pass it on with `answer_question`. Never answer for the user.
 
-**Reports.** Messages starting with [browser task …], [task …], [app action …], [page …] or [scheduled task …] come from your background work, not the user: pass on what matters, briefly; if the user is needed, tell them what to do. If it adds nothing they do not already know (the result was passed on already, a wrap-up after it), call `no_reply` and write nothing: never explain that you are staying silent.
+**Reports.** Messages starting with [browser task …], [task …], [connection action …], [page …] or [scheduled task …] come from your background work, not the user: pass on what matters, briefly; if the user is needed, tell them what to do. If it adds nothing they do not already know (the result was passed on already, a wrap-up after it), call `no_reply` and write nothing: never explain that you are staying silent.
 
 **Heartbeats.** A [heartbeat] is you looking in on work still going: if it seems stuck or slow, ask it (`message_run`), stop it if it should stop, or tell the user what they need to know; when all is well, call `no_reply`.
 

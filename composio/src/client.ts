@@ -254,13 +254,13 @@ export function composio(apiKey: string, http: typeof fetch = fetch): Composio {
 }
 
 /**
- * How the user sets apps up, for the agent to walk them through (in its own
+ * How the user sets connections up, for the agent to walk them through (in its own
  * words, in theirs): it needs their own Composio API key. Per Composio's docs:
  * Settings › Project Settings › API Keys on dashboard.composio.dev.
  */
 export const composioGuide = [
-  "Apps are not set up yet: connecting them (mail, calendar, sheets, ...) needs the user's own Composio API key. Why: each app only lets in software it has approved, and Composio is approved by them, so the user need not set up each app; it is the user's own Composio account, so their app logins stay in it and they can revoke them there.",
-  "Walk the user through it, a step at a time, in plain words: 1) sign in or sign up at dashboard.composio.dev; 2) open Settings, then Project Settings; 3) under API Keys, copy the key (it starts with ak_); 4) here, in Settings, then Connectors (a Connect card in the chat opens it), choose Add Composio key and paste it; the app tests it at once.",
+  "Connections are not set up yet: connecting services (mail, calendar, sheets, ...) needs the user's own Composio API key. Why: each service only lets in software it has approved, and Composio is approved by them, so the user need not set up each one; it is the user's own Composio account, so their logins stay in it and they can revoke them there.",
+  "Walk the user through it, a step at a time, in plain words: 1) sign in or sign up at dashboard.composio.dev; 2) open Settings, then Project Settings; 3) under API Keys, copy the key (it starts with ak_); 4) here, in Settings, then Connections (a Connect card in the chat opens it), choose Add Composio key and paste it; the app tests it at once.",
   "Once the key is added, try again. Never ask the user to paste the key into the chat: it goes only in Settings.",
 ].join(" ");
 

@@ -124,19 +124,19 @@ export function tools(
     }),
     defineTool({
       name: "request_connection",
-      label: "Connect an app",
+      label: "Connect a service",
       description:
-        "Ask the user to connect an app (Gmail, Google Calendar, Google Sheets, GitHub, Slack, ...) when a request needs data or actions from it, or to add another account of an app already connected (an app can have several). Shows a Connect card in the chat and returns immediately.",
+        "Ask the user to connect a service (Gmail, Google Calendar, Google Sheets, GitHub, Slack, ...) when a request needs data or actions from it, or to add another account of one already connected (a connection can have several). Shows a Connect card in the chat and returns immediately.",
       parameters: Type.Object({ status,
         provider: Type.String({ description: "Lowercase provider id, e.g. 'gmail', 'googlesheets'" }),
-        title: Type.String({ description: "App name as the user knows it, e.g. 'Google Sheets'" }),
+        title: Type.String({ description: "The service's name as the user knows it, e.g. 'Google Sheets'" }),
       }),
       async execute(_, { provider, title }) {
         const result = io().act({ kind: "connect", provider, title });
-        // before apps are set up, the card leads to the settings where their key goes
+        // before connections are set up, the card leads to the settings where their key goes
         const setup = appsSetup?.();
         if (result.ok && setup)
-          return text(`Showed a Connect card for ${title}. Apps are not set up yet, so tapping it opens the settings where the Composio key goes; once the key is in, the same card connects ${title}. ${setup}`);
+          return text(`Showed a Connect card for ${title}. Connections are not set up yet, so tapping it opens the settings where the Composio key goes; once the key is in, the same card connects ${title}. ${setup}`);
         return text(result.ok ? `Asked the user to connect ${title}. Continue once they have.` : `Could not ask: ${describe(result.rejection)}.`);
       },
     }),
@@ -168,9 +168,9 @@ export function chatTools(io: () => AgentIO): ToolDefinition[] {
   ];
 }
 
-/** A connected-apps provider (Composio implements it). */
+/** The provider of the user's connections (Composio implements it). */
 export interface Apps {
-  /** The app's working accounts (an app may have several: two Gmail addresses). */
+  /** The service's working accounts (there may be several: two Gmail addresses). */
   accounts(app: string): Promise<{ id: string; label: string | null }[]>;
   /** Tools matching `query`; none the user denied; each with what the agent may do with it. */
   tools(
@@ -207,14 +207,14 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s
 /** GMAIL_SEND_EMAIL → gmail, the app an action belongs to. */
 const appOf = (slug: string) => slug.split("_")[0]?.toLowerCase() ?? "";
 
-/** Find and use actions of the user's connected apps; consequential ones need approval. */
+/** Find and use actions of the user's connections; consequential ones need approval. */
 export function appTools(io: () => AgentIO, apps: Apps, hold?: Hold): ToolDefinition[] {
   return [
     defineTool({
       name: "app_tools",
-      label: "Look up app actions",
-      description: "Find actions of a connected app (e.g. app 'gmail', query 'latest emails'). Returns action slugs with their arguments.",
-      parameters: Type.Object({ status, app: Type.String({ description: "Lowercase app id, e.g. gmail, googlecalendar, googlesheets, github" }), query: Type.String() }),
+      label: "Look up actions",
+      description: "Find actions of a connection (e.g. app 'gmail', query 'latest emails'). Returns action slugs with their arguments.",
+      parameters: Type.Object({ status, app: Type.String({ description: "Lowercase id of the service, e.g. gmail, googlecalendar, googlesheets, github" }), query: Type.String() }),
       async execute(_, { app, query }) {
         const accounts = await apps.accounts(app);
         if (accounts.length === 0) return text(`${app} is not connected. Call request_connection for it first.`);
@@ -233,9 +233,9 @@ export function appTools(io: () => AgentIO, apps: Apps, hold?: Hold): ToolDefini
     }),
     defineTool({
       name: "app_call",
-      label: "Use an app",
+      label: "Use a connection",
       description:
-        "Run an app action found with app_tools. What the user allows runs at once; what they want asked about is posted for their approval and runs in the background once approved (you will get a report); what they do not allow does not run.",
+        "Run an action of a connection found with app_tools. What the user allows runs at once; what they want asked about is posted for their approval and runs in the background once approved (you will get a report); what they do not allow does not run.",
       parameters: Type.Object({
         status,
         action: Type.String({ description: "Action slug, e.g. GMAIL_FETCH_EMAILS" }),
@@ -295,7 +295,7 @@ export async function appCall(
   // never hold the chat for an approval: ask, return, and finish in the background
   const label = action.replaceAll("_", " ").toLowerCase();
   // a kind the user said no to is still theirs to allow, on the card: once, or from now on
-  const ruled = permission === "deny" ? "Your rule for this app says no to this kind of action. Allow it this time, or always?\n\n" : "";
+  const ruled = permission === "deny" ? "Your rule for this connection says no to this kind of action. Allow it this time, or always?\n\n" : "";
   const approval = io.act({
     kind: "ask",
     // the card says what will happen in the user's words, as which account, and every argument, readably
@@ -318,10 +318,10 @@ export async function appCall(
   }
   void io.decision(approval.id).then(async ({ verdict, remember }) => {
     if (remember) await apps.remember(app, action, verdict === "approved" ? "allow" : "deny").catch(() => {});
-    if (verdict === "denied") return io.report(`[app action "${label}" declined by the user]`);
-    if (verdict === "timed_out") return io.report(`[app action "${label}" not done: the user did not answer the approval in time]`);
+    if (verdict === "denied") return io.report(`[connection action "${label}" declined by the user]`);
+    if (verdict === "timed_out") return io.report(`[connection action "${label}" not done: the user did not answer the approval in time]`);
     const result = await apps.call(action, args, account.id).catch((e: unknown): Result => ({ ok: false, error: String(e) }));
-    io.report(`[app action "${label}" done]\n${outcome(result)}`);
+    io.report(`[connection action "${label}" done]\n${outcome(result)}`);
   });
   return "NOT done yet: it waits for the user's OK on the approval card shown in the chat. Tell them it waits for their OK; do not say it is done. You get a report once it runs.";
 }

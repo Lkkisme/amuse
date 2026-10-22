@@ -46,7 +46,7 @@ test("denied by the user's rule: the card says so, and nothing runs unless they 
   const declined = setup("deny", { verdict: "denied", remember: false });
   assert.match(await declined.run(), /NOT done yet/);
   const card = declined.asked[0];
-  assert.ok(card?.kind === "ask" && card.detail.startsWith("Your rule for this app says no to this kind of action."));
+  assert.ok(card?.kind === "ask" && card.detail.startsWith("Your rule for this connection says no to this kind of action."));
   assert.deepEqual(declined.ran, []);
 
   const once = setup("deny", { verdict: "approved", remember: false });

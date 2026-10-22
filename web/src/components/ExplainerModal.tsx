@@ -51,7 +51,7 @@ function ExplainerBody({ req, open, actions }: { req: Connection; open: boolean;
             {req.title}
           </p>
           <p className="mt-1 text-[16px]" style={{ color: "var(--text-secondary)" }}>
-            Connector
+            Connection
           </p>
 
           {/* feature rows */}

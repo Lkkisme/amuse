@@ -433,7 +433,7 @@ test("a Connect card still waiting is connected once its app has an account conn
   await host.call("apps.accounts", {});
   assert.equal(await status(card.id), "connected");
   assert.equal(await status(other.id), "pending", "an app without an account still waits");
-  assert.deepEqual(notes, ["[app connection] Gmail is connected now. Tell the user so in a short line; if something was waiting on it, carry on with it."]);
+  assert.deepEqual(notes, ["[connection] Gmail is connected now. Tell the user so in a short line; if something was waiting on it, carry on with it."]);
   await host.call("apps.accounts", {});
   assert.equal(notes.length, 1, "once");
 });

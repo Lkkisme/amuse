@@ -668,7 +668,7 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
       const waiting = room.state.entities.filter((e): e is Connection => e.kind === "connection" && e.status === "pending" && answers(e));
       for (const connection of waiting) {
         if (room.agent.act({ kind: "connected", id: connection.id }).ok)
-          room.agent.report(`[app connection] ${connection.title} is connected now. Tell the user so in a short line; if something was waiting on it, carry on with it.`);
+          room.agent.report(`[connection] ${connection.title} is connected now. Tell the user so in a short line; if something was waiting on it, carry on with it.`);
       }
     }
   }

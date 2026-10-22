@@ -1,7 +1,7 @@
 # Amuse
 
 An open-source Muse: a personal assistant you chat with, that browses the web in a real Chrome
-you can watch and take over (from a phone, too), and works with your apps. One instance per
+you can watch and take over (from a phone, too), and works with your services. One instance per
 person, run with Docker Compose.
 
 <p>
@@ -19,7 +19,7 @@ docker compose up -d --build  # the first build takes a while: the browser image
 
 Open `http://localhost:8080`, set a password, and add an API key for a model provider in
 Settings › Models (any provider [Pi](https://github.com/earendil-works/pi) supports). From there,
-Amuse walks you through the rest, such as connecting your apps.
+Amuse walks you through the rest, such as connecting your mail and calendar.
 
 Run amuse where only you can reach it (your machine, a network or VPN you trust), and set the
 password right away: the first visit sets it.

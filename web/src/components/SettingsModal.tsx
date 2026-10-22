@@ -1,7 +1,7 @@
 /**
  * Settings (surfaces 7, 9, 10): a page on a phone, a modal with a nav column on
  * a desktop — General (appearance; the password), Models (the user's keys and
- * the models chosen: Models.tsx), Connectors (the server's app directory: Connectors.tsx),
+ * the models chosen: Models.tsx), Connections (the server's directory: Connectors.tsx),
  * Permissions (per-site Allow/Ask/Deny), Schedules and the Sandbox (reset it). Modeled on the reference
  * settings sheet. (Muse's secure store is left out: the browser keeps logins
  * from the user's own sign-ins instead.)
@@ -38,7 +38,7 @@ import { changePassword, lock } from "../connection.ts";
 const NAV: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
   { id: "general", label: "General", icon: <SettingsIcon size={18} /> },
   { id: "models", label: "Models", icon: <Sparkles size={18} /> },
-  { id: "connectors", label: "Connectors", icon: <LayoutGrid size={18} /> },
+  { id: "connectors", label: "Connections", icon: <LayoutGrid size={18} /> },
   { id: "permissions", label: "Permissions", icon: <Shield size={18} /> },
   { id: "logins", label: "Saved logins", icon: <KeyRound size={18} /> },
   { id: "schedules", label: "Schedules", icon: <CalendarClock size={18} /> },
@@ -311,7 +311,7 @@ export function SettingsModal({
               !section
                 ? "Close settings"
                 : ui.app
-                  ? "All connectors"
+                  ? "All connections"
                   : ui.provider
                     ? "All providers"
                     : "All settings"

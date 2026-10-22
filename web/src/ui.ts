@@ -105,7 +105,7 @@ export interface Actions {
   deleteChat(chat: string): void;
   setMuse(open: boolean): void;
   openSettings(section: SettingsSection | null): void;
-  /** Settings › Connectors: an app's page, or back to the list (null) */
+  /** Settings › Connections: a service's page, or back to the list (null) */
   openApp(app: App | null): void;
   openProvider(provider: KeyProvider | null): void;
   closeSettings(): void;

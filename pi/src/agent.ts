@@ -108,8 +108,8 @@ const debugTools = process.env["AMUSE_DEBUG_TOOLS"] === "1";
 const toolLabels: Record<string, string> = {
   browse: "Starting a browser task",
   request_connection: "Preparing a connection",
-  app_tools: "Looking up your apps",
-  app_call: "Using your apps",
+  app_tools: "Looking up your connections",
+  app_call: "Using your connections",
   list_files: "Looking through files",
   read_file: "Looking at a file",
   write_file: "Writing a file",

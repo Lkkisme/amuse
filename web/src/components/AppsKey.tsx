@@ -1,7 +1,7 @@
 /**
- * Settings › Connectors, behind the apps' own key: apps are connected through
+ * Settings › Connections, behind their own key: services are connected through
  * Composio, with the user's Composio API key. Without one, the page asks for
- * it; with one, it shows the connectors, and below them the key (only its
+ * it; with one, it shows the connections, and below them the key (only its
  * end), which opens what can be done with it: test, replace, remove.
  */
 import { useCallback, useEffect, useState } from "react";
@@ -78,21 +78,21 @@ export function AppsKey({
           className="mt-3 text-[16px] font-semibold"
           style={{ color: "var(--text-primary)" }}
         >
-          Connect your apps
+          Connect your services
         </p>
         <p
           className="mt-1 max-w-[300px] text-[14px]"
           style={{ color: "var(--text-secondary)" }}
         >
-          Amuse reaches Gmail, your calendar and many other apps through
-          Composio. Each app only lets in software it has approved; Composio is
-          approved by them, so you need not set up each app yourself.
+          Amuse reaches Gmail, your calendar and many other services through
+          Composio. Each one only lets in software it has approved; Composio is
+          approved by them, so you need not set each up yourself.
         </p>
         <p
           className="mt-2 max-w-[300px] text-[14px]"
           style={{ color: "var(--text-secondary)" }}
         >
-          You use your own Composio account: the logins to your apps stay in it,
+          You use your own Composio account: the logins to your services stay in it,
           and you can take them back there at any time.
         </p>
         {/* where the key is, per Composio's docs */}

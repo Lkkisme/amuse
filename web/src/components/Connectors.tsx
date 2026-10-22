@@ -1,6 +1,6 @@
 /**
- * Settings › Connectors, on the server's app directory (apps.* calls), laid
- * out as Muse's: search every app there is to connect (well over a thousand
+ * Settings › Connections, on the server's directory (apps.* calls), laid
+ * out as Muse's: search every service there is to connect (well over a thousand
  * on Composio), Available and Connected lists (Connect, or View for an app
  * with accounts), and an app's page: its accounts (an app may have several),
  * Add account, Disconnect. Nothing here is local: every list is the
@@ -208,9 +208,9 @@ export function Connectors({
       <div className="mt-4 min-h-0 flex-1 overflow-y-auto pb-5">
         {tab === "available" ? (
           found === null ? (
-            <Note>Loading apps…</Note>
+            <Note>Loading connections…</Note>
           ) : found.apps.length === 0 ? (
-            <Note>No app matches “{query}”.</Note>
+            <Note>No connection matches “{query}”.</Note>
           ) : (
             <>
               <Group>{found.apps.map(row)}</Group>
@@ -230,8 +230,8 @@ export function Connectors({
         ) : shownConnected.length === 0 ? (
           <Note>
             {query
-              ? `No connected app matches “${query}”.`
-              : "Nothing connected yet. Connect apps under Available, or ask Amuse to."}
+              ? `No connection matches “${query}”.`
+              : "Nothing connected yet. Connect under Available, or ask Amuse to."}
           </Note>
         ) : (
           <Group>{shownConnected.map(row)}</Group>

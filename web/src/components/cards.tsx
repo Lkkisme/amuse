@@ -317,7 +317,7 @@ export function ConnectionCard({
             {connection.title}
           </p>
           <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
-            Connector
+            Connection
           </p>
         </div>
       </div>
