@@ -144,3 +144,49 @@ test("a credential is typed into a terminal through herdr's socket, with Enter, 
     socket.close();
   }
 });
+
+test("a terminal opened with no workspace in herdr opens one in the workspace folder; with one there, nothing is made", async () => {
+  const { createServer } = await import("node:net");
+  const own = mkdtempSync(join(tmpdir(), "amuse-first-test-"));
+  const ownHome = join(own, "home");
+  const ownWorkspace = join(ownHome, "workspace");
+  mkdirSync(ownWorkspace, { recursive: true });
+  mkdirSync(join(ownHome, ".config", "herdr"), { recursive: true });
+  const idle = join(own, "herdr");
+  writeFileSync(idle, "#!/usr/bin/env bash\nexec sleep 1000\n");
+  chmodSync(idle, 0o755);
+  const asked: { method: string; params: unknown }[] = [];
+  let workspaces: unknown[] = [];
+  const socket = createServer((connection) => {
+    connection.setEncoding("utf8");
+    connection.on("data", (line: string) => {
+      const { id, method, params } = JSON.parse(line);
+      asked.push({ method, params });
+      if (method === "workspace.create") workspaces = [{ workspace_id: "w1" }];
+      connection.write(`${JSON.stringify({ id, result: method === "workspace.list" ? { type: "workspace_list", workspaces } : { type: "ok" } })}\n`);
+    });
+  });
+  await new Promise<void>((done) => socket.listen(join(ownHome, ".config", "herdr", "herdr.sock"), done));
+  const first = await serve({ home: ownHome, workspace: ownWorkspace, skeleton: join(own, "skel"), port: 0, host: "127.0.0.1", herdr: idle });
+  const view = async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${first.port}/terminal`);
+    await new Promise((done, failed) => ws.once("open", done).once("error", failed));
+    return ws;
+  };
+  try {
+    const one = await view();
+    assert.ok(await until(() => asked.some((a) => a.method === "workspace.create")));
+    assert.deepEqual(asked, [
+      { method: "workspace.list", params: {} },
+      { method: "workspace.create", params: { cwd: ownWorkspace, label: "workspace", focus: true } },
+    ]);
+    one.close();
+    const two = await view();
+    assert.ok(await until(() => asked.length === 3));
+    assert.equal(asked[2]?.method, "workspace.list");
+    two.close();
+  } finally {
+    await first.close();
+    socket.close();
+  }
+});

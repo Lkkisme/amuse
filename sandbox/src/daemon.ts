@@ -95,6 +95,9 @@ interface Job {
   stop(grace: number): void;
 }
 
+/** What herdr says its workspaces are (only how many matters here). */
+const Listed = z.object({ workspaces: z.array(z.unknown()) });
+
 /** `text` as one word for bash. */
 const quoted = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
 
@@ -255,6 +258,14 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
       if (Date.now() - start > SERVER_WAIT_MS || ws.readyState !== ws.OPEN) return ws.close(4503, "The terminals are not running just now.");
       await new Promise((done) => setTimeout(done, 100));
     }
+    // the user sees something to work in: with no workspace there (a fresh home, or every one closed), one in the workspace folder
+    await herdrCall(herdrSocket, "workspace.list", {})
+      .then((listed) =>
+        Listed.safeParse(listed).data?.workspaces.length === 0
+          ? herdrCall(herdrSocket, "workspace.create", { cwd: workspace, label: "workspace", focus: true })
+          : undefined,
+      )
+      .catch(() => {});
     const cols = Cols.safeParse(Number(url.searchParams.get("cols")));
     const rows = Rows.safeParse(Number(url.searchParams.get("rows")));
     terminals++;
