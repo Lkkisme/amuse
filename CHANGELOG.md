@@ -21,6 +21,7 @@ What changed in each release of Amuse, for the people who run it. The format fol
 - Paseo / Codex shares the new `say` and `list_schedules` tools with Pi; existing conversations learn about them on their next message, while background runs keep their normal reporting and quiet rules.
 
 ### Fixed
+- Restarting the Windows server reuses a sandbox that still accepts commands, even if Docker's management CLI is unresponsive; CLI timeouts do not start a duplicate backend.
 - The chat keeps its least width when the window is made narrower after the browser panel was dragged wide; widened again, the panel comes back to the width it was dragged to.
 - Amuse can cancel a schedule you no longer want: it looks the schedules up with their full ids instead of going by what it remembered of them.
 - A Pi tool that finishes after Stop cannot publish a stale reply or discard a user message it had read but not answered.

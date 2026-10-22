@@ -2,7 +2,8 @@ param([string]$Root = $PSScriptRoot)
 $ErrorActionPreference = 'Stop'
 
 function Invoke-AmuseSandboxDocker {
-    param([string]$Executable, [string[]]$Arguments)
+    param([string]$Executable, [string[]]$Arguments, [int]$TimeoutSeconds = 10)
+    if ($TimeoutSeconds -lt 1 -or $TimeoutSeconds -gt 120) { throw 'Docker CLI timeout must be between 1 and 120 seconds.' }
     # Windows PowerShell 5 turns a native stderr record into a terminating
     # NativeCommandError under ErrorActionPreference=Stop. Docker legitimately
     # writes progress (and the unavailable-daemon message) to that stream.
@@ -23,13 +24,53 @@ function Invoke-AmuseSandboxDocker {
         if (-not $sandboxProcess.Start()) { throw 'The Docker process could not be started.' }
         $sandboxOutput = $sandboxProcess.StandardOutput.ReadToEndAsync()
         $sandboxError = $sandboxProcess.StandardError.ReadToEndAsync()
-        $sandboxProcess.WaitForExit()
+        if (-not $sandboxProcess.WaitForExit($TimeoutSeconds * 1000)) {
+            # This is only the CLI we created, not the daemon or its tree. A
+            # timed-out info request does not prove that no backend is running.
+            $sandboxProcess.Kill()
+            $sandboxProcess.WaitForExit()
+            throw [TimeoutException]::new('Docker CLI timed out; no replacement backend was started.')
+        }
         [pscustomobject]@{
             ExitCode = $sandboxProcess.ExitCode
             StandardOutput = $sandboxOutput.GetAwaiter().GetResult()
             StandardError = $sandboxError.GetAwaiter().GetResult()
         }
     } finally { $sandboxProcess.Dispose() }
+}
+
+function Test-AmuseSandboxReady {
+    param([string]$Address)
+    $base = $null
+    if (-not [Uri]::TryCreate($Address, [UriKind]::Absolute, [ref]$base) -or $base.Scheme -notin @('http', 'https') -or $base.UserInfo -or $base.Query -or $base.Fragment -or $base.AbsolutePath -ne '/') { throw 'The sandbox URL must be an absolute loopback HTTP(S) origin.' }
+    $ip = $null
+    $hostName = $base.DnsSafeHost.Trim('[', ']')
+    if ($hostName -eq 'localhost') {
+        # Do not let a DNS/hosts override turn an owner-only readiness command
+        # into a request to an external service.
+        $builder = [UriBuilder]::new($base); $builder.Host = '127.0.0.1'; $base = $builder.Uri
+    } elseif (-not [Net.IPAddress]::TryParse($hostName, [ref]$ip) -or -not [Net.IPAddress]::IsLoopback($ip)) { throw 'The sandbox URL must use a loopback address.' }
+    Add-Type -AssemblyName System.Net.Http
+    $handler = [Net.Http.HttpClientHandler]::new()
+    $handler.UseProxy = $false; $handler.AllowAutoRedirect = $false
+    $client = [Net.Http.HttpClient]::new($handler)
+    $client.Timeout = [TimeSpan]::FromSeconds(3)
+    $client.MaxResponseContentBufferSize = 65536
+    $health = $null; $response = $null; $content = $null
+    try {
+        $health = $client.GetAsync([Uri]::new($base, 'health')).GetAwaiter().GetResult()
+        if ([int]$health.StatusCode -ne 200) { return $false }
+        $content = [Net.Http.StringContent]::new('{"command":"printf AMUSE_SANDBOX_READY","timeout":2}', [Text.Encoding]::UTF8, 'application/json')
+        $response = $client.PostAsync([Uri]::new($base, 'run'), $content).GetAwaiter().GetResult()
+        if ([int]$response.StatusCode -ne 200) { return $false }
+        $ran = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult() | ConvertFrom-Json
+        foreach ($field in @('output', 'cut', 'exitCode', 'signal', 'timedOut')) { if ($ran.PSObject.Properties.Name -notcontains $field) { return $false } }
+        return $ran.output -ceq 'AMUSE_SANDBOX_READY' -and $ran.exitCode -eq 0 -and $ran.cut -eq 0 -and $null -eq $ran.signal -and $ran.timedOut -eq $false
+    } catch { return $false }
+    finally {
+        if ($health) { $health.Dispose() }; if ($response) { $response.Dispose() }; if ($content) { $content.Dispose() }
+        $client.Dispose(); $handler.Dispose()
+    }
 }
 
 function Start-AmuseSandboxBackend {
@@ -81,6 +122,10 @@ function Start-AmuseSandboxBackend {
 $sandboxSettings = Join-Path $Root '.local\sandbox.json'
 if (-not (Test-Path -LiteralPath $sandboxSettings)) { return }
 $sandboxConfig = Get-Content -LiteralPath $sandboxSettings -Raw | ConvertFrom-Json
+if ($sandboxConfig.url -and (Test-AmuseSandboxReady -Address ([string]$sandboxConfig.url))) {
+    Write-Output 'Reusing the ready sandbox; Docker and running containers were left untouched.'
+    return
+}
 if (-not $sandboxConfig.docker) { throw 'The sandbox configuration needs its Docker executable path.' }
 $sandboxDocker = $sandboxConfig.docker
 $sandboxInfo = Invoke-AmuseSandboxDocker -Executable $sandboxDocker -Arguments @('info', '--format', '{{.ServerVersion}}')
@@ -121,7 +166,7 @@ $sandboxPreviousSubnet = $env:AMUSE_SANDBOX_SUBNET
 try {
     $env:AMUSE_WORKSPACE = $sandboxWorkspace
     $env:AMUSE_SANDBOX_SUBNET = $sandboxConfig.subnet
-    $sandboxUp = Invoke-AmuseSandboxDocker -Executable $sandboxDocker -Arguments @('compose', '-f', (Join-Path $Root 'compose.sandbox.windows.yaml'), 'up', '-d', '--wait', '--wait-timeout', '60')
+    $sandboxUp = Invoke-AmuseSandboxDocker -Executable $sandboxDocker -Arguments @('compose', '-f', (Join-Path $Root 'compose.sandbox.windows.yaml'), 'up', '-d', '--wait', '--wait-timeout', '60') -TimeoutSeconds 75
     if ($sandboxUp.StandardOutput) { Write-Output $sandboxUp.StandardOutput.TrimEnd() }
     if ($sandboxUp.StandardError) { Write-Output $sandboxUp.StandardError.TrimEnd() }
     if ($sandboxUp.ExitCode -ne 0) { throw 'The Amuse sandbox did not become ready.' }
