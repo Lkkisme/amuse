@@ -8,14 +8,20 @@ What changed in each release of Amuse, for the people who run it. The format fol
 
 ### Added
 - The browser can run on the chat's model ("Same as chat", now the default), as background work already could; Settings says so when the chat's model cannot see pictures.
+- An Android client shares the web UI and conversations, supports file transfers and microphone access, and allows screenshots; device unlock is optional.
+- Amuse can use an existing Paseo / Codex Qwen environment, showing its saved conversations and running tasks while keeping its model, context size and tools.
+- A native Windows browser can be watched and taken over from the phone or web UI, with browser permissions and saved logins; sandbox terminals and shared tools also work on Windows.
 
 ### Changed
 - Settings › Models gives each role (chat, browser, background) a group of its own, with a row for its provider, its model and its thinking, each named; the provider is chosen first, so the same model from two providers is no longer listed twice. The thinking row is always there, and says when a model has to be chosen first or does not think.
 - Sheets close with the same round button as the rest of the app, and a task's details open in a wider sheet.
 - The terminal's lines are a little taller, so Chinese characters are no longer cut off at the top.
+- The connected-backend status, PIN controls and native browser viewer follow the selected English or Simplified Chinese language.
 
 ### Fixed
 - On a wider screen, the Amuse avatar flies into its panel and back again when the panel opens and closes.
+- Starting Amuse on Windows keeps it running after the launching terminal closes, and can start Docker Desktop when the sandbox is cold.
+- An owner-requested restart restores the browser pages that were open, without reopening pages the owner closed or replacing the saved conversations.
 
 ## [0.1.0] - 2026-10-21
 
