@@ -117,6 +117,17 @@ test("the recent end reaches back to whatever is still in play", () => {
   ]);
   assert.equal(recent(withRun, 2).earlier, 3);
   assert.equal(recent(feed(2), 5).earlier, 0);
+  // with nothing to let go of (what is in play is first), the very same state: a view that trims on every change must not loop
+  const heldFromStart = fold([{ kind: "upserted", index: 0, entity: running }, ...Array.from({ length: 6 }, (_, i): Envelope["event"] => ({ kind: "upserted", index: 1 + i, entity: prompt(`r${i}`) }))]);
+  assert.equal(recent(heldFromStart, 2), heldFromStart);
+  const short = feed(2);
+  assert.equal(recent(short, 5), short);
+  // a browser closed between jobs (idle, its browser gone) is a record, and holds nothing back
+  const closed = fold([{ kind: "upserted", index: 0, entity: { ...running, status: "idle", live: false } }, ...Array.from({ length: 6 }, (_, i): Envelope["event"] => ({ kind: "upserted", index: 1 + i, entity: prompt(`s${i}`) }))]);
+  assert.equal(recent(closed, 2).earlier, 5);
+  // one still open, idle between jobs, is in play
+  const open = fold([{ kind: "upserted", index: 0, entity: { ...running, status: "idle" } }, ...Array.from({ length: 6 }, (_, i): Envelope["event"] => ({ kind: "upserted", index: 1 + i, entity: prompt(`t${i}`) }))]);
+  assert.equal(recent(open, 2).earlier, 0);
 });
 
 test("a page goes in front only when it is the part just before, at the same seq", () => {
