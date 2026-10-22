@@ -124,6 +124,8 @@ services:
   #    of everything but loopback is. If the rules cannot be put in, this stays up, unhealthy, and says why in its log.
   sandbox-net:
     <<: *sandbox-image
+    # the sandbox shares this container's hostname too: what its terminals' prompt shows (amuse@sandbox)
+    hostname: sandbox
     restart: unless-stopped
     init: true
     user: "0"
