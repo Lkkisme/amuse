@@ -23,6 +23,19 @@ test("a credential is masked when a terminal wrapped it over lines or coloured p
   assert.equal(mask("token-123456", [{ name: "$& and $1", value: "token-123456" }]), "‹$& and $1›");
 });
 
+test("masking takes time in step with the text, whatever the text or the value is made of", () => {
+  // a key of forty lines, and a text built to make a pattern try every way of splitting its line breaks
+  const lines = Array.from({ length: 40 }, (_, i) => `line${String(i).padStart(2, "0")}-abcdefghijklmn`);
+  const value = lines.join("\n");
+  const hostile = `${lines.join("\n\n\n\n").slice(0, -1)}X`.repeat(5);
+  const started = performance.now();
+  assert.equal(mask(hostile, [{ name: "KEY", value }]), hostile);
+  assert.ok(performance.now() - started < 200, String(performance.now() - started));
+  // and the key printed as it is, or with its lines wrapped differently, is masked
+  assert.equal(mask(`-- ${value} --`, [{ name: "KEY", value }]), "-- ‹KEY› --");
+  assert.equal(mask(lines.join("\r\n"), [{ name: "KEY", value }]), "‹KEY›");
+});
+
 test("what the sandbox brings back, output and errors alike, comes masked", async () => {
   const leaky: SandboxClient = {
     run: async ({ command }) => {

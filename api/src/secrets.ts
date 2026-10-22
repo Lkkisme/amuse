@@ -34,7 +34,13 @@ export function sandboxSecrets(path: string, sandbox: SandboxClient, now: () => 
   const place = async (deliver: SecretDestination, value: string) => {
     if (deliver.kind === "env") await sandbox.setEnv({ name: deliver.name, value });
     else if (deliver.kind === "file") await sandbox.setFile({ path: deliver.path, value });
-    else await sandbox.typeSecret({ pane: deliver.pane, value });
+    else
+      await sandbox.typeSecret({ pane: deliver.pane, value }).catch((error: unknown) => {
+        // the likely why, in words: what waited for it has ended, or the terminal is gone
+        throw error instanceof SandboxError
+          ? new SandboxError(`Nothing in terminal ${deliver.pane} is waiting for it now (what asked may have ended, or the terminal is closed). Ask Amuse to start it again.`)
+          : error;
+      });
   };
 
   return {

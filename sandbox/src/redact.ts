@@ -12,31 +12,53 @@ export interface Masked {
   value: string;
 }
 
-/**
- * What may come between a value's characters as a terminal shows it: a line break where the screen wrapped it (a
- * terminal's reading of its screen, herdr's, keeps those), and the codes that colour or move what is shown.
- */
-const GAP = String.raw`(?:\r|\n|\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\))*`;
-/** Each value's pattern, made once (a value can be long). */
-const patterns = new Map<string, RegExp>();
-const patternOf = (value: string) => {
-  let pattern = patterns.get(value);
-  if (!pattern) {
-    pattern = new RegExp(value.split("").map((c) => c.replace(/[.*+?^${}()|[\]\\/-]/g, "\\$&")).join(GAP), "g");
-    if (patterns.size > 200) patterns.clear();
-    patterns.set(value, pattern);
-  }
-  return pattern;
-};
+/** What a terminal may put inside a value as it shows it: a line break where the screen wrapped it, or a code that colours or moves what is shown. */
+const CODE = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\r|\n/y;
 
-/** `text` with every value in `secrets` (the longest first, so one inside another goes whole) shown as its name, even wrapped over lines. */
-export function mask(text: string, secrets: readonly Masked[]): string {
-  let out = text;
-  for (const { name, value } of [...secrets].sort((a, b) => b.value.length - a.value.length)) {
-    // a value too short to be one would mask ordinary words
-    if (value.length >= 6) out = out.replace(patternOf(value), () => `\u2039${name}\u203a`);
+/** `text` without those, and where each character left came from in it. */
+function stripped(text: string): { plain: string; from: number[] } {
+  let plain = "";
+  const from: number[] = [];
+  for (let at = 0; at < text.length; ) {
+    CODE.lastIndex = at;
+    if (CODE.test(text)) {
+      at = CODE.lastIndex;
+      continue;
+    }
+    plain += text[at];
+    from.push(at);
+    at++;
   }
-  return out;
+  return { plain, from };
+}
+
+/**
+ * `text` with every value in `secrets` (the longest first, so one inside another goes whole) shown as its name, even
+ * where a terminal wrapped it over lines or coloured part of it. Found by plain search on the text with those taken
+ * out, so how long it takes grows with the text, whatever the text is.
+ */
+export function mask(text: string, secrets: readonly Masked[]): string {
+  const { plain, from } = stripped(text);
+  /** what is replaced: [start, end) in `text`, and by what */
+  const found: { start: number; end: number; name: string }[] = [];
+  const taken = (start: number, end: number) => found.some((f) => start < f.end && f.start < end);
+  for (const { name, value } of [...secrets].sort((a, b) => b.value.length - a.value.length)) {
+    const sought = stripped(value).plain;
+    // a value too short to be one would mask ordinary words
+    if (sought.length < 6) continue;
+    for (let at = plain.indexOf(sought); at >= 0; at = plain.indexOf(sought, at + sought.length)) {
+      const start = from[at] ?? 0;
+      const end = (from[at + sought.length - 1] ?? start) + 1;
+      if (!taken(start, end)) found.push({ start, end, name });
+    }
+  }
+  let out = "";
+  let at = 0;
+  for (const { start, end, name } of found.sort((a, b) => a.start - b.start)) {
+    out += `${text.slice(at, start)}\u2039${name}\u203a`;
+    at = end;
+  }
+  return out + text.slice(at);
 }
 
 /** `client`, every word it brings back masked with what `secrets` gives at that moment. */

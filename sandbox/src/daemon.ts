@@ -243,7 +243,8 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
   let keeper: Job | null = null;
   let tending = herdr !== undefined;
   const herdrSocket = join(home, ".config", "herdr", "herdr.sock");
-  let restartIn = RESTART_MS;
+  // doubled before each quick restart, so the first comes after RESTART_MS
+  let restartIn = RESTART_MS / 2;
   const tend = () => {
     if (!herdr || !tending || keeper) return;
     const job = launch(`exec ${quoted(herdr)} server`, workspace, new Clip(0, 20_000), { lasting: true });
@@ -355,7 +356,8 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
     if (!herdr) throw new Refused("There are no terminals here.", 404);
     try {
       const info = Running.safeParse(await herdrCall(herdrSocket, "pane.process_info", { pane_id: pane })).data?.process_info;
-      if (info && info.shell_pid !== null && info.shell_pid === info.foreground_process_group_id)
+      // what cannot be told is not typed either
+      if (!info || info.shell_pid === null || info.shell_pid === info.foreground_process_group_id)
         throw new Refused(`Nothing in ${pane} is waiting for it: the terminal is at its shell prompt.`, 409);
       await herdrCall(herdrSocket, "pane.send_input", { pane_id: pane, text: value, keys: ["enter"] });
     } catch (error) {
