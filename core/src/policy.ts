@@ -85,9 +85,13 @@ export function siteOf(url: string): string | null {
 export const SANDBOX_SITE = "sandbox";
 
 /** A site and its parents, nearest first ("login.bank.com" → login.bank.com, bank.com). */
-const lineage = (site: string): string[] => {
-  const labels = site.split(".");
-  return labels.map((_, i) => labels.slice(i).join("."));
+/**
+ * A host and its parents that a rule can name, nearest first ("login.bank.com" → login.bank.com, bank.com). A host no rule can name
+ * itself (a label with an underscore) still has parents that can: their rules hold for it ("a_b.evil.com" is under evil.com).
+ */
+const lineage = (host: string): string[] => {
+  const labels = host.split(".");
+  return labels.map((_, i) => labels.slice(i).join(".")).filter((name) => Site.safeParse(name).success);
 };
 
 /** What the user chose for the browser: for every kind of action, and exceptions per site. */
@@ -111,8 +115,8 @@ export type RuleSource = { kind: "never"; site: string } | { kind: "site"; site:
 export function decideBrowser(rules: BrowserRules, url: string, action: BrowserAction): { permission: Permission; source: RuleSource } {
   if (hostOf(url) === null) return { permission: "deny", source: { kind: "unreachable" } };
   if (hostOf(url) === SANDBOX_SITE) return { permission: settled(action, "allow"), source: { kind: "default" } };
-  // a host no rule can name has none: the settings for the browser decide
-  const chain = lineage(siteOf(url) ?? "").filter(Boolean);
+  // a host no rule can name has no rule of its own, but its parents' hold
+  const chain = lineage(hostOf(url) ?? "");
   for (const name of chain) {
     const entry = rules.sites[name];
     if (entry && (entry.never || entry.actions.visit === "deny")) return { permission: "deny", source: { kind: "never", site: name } };

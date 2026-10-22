@@ -13,10 +13,10 @@
  *          the allow above does not reach down)
  *   deny   never visited
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { type AllRules, type Rules, defaultBrowser, noRules, setBrowserAction, setRule, setSiteAction, setSiteEntry } from "@amuse/core";
-import { Permission, Site, type SiteActions, type SiteEntry, ToolKind } from "@amuse/protocol";
+import { BrowserAction, Permission, Site, type SiteActions, type SiteEntry, ToolKind } from "@amuse/protocol";
 import { z } from "zod";
 
 /** The four actions as stored: read leniently, so one bad entry never stops the server (it is dropped, and said). */
@@ -60,40 +60,77 @@ const settled = (actions: SiteActions, log: (message: string) => void, where: st
 
 const File = z.object({
   apps: z.record(z.string(), z.partialRecord(ToolKind, Permission)),
-  browser: Actions.default({}),
+  browser: z.record(z.string(), z.unknown()).default({}),
   sites: z.record(z.string(), z.unknown()),
 });
 
+/** A site's name as a rule keeps it: lower-case, without trailing dots or "www.", as the browser's sites are named (core/policy.ts). */
+const named = (site: string) => site.toLowerCase().replace(/\.+$/, "").replace(/^www\./, "");
+
+const strictness: Record<Permission, number> = { allow: 0, ask: 1, deny: 2 };
+const stricter = (a: Permission | undefined, b: Permission | undefined) => (a === undefined ? b : b === undefined ? a : strictness[a] >= strictness[b] ? a : b);
+
+/** Two entries kept under one name (an old spelling and its plain one): the stricter of each. */
+const joined = (a: SiteEntry | undefined, b: SiteEntry): SiteEntry => {
+  if (!a) return b;
+  const actions: SiteActions = {};
+  for (const action of ["visit", "submit", "download", "upload"] satisfies (keyof SiteActions)[]) {
+    const permission = stricter(a.actions[action], b.actions[action]);
+    if (permission !== undefined) actions[action] = permission;
+  }
+  return { never: a.never || b.never, actions };
+};
+
 /**
- * The rules as stored, and whether the file needs writing again (it held the old shape, or something that was dropped or read otherwise).
- * What cannot be kept (a site name that would not be read back, an entry that is not one) is dropped with a line in the log, never a failure.
+ * The rules as stored, and whether the file needs writing again (it held the old shape, or something that was read otherwise). Nothing
+ * that could not be read ever makes the rules wider, nor stops the server: a site's name is read as its plain spelling; a site's entry
+ * that cannot be read is read as never visiting it; a setting for the browser that cannot be read is read as asking. Only a name no rule
+ * can be kept under is dropped. Each is said in the log, and the file as it was is kept beside it before it is written again.
  */
 function read(raw: unknown, log: (message: string) => void): { rules: AllRules; changed: boolean } {
   const file = File.parse(raw);
   let changed = typeof raw === "object" && raw !== null && !("browser" in raw);
   const old: Record<string, Permission> = {};
   const current: Record<string, SiteEntry> = {};
-  for (const [site, value] of Object.entries(file.sites)) {
+  for (const [written, value] of Object.entries(file.sites)) {
+    const site = named(written);
+    if (site !== written) {
+      log(`rules: the rule for "${written}" is kept as ${site}.`);
+      changed = true;
+    }
     if (!Site.safeParse(site).success) {
-      log(`rules: the rule for "${site}" is dropped: it is not a website name a rule can be kept for.`);
+      log(`rules: the rule for "${written}" is dropped: it is not a website name a rule can be kept for.`);
       changed = true;
       continue;
     }
     const was = Permission.safeParse(value);
     const entry = Entry.safeParse(value);
     if (was.success) {
-      old[site] = was.data;
+      old[site] = stricter(old[site], was.data) ?? was.data;
       changed = true;
     } else if (entry.success) {
-      current[site] = { never: entry.data.never, actions: settled(entry.data.actions, log, site) };
+      current[site] = joined(current[site], { never: entry.data.never, actions: settled(entry.data.actions, log, site) });
       changed ||= entry.data.actions.upload === "allow";
     } else {
-      log(`rules: the rule for ${site} is dropped: it could not be read.`);
+      log(`rules: the rule for ${site} could not be read: it is read as never visiting ${site}, until it is set again.`);
+      current[site] = joined(current[site], { never: true, actions: {} });
       changed = true;
     }
   }
-  const browser = settled(file.browser, log, "the browser");
-  changed ||= file.browser.upload === "allow";
+  const asStored: SiteActions = {};
+  for (const [action, value] of Object.entries(file.browser)) {
+    const known = BrowserAction.safeParse(action);
+    if (!known.success) continue;
+    const permission = Permission.safeParse(value);
+    if (permission.success) asStored[known.data] = permission.data;
+    else {
+      log(`rules: the browser's setting for ${action} could not be read: it is read as "ask".`);
+      asStored[known.data] = "ask";
+      changed = true;
+    }
+  }
+  const browser = settled(asStored, log, "the browser");
+  changed ||= asStored.upload === "allow";
   return { rules: { apps: file.apps, browser, sites: { ...migrated(old), ...current } }, changed };
 }
 
@@ -108,7 +145,11 @@ export function fileRules(path: string, log: (message: string) => void = console
     renameSync(temporary, path);
     all = next;
   };
-  if (stored.changed) save(all);
+  if (stored.changed) {
+    // what was there stays beside it, to put back what reading it otherwise lost
+    copyFileSync(path, `${path}.${Date.now()}.bak`);
+    save(all);
+  }
   return {
     of: async (app) => ({ ...all.apps[app] }),
     set: async (app, kind, permission) => save({ ...all, apps: setRule(all.apps, app, kind, permission) }),

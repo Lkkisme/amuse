@@ -190,3 +190,10 @@ test("a rule cannot be kept for a name that would not be read back", () => {
   }
   assert.deepEqual(setSiteAction({}, "evil.com", "never", "deny"), { "evil.com": { never: true, actions: {} } });
 });
+
+test("a host no rule can name is still under its parents' rules: an underscore does not get round a site that is never visited", () => {
+  const rules: BrowserRules = { actions: { visit: "allow" }, sites: { "evil.com": entry({}, true), "bank.com": entry({ submit: "deny" }) } };
+  assert.deepEqual(decideBrowser(rules, "https://a_b.evil.com/x", "visit"), { permission: "deny", source: { kind: "never", site: "evil.com" } });
+  assert.deepEqual(decideBrowser(rules, "https://x_y.login.bank.com/pay", "submit"), { permission: "deny", source: { kind: "site", site: "bank.com" } });
+  assert.equal(browserPermission(rules, "https://my_host.example.com/", "visit"), "allow", "no parent with a rule: the browser's settings");
+});

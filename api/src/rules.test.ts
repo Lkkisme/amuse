@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { browserRulesOf, decideBrowser } from "@amuse/core";
 import { fileRules } from "./rules.ts";
@@ -22,15 +22,17 @@ test("rules survive a restart, the file stays the owner's, and a broken file sto
   assert.throws(() => fileRules(path));
 });
 
-test("one bad stored entry never stops the server: it is dropped, with a line in the log, and an upload allowed is asked", async () => {
+test("nothing stored that cannot be read stops the server or makes the rules wider: names read plainly, unreadable entries as never, the file kept beside", async () => {
   const path = fresh();
   writeFileSync(
     path,
     JSON.stringify({
       apps: {},
-      browser: { upload: "allow", download: "ask" },
+      browser: { upload: "allow", download: "ask", visit: "sometimes" },
       sites: {
         "evil.com.": { never: true, actions: {} },
+        "WWW.Shop.com": { never: false, actions: { submit: "allow" } },
+        "shop.com": { never: false, actions: { submit: "deny", download: "allow" } },
         "my_host.example.com": "allow",
         "[2606:4700::1111]": { never: true, actions: {} },
         "ok.com": { never: false, actions: { upload: "allow", submit: "allow" } },
@@ -39,19 +41,32 @@ test("one bad stored entry never stops the server: it is dropped, with a line in
       },
     }),
   );
+  const before = readFileSync(path, "utf8");
   const said: string[] = [];
   const rules = fileRules(path, (m) => void said.push(m));
   assert.deepEqual(await rules.sites(), {
+    // a spelling of a name is that name; two entries for one name keep the stricter of each
+    "evil.com": { never: true, actions: {} },
+    "shop.com": { never: false, actions: { submit: "deny", download: "allow" } },
     "ok.com": { never: false, actions: { upload: "ask", submit: "allow" } },
+    // what cannot be read is never visited, until set again
+    "broken.com": { never: true, actions: {} },
     "fine.com": { never: true, actions: {} },
   });
-  assert.deepEqual(await rules.browser(), { upload: "ask", download: "ask" });
-  assert.equal(said.filter((m) => /dropped/.test(m)).length, 4);
-  assert.ok(said.some((m) => m.includes('"evil.com."')));
-  assert.ok(said.some((m) => m.includes("my_host.example.com")));
-  assert.ok(said.some((m) => m.includes("[2606:4700::1111]")));
-  assert.ok(said.some((m) => m.includes("broken.com") && /could not be read/.test(m)));
+  // a setting that cannot be read asks
+  assert.deepEqual(await rules.browser(), { upload: "ask", download: "ask", visit: "ask" });
+  // only names no rule can be kept under are dropped
+  assert.equal(said.filter((m) => /dropped/.test(m)).length, 2);
+  assert.ok(said.some((m) => m.includes("my_host.example.com") && /dropped/.test(m)));
+  assert.ok(said.some((m) => m.includes("[2606:4700::1111]") && /dropped/.test(m)));
+  assert.ok(said.some((m) => m.includes('"evil.com."') && /kept as evil.com/.test(m)));
+  assert.ok(said.some((m) => m.includes("broken.com") && /never visiting/.test(m)));
+  assert.ok(said.some((m) => /setting for visit/.test(m)));
   assert.equal(said.filter((m) => /uploading is always asked about/.test(m)).length, 2);
+  // the file as it was is kept beside it
+  const kept = readdirSync(dirname(path)).filter((name) => name.endsWith(".bak"));
+  assert.equal(kept.length, 1);
+  assert.equal(readFileSync(join(dirname(path), kept[0] ?? ""), "utf8"), before);
   // written again without them: the next start is quiet and the same
   const next: string[] = [];
   assert.deepEqual(await fileRules(path, (m) => void next.push(m)).sites(), await rules.sites());
