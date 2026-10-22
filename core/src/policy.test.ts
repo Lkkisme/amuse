@@ -144,6 +144,7 @@ test("Amuse's own sandbox is always open to its browsers, whatever the rules say
   // only that name: a site that merely contains it is a site like any
   assert.equal(browserPermission(rules, "https://sandbox.example.com/", "visit"), "deny");
   assert.equal(browserPermission(rules, "https://mysandbox/", "visit"), "deny");
+  assert.equal(browserPermission(rules, "http://www.sandbox/", "visit"), "deny", "the name exactly");
 });
 
 test("a trailing dot, case, a full-width or encoded dot, or www do not get round a site's rule", () => {

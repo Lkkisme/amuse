@@ -114,7 +114,7 @@ export type RuleSource = { kind: "never"; site: string } | { kind: "site"; site:
  */
 export function decideBrowser(rules: BrowserRules, url: string, action: BrowserAction): { permission: Permission; source: RuleSource } {
   if (hostOf(url) === null) return { permission: "deny", source: { kind: "unreachable" } };
-  if (hostOf(url) === SANDBOX_SITE) return { permission: settled(action, "allow"), source: { kind: "default" } };
+  if (new URL(url).hostname === SANDBOX_SITE) return { permission: settled(action, "allow"), source: { kind: "default" } };
   // a host no rule can name has no rule of its own, but its parents' hold
   const chain = lineage(hostOf(url) ?? "");
   for (const name of chain) {

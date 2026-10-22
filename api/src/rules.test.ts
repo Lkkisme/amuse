@@ -136,3 +136,10 @@ test("the rules before the browser's: allow becomes every action allowed, ask be
   assert.deepEqual(await fileRules(path).sites(), { "a.com": { never: true, actions: {} }, "b.com": { never: false, actions: { submit: "deny" } } });
   assert.deepEqual(await fileRules(path).browser(), { visit: "allow" });
 });
+
+test("a site in both shapes (a file edited by hand) keeps the stricter of each", async () => {
+  const path = fresh();
+  writeFileSync(path, JSON.stringify({ apps: {}, browser: {}, sites: { "EVIL.com": "deny", "evil.com": { never: false, actions: { visit: "allow" } } } }));
+  const rules = fileRules(path, () => {});
+  assert.deepEqual((await rules.sites())["evil.com"]?.never, true);
+});

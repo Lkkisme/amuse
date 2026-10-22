@@ -275,7 +275,7 @@ export function readable(args: Record<string, unknown>): string {
     .join("\n");
 }
 
-/** How an app's page in Settings › Connectors names each kind of tool. */
+/** How a connection's page in Settings › Connections names each kind of tool. */
 const kindTitle: Record<ToolKind, string> = { read: "Read permissions", write: "Write permissions", destructive: "Delete permissions" };
 
 export async function appCall(

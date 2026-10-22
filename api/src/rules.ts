@@ -81,6 +81,13 @@ const joined = (a: SiteEntry | undefined, b: SiteEntry): SiteEntry => {
   return { never: a.never || b.never, actions };
 };
 
+/** The old shape's entries and the new's, together: where a site is in both (a file edited by hand), the stricter of each. */
+const both = (old: Record<string, SiteEntry>, current: Record<string, SiteEntry>): Record<string, SiteEntry> => {
+  const all = { ...old };
+  for (const [site, entry] of Object.entries(current)) all[site] = joined(all[site], entry);
+  return all;
+};
+
 /**
  * The rules as stored, and whether the file needs writing again (it held the old shape, or something that was read otherwise). Nothing
  * that could not be read ever makes the rules wider, nor stops the server: a site's name is read as its plain spelling; a site's entry
@@ -131,7 +138,7 @@ function read(raw: unknown, log: (message: string) => void): { rules: AllRules; 
   }
   const browser = settled(asStored, log, "the browser");
   changed ||= asStored.upload === "allow";
-  return { rules: { apps: file.apps, browser, sites: { ...migrated(old), ...current } }, changed };
+  return { rules: { apps: file.apps, browser, sites: both(migrated(old), current) }, changed };
 }
 
 export function fileRules(path: string, log: (message: string) => void = console.warn): Rules {
