@@ -126,10 +126,10 @@ export function Composer({ conversation, place, actions }: { conversation: State
 
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20">
-      {/* content scrolls under the composer and dissolves into the gradient */}
+      {/* content scrolls under the composer and dissolves into the gradient; the chat's scrollbar is left clear */}
       <div
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-28"
-        style={{ background: "linear-gradient(to top, var(--chat-background) 55%, transparent)" }}
+        className="pointer-events-none absolute bottom-0 left-0 h-28"
+        style={{ right: "var(--chat-scrollbar, 0px)", background: "linear-gradient(to top, var(--chat-background) 55%, transparent)" }}
       />
       <div className="relative mx-auto max-w-3xl px-4 pb-5 pt-1">
         <div

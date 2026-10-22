@@ -398,20 +398,27 @@ body {
 }
 
 /* Muse-style scroll dissolve: the content itself fades out under the floating
-   top bar / composer via mask — no solid element sits above it. */
+   top bar / composer via mask — no solid element sits above it. The scrollbar's
+   strip on the right (--chat-scrollbar: its width, measured; none where it floats)
+   is kept whole: the fade is the content's, not the bar's. */
 .chat-scroll-fade {
-  -webkit-mask-image: linear-gradient(
+  --fade: linear-gradient(
     to bottom,
     transparent 0,
     #000 88px,
     #000 calc(100% - 76px),
     transparent 100%
   );
-  mask-image: linear-gradient(
-    to bottom,
-    transparent 0,
-    #000 88px,
-    #000 calc(100% - 76px),
-    transparent 100%
-  );
+  -webkit-mask-image: var(--fade), linear-gradient(#000, #000);
+  mask-image: var(--fade), linear-gradient(#000, #000);
+  -webkit-mask-size:
+    calc(100% - var(--chat-scrollbar, 0px)) 100%,
+    var(--chat-scrollbar, 0px) 100%;
+  mask-size:
+    calc(100% - var(--chat-scrollbar, 0px)) 100%,
+    var(--chat-scrollbar, 0px) 100%;
+  -webkit-mask-position: left top, right top;
+  mask-position: left top, right top;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
 }

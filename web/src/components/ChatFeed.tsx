@@ -554,7 +554,16 @@ export function ChatFeed({
     const el = scrollRef.current;
     const content = contentRef.current;
     if (!el || !content) return;
+    // the fades spare the scrollbar (index.css, and the composer's): how wide it is now (none where it floats, or before
+    // there is anything to scroll); on the root, where the composer reads it too
+    const bar = () =>
+      document.documentElement.style.setProperty(
+        "--chat-scrollbar",
+        `${el.offsetWidth - el.clientWidth}px`,
+      );
+    bar();
     const follow = new ResizeObserver(() => {
+      bar();
       if (!stick.current) return;
       if (gliding.current)
         el.scrollTo({ top: el.scrollHeight, behavior: "smooth" }); // keep the glide aimed at the end
