@@ -12,13 +12,15 @@
     "start": "node src/main.ts"
   },
   "dependencies": {
-    "@amuse/core": "*",
-    "@amuse/protocol": "*",
-    "ws": "^8.18.3",
-    "@amuse/pi": "*",
-    "@amuse/composio": "*",
     "@amuse/browser": "*",
+    "@amuse/composio": "*",
+    "@amuse/core": "*",
     "@amuse/demo": "*",
+    "@amuse/pi": "*",
+    "@amuse/protocol": "*",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "playwright-core": "^1.62.1",
+    "ws": "^8.18.3",
     "zod": "^4.6.7"
   },
   "devDependencies": {

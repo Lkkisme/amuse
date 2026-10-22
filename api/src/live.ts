@@ -12,9 +12,22 @@ export interface Live {
   browsers: Browsers;
   /** True while the user controls run `id`. */
   controlled(id: string): boolean;
+  /** A local Chromium viewport, served on the same authenticated live route. */
+  native?: {
+    owns(id: string): boolean;
+    info(id: string): Promise<{ transport: "native"; width: number; height: number }>;
+    attach(viewer: WebSocket, id: string, controlled: () => boolean): void;
+  };
 }
 
 export function attach(viewer: WebSocket, id: string, live: Live): void {
+  if (live.native?.owns(id)) {
+    try {
+      return live.native.attach(viewer, id, () => live.controlled(id));
+    } catch {
+      return viewer.close(4502, "the browser is unreachable");
+    }
+  }
   const target = live.browsers.vnc(id);
   if (!target) return viewer.close(4404, "no live browser for this run");
   const desktop = new WebSocket(target, ["binary"], { headers: { origin: nodeOrigin } });

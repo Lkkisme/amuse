@@ -15,3 +15,5 @@ dist/
 .env
 deploy/*.env
 .scratch/
+.local/
+artifacts/

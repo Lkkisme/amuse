@@ -300,6 +300,62 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* The same four-digit keypad on touch screens and desktop, using the app's theme. */
+.unlock-page {
+  height: 100%;
+  overflow-y: auto;
+  display: flex;
+  align-items: safe center;
+  justify-content: center;
+  padding: max(24px, env(safe-area-inset-top)) 22px max(24px, env(safe-area-inset-bottom));
+  background: radial-gradient(ellipse at 50% 8%, color-mix(in srgb, var(--fill-blue) 7%, transparent), transparent 62%), var(--bg-primary);
+}
+.unlock-card { width: min(100%, 336px); display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 12px 8px; }
+.unlock-mark { display: flex; width: 56px; height: 56px; align-items: center; justify-content: center; border-radius: 20px; background: var(--avatar-fill); color: var(--avatar-text); box-shadow: var(--shadow-float); }
+.unlock-heading { text-align: center; }
+.unlock-eyebrow { color: var(--text-tertiary); font-size: 10px; font-weight: 650; letter-spacing: .18em; }
+.unlock-heading h1 { margin-top: 7px; color: var(--text-primary); font-size: 25px; font-weight: 650; letter-spacing: -.04em; line-height: 1.2; }
+.unlock-heading > p:last-child { margin-top: 9px; font-size: 13px; line-height: 1.55; color: var(--text-secondary); }
+.pin-entry { width: 100%; max-width: 300px; margin-inline: auto; }
+.pin-label { display: flex; flex-direction: column; gap: 12px; text-align: center; color: var(--text-secondary); font-size: 12px; }
+.pin-dots { position: relative; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 3px; border-radius: 18px; }
+.pin-dots input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: text; z-index: 1; }
+.pin-dot { display: flex; height: 54px; align-items: center; justify-content: center; border: 1px solid var(--fill-divider); border-radius: 15px; background: var(--fill-primary); color: var(--text-primary); font-size: 15px; box-shadow: var(--shadow-float); transition: border-color .15s, background-color .15s; }
+.pin-dot.is-filled { border-color: color-mix(in srgb, var(--fill-blue) 45%, var(--fill-divider)); background: color-mix(in srgb, var(--fill-blue) 5%, var(--fill-primary)); }
+.pin-dots:focus-within { outline: 2px solid color-mix(in srgb, var(--fill-outline) 38%, transparent); outline-offset: 3px; }
+.pin-keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px 12px; margin-top: 18px; }
+.pin-key { min-width: 44px; height: 50px; display: flex; align-items: center; justify-content: center; border-radius: 16px; border: 1px solid var(--fill-divider); background: var(--fill-primary); color: var(--text-primary); font-size: 23px; font-weight: 450; font-variant-numeric: tabular-nums; touch-action: manipulation; transition: transform .1s, background-color .1s; }
+.pin-key:active:not(:disabled) { transform: scale(.94); background: var(--fill-secondary); }
+.pin-key:disabled { opacity: .45; }
+.pin-key-delete { background: transparent; border-color: transparent; color: var(--text-secondary); }
+.pin-key:focus-visible, .credential-primary:focus-visible, .credential-link:focus-visible, .pin-security-row:focus-visible { outline: 2px solid var(--fill-outline); outline-offset: 3px; }
+.credential-primary { width: 100%; min-height: 46px; padding: 11px 20px; border-radius: 16px; background: var(--fill-blue); color: white; font-size: 14px; font-weight: 600; }
+.credential-primary:disabled { opacity: .4; }
+.credential-password { width: 100%; min-height: 48px; padding: 12px 16px; border-radius: 15px; border: 1px solid var(--fill-divider); background: var(--fill-primary); color: var(--text-primary); font-size: 16px; outline: none; }
+.credential-password:focus { border-color: var(--fill-outline); }
+.credential-link { display: inline-flex; align-items: center; justify-content: center; gap: 3px; color: var(--text-secondary); min-height: 32px; padding: 2px 5px; font-size: 12px; }
+.credential-link:disabled { opacity: .5; }
+.credential-message { color: var(--text-secondary); font-size: 12px; line-height: 1.5; text-align: center; }
+.credential-message.is-error { color: var(--fill-red); }
+.unlock-footnote { color: var(--text-tertiary); font-size: 11px; text-align: center; line-height: 1.5; }
+.pin-security { border-radius: 15px; background: var(--fill-secondary); overflow: hidden; }
+.pin-security-row { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 16px; color: var(--text-primary); text-align: left; font-size: 14px; }
+.pin-security-row > span { display: inline-flex; align-items: center; gap: 9px; }
+.pin-security-row.is-lock { border-top: 1px solid var(--fill-divider); color: var(--fill-red); }
+.pin-security-form { display: flex; flex-direction: column; align-items: center; gap: 16px; width: min(100%, 350px); margin-inline: auto; padding: 23px 20px 14px; }
+.pin-security-heading { text-align: center; }
+.pin-security-heading h3 { color: var(--text-primary); margin-top: 7px; font-size: 18px; font-weight: 600; letter-spacing: -.025em; }
+.pin-security-heading p { margin-top: 5px; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
+.pin-security-actions { display: flex; justify-content: space-between; width: 100%; }
+.pin-security-actions > :only-child { margin-left: auto; }
+@media (max-height: 780px) {
+  .unlock-card { gap: 10px; padding-block: 3px; }
+  .unlock-mark { width: 44px; height: 44px; border-radius: 16px; }
+  .pin-keypad { margin-top: 12px; gap: 6px 12px; }
+  .pin-key { height: 44px; }
+  .pin-dot { height: 46px; }
+}
+
 /* Chats panel: slides in over the page from the left edge (Muse mobile). */
 @keyframes pane-enter-from-left {
   0% { transform: translateX(-100%); }

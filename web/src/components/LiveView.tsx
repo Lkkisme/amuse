@@ -1,8 +1,7 @@
 /**
- * A browser run's live desktop — the real Chrome window, tabs and address bar
- * included — over noVNC, drawn into our own box and scaled to fit (the
- * desktop keeps its size; we never ask it to resize). Input is off unless the
- * user holds the run, here and, regardless, at the server's gate.
+ * A browser run's live view: native browser images with our navigation bar,
+ * or the existing noVNC desktop including Chrome's own tabs and address bar.
+ * Input is off unless the user holds the run, here and at the server's gate.
  *
  * While the user holds it on a touch screen, a strip of controls sits under
  * the desktop, never over it: the keyboard, paste, a trackpad mode, a zoom to
@@ -15,9 +14,10 @@
  */
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ClipboardPaste, Keyboard, KeyboardOff, MousePointer2, ZoomIn } from "lucide-react";
-import RFB from "@novnc/novnc";
+import type RFB from "@novnc/novnc";
 import { FILLER, edit, keys, runs } from "../remote-keys.ts";
 import { TouchSurface } from "./TouchSurface";
+import { NativeLiveView } from "./NativeLiveView";
 
 const touchScreen = () => window.matchMedia("(pointer: coarse)").matches;
 
@@ -25,45 +25,127 @@ const touchScreen = () => window.matchMedia("(pointer: coarse)").matches;
 /** Width change (px) that reshapes the desktop again: a turned phone, a resized window; not the keyboard (height only). */
 const REFIT = 24;
 
-export function LiveView({ url, interactive, onFit }: { url: string; interactive: boolean; onFit: (view: { width: number; height: number } | null) => void }) {
+type LiveViewProps = { url: string; interactive: boolean; onFit: (view: { width: number; height: number } | null) => void };
+
+/** Older servers expose RFB; native browser sessions advertise their image transport. */
+export function LiveView(props: LiveViewProps) {
+  const [transport, setTransport] = useState<{ url: string; native: { width: number; height: number } | null } | null>(null);
+  useEffect(() => {
+    let active = true;
+    const abort = new AbortController();
+    const timeout = setTimeout(() => abort.abort(), 8_000);
+    void (async () => {
+      let native: { width: number; height: number } | null = null;
+      try {
+        const endpoint = new URL(props.url, location.href);
+        const id = endpoint.searchParams.get("id");
+        endpoint.protocol = endpoint.protocol === "wss:" ? "https:" : "http:";
+        endpoint.pathname = "/browser-view";
+        endpoint.search = "";
+        endpoint.hash = "";
+        if (id) {
+          endpoint.searchParams.set("id", id);
+          const response = await fetch(endpoint, { credentials: "same-origin", signal: abort.signal });
+          if (response.ok) {
+            const value: unknown = await response.json();
+            if (typeof value === "object" && value !== null && "transport" in value && value.transport === "native" &&
+              "width" in value && typeof value.width === "number" && value.width > 0 && Number.isFinite(value.width) &&
+              "height" in value && typeof value.height === "number" && value.height > 0 && Number.isFinite(value.height)) {
+              native = { width: value.width, height: value.height };
+            }
+          }
+        }
+      } catch {
+        // A 404, an old server's HTML fallback, or an unavailable descriptor keeps the existing RFB path.
+      } finally {
+        clearTimeout(timeout);
+        if (active) setTransport({ url: props.url, native });
+      }
+    })();
+    return () => { active = false; clearTimeout(timeout); abort.abort(); };
+  }, [props.url]);
+  if (!transport || transport.url !== props.url)
+    return <div className="skeleton min-h-0 flex-1" aria-label="Connecting to the browser" />;
+  return transport.native ? (
+    <NativeLiveView {...props} initialSize={transport.native}
+      renderControls={(send, modes) => <TouchControls keys={send} {...modes} />} />
+  ) : <RfbLiveView {...props} />;
+}
+
+function RfbLiveView({ url, interactive, onFit }: LiveViewProps) {
   const box = useRef<HTMLDivElement>(null);
   const client = useRef<RFB | null>(null);
   /** the viewer shows only runs whose browser is there, so a dropped or refused connection is tried again */
-  const [state, setState] = useState<"connecting" | "live">("connecting");
+  const [state, setState] = useState<"connecting" | "live" | "failed">("connecting");
+  const [problem, setProblem] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [touch] = useState(touchScreen);
   const [trackpad, setTrackpad] = useState(false);
   /** actual size instead of fit: the desktop is bigger than the box, dragged around to see it all */
   const [zoom, setZoom] = useState(false);
+  // Module loading can outlive prop changes; input must start with the latest permissions.
+  const latest = useRef({ interactive, touch, trackpad, zoom });
+  latest.current = { interactive, touch, trackpad, zoom };
 
   const failures = useRef(0);
   useEffect(() => {
     const target = box.current;
     if (!target) return;
-    const rfb = new RFB(target, url, { wsProtocols: ["binary"] });
-    rfb.scaleViewport = true;
-    rfb.resizeSession = false;
-    rfb.background = "transparent";
+    let rfb: RFB | null = null;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let left = false; // our own disconnect on leaving is not a dropped connection
-    rfb.addEventListener("connect", () => {
-      failures.current = 0;
-      setState("live");
+    let expired = false;
+    setState("connecting");
+    setProblem(null);
+    const loading = setTimeout(() => {
+      if (left || rfb) return;
+      expired = true;
+      setProblem("The live viewer took too long to load. You can retry or continue chatting.");
+      setState("failed");
+    }, 12_000);
+    // noVNC probes browser codecs at module startup. Keep that work out of the app's entry module.
+    void import("@novnc/novnc").then(({ default: RFB }) => {
+      if (left || expired) return;
+      clearTimeout(loading);
+      rfb = new RFB(target, url, { wsProtocols: ["binary"] });
+      const current = latest.current;
+      rfb.viewOnly = !current.interactive;
+      rfb.focusOnClick = current.interactive && !current.touch;
+      rfb.showDotCursor = current.trackpad;
+      rfb.scaleViewport = !current.zoom;
+      rfb.resizeSession = false;
+      rfb.background = "transparent";
+      rfb.addEventListener("connect", () => {
+        if (left) return;
+        failures.current = 0;
+        setState("live");
+      });
+      // A run still opening its browser is refused; dropped connections retry with the existing backoff.
+      rfb.addEventListener("disconnect", () => {
+        if (left) return;
+        setState("connecting");
+        clearTimeout(retry);
+        retry = setTimeout(() => setAttempt((a) => a + 1), Math.min(5000, 500 * 2 ** failures.current++));
+      });
+      // copied on the remote desktop: offer it to this device's clipboard (secure page, best effort)
+      rfb.addEventListener("clipboard", (e) => {
+        if (!left) void navigator.clipboard?.writeText(e.detail.text).catch(() => {});
+      });
+      client.current = rfb;
+    }).catch(() => {
+      if (left || expired) return;
+      clearTimeout(loading);
+      setProblem("The live viewer could not load. Please try again.");
+      setState("failed");
+      if (client.current === rfb) client.current = null;
+      rfb?.disconnect();
     });
-    // a run still opening its browser is refused; one whose connection dropped comes back: try again, slower each time
-    rfb.addEventListener("disconnect", () => {
-      if (left) return;
-      setState("connecting");
-      retry = setTimeout(() => setAttempt((a) => a + 1), Math.min(5000, 500 * 2 ** failures.current++));
-    });
-    // copied on the remote desktop: offer it to this device's clipboard (needs a secure page; best effort)
-    rfb.addEventListener("clipboard", (e) => void navigator.clipboard?.writeText(e.detail.text).catch(() => {}));
-    client.current = rfb;
     return () => {
       left = true;
+      clearTimeout(loading);
       clearTimeout(retry);
-      client.current = null;
-      rfb.disconnect();
+      if (client.current === rfb) client.current = null;
+      rfb?.disconnect();
     };
   }, [url, attempt]);
 
@@ -165,6 +247,12 @@ export function LiveView({ url, interactive, onFit }: { url: string; interactive
       <div className="relative flex min-h-0 flex-1 items-center justify-center" style={{ touchAction: "none" }}>
         <div ref={box} className="absolute inset-0" data-watching={interactive ? undefined : ""} />
         {state === "connecting" && <div aria-label="Connecting to the browser" className="skeleton absolute inset-0" />}
+        {state === "failed" && (
+          <div role="alert" className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center" style={{ background: "var(--bg-secondary)" }}>
+            <p className="max-w-xs text-[14px]" style={{ color: "var(--text-secondary)" }}>{problem}</p>
+            <button type="button" className="h-10 rounded-full px-5 text-[14px] font-semibold text-white" style={{ background: "var(--fill-blue)" }} onClick={() => setAttempt((a) => a + 1)}>Retry live view</button>
+          </div>
+        )}
         {controls && <TouchSurface screen={box} mode={trackpad ? "trackpad" : zoom ? "pan" : "touch"} />}
       </div>
       {controls && (

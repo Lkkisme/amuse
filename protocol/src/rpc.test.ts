@@ -5,6 +5,10 @@ import { Call, type Handlers, Request, dispatch, empty, results } from "./index.
 const handlers: Handlers = {
   "session.sync": async () => ({ kind: "snapshot", state: empty }),
   "session.history": async () => ({ seq: 0, earlier: 0, entities: [] }),
+  "backend.status": async () => ({
+    kind: "pi", connected: true, label: "Amuse / Pi", detail: "Demo runtime",
+    model: null, contextWindow: null, capabilities: [],
+  }),
   "chat.send": async ({ text }) => ({ id: `p:${text}` }),
   "chat.stop": async () => null,
   "chat.retry": async () => null,

@@ -28,6 +28,8 @@ export interface Options {
   web?: string;
   /** The user's browser is back from a connector's hosted page with a one-time key (GET /connected?key=…). */
   returned?: (key: string) => Promise<boolean>;
+  /** Scoped browser MCP endpoint; its handler authenticates the agent's bearer token itself. */
+  browserMcp?: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
   access: Access;
   port: number;
   host: string;
@@ -77,7 +79,7 @@ export interface Listening {
   close(): Promise<void>;
 }
 
-export function listen({ session, live, files: uploads, web, returned, access, port, host }: Options): Promise<Listening> {
+export function listen({ session, live, files: uploads, web, returned, browserMcp, access, port, host }: Options): Promise<Listening> {
   const route = (url: URL): Target | null => {
     if (url.pathname === "/rpc") return { kind: "rpc" };
     const id = url.searchParams.get("id");
@@ -198,6 +200,26 @@ export function listen({ session, live, files: uploads, web, returned, access, p
       })
       .end(image);
   };
+  /** Viewer transport metadata only; CDP endpoints and credentials never cross this boundary. */
+  const browserView = async (req: IncomingMessage, url: URL, res: ServerResponse) => {
+    if (!allowed(req)) return void res.writeHead(401, { "cache-control": "no-store" }).end();
+    if (!ours(req)) return void res.writeHead(403, { "cache-control": "no-store" }).end();
+    if (req.method !== "GET") return void res.writeHead(405).end();
+    const id = url.searchParams.get("id");
+    if (!live || !id) return void res.writeHead(404).end();
+    if (live.native?.owns(id)) {
+      const info = await live.native.info(id);
+      const dimensions = z.object({ width: z.int().min(1).max(8000), height: z.int().min(1).max(8000) }).parse(info);
+      return json(res, 200, { transport: "native", ...dimensions });
+    }
+    if (live.browsers.vnc(id)) return json(res, 200, { transport: "rfb" });
+    return void res.writeHead(404).end();
+  };
+  const scopedBrowserMcp = async (req: IncomingMessage, res: ServerResponse) => {
+    if (!browserMcp) return void res.writeHead(404).end();
+    if (!ours(req)) return void res.writeHead(403).end();
+    return browserMcp(req, res);
+  };
   /**
    * POST /files (the bytes as the body; the name in X-File-Name, URI-encoded; the
    * type in Content-Type) → the Attachment, to send with a message.
@@ -265,6 +287,10 @@ export function listen({ session, live, files: uploads, web, returned, access, p
       ? way(req, url, res)
       : url.pathname === "/thumb"
         ? thumb(req, url, res)
+        : url.pathname === "/browser-view"
+          ? browserView(req, url, res)
+          : url.pathname === "/mcp/browser"
+            ? scopedBrowserMcp(req, res)
         : url.pathname === "/files" || url.pathname.startsWith("/files/")
           ? file(req, url, res)
           : url.pathname === "/connected"
@@ -272,8 +298,15 @@ export function listen({ session, live, files: uploads, web, returned, access, p
             : files
               ? files(req, res)
               : Promise.resolve(void res.writeHead(404).end());
-    handled.catch(() => res.writeHead(500).end());
+    handled.catch(() => {
+      if (res.destroyed) return;
+      if (res.headersSent) res.destroy();
+      else res.writeHead(500).end();
+    });
   });
+  // A client can reset an HTTP or rejected upgrade connection while a response
+  // is being written. Handle errors on that connection, not at process scope.
+  http.on("connection", (socket) => socket.on("error", () => socket.destroy()));
   // noVNC viewers ask for the "binary" subprotocol; the RPC client asks for none
   const wss = new WebSocketServer({
     noServer: true,
@@ -289,9 +322,12 @@ export function listen({ session, live, files: uploads, web, returned, access, p
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
+      ws.on("error", () => ws.terminate());
       if (target.kind === "live") return attach(ws, target.id, target.live);
       const peer = serve(session, (frame) => ws.send(frame));
-      ws.on("message", (data, binary) => void (binary ? undefined : peer.receive(data.toString())));
+      ws.on("message", (data, binary) => {
+        if (!binary) void peer.receive(data.toString()).catch(() => ws.close(1011, "Request handling failed"));
+      });
       ws.on("close", peer.close);
     });
   });

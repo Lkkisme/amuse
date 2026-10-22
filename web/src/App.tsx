@@ -51,7 +51,19 @@ const openSession = (
 export default function App() {
   const [where, setWhere] = useState<Connection | null>(null);
   useEffect(() => void connection().then(setWhere), []);
-  if (!where) return null;
+  if (!where) return (
+    <main className="unlock-page" role="status" aria-live="polite">
+      <div className="unlock-card">
+        <span className="unlock-mark" aria-hidden="true">A</span>
+        <div className="unlock-heading">
+          <p className="unlock-eyebrow">AMUSE</p>
+          <h1>Connecting to Amuse…</h1>
+          <p>Your private workspace is loading.</p>
+        </div>
+        <span className="size-2 animate-pulse rounded-full" style={{ background: "var(--fill-blue)" }} aria-hidden="true" />
+      </div>
+    </main>
+  );
   return where.kind === "locked" ? (
     <Unlock ready={where.ready} />
   ) : (

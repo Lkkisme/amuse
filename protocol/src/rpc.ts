@@ -14,11 +14,25 @@ import { KeyTest, KeysState, LoginStep, ModelRef, ModelRole } from "./keys.ts";
 const call = <M extends string, P extends z.ZodObject>(method: M, params: P) =>
   z.object({ method: z.literal(method), params });
 
+/** The execution backend actually serving this instance, without credentials. */
+export const BackendStatus = z.object({
+  kind: z.enum(["pi", "paseo"]),
+  connected: z.boolean(),
+  label: z.string(),
+  detail: z.string(),
+  model: z.string().nullable(),
+  contextWindow: z.number().nullable(),
+  capabilities: z.array(z.string()),
+});
+export type BackendStatus = z.infer<typeof BackendStatus>;
+
 export const Call = z.discriminatedUnion("method", [
   /** Catch up on a chat from `since` (null: from nothing). */
   call("session.sync", z.object({ chat: Id, since: Seq.nullable() })),
   /** Up to `limit` of a chat's entities just before feed index `before`, for a state holding only the recent end. */
   call("session.history", z.object({ chat: Id, before: Index, limit: z.int().min(1).max(200) })),
+  /** The connected execution backend, selected model and available tool capabilities. */
+  call("backend.status", z.object({})),
   /** `timezone`: the device's (Intl), so times are the user's own */
   call(
     "chat.send",
@@ -97,6 +111,7 @@ export const results = {
     z.object({ kind: z.literal("snapshot"), state: State }),
   ]),
   "session.history": Page,
+  "backend.status": BackendStatus,
   "chat.send": z.object({ id: Id }),
   "chat.stop": done,
   "chat.retry": done,
@@ -140,6 +155,7 @@ export type Results = { [M in Method]: z.infer<(typeof results)[M]> };
 export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "session.sync": (raw) => results["session.sync"].parse(raw),
   "session.history": (raw) => results["session.history"].parse(raw),
+  "backend.status": (raw) => results["backend.status"].parse(raw),
   "chat.send": (raw) => results["chat.send"].parse(raw),
   "chat.stop": (raw) => results["chat.stop"].parse(raw),
   "chat.retry": (raw) => results["chat.retry"].parse(raw),

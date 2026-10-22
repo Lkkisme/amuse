@@ -19,7 +19,8 @@ test("a restarted host comes back with the same state and keeps counting", async
   const first = createHost(demoPorts(idle), { seed: seed(), store: fileChats(dirname(path), path), timers: idle });
   await first.call("chat.send", { chat: "main", text: "remember me", timezone: "UTC", attachments: [] });
   const before = await snapshot(first);
-  assert.equal((statSync(path).mode & 0o777).toString(8), "600");
+  // Windows uses inherited ACLs rather than POSIX mode bits.
+  if (process.platform !== "win32") assert.equal((statSync(path).mode & 0o777).toString(8), "600");
 
   const second = createHost(demoPorts(idle), { seed: seed(), store: fileChats(dirname(path), path), timers: idle });
   const replayed = await snapshot(second);
@@ -68,8 +69,10 @@ test("side chats are kept beside the main chat's log, and a deleted one's log go
   const side = await first.call("chats.create", {});
   await first.call("chat.send", { chat: side.id, text: "a side thought", timezone: "UTC", attachments: [] });
   const log = join(dir, "chats", `${side.id}.jsonl`);
-  assert.equal((statSync(log).mode & 0o777).toString(8), "600");
-  assert.equal((statSync(join(dir, "chats.json")).mode & 0o777).toString(8), "600");
+  if (process.platform !== "win32") {
+    assert.equal((statSync(log).mode & 0o777).toString(8), "600");
+    assert.equal((statSync(join(dir, "chats.json")).mode & 0o777).toString(8), "600");
+  }
 
   const second = createHost(demoPorts(idle), { store: fileChats(dir, main), timers: idle });
   const synced = await second.call("session.sync", { chat: side.id, since: null });

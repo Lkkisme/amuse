@@ -11,7 +11,8 @@ test("rules survive a restart, the file stays the owner's, and a broken file sto
   await fileRules(path).setSite("bank.com", "deny");
   assert.deepEqual(await fileRules(path).of("gmail"), { destructive: "deny" });
   assert.deepEqual(await fileRules(path).sites(), { "bank.com": "deny" });
-  assert.equal(statSync(path).mode & 0o777, 0o600);
+  // Windows uses inherited ACLs rather than POSIX mode bits.
+  if (process.platform !== "win32") assert.equal(statSync(path).mode & 0o777, 0o600);
   writeFileSync(path, '{"apps":{"gmail":{"destructive":"maybe"}},"sites":{}}');
   assert.throws(() => fileRules(path));
 });

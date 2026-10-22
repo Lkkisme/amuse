@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f7f8fb">
+<title>Amuse · 你的电脑，随身同行</title>
+<style>
+:root{color-scheme:light dark;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#202329;background:#f7f8fb}
+*{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;padding:32px 22px;background:radial-gradient(ellipse at 50% 5%,#e5edf8,transparent 60%)}
+main{max-width:420px;width:100%;text-align:center}.mark{width:72px;height:72px;display:grid;place-items:center;margin:0 auto 24px;border:1px solid #e5d6bc;border-radius:23px;background:linear-gradient(145deg,#fff9ec,#eddfc7);color:#725a3c;box-shadow:0 10px 40px #b6a48425;font-size:37px;font-weight:500}
+.eyebrow{font-size:11px;letter-spacing:3px;color:#8b9099;font-weight:650}h1{font-size:32px;letter-spacing:-1px;margin:14px 0 12px;line-height:1.3}.intro{font-size:15px;line-height:1.9;color:#737983;margin:0 auto 25px;max-width:330px}.tags{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-bottom:28px}.tags span{font-size:12px;padding:7px 12px;background:#ffffffa8;border:1px solid #e4e7ec;border-radius:30px;color:#646b75}
+.download{display:block;border-radius:17px;background:#202832;color:white;text-decoration:none;padding:17px 20px;font-size:16px;font-weight:600;box-shadow:0 9px 24px #20283216}.secondary{display:inline-block;padding:18px;color:#6c7582;text-decoration:none;font-size:13px}.notes{text-align:left;margin-top:16px;padding:20px 22px;border:1px solid #e4e7ec;border-radius:20px;background:#ffffff7a;color:#727983;font-size:13px;line-height:1.85}.notes b{color:#373f49;font-weight:600}.notes p{margin:0 0 10px}.notes p:last-child{margin-bottom:0}footer{font-size:11px;color:#9ba0a8;margin:24px 0 0}
+@media(prefers-color-scheme:dark){:root{color:#eff0f3;background:#101317}body{background:radial-gradient(ellipse at 50% 5%,#202c3d,transparent 60%)}.intro,.secondary,.notes{color:#abb1bc}.tags span,.notes{background:#171d26b0;border-color:#303743}.tags span{color:#c2c7d0}.notes b{color:#e2e5eb}.download{background:#e9edf3;color:#1b2532}}
+</style>
+<main>
+  <div class="mark" aria-hidden="true">A</div>
+  <div class="eyebrow">AMUSE · ANDROID</div>
+  <h1>你的电脑，随身同行。</h1>
+  <p class="intro">熟悉的界面，同一份聊天。<br>在手机交代事情，让电脑继续执行。</p>
+  <div class="tags"><span>多端同步</span><span>USB 配对免密</span><span>可选指纹解锁</span></div>
+  <a class="download" href="../downloads/amuse.apk" download="Amuse.apk">下载安卓 APK</a>
+  <a class="secondary" href="/">先打开网页版 →</a>
+  <section class="notes">
+    <p><b>连接你的电脑</b><br>手机先连接同一 Tailscale 网络，电脑上的 Amuse 和本地模型保持运行。App 已填好这台电脑的服务地址。</p>
+    <p><b>打开即可继续</b><br>已通过 USB 配对的手机直接进入聊天，无需密码或指纹。新设备可由电脑完成一次配对，也可使用已有密码或四位 PIN 登录。指纹验证可在“连接与安全”中按需开启。</p>
+    <p><b>设备支持</b><br>Android 10 及以上；加密会话的指纹恢复需要 Android 11 及以上，并已配置系统锁屏。未启用时仍可输入服务器 PIN。</p>
+  </section>
+  <footer>个人安装版 0.1.3 · 通过你的 Tailscale 私网分发</footer>
+</main>
+</html>

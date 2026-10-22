@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileCredentials } from "./credentials.ts";
-import { bare, piKeys, plainly } from "./keys.ts";
+import { adoptEnvironment, bare, piKeys, plainly } from "./keys.ts";
+import { runtime } from "./session.ts";
 
 const composio = {
   id: "composio",
@@ -52,7 +53,8 @@ test("a provider's key is set up through its own prompts, kept owner-only, and s
   });
   assert.ok(!JSON.stringify(listed).includes("fw_secret_key_1234"), "the key never comes back");
   assert.ok(listed.models.length > 0 && listed.models.every((m) => m.provider === "fireworks"));
-  assert.equal(statSync(path).mode & 0o777, 0o600);
+  // Windows uses inherited ACLs rather than POSIX mode bits.
+  if (process.platform !== "win32") assert.equal(statSync(path).mode & 0o777, 0o600);
 
   // a sign-in answered once is over
   assert.equal((await keys.answer(first.login, "again")).kind, "failed");
@@ -168,4 +170,60 @@ test("a key pasted as an env file line gives its value", async () => {
   if (first.kind !== "prompt") return assert.fail("expected a prompt");
   await keys.answer(first.login, "COMPOSIO_API_KEY=ak_composio_5678");
   assert.equal(keys.appKey("composio"), "ak_composio_5678");
+});
+
+test("custom local providers are adopted from the environment and offered for selection", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "amuse-local-provider-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const keysPath = join(dir, "keys.json");
+  const choicePath = join(dir, "choices.json");
+  const modelsPath = join(dir, "providers.json");
+  writeFileSync(modelsPath, JSON.stringify({
+    providers: {
+      "swift-local": {
+        name: "Local Swift",
+        baseUrl: "http://127.0.0.1:8080/v1",
+        api: "openai-completions",
+        apiKey: "local-placeholder",
+        models: [{ id: "swift", name: "Swift", input: ["text", "image"] }],
+      },
+    },
+  }));
+  const env = {
+    SWIFT_LOCAL_API_KEY: "local-placeholder",
+    AMUSE_PI_MODEL: "swift-local/swift",
+    AMUSE_PI_BROWSER_MODEL: "swift-local/swift",
+  };
+  assert.deepEqual(await adoptEnvironment({ keysPath, choicePath, modelsPath, apps: {}, env }), ["swift-local"]);
+  const keys = piKeys({ keys: fileCredentials(keysPath), choicePath, modelsPath });
+  const listed = await keys.list();
+  assert.equal(listed.providers.find((p) => p.id === "swift-local")?.connected, true);
+  assert.deepEqual(listed.models, [{ id: "swift-local/swift", name: "Swift", provider: "swift-local", images: true }]);
+  assert.equal(keys.model("chat"), "swift-local/swift");
+  await keys.choose("browser", "swift-local/swift");
+  assert.equal(keys.model("browser"), "swift-local/swift");
+  assert.deepEqual(await adoptEnvironment({ keysPath, choicePath, modelsPath, apps: {}, env }), []);
+});
+
+test("a credential source caches separate runtimes for separate custom model files", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "amuse-model-runtime-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const keys = fileCredentials(join(dir, "keys.json"));
+  const modelsPath = join(dir, "providers.json");
+  writeFileSync(modelsPath, JSON.stringify({
+    providers: {
+      "private-endpoint": {
+        baseUrl: "http://127.0.0.1:8080/v1",
+        api: "openai-completions",
+        apiKey: "placeholder",
+        models: [{ id: "private-model" }],
+      },
+    },
+  }));
+  const withoutCustomModels = await runtime({ auth: { kind: "keys", keys } });
+  const withCustomModels = await runtime({ auth: { kind: "keys", keys }, modelsPath });
+  assert.notEqual(withCustomModels, withoutCustomModels);
+  assert.equal(withoutCustomModels.getModel("private-endpoint", "private-model"), undefined);
+  assert.ok(withCustomModels.getModel("private-endpoint", "private-model"));
+  assert.equal(await runtime({ auth: { kind: "keys", keys }, modelsPath }), withCustomModels);
 });

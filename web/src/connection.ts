@@ -55,15 +55,21 @@ export async function connection(): Promise<Connection> {
   if (typeof explicit === "string" && explicit) return server(explicit);
   if (import.meta.env["VITE_AMUSE_MODE"] !== "same-origin") return { kind: "demo" };
 
-  const unlocked = await fetch("/unlock").catch(() => null);
-  if (unlocked?.status !== 204) {
-    const said: unknown = await unlocked?.json().catch(() => null);
-    const ready = typeof said === "object" && said !== null && "ready" in said ? said.ready !== false : true;
-    return { kind: "locked", ready };
+  const abort = new AbortController();
+  const timeout = setTimeout(() => abort.abort(), 12_000);
+  try {
+    const unlocked = await fetch("/unlock", { signal: abort.signal }).catch(() => null);
+    if (unlocked?.status !== 204) {
+      const said: unknown = await unlocked?.json().catch(() => null);
+      const ready = typeof said === "object" && said !== null && "ready" in said ? said.ready !== false : true;
+      return { kind: "locked", ready };
+    }
+    const rpc = new URL("/rpc", location.href);
+    rpc.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+    return server(rpc.toString());
+  } finally {
+    clearTimeout(timeout);
   }
-  const rpc = new URL("/rpc", location.href);
-  rpc.protocol = location.protocol === "https:" ? "wss:" : "ws:";
-  return server(rpc.toString());
 }
 
 /** Open this browser with the password (`setup`: set it, the first time); reloads when in, else why not. */

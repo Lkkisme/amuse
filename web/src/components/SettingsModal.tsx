@@ -20,7 +20,7 @@ import {
   X,
   CalendarClock,
 } from "lucide-react";
-import type { Session } from "@amuse/protocol";
+import type { BackendStatus as Backend, Session } from "@amuse/protocol";
 import type { Actions, SettingsSection, Theme, Ui } from "../ui.ts";
 import { THEMES } from "../theme.ts";
 import { usePresence } from "./usePresence";
@@ -29,7 +29,8 @@ import { AppsKey } from "./AppsKey";
 import { SitePermissions } from "./SitePermissions";
 import { Schedules } from "./Schedules";
 import { Models } from "./Models";
-import { changePassword, lock } from "../connection.ts";
+import { PinSecurity } from "./PinSecurity";
+import { BackendStatus, useBackendStatus } from "./BackendStatus";
 
 const NAV: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
   { id: "general", label: "General", icon: <SettingsIcon size={18} /> },
@@ -51,14 +52,21 @@ function GeneralSection({
   theme,
   server,
   actions,
+  backend,
+  backendLoading,
+  backendUnavailable,
 }: {
   theme: Theme;
   /** there is a server, with a password (not the in-browser demo) */
   server: boolean;
   actions: Actions;
+  backend: Backend | null;
+  backendLoading: boolean;
+  backendUnavailable: boolean;
 }) {
   return (
     <div className="flex-1 overflow-y-auto p-5">
+      <BackendStatus backend={backend} loading={backendLoading} unavailable={backendUnavailable} />
       <p
         className="mb-2 text-[15px] font-semibold"
         style={{ color: "var(--text-primary)" }}
@@ -90,135 +98,8 @@ function GeneralSection({
           </button>
         ))}
       </div>
-      {server && <PasswordGroup />}
+      {server && <PinSecurity />}
     </div>
-  );
-}
-
-/** The master password: change it (every other device then needs the new one), or lock this device. */
-function PasswordGroup() {
-  const [changing, setChanging] = useState(false);
-  const [current, setCurrent] = useState("");
-  const [next, setNext] = useState("");
-  const [said, setSaid] = useState<{ ok: boolean; text: string } | null>(null);
-  const field = "w-full bg-transparent px-4 py-3 text-[14px] outline-none";
-  const row =
-    "flex w-full items-center justify-between px-4 py-3 text-left text-[14px]";
-  return (
-    <>
-      <p
-        className="mb-2 mt-6 text-[15px] font-semibold"
-        style={{ color: "var(--text-primary)" }}
-      >
-        Password
-      </p>
-      <div
-        className="overflow-hidden rounded-xl"
-        style={{ background: "var(--fill-secondary)" }}
-      >
-        {changing ? (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (!current || !next) return;
-              void changePassword(current, next).then((why) => {
-                setSaid(
-                  why
-                    ? { ok: false, text: why }
-                    : {
-                        ok: true,
-                        text: "Changed. Other devices need the new password.",
-                      },
-                );
-                if (!why) {
-                  setChanging(false);
-                  setCurrent("");
-                  setNext("");
-                }
-              });
-            }}
-          >
-            <input
-              autoFocus
-              type="password"
-              autoComplete="current-password"
-              aria-label="Current password"
-              placeholder="Current password"
-              className={field}
-              style={{ color: "var(--text-primary)" }}
-              value={current}
-              onChange={(e) => setCurrent(e.target.value)}
-            />
-            <input
-              type="password"
-              autoComplete="new-password"
-              aria-label="New password"
-              placeholder="New password"
-              className={field}
-              style={{
-                color: "var(--text-primary)",
-                borderTop: "1px solid var(--fill-divider)",
-              }}
-              value={next}
-              onChange={(e) => setNext(e.target.value)}
-            />
-            <div
-              className="flex justify-end gap-2 px-3 py-2"
-              style={{ borderTop: "1px solid var(--fill-divider)" }}
-            >
-              <button
-                type="button"
-                className="hover-fade h-9 rounded-full px-3 text-[14px] font-medium"
-                style={{ color: "var(--text-primary)" }}
-                onClick={() => setChanging(false)}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={!current || !next}
-                className="h-9 rounded-full px-4 text-[14px] font-semibold text-white disabled:opacity-40"
-                style={{ background: "var(--fill-blue)" }}
-              >
-                Change
-              </button>
-            </div>
-          </form>
-        ) : (
-          <button
-            className={row}
-            style={{ color: "var(--text-primary)" }}
-            onClick={() => {
-              setSaid(null);
-              setChanging(true);
-            }}
-          >
-            Change password
-          </button>
-        )}
-        <button
-          className={row}
-          style={{
-            color: "var(--fill-red)",
-            borderTop: "1px solid var(--fill-divider)",
-          }}
-          onClick={() => void lock()}
-        >
-          Lock this device
-        </button>
-      </div>
-      {said && (
-        <p
-          role={said.ok ? "status" : "alert"}
-          className="mt-2 px-1 text-[13px]"
-          style={{
-            color: said.ok ? "var(--text-secondary)" : "var(--fill-red)",
-          }}
-        >
-          {said.text}
-        </p>
-      )}
-    </>
   );
 }
 
@@ -242,21 +123,25 @@ export function SettingsModal({
   const { mounted, closing, onAnimationEnd } = usePresence(ui.open);
   // adding (a website rule, a login) starts from the bar's +, and ends with the section
   const [adding, setAdding] = useState(false);
+  const { backend, loading: backendLoading, unavailable: backendUnavailable } = useBackendStatus(session, ui.open && !demo);
   useEffect(() => setAdding(false), [ui.section, ui.open]);
   if (!mounted) return null;
   // a phone shows the sections as a list first, then one section as a page of its own; a desktop shows both side by side
   const section = ui.section;
   const shown = section ?? "general";
+  const paseo = backend?.kind === "paseo";
+  const viewingProvider = paseo ? null : ui.provider;
+  const nav = NAV.map((item) => item.id === "models" && paseo ? { ...item, label: "Backend" } : item);
   const round = "flex size-8 shrink-0 items-center justify-center rounded-full";
   // the page's bar: what it is, and its one action (adding, where there is something to add)
   const title = !section
     ? "Settings"
     : ui.app
       ? ui.app.name
-      : ui.provider
-        ? ui.provider.name
-        : (NAV.find((n) => n.id === section)?.label ?? "");
-  const adds = !ui.app && shown === "permissions" ? "Add a website" : null;
+      : viewingProvider
+        ? viewingProvider.name
+        : (nav.find((n) => n.id === section)?.label ?? "");
+  const adds = !paseo && !backendLoading && !ui.app && shown === "permissions" ? "Add a website" : null;
   // a phone's bar has the chat's round buttons; a desktop's has small labelled ones, the height of its close button
   const add = adds && (
     <button
@@ -306,7 +191,7 @@ export function SettingsModal({
                 ? "Close settings"
                 : ui.app
                   ? "All connectors"
-                  : ui.provider
+                  : viewingProvider
                     ? "All providers"
                     : "All settings"
             }
@@ -317,7 +202,7 @@ export function SettingsModal({
                 ? actions.closeSettings()
                 : ui.app
                   ? actions.openApp(null)
-                  : ui.provider
+                  : viewingProvider
                     ? actions.openProvider(null)
                     : actions.openSettings(null)
             }
@@ -344,7 +229,7 @@ export function SettingsModal({
           >
             Settings
           </p>
-          {NAV.map((n) => (
+          {nav.map((n) => (
             <button
               key={n.id}
               className="flex items-center gap-3 rounded-xl px-3 py-3 text-left text-[16px] font-medium sm:py-2.5 sm:text-[15px]"
@@ -387,7 +272,7 @@ export function SettingsModal({
               className="flex-1 truncate text-[20px] font-semibold"
               style={{ color: "var(--text-primary)" }}
             >
-              {ui.app || ui.provider ? "" : title}
+              {ui.app || viewingProvider ? "" : title}
             </p>
             {addLabelled}
             <button
@@ -403,14 +288,35 @@ export function SettingsModal({
             </button>
           </header>
           {shown === "connectors" && (
-            <AppsKey
-              session={session}
-              demo={demo}
-              viewing={ui.app}
-              onView={actions.openApp}
-            />
+            <>
+              {paseo && <p className="mx-5 mb-4 shrink-0 rounded-xl px-4 py-3 text-[13px] leading-relaxed sm:mx-6"
+                style={{ background: "var(--fill-secondary)", color: "var(--text-secondary)" }}>
+                此处管理 Amuse 独立的应用连接，不会自动导入 Codex 工具。
+              </p>}
+              <AppsKey
+                session={session}
+                demo={demo}
+                viewing={ui.app}
+                onView={actions.openApp}
+              />
+            </>
           )}
-          {shown === "permissions" && (
+          {shown === "permissions" && paseo && (
+            <div className="flex-1 overflow-y-auto px-5 pb-6 sm:px-6">
+              <div className="rounded-[18px] p-4" style={{ background: "var(--fill-secondary)" }}>
+                <p className="flex items-center gap-2 text-[15px] font-medium" style={{ color: "var(--text-primary)" }}>
+                  <Shield size={18} /> Paseo / Codex
+                </p>
+                <p className="mt-3 text-[13px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                  执行权限沿用电脑 Paseo 的 Codex 配置。当前 Amuse 站点规则不控制该后端。
+                </p>
+              </div>
+            </div>
+          )}
+          {shown === "permissions" && !paseo && backendLoading && (
+            <div className="px-5 sm:px-6"><BackendStatus backend={null} loading /></div>
+          )}
+          {shown === "permissions" && !paseo && !backendLoading && (
             <SitePermissions
               session={session}
               adding={adding}
@@ -418,15 +324,26 @@ export function SettingsModal({
             />
           )}
           {shown === "schedules" && <Schedules session={session} />}
-          {shown === "models" && (
+          {shown === "models" && paseo && (
+            <div className="flex-1 overflow-y-auto px-5 pb-6 sm:px-6">
+              <BackendStatus backend={backend} unavailable={backendUnavailable} />
+              <p className="text-[13px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                Chats use the Paseo session on your computer. The model, sign-in and tool permissions follow that session’s configuration. Change them on your computer; this app reuses the same configuration.
+              </p>
+            </div>
+          )}
+          {shown === "models" && !paseo && backendLoading && (
+            <div className="px-5 sm:px-6"><BackendStatus backend={null} loading /></div>
+          )}
+          {shown === "models" && !paseo && !backendLoading && (
             <Models
               session={session}
-              viewing={ui.provider}
+              viewing={viewingProvider}
               onView={actions.openProvider}
             />
           )}
           {shown === "general" && (
-            <GeneralSection theme={theme} server={!demo} actions={actions} />
+            <GeneralSection theme={theme} server={!demo} actions={actions} backend={backend} backendLoading={backendLoading} backendUnavailable={backendUnavailable} />
           )}
         </div>
       </div>

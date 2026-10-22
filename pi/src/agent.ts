@@ -17,9 +17,14 @@ import { taskTools } from "./tasks.ts";
 import { scheduleTools } from "./schedules.ts";
 import { type Apps, appTools, chatTools, tools } from "./tools.ts";
 import { type Search, webTools } from "./web.ts";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 export interface PiConfig extends PiModelConfig {
   system: string;
+  /** Explicitly connected local tools; never discovered from the host automatically. */
+  extraTools?: ToolDefinition[];
+  /** Instructions shared by chat, background tasks and scheduled runs using those tools. */
+  extraSystem?: string;
   /** Connected apps the agent may use; without them it can only ask to connect. */
   apps?: Apps;
   /** the user's rules (sites the agent may not browse) */
@@ -95,6 +100,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
         ...webTools(io, cfg.rules, cfg.search),
         ...(cfg.apps ? appTools(io, cfg.apps) : []),
         ...(cfg.files ? workspaceTools(io, cfg.files) : []),
+        ...(cfg.extraTools ?? []),
       ]);
       lane.session = session;
       const pi = session.session;
@@ -114,8 +120,8 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
           const { stopReason } = event.message;
           const text = said.trim();
           said = "";
-          if (stopReason === "error") failure = event.message.errorMessage ?? "The model run failed";
-          else if (text && stopReason !== "toolUse" && stopReason !== "aborted")
+          failure = stopReason === "error" ? event.message.errorMessage ?? "The model run failed" : undefined;
+          if (stopReason !== "error" && text && stopReason !== "toolUse" && stopReason !== "aborted")
             emit({ kind: "upserted", entity: { kind: "reply", id: newId("r"), at: new Date().toISOString(), text, streaming: false, attachments: [] } });
         }
       });
@@ -166,7 +172,10 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
 
 /** A few words naming a chat after its first message, in that message's language. */
 async function title(cfg: PiModelConfig, text: string): Promise<string> {
-  const session = await openSession(cfg, "You name chats. Reply with a title of two to five words for a chat that starts with the user's message, in the language of the message. The title only: no quotes, no punctuation at the end.", []);
+  // Naming is an internal utility, not an operational assistant response. Global
+  // reply wrappers (for example a required REG line) must not become chat titles.
+  const { ownerSystem: _ownerSystem, ...titleConfig } = cfg;
+  const session = await openSession(titleConfig, "You name chats. Reply with a title of two to five words for a chat that starts with the user's message, in the language of the message. The title only: no quotes, no punctuation at the end.", []);
   try {
     let named = "";
     const unsubscribe = session.session.subscribe((event) => {

@@ -16,9 +16,10 @@ import {
   type ModelRole,
   type ToolKind,
   type Browser,
-  type Chat,
+  Chat,
   type Connection,
   type Entity,
+  Event,
   type Envelope,
   type Failure,
   type Handlers,
@@ -335,6 +336,20 @@ export interface HostOptions {
   timers?: Timers<unknown>;
 }
 
+/** Trusted backend synchronization only; these operations are not exposed over RPC. */
+export interface Host extends Session {
+  external: {
+    /** Create a mirrored chat if absent; an existing chat keeps its metadata and feed. */
+    ensureChat(chat: Chat): void;
+    /** Record validated external changes without starting an agent or executing effects. */
+    ingest(chatId: string, changes: Change[]): void;
+    /** A detached copy of the whole feed, for a backend synchronizer. */
+    state(chatId: string): State;
+    /** Change only a chat's metadata, leaving its feed and running agent untouched. */
+    updateChat(chat: Chat): void;
+  };
+}
+
 /** setTimeout's longest wait (about 24.8 days); a later deadline is woken for and looked at again. */
 const LONGEST_WAIT = 2 ** 31 - 1;
 
@@ -379,7 +394,7 @@ function subjectOf(action: AgentAction): string | null {
   }
 }
 
-export function createHost(ports: Ports, options: HostOptions = {}): Session {
+export function createHost(ports: Ports, options: HostOptions = {}): Host {
   const clock = options.clock ?? { now: () => new Date().toISOString() };
   const snapshot = options.snapshot ?? 50;
   const store = options.store ?? memoryChats();
@@ -640,6 +655,10 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
   };
 
   const handlers: Handlers = {
+    "backend.status": async () => ({
+      kind: "pi", connected: true, label: "Amuse / Pi", detail: "Amuse agent runtime",
+      model: null, contextWindow: null, capabilities: [],
+    }),
     "session.sync": async ({ chat, since }) => {
       const { state, log } = roomOf(chat);
       return since !== null && since <= state.seq && (log[0]?.seq ?? 1) <= since + 1
@@ -740,5 +759,70 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
+    external: {
+      ensureChat(chat) {
+        const parsed = externalChat(chat);
+        if (rooms.has(parsed.id)) return;
+        open(parsed);
+        saveChats();
+      },
+      updateChat(chat) {
+        const parsed = externalChat(chat);
+        const room = roomOf(parsed.id);
+        if (sameJson(room.chat, parsed)) return;
+        room.chat = parsed;
+        saveChats();
+      },
+      state: (chat) => structuredClone(roomOf(chat).state),
+      ingest(chat, changes) {
+        const room = roomOf(chat);
+        if (!Array.isArray(changes)) throw new Error("external changes must be an array");
+        // Validate the whole batch before any journal writes, including references
+        // to entities introduced earlier in the same batch.
+        const kinds = new Map(room.state.entities.map((entity) => [entity.id, entity.kind]));
+        const parsed: Change[] = changes.map((change) => {
+          const event = Event.parse(change?.kind === "upserted" ? { ...change, index: 0 } : change);
+          if (event.kind === "upserted") {
+            const { entity } = event;
+            // Schedules belong to the local host's timer runner. Mirroring an
+            // active external schedule would otherwise execute it a second time.
+            if (entity.kind === "schedule") throw new Error("external schedule imports are not supported");
+            const previous = kinds.get(entity.id);
+            if (previous && previous !== entity.kind) throw new Error(`external entity ${entity.id} changes kind`);
+            const other = holder(entity.id);
+            if (other && other !== room) throw new Error(`external entity ${entity.id} belongs to another chat`);
+            kinds.set(entity.id, entity.kind);
+            return { kind: "upserted", entity };
+          }
+          if (event.kind === "appended" && kinds.get(event.id) !== "reply")
+            throw new Error(`external append requires a reply: ${event.id}`);
+          return event;
+        });
+        for (const change of parsed) {
+          if (change.kind === "upserted" && sameJson(room.state.entities.find((entity) => entity.id === change.entity.id), change.entity)) continue;
+          if (change.kind === "activity" && sameJson(room.state.activity, change.activity)) continue;
+          commit(room, change);
+        }
+      },
+    },
   };
+}
+
+/** External ids must also be safe for the existing file-backed chat store. */
+function externalChat(chat: Chat): Chat {
+  const parsed = Chat.parse(chat);
+  if (!/^[A-Za-z0-9-]{1,80}$/.test(parsed.id)) throw new Error(`not an external chat id: ${parsed.id}`);
+  return parsed;
+}
+
+/** Protocol data is JSON; compare object members independently of insertion order. */
+function sameJson(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (left === null || right === null || typeof left !== "object" || typeof right !== "object") return false;
+  if (Array.isArray(left) || Array.isArray(right))
+    return Array.isArray(left) && Array.isArray(right) && left.length === right.length && left.every((value, index) => sameJson(value, right[index]));
+  const first = left as Record<string, unknown>;
+  const second = right as Record<string, unknown>;
+  const keys = Object.keys(first);
+  return keys.length === Object.keys(second).length && keys.every((key) => Object.hasOwn(second, key) && sameJson(first[key], second[key]));
 }

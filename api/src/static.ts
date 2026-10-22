@@ -14,6 +14,7 @@ const types: Record<string, string> = {
   ".png": "image/png",
   ".ico": "image/x-icon",
   ".json": "application/json",
+  ".apk": "application/vnd.android.package-archive",
   ".woff2": "font/woff2",
 };
 

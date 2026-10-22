@@ -12,8 +12,11 @@ android {
         applicationId = "live.amuse.app"
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 4
+        versionName = "0.1.3"
+        // Extra diagnostics for local USB development. Screenshots are allowed
+        // in normal and diagnostic builds at the owner's request.
+        buildConfigField("boolean", "SCREEN_PREVIEW", providers.gradleProperty("amuse.screenPreview").orElse("false").get().toBoolean().toString())
     }
 
     buildTypes {
@@ -30,6 +33,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -46,4 +50,5 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.navigation:navigation-compose:2.8.5")
     debugImplementation("androidx.compose.ui:ui-tooling")
+    testImplementation("junit:junit:4.13.2")
 }

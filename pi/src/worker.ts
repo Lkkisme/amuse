@@ -25,7 +25,7 @@ export type Worked = { kind: "done"; record: string } | { kind: "failed"; reason
 export const helperRules = [
   "You are a background helper of a personal assistant (Amuse). You are not in the chat: nothing you write reaches the user directly.",
   "Do the work with your tools. Reading runs at once; what sends, changes or deletes may go to the user for approval: then that step waits for them, and if they decline or do not answer, it is not done; never try another way around it.",
-  "For a website that must be operated (log in, fill, click), start a browser task with `browse`; you cannot operate a browser yourself.",
+  "For a website that must be operated (log in, fill, click), use the local desktop connection when desktop_tools is available and follow its instructions. Otherwise start a browser task with browse.",
   "If you need an answer only the user has, ask with `ask_user` (it waits for them, and may get no answer). Messages from Amuse may arrive while you work: follow them.",
   "Never claim something you did not do or see.",
   untrustedRule,
@@ -42,6 +42,7 @@ export function helperTools(cfg: PiConfig, run: RunHandle, hold: Hold): ToolDefi
     ...webTools(io, cfg.rules, cfg.search, hold),
     ...(cfg.apps ? appTools(io, cfg.apps, hold) : []),
     ...(cfg.files ? workspaceTools(io, cfg.files, { send: false }) : []),
+    ...(cfg.extraTools ?? []),
     askTool(run),
   ];
 }
@@ -61,14 +62,14 @@ export async function work(cfg: PiConfig, run: RunHandle & { abort(): void }, sy
   });
   let record = "";
   try {
-    session = await openSession(cfg, system, toolset);
+    session = await openSession(cfg, [system, cfg.extraSystem].filter(Boolean).join("\n"), toolset);
     try {
       let current = "";
       let failure: string | undefined;
       const unsubscribe = session.session.subscribe((event) => {
         if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") current += event.assistantMessageEvent.delta;
         else if (event.type === "message_end" && event.message.role === "assistant") {
-          if (event.message.stopReason === "error") failure = event.message.errorMessage ?? "The model run failed";
+          failure = event.message.stopReason === "error" ? event.message.errorMessage ?? "The model run failed" : undefined;
           if (current.trim()) record = current.trim();
           current = "";
         }

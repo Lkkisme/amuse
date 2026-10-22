@@ -292,6 +292,43 @@ test("changing the password ends every other session; locking ends this one", as
   }
 });
 
+test("a four digit PIN opens sessions and can replace a legacy password through the HTTP API", async () => {
+  const { post, cookieOf, opens, close } = await guarded();
+  try {
+    const legacy = cookieOf(await post("/setup", { password: "correct horse" }));
+    const other = cookieOf(await post("/unlock", { password: "correct horse" }));
+    assert.equal((await post("/password", { current: "correct horse", next: "１２３４" }, { cookie: legacy })).status, 400);
+    const changed = await post("/password", { current: "correct horse", next: "0123" }, { cookie: legacy });
+    assert.equal(changed.status, 204);
+    assert.equal(await opens({ cookie: legacy }), "refused");
+    assert.equal(await opens({ cookie: other }), "refused");
+    assert.equal(await opens({ cookie: cookieOf(changed) }), "open");
+    assert.equal((await post("/unlock", { password: "correct horse" })).status, 401);
+    const unlocked = await post("/unlock", { password: "0123" });
+    assert.equal(unlocked.status, 204);
+    assert.match(unlocked.headers.get("set-cookie") ?? "", /HttpOnly; SameSite=Strict/);
+    assert.equal(await opens({ cookie: cookieOf(unlocked) }), "open");
+  } finally {
+    await close();
+  }
+});
+
+test("PIN setup and unlock retain same-origin checks and wrong-credential throttling", async () => {
+  const { http, post, cookieOf, opens, close } = await guarded();
+  try {
+    assert.equal((await post("/setup", { password: "0123" }, { origin: "https://evil.example" })).status, 403);
+    const setup = await post("/setup", { password: "0123" }, { origin: http });
+    assert.equal(setup.status, 204);
+    assert.equal(await opens({ cookie: cookieOf(setup), origin: "https://evil.example" }), "refused");
+    assert.equal(await opens({ cookie: cookieOf(setup), origin: http }), "open");
+    assert.equal((await post("/unlock", { password: "0123" }, { origin: "https://evil.example" })).status, 403);
+    for (let i = 0; i < 10; i++) assert.equal((await post("/unlock", { password: "9999" })).status, 401);
+    assert.equal((await post("/unlock", { password: "0123" })).status, 429, "the correct PIN also waits after ten misses");
+  } finally {
+    await close();
+  }
+});
+
 test("the way in takes JSON from this origin only, and wrong passwords are throttled", async () => {
   const { http, post, close } = await guarded();
   try {

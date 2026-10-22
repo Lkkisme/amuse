@@ -15,7 +15,7 @@ import type { KeyProvider, LoginNote, LoginPrompt, LoginStep, ModelOption, Model
 import { z } from "zod";
 import { type KeyFile, fileCredentials, readOnlyCredentials } from "./credentials.ts";
 import { redact } from "./redact.ts";
-import { type PiModelConfig, parseModel, runtime } from "./session.ts";
+import { type PiModelConfig, parseModel, runtime, withoutOutputLimit } from "./session.ts";
 
 /** A key that is not a model provider's: one secret, asked for in a sentence, with where to get it. */
 export interface AppKey {
@@ -128,7 +128,7 @@ interface Flow {
  * `keys` holds the keys; `choicePath` the models chosen; `apps` the keys that
  * are not a model provider's.
  */
-export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyFile; choicePath: string; apps?: AppKey[]; modelsPath?: string }): PiKeys {
+export function piKeys({ keys, choicePath, apps = [], modelsPath, omitOutputLimit }: { keys: KeyFile; choicePath: string; apps?: AppKey[]; modelsPath?: string; omitOutputLimit?: boolean }): PiKeys {
   const cfg: Pick<PiModelConfig, "auth" | "modelsPath"> = {
     auth: { kind: "keys", keys },
     ...(modelsPath ? { modelsPath } : {}),
@@ -329,7 +329,7 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
         const reply = await models.completeSimple(
           model,
           { messages: [{ role: "user", content: "Reply with the word OK.", timestamp: Date.now() }] },
-          { maxTokens: 32, signal: AbortSignal.timeout(TEST_TIMEOUT_MS) },
+          { maxTokens: 32, signal: AbortSignal.timeout(TEST_TIMEOUT_MS), ...(omitOutputLimit ? { onPayload: withoutOutputLimit } : {}) },
         );
         if (reply.stopReason === "error" || reply.stopReason === "aborted")
           return { ok: false, detail: why(reply.errorMessage ?? "The provider did not answer.") };
@@ -369,6 +369,7 @@ export async function adoptEnvironment({
   apps,
   env,
   authFile,
+  modelsPath,
 }: {
   keysPath: string;
   choicePath: string;
@@ -377,11 +378,13 @@ export async function adoptEnvironment({
   env: Record<string, string | undefined>;
   /** a Pi auth file: its API keys (not its subscription sign-ins) */
   authFile?: string;
+  /** Custom model providers to include when adopting environment keys. */
+  modelsPath?: string;
 }): Promise<string[]> {
   if (existsSync(keysPath)) return [];
   const keys = fileCredentials(keysPath);
   const adopted: string[] = [];
-  const models = await runtime({ auth: { kind: "keys", keys } });
+  const models = await runtime({ auth: { kind: "keys", keys }, ...(modelsPath ? { modelsPath } : {}) });
   for (const provider of models.getProviders()) {
     if (provider.auth.apiKey?.login === undefined) continue;
     const key = env[`${provider.id.toUpperCase().replaceAll("-", "_")}_API_KEY`]?.trim();

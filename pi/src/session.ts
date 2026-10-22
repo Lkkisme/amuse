@@ -17,7 +17,7 @@ import {
   createAgentSession,
   createExtensionRuntime,
 } from "@earendil-works/pi-coding-agent";
-import type { CredentialStore } from "@earendil-works/pi-ai";
+import type { CredentialStore, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { type KeyFile, environmentCredentials, readOnlyCredentials } from "./credentials.ts";
 
 /**
@@ -36,6 +36,19 @@ export interface PiModelConfig {
   /** read once into memory, never logged */
   auth: PiAuth;
   modelsPath?: string;
+  /** The requested thinking level, clamped by Pi to the model's capabilities. */
+  thinkingLevel?: ModelThinkingLevel;
+  /** Let a local server decide its output limit instead of sending SDK token caps. */
+  omitOutputLimit?: boolean;
+  /** Trusted owner configuration loaded once by the host; shared by every operational session. */
+  ownerSystem?: string;
+}
+
+/** Preserve the request's sampling and messages while letting the server choose its output limit. */
+export function withoutOutputLimit(payload: unknown): unknown {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return payload;
+  const { max_tokens: _maxTokens, max_completion_tokens: _maxCompletionTokens, max_output_tokens: _maxOutputTokens, ...request } = payload as Record<string, unknown>;
+  return request;
 }
 
 /** API keys in the environment, by their standard names (…_API_KEY). */
@@ -77,8 +90,20 @@ function bare(system: string): ResourceLoader {
   };
 }
 
+/** Owner preferences override default presentation, while each session keeps its actual job and tools. */
+function configuredSystem(system: string, ownerSystem: string | undefined): string {
+  if (!ownerSystem?.trim()) return system;
+  return [
+    system,
+    "The following owner-provided global instructions override the default assistant persona, language, tone, verbosity and output-format rules above, including plain-text-only rules and user-facing status wording. Keep this operation's assigned role and task boundary. Actual tool names, input schemas, required arguments, permissions and protocol requirements remain authoritative. The owner configuration does not add tools or capabilities: never invent them or claim an action succeeded without evidence.",
+    "--- Owner global instructions ---",
+    ownerSystem,
+    "--- End owner global instructions ---",
+  ].join("\n\n");
+}
+
 const runtimes = new Map<string, Promise<ModelRuntime>>();
-const keyRuntimes = new WeakMap<KeyFile, Promise<ModelRuntime>>();
+const keyRuntimes = new WeakMap<KeyFile, Map<string, Promise<ModelRuntime>>>();
 
 /** The model runtime for `cfg`'s credentials (made once; a failed setup is retried next time). */
 export function runtime(cfg: Pick<PiModelConfig, "auth" | "modelsPath">): Promise<ModelRuntime> {
@@ -90,11 +115,14 @@ export function runtime(cfg: Pick<PiModelConfig, "auth" | "modelsPath">): Promis
       refreshOnCreate: false,
     });
   if (auth.kind === "keys") {
-    let made = keyRuntimes.get(auth.keys);
+    const configurations = keyRuntimes.get(auth.keys) ?? new Map<string, Promise<ModelRuntime>>();
+    keyRuntimes.set(auth.keys, configurations);
+    const key = cfg.modelsPath ?? "";
+    let made = configurations.get(key);
     if (!made) {
       made = create(auth.keys);
-      made.catch(() => keyRuntimes.delete(auth.keys));
-      keyRuntimes.set(auth.keys, made);
+      made.catch(() => configurations.delete(key));
+      configurations.set(key, made);
     }
     return made;
   }
@@ -129,17 +157,27 @@ export async function openSession(cfg: PiModelConfig, system: string, tools: Too
     agentDir: cwd,
     modelRuntime: models,
     model,
-    thinkingLevel: "off",
+    thinkingLevel: cfg.thinkingLevel ?? "off",
     sessionManager: SessionManager.inMemory(cwd),
     settingsManager: SettingsManager.inMemory({
       compaction: { enabled: true },
       retry: { enabled: true, maxRetries: 2 },
     }),
-    resourceLoader: bare(system),
+    resourceLoader: bare(configuredSystem(system, cfg.ownerSystem)),
     noTools: "builtin",
     tools: tools.map((tool) => tool.name),
     customTools: tools,
   });
+  if (cfg.omitOutputLimit) {
+    const stream = session.agent.streamFunction;
+    session.agent.streamFunction = (model, context, options) => stream(model, context, {
+      ...options,
+      onPayload: async (payload, requestModel) => {
+        const transformed = await options?.onPayload?.(payload, requestModel);
+        return withoutOutputLimit(transformed === undefined ? payload : transformed);
+      },
+    });
+  }
   return {
     session,
     close: () => rmSync(cwd, { recursive: true, force: true }),

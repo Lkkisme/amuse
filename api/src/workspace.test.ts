@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, statSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -65,7 +65,8 @@ test("a file is uploaded, kept with what it is (mode 600), and served back: imag
         path: "user/media_library/猫.png",
       },
     );
-    assert.equal((statSync(join(dir, "workspace", cat.path)).mode & 0o777).toString(8), "600");
+    // Windows uses inherited ACLs rather than POSIX mode bits.
+    if (process.platform !== "win32") assert.equal((statSync(join(dir, "workspace", cat.path)).mode & 0o777).toString(8), "600");
     // the same name again is kept apart
     const again = Attachment.parse(await (await upload("猫.png", "image/png", png)).json());
     assert.equal(again.path, "user/media_library/猫 (2).png");
@@ -120,7 +121,10 @@ test("the workspace stays inside itself, and the chat's files follow them when t
   await files.write("/etc/passwd", new TextEncoder().encode("mine"), false);
   assert.ok(await files.exists("etc/passwd"));
   await files.remove("etc");
-  symlinkSync("/etc", join(dir, "workspace", "outside"));
+  const outside = join(dir, "outside");
+  mkdirSync(outside);
+  writeFileSync(join(outside, "hostname"), "outside-host");
+  symlinkSync(outside, join(dir, "workspace", "outside"), process.platform === "win32" ? "junction" : "dir");
   await assert.rejects(files.open("outside/hostname"), /not in the workspace/);
   await assert.rejects(files.write("outside/x", new Uint8Array(), false), /not in the workspace/);
   assert.deepEqual(

@@ -13,6 +13,8 @@ import { z } from "zod";
 /** scrypt's cost: about 50 ms and 32 MB a try */
 const COST = { N: 2 ** 15, r: 8, p: 1, maxmem: 64 * 1024 ** 2 };
 export const MIN_PASSWORD = 8;
+/** A short local PIN is exactly four ASCII digits; longer passwords stay valid. */
+const PIN = /^[0-9]{4}$/;
 /** sessions kept at most (the oldest go first) */
 const MAX_SESSIONS = 50;
 
@@ -41,11 +43,28 @@ const derive = (password: string, salt: Buffer) =>
   new Promise<Buffer>((resolve, reject) => scrypt(password.normalize("NFC"), salt, 64, COST, (error, key) => (error ? reject(error) : resolve(key))));
 const digest = (session: string) => createHash("sha256").update(session).digest("hex");
 
+const writeStored = (path: string, stored: Stored) => {
+  writeFileSync(`${path}.tmp`, JSON.stringify(stored), { mode: 0o600 });
+  renameSync(`${path}.tmp`, path);
+};
+
+/**
+ * Local owner operation, deliberately absent from HTTP/RPC: mint one revocable
+ * device session after the owner authorizes USB pairing. The server must be
+ * stopped while editing its store, then restarted to load the additional hash.
+ * Existing credentials, sessions and conversations are retained.
+ */
+export function pairDeviceSession(path: string): string {
+  const stored = Stored.parse(JSON.parse(readFileSync(path, "utf8")));
+  const session = randomBytes(32).toString("base64url");
+  writeStored(path, { ...stored, sessions: [...stored.sessions, digest(session)].slice(-MAX_SESSIONS) });
+  return session;
+}
+
 export function fileAccess(path: string): Access {
   let stored: Stored | null = existsSync(path) ? Stored.parse(JSON.parse(readFileSync(path, "utf8"))) : null;
   const save = (next: Stored) => {
-    writeFileSync(`${path}.tmp`, JSON.stringify(next), { mode: 0o600 });
-    renameSync(`${path}.tmp`, path);
+    writeStored(path, next);
     stored = next;
   };
   const hashOf = async (password: string) => {
@@ -70,7 +89,8 @@ export function fileAccess(path: string): Access {
     return session;
   };
   const acceptable = (password: string) => {
-    if ([...password].length < MIN_PASSWORD) throw new PasswordRejected(`The password needs at least ${MIN_PASSWORD} characters.`);
+    if (!(password.length === 4 && PIN.test(password)) && [...password].length < MIN_PASSWORD)
+      throw new PasswordRejected(`Use a 4-digit PIN (0-9) or a password with at least ${MIN_PASSWORD} characters.`);
   };
 
   return {
