@@ -74,49 +74,77 @@ function Test-AmuseSandboxReady {
 }
 
 function Start-AmuseSandboxBackend {
-    param([string]$Executable, [string]$WorkingDirectory, [string]$LogDirectory, [hashtable]$Environment = @{})
+    param([string]$Executable, [string]$WorkingDirectory, [string]$LogDirectory, [hashtable]$Environment = @{}, [string]$RuntimeNode = '')
     New-Item -ItemType Directory -Path $LogDirectory -Force | Out-Null
     $stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssfffZ') + '-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
     $outputPath = Join-Path $LogDirectory ('docker-backend-' + $stamp + '.stdout.log')
     $errorPath = Join-Path $LogDirectory ('docker-backend-' + $stamp + '.stderr.log')
-    $start = New-Object System.Diagnostics.ProcessStartInfo
-    $start.FileName = $Executable
-    $start.WorkingDirectory = $WorkingDirectory
-    $start.UseShellExecute = $false
-    $start.CreateNoWindow = $true
-    $start.RedirectStandardOutput = $true
-    $start.RedirectStandardError = $true
-    # An optional profile bridge is confined to this child; the scheduler host's
-    # environment and the machine/user environment remain unchanged.
     foreach ($name in $Environment.Keys) {
         if ($name -notmatch '^[A-Za-z_][A-Za-z0-9_]*$' -or ([string]$Environment[$name]).Contains([char]0)) { throw 'Invalid Docker backend environment entry.' }
-        $start.EnvironmentVariables[$name] = [string]$Environment[$name]
     }
-    $backend = New-Object System.Diagnostics.Process
-    $backend.StartInfo = $start
-    $output = $null
-    $errors = $null
+    if (-not $RuntimeNode) { $RuntimeNode = (Get-Content -LiteralPath (Join-Path $PSScriptRoot '.local\runtime.json') -Raw | ConvertFrom-Json).node }
+    # Node duplicates these open file descriptors into the child. There is no
+    # anonymous stdout/stderr pipe or reader whose life depends on this host.
+    $code = @'
+import { openSync, closeSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+let output, errors;
+try {
+  let input = '';
+  for await (const chunk of process.stdin) {
+    input += chunk;
+    if (input.length > 65536) throw new Error('Backend launch configuration is too large');
+  }
+  const config = JSON.parse(input);
+  output = openSync(config.output, 'ax', 0o600);
+  errors = openSync(config.error, 'ax', 0o600);
+  const child = spawn(config.executable, [], {
+    cwd: config.cwd, env: { ...process.env, ...config.environment },
+    detached: true, windowsHide: true, stdio: ['ignore', output, errors],
+  });
+  await new Promise((resolve, reject) => {
+    child.once('spawn', resolve);
+    child.once('error', reject);
+  });
+  child.unref();
+  process.stdout.write(JSON.stringify({ pid: child.pid, launcherPid: process.pid }));
+} catch (error) {
+  process.stderr.write(String(error?.message ?? error));
+  process.exitCode = 1;
+} finally {
+  if (output !== undefined) closeSync(output);
+  if (errors !== undefined) closeSync(errors);
+}
+'@
+    $start = New-Object System.Diagnostics.ProcessStartInfo
+    $start.FileName = $RuntimeNode
+    $start.WorkingDirectory = $WorkingDirectory
+    $start.UseShellExecute = $false; $start.CreateNoWindow = $true
+    $start.RedirectStandardInput = $true; $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true
+    $start.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
+    $start.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
+    $start.Arguments = ((@('--input-type=module', '-e', $code) | ForEach-Object {
+        '"' + [regex]::Replace([regex]::Replace($_, '(\\*)"', '$1$1\"'), '(\\+)$', '$1$1') + '"'
+    }) -join ' ')
+    $launcher = New-Object System.Diagnostics.Process
+    $launcher.StartInfo = $start
     try {
-        $output = [System.IO.FileStream]::new($outputPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read, 1, $true)
-        $errors = [System.IO.FileStream]::new($errorPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read, 1, $true)
-        if (-not $backend.Start()) { throw 'The configured Docker backend could not be started.' }
-        # Native async copies need no PowerShell callbacks/runspace. The owner
-        # host retains this object so pipes remain drained for the daemon life.
-        [pscustomobject]@{
-            Process = $backend
-            Output = $output
-            Errors = $errors
-            OutputCopy = $backend.StandardOutput.BaseStream.CopyToAsync($output)
-            ErrorCopy = $backend.StandardError.BaseStream.CopyToAsync($errors)
-            OutputPath = $outputPath
-            ErrorPath = $errorPath
+        if (-not $launcher.Start()) { throw 'The Docker backend launcher could not be started.' }
+        $output = $launcher.StandardOutput.ReadToEndAsync(); $errors = $launcher.StandardError.ReadToEndAsync()
+        # Profile overrides travel over stdin, not process-list-visible argv.
+        $config = @{ executable = $Executable; cwd = $WorkingDirectory; output = $outputPath; error = $errorPath; environment = $Environment } | ConvertTo-Json -Depth 4 -Compress
+        $bytes = [Text.Encoding]::UTF8.GetBytes($config)
+        $launcher.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
+        $launcher.StandardInput.Close()
+        if (-not $launcher.WaitForExit(10000)) {
+            $launcher.Kill(); $launcher.WaitForExit()
+            throw 'Docker backend launch status is unknown after 10 seconds. No retry was attempted.'
         }
-    } catch {
-        if ($output) { $output.Dispose() }
-        if ($errors) { $errors.Dispose() }
-        $backend.Dispose()
-        throw
-    }
+        if ($launcher.ExitCode -ne 0) { throw ('The configured Docker backend could not be started: ' + $errors.GetAwaiter().GetResult()) }
+        $launched = $output.GetAwaiter().GetResult() | ConvertFrom-Json
+        if (-not $launched.pid -or [int]$launched.pid -le 0) { throw 'The Docker backend launcher returned no process identity.' }
+        [pscustomobject]@{ Pid = [int]$launched.pid; LauncherPid = [int]$launched.launcherPid; OutputPath = $outputPath; ErrorPath = $errorPath }
+    } finally { $launcher.Dispose() }
 }
 
 $sandboxSettings = Join-Path $Root '.local\sandbox.json'
@@ -141,10 +169,9 @@ if ($sandboxInfo.ExitCode -ne 0) {
         if (-not (Test-Path -LiteralPath $sandboxBackend -PathType Leaf)) { throw 'The configured Docker backend executable does not exist.' }
         $sandboxBackendEnvironment = @{}
         if ($sandboxConfig.backendEnvironment) { foreach ($entry in $sandboxConfig.backendEnvironment.PSObject.Properties) { $sandboxBackendEnvironment[$entry.Name] = [string]$entry.Value } }
-        $sandboxBackendLifetime = Start-AmuseSandboxBackend -Executable $sandboxBackend -WorkingDirectory (Split-Path -Parent $sandboxBackend) -LogDirectory (Join-Path $Root '.local\logs') -Environment $sandboxBackendEnvironment
-        if (-not (Get-Variable -Name AmuseSandboxBackendLifetimes -Scope Global -ErrorAction SilentlyContinue)) { $global:AmuseSandboxBackendLifetimes = @() }
-        $global:AmuseSandboxBackendLifetimes += $sandboxBackendLifetime
-        Write-Output ('Started the configured Docker backend (PID ' + $sandboxBackendLifetime.Process.Id + ').')
+        $sandboxRuntimeNode = (Get-Content -LiteralPath (Join-Path $Root '.local\runtime.json') -Raw | ConvertFrom-Json).node
+        $sandboxBackendProcess = Start-AmuseSandboxBackend -Executable $sandboxBackend -WorkingDirectory (Split-Path -Parent $sandboxBackend) -LogDirectory (Join-Path $Root '.local\logs') -Environment $sandboxBackendEnvironment -RuntimeNode $sandboxRuntimeNode
+        Write-Output ('Started the configured Docker backend (PID ' + $sandboxBackendProcess.Pid + ').')
     } else {
         if (-not $sandboxConfig.desktop) { throw 'Docker is not running; start Docker Desktop before Amuse.' }
         Start-Process -FilePath $sandboxConfig.desktop -WindowStyle Hidden | Out-Null
