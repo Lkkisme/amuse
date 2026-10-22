@@ -63,6 +63,8 @@ const samples: Record<string, unknown[]> = {
   "viewer.browsersOpen": [2],
   "viewer.closeBrowserAt": ["example.com"],
   "viewer.showBrowserAt": ["example.com"],
+  "panel.taskSteps": ["Working", 1, 3],
+  "panel.connectTitle": ["Sample app"],
 };
 
 test("the Chinese catalog has every message the English one has", () => {

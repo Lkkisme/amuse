@@ -95,7 +95,7 @@ export function Composer({ conversation, place, actions }: { conversation: State
           if (response.ok && field("text")) setDraft((d) => (d.trim() ? `${d.trim()} ${field("text")}` : field("text")));
           else actions.notify(field("reason") || (response.ok ? t.chat.nothingHeard : t.chat.notTranscribed));
         })
-        .catch(() => actions.notify(t.chat.serverUnreachable))
+        .catch(() => actions.notify(t.common.serverUnreachable))
         .finally(() => setVoice("idle"));
     };
     recorder.current = recording;

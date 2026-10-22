@@ -4,8 +4,10 @@
  */
 import { useState } from "react";
 import { enter } from "../connection.ts";
+import { useT } from "../i18n/react.ts";
 
 export function Unlock({ ready }: { ready: boolean }) {
+  const t = useT();
   const [password, setPassword] = useState("");
   const [again, setAgain] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
@@ -26,7 +28,7 @@ export function Unlock({ ready }: { ready: boolean }) {
         e.preventDefault();
         if (!password || busy) return;
         if (!ready && password !== again)
-          return setProblem("The two passwords are not the same.");
+          return setProblem(t.unlock.mismatch);
         setBusy(true);
         void enter(password, !ready).then((why) => {
           setBusy(false);
@@ -49,23 +51,21 @@ export function Unlock({ ready }: { ready: boolean }) {
           className="text-[17px] font-semibold"
           style={{ color: "var(--text-primary)" }}
         >
-          {ready ? "Welcome back" : "Set a password"}
+          {ready ? t.unlock.welcome : t.unlock.setTitle}
         </p>
         <p
           className="mt-1 text-[14px]"
           style={{ color: "var(--text-secondary)" }}
         >
-          {ready
-            ? "Enter your password to open Amuse on this device."
-            : "Amuse is new here. Choose the password that opens it, on this device and any other."}
+          {ready ? t.unlock.enterHelp : t.unlock.setHelp}
         </p>
       </div>
       <input
         autoFocus
         type="password"
         autoComplete={ready ? "current-password" : "new-password"}
-        aria-label="Password"
-        placeholder="Password"
+        aria-label={t.unlock.password}
+        placeholder={t.unlock.password}
         className={field}
         style={look}
         value={password}
@@ -75,8 +75,8 @@ export function Unlock({ ready }: { ready: boolean }) {
         <input
           type="password"
           autoComplete="new-password"
-          aria-label="Password again"
-          placeholder="Password again"
+          aria-label={t.unlock.passwordAgain}
+          placeholder={t.unlock.passwordAgain}
           className={field}
           style={look}
           value={again}
@@ -97,7 +97,7 @@ export function Unlock({ ready }: { ready: boolean }) {
         className="h-10 rounded-full px-6 text-[15px] font-semibold text-white disabled:opacity-60"
         style={{ background: "var(--fill-blue)" }}
       >
-        {ready ? "Continue" : "Set password"}
+        {ready ? t.common.continue : t.unlock.setButton}
       </button>
     </form>
   );

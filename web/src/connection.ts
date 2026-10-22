@@ -7,6 +7,7 @@
  * The master password opens a session the server keeps as an HttpOnly cookie, so scripts, URLs
  * and logs never see it.
  */
+import { activeT } from "./i18n/language.ts";
 
 export type Connection =
   | { kind: "demo" }
@@ -55,7 +56,7 @@ const post = (path: string, body: unknown) =>
 async function reason(response: Response): Promise<string> {
   const said: unknown = await response.json().catch(() => null);
   if (typeof said === "object" && said !== null && "reason" in said && typeof said.reason === "string") return said.reason;
-  return response.status === 401 ? "That is not the password." : "Something went wrong. Try again.";
+  return response.status === 401 ? activeT().unlock.wrongPassword : activeT().common.somethingWrong;
 }
 
 /** How far starting has got, for the page that says why it could not start (index.html). */
@@ -82,7 +83,7 @@ export async function connection(): Promise<Connection> {
 /** Open this browser with the password (`setup`: set it, the first time); reloads when in, else why not. */
 export async function enter(password: string, setup: boolean): Promise<string | null> {
   const response = await post(setup ? "/setup" : "/unlock", { password }).catch(() => null);
-  if (!response) return "The server cannot be reached.";
+  if (!response) return activeT().common.serverUnreachable;
   if (!response.ok) return reason(response);
   location.replace(location.pathname + location.search);
   return null;
@@ -91,7 +92,7 @@ export async function enter(password: string, setup: boolean): Promise<string | 
 /** Change the password; every other device has to enter the new one. Null when done, else why not. */
 export async function changePassword(current: string, next: string): Promise<string | null> {
   const response = await post("/password", { current, next }).catch(() => null);
-  if (!response) return "The server cannot be reached.";
+  if (!response) return activeT().common.serverUnreachable;
   return response.ok ? null : reason(response);
 }
 

@@ -19,6 +19,8 @@ import { museAvatar, travels } from "../transition.ts";
 import type { Actions } from "../ui.ts";
 import { browserLook, host, providerLogo, taskStatus, time } from "../view.ts";
 import { moment, repeats, scheduleState } from "../schedules.ts";
+import { useT } from "../i18n/react.ts";
+import type { Messages } from "../i18n/en.ts";
 
 export type MuseMode = "docked" | "floating";
 
@@ -32,7 +34,7 @@ interface Done {
 }
 
 /** What Muse did: its runs, tasks, asks and connections (the messages are in the chat). */
-function done(entity: Entity): Done | null {
+function done(entity: Entity, t: Messages): Done | null {
   const at = time(entity.at);
   switch (entity.kind) {
     case "prompt":
@@ -42,7 +44,7 @@ function done(entity: Entity): Done | null {
       return {
         id: entity.id,
         title: entity.title,
-        sub: `${browserLook(entity).label} · ${host(entity.url)}`,
+        sub: `${browserLook(entity, t).label} · ${host(entity.url)}`,
         time: at,
         done: entity.status === "completed",
         icon: Globe,
@@ -52,21 +54,14 @@ function done(entity: Entity): Done | null {
       return {
         id: entity.id,
         title: entity.title,
-        sub: `${taskStatus(entity.status).label} · ${steps} of ${entity.steps.length} steps`,
+        sub: t.panel.taskSteps(taskStatus(entity.status, t).label, steps, entity.steps.length),
         time: at,
         done: entity.status === "completed",
         icon: ListTodo,
       };
     }
     case "approval": {
-      const sub = entity.byRule
-        ? "Refused by your rule"
-        : {
-            pending: "Waiting for your approval",
-            approved: "Approved",
-            denied: "Denied",
-            timed_out: "Timed out",
-          }[entity.status];
+      const sub = entity.byRule ? t.panel.refusedByRule : t.panel.approvalState[entity.status];
       return {
         id: entity.id,
         title: entity.action,
@@ -80,7 +75,7 @@ function done(entity: Entity): Done | null {
       return {
         id: entity.id,
         title: entity.name,
-        sub: { pending: "Waiting for you to provide it", provided: "Provided", declined: "Declined" }[entity.status],
+        sub: t.panel.secretState[entity.status],
         time: at,
         done: entity.status === "provided",
         icon: KeyRound,
@@ -88,8 +83,8 @@ function done(entity: Entity): Done | null {
     case "connection":
       return {
         id: entity.id,
-        title: `Connect ${entity.title}`,
-        sub: entity.status === "connected" ? "Connected" : "Waiting for you to connect",
+        title: t.panel.connectTitle(entity.title),
+        sub: entity.status === "connected" ? t.panel.connected : t.panel.waitingToConnect,
         time: at,
         done: entity.status === "connected",
         icon: Plug,
@@ -124,10 +119,10 @@ const frame: Record<MuseMode, string> = {
 };
 
 type Tab = "activity" | "approvals" | "upcoming";
-const TABS: { id: Tab; label: string; icon: typeof Globe }[] = [
-  { id: "activity", label: "Activity", icon: List },
-  { id: "approvals", label: "Approvals", icon: ShieldCheck },
-  { id: "upcoming", label: "Upcoming", icon: Clock },
+const TAB_ICONS: { id: Tab; icon: typeof Globe }[] = [
+  { id: "activity", icon: List },
+  { id: "approvals", icon: ShieldCheck },
+  { id: "upcoming", icon: Clock },
 ];
 
 export function MusePanel({ open, conversation, session, mode: asked, actions }: { open: boolean; conversation: State; session: Session; mode: MuseMode; actions: Actions }) {
@@ -136,8 +131,9 @@ export function MusePanel({ open, conversation, session, mode: asked, actions }:
   const kept = useRef(asked);
   if (!closing) kept.current = asked;
   const mode = kept.current;
+  const t = useT();
   const working = conversation.activity !== null;
-  const list = conversation.entities.flatMap((e) => done(e) ?? []).reverse();
+  const list = conversation.entities.flatMap((e) => done(e, t) ?? []).reverse();
   const [tab, setTab] = useState<Tab>("activity");
 
   // where it travels (a phone), the transition takes it away at once
@@ -167,7 +163,7 @@ export function MusePanel({ open, conversation, session, mode: asked, actions }:
       >
         {/* the round button the bars have, 12px from the window's corner (4px in from the panel's, from md) */}
         <button
-          aria-label="Close"
+          aria-label={t.common.close}
           className={`${barButton} absolute right-3 top-3 z-10 md:right-1 md:top-1`}
           style={barButtonLook}
           onClick={() => actions.setMuse(false)}
@@ -193,17 +189,17 @@ export function MusePanel({ open, conversation, session, mode: asked, actions }:
           </p>
           {/* only what is true now: nothing is said while it rests */}
           <p className={`text-[15px] ${working ? "activity-indicator-fade" : "invisible"}`} style={{ color: "var(--text-secondary)" }}>
-            is working…
+            {t.panel.working}
           </p>
         </div>
 
         {/* segmented control: what Amuse did, what it asked, what comes next */}
         <div role="tablist" className="mx-4 mt-7 grid h-[34px] grid-cols-3 rounded-full p-[3px]" style={{ background: "var(--fill-secondary)" }}>
-          {TABS.map(({ id, label, icon: Icon }) => (
+          {TAB_ICONS.map(({ id, icon: Icon }) => (
             <button
               key={id}
               role="tab"
-              aria-label={label}
+              aria-label={t.panel.tabs[id]}
               aria-selected={tab === id}
               className="flex items-center justify-center rounded-full"
               style={
@@ -227,11 +223,11 @@ export function MusePanel({ open, conversation, session, mode: asked, actions }:
         {tab === "activity" && (
           <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-5">
             <p className="text-[17px] font-semibold" style={{ color: "var(--text-primary)" }}>
-              Today
+              {t.panel.today}
             </p>
             {list.length === 0 ? (
               <p className="mt-3 text-[14px]" style={{ color: "var(--text-secondary)" }}>
-                What Amuse does for you shows up here.
+                {t.panel.activityNone}
               </p>
             ) : (
               <ul className="mt-3 space-y-4">
@@ -271,15 +267,13 @@ export function MusePanel({ open, conversation, session, mode: asked, actions }:
   );
 }
 
-const answered: Record<Approval["status"], string> = {
-  pending: "Waiting for you",
-  approved: "Allowed",
-  denied: "Denied",
-  timed_out: "No answer in time",
-};
 /** How an approval ended, "always" said when it became a rule; one the user's rule refused was never asked. */
-const outcome = (a: Approval) =>
-  a.byRule ? "Refused by your rule" : a.always && a.status !== "pending" && a.status !== "timed_out" ? `Always ${a.status === "approved" ? "allowed" : "denied"}` : answered[a.status];
+function outcome(a: Approval, t: Messages): string {
+  if (a.byRule) return t.panel.outcomes.refusedByRule;
+  if (a.always && a.status !== "pending" && a.status !== "timed_out")
+    return a.status === "approved" ? t.panel.outcomes.alwaysAllowed : t.panel.outcomes.alwaysDenied;
+  return { pending: t.panel.outcomes.pending, approved: t.panel.outcomes.allowed, denied: t.panel.outcomes.denied, timed_out: t.panel.outcomes.timedOut }[a.status];
+}
 
 /**
  * Every approval asked, in any chat, newest first: what, for which app or site, how it ended,
@@ -287,6 +281,7 @@ const outcome = (a: Approval) =>
  * without asking are in Settings › Permissions.
  */
 function Approvals({ session, conversation, actions }: { session: Session; conversation: State; actions: Actions }) {
+  const t = useT();
   const [rows, setRows] = useState<{ chat: Chat; approval: Approval }[] | null>(null);
   const [only, setOnly] = useState("");
   // asked again as the chat moves (a card answered, a new one)
@@ -303,17 +298,17 @@ function Approvals({ session, conversation, actions }: { session: Session; conve
     <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-5">
       <div className="flex items-center gap-2">
         <p className="flex-1 text-[17px] font-semibold" style={{ color: "var(--text-primary)" }}>
-          Approvals
+          {t.panel.tabs.approvals}
         </p>
         {sources.length > 1 && (
           <select
-            aria-label="Only for"
+            aria-label={t.panel.onlyFor}
             className="max-w-[50%] truncate bg-transparent text-right text-[14px] outline-none"
             style={{ color: "var(--text-secondary)" }}
             value={only}
             onChange={(e) => setOnly(e.target.value)}
           >
-            <option value="">All</option>
+            <option value="">{t.panel.all}</option>
             {sources.map((s) => (
               <option key={s} value={s}>
                 {s}
@@ -326,7 +321,7 @@ function Approvals({ session, conversation, actions }: { session: Session; conve
         <div className="skeleton mt-3 h-12 rounded-[10px]" />
       ) : shown.length === 0 ? (
         <p className="mt-3 text-[14px]" style={{ color: "var(--text-secondary)" }}>
-          What Amuse asks you to allow shows up here, with how you answered.
+          {t.panel.approvalsNone}
         </p>
       ) : (
         <ul className="mt-3 space-y-4">
@@ -356,7 +351,7 @@ function Approvals({ session, conversation, actions }: { session: Session; conve
                       color: a.status === "denied" ? "var(--fill-red)" : "var(--text-secondary)",
                     }}
                   >
-                    {outcome(a)} · {a.target}
+                    {outcome(a, t)} · {a.target}
                   </span>
                   <span className="block text-[13px]" style={{ color: "var(--text-tertiary)" }}>
                     {moment(a.at)}
@@ -369,7 +364,7 @@ function Approvals({ session, conversation, actions }: { session: Session; conve
         </ul>
       )}
       <button className="hover-fade mt-5 text-[14px] font-medium" style={{ color: "var(--fill-blue)" }} onClick={() => actions.openSettings("permissions")}>
-        Manage permissions
+        {t.panel.managePermissions}
       </button>
     </div>
   );
@@ -377,6 +372,7 @@ function Approvals({ session, conversation, actions }: { session: Session; conve
 
 /** What runs next: the schedules that will, soonest first. */
 function Upcoming({ session }: { session: Session }) {
+  const t = useT();
   const [schedules, setSchedules] = useState<Schedule[] | null>(null);
   useEffect(() => {
     session.call("schedules.list", {}).then(
@@ -388,13 +384,13 @@ function Upcoming({ session }: { session: Session }) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-5">
       <p className="text-[17px] font-semibold" style={{ color: "var(--text-primary)" }}>
-        Upcoming
+        {t.panel.tabs.upcoming}
       </p>
       {schedules === null ? (
         <div className="skeleton mt-3 h-12 rounded-[10px]" />
       ) : next.length === 0 ? (
         <p className="mt-3 text-[14px]" style={{ color: "var(--text-secondary)" }}>
-          Nothing is scheduled. Ask Amuse for a morning briefing, or a reminder.
+          {t.panel.upcomingNone}
         </p>
       ) : (
         <ul className="mt-3 space-y-4">
