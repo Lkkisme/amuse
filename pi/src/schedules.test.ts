@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Schedule } from "@amuse/protocol";
-import { whenOf, worthRunning } from "./schedules.ts";
+import { type TranscriptContext, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { chat } from "./scripted-chat.ts";
+import { scheduleLine, whenOf, worthRunning } from "./schedules.ts";
 
 test("a schedule's time is the user's: a cron in their zone, a one-off read on their clock", () => {
   assert.deepEqual(whenOf({ cron: "0 8 * * *" }, "Asia/Shanghai"), { ok: true, when: { kind: "repeat", cron: "0 8 * * *", timezone: "Asia/Shanghai" } });
@@ -37,4 +39,50 @@ test("a run waits for what it needs: new conversation, or a conversation gone qu
   assert.equal(worthRunning(lull, chats("2026-10-21T13:50:00Z"), "2026-10-21T14:00:00Z"), false, "still talking");
   assert.equal(worthRunning(lull, chats("2026-10-21T11:00:00Z"), "2026-10-21T12:00:00Z"), false, "the last run was 2 hours ago");
   assert.equal(worthRunning(lull, chats("2026-10-21T13:30:00Z"), "2026-10-21T14:00:00Z"), true);
+});
+
+test("list_schedules gives every schedule in force with its full id, how it runs and when next, in the user's time; not those cancelled", async () => {
+  const of = (id: string, title: string, status: Schedule["status"], next: string | null, preset = false): Schedule => ({
+    kind: "schedule",
+    id,
+    at: "2026-10-21T00:00:00Z",
+    title,
+    instructions: "",
+    when: { kind: "repeat", cron: "0 11,15,19,23 * * *", timezone: "America/Los_Angeles" },
+    status,
+    next,
+    running: false,
+    last: null,
+    needs: null,
+    preset,
+    goal: null,
+  });
+  const schedules = [
+    of("s-14ae8456-6b10-4cd4-bf2b-eece1689a9d9", "Project reminders", "active", "2026-10-22T18:00:00Z"),
+    of("s-0a", "Old mail check", "cancelled", null),
+    of("s-0b", "Memory", "paused", null, true),
+  ];
+  let listed = "";
+  const { agent, io, until } = await chat(
+    [
+      fauxAssistantMessage(fauxToolCall("list_schedules", { status: "Looking" }), { stopReason: "toolUse" }),
+      (context: TranscriptContext) => {
+        const result = context.messages.findLast((m) => m.role === "toolResult");
+        listed = result?.role === "toolResult" ? result.content.map((c) => (c.type === "text" ? c.text : "")).join("") : "";
+        return fauxAssistantMessage("Two.");
+      },
+    ],
+    { schedules },
+  );
+  agent.prompt({ kind: "message", text: "what is scheduled?", attachments: [] }, io);
+  await until(1);
+  assert.equal(
+    listed,
+    [
+      "s-14ae8456-6b10-4cd4-bf2b-eece1689a9d9 | Project reminders | active | repeats 0 11,15,19,23 * * * (America/Los_Angeles) | next 2026-10-22 18:00",
+      "s-0b | Memory | paused; built-in upkeep | repeats 0 11,15,19,23 * * * (America/Los_Angeles) | no next run",
+    ].join("\n"),
+  );
+  const once: Schedule = { ...of("s-1", "Call", "active", "2026-10-22T16:00:00Z"), when: { kind: "once", at: "2026-10-22T16:00:00Z" } };
+  assert.equal(scheduleLine(once, "Asia/Shanghai"), "s-1 | Call | active | once at 2026-10-23 00:00 | next 2026-10-23 00:00");
 });

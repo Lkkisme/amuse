@@ -16,6 +16,7 @@ What changed in each release of Amuse, for the people who run it. The format fol
 - The terminal's lines are a little taller, so Chinese characters are no longer cut off at the top.
 
 ### Fixed
+- Amuse can cancel a schedule you no longer want: it looks the schedules up with their full ids instead of going by what it remembered of them.
 - On a wider screen, the Amuse avatar flies into its panel and back again when the panel opens and closes.
 
 ## [0.1.0] - 2026-10-21

@@ -9,6 +9,7 @@ function agentIO(answer: Answer | "never") {
   const io: AgentIO = {
     chat: "main",
     chats: () => [],
+    schedules: () => [],
     readChat: () => null,
     emit: () => {},
     act: (action) => (acted.push(action), { ok: true, id: "a1" }),

@@ -45,7 +45,15 @@ export function whenOf(args: { cron?: string; at?: string; timezone?: string }, 
   return { ok: false, reason: "give `cron` for a repeating schedule or `at` for a one-off" };
 }
 
-/** The chat agent's tools for setting schedules up and cancelling them. */
+/** A schedule as list_schedules gives it: a line with what the agent needs to name it and tell the user about it. */
+export function scheduleLine(schedule: Schedule, timezone: string): string {
+  const when = schedule.when.kind === "repeat" ? `repeats ${schedule.when.cron} (${schedule.when.timezone})` : `once at ${localTime(schedule.when.at, timezone)}`;
+  const next = schedule.next ? `next ${localTime(schedule.next, timezone)}` : "no next run";
+  const kind = schedule.preset ? "; built-in upkeep" : "";
+  return `${schedule.id} | ${schedule.title} | ${schedule.status}${kind} | ${when} | ${next}`;
+}
+
+/** The chat agent's tools for setting schedules up, looking them over and cancelling them. */
 export function scheduleTools(io: () => AgentIO, files?: Workspace): ToolDefinition[] {
   return [
     defineTool({
@@ -54,7 +62,7 @@ export function scheduleTools(io: () => AgentIO, files?: Workspace): ToolDefinit
       description:
         "Set up work to run later or regularly, e.g. a briefing every morning at 8, a look at the mail every hour, a reminder tomorrow at 9. " +
         "Each run is a background agent with your tools that gets only `instructions` and the conversation; it tells the user only what is worth telling. " +
-        "Times are the user's own (their time zone unless `timezone` says otherwise). Your schedules appear in the conversation; `recall` \"Schedule\" finds older ones.",
+        "Times are the user's own (their time zone unless `timezone` says otherwise). `list_schedules` shows the ones there are.",
       parameters: Type.Object({
         status,
         title: Type.String({ description: "Short name the user will see, in their language, e.g. 'Morning briefing'" }),
@@ -91,9 +99,23 @@ export function scheduleTools(io: () => AgentIO, files?: Workspace): ToolDefinit
       },
     }),
     defineTool({
+      name: "list_schedules",
+      label: "List schedules",
+      description:
+        "The schedules there are now, active and paused: each with its full id, title, when it runs and when next. Look here for the id before you cancel one, rather than from memory.",
+      parameters: Type.Object({ status }),
+      async execute() {
+        const agent = io();
+        const { timezone } = agent.time();
+        const now = agent.schedules().filter((s) => s.status === "active" || s.status === "paused");
+        if (now.length === 0) return text("There are no schedules.");
+        return text(now.map((s) => scheduleLine(s, timezone)).join("\n"));
+      },
+    }),
+    defineTool({
       name: "cancel_schedule",
       label: "Cancel a schedule",
-      description: "Cancel one of your schedules for good, by its id (e.g. s-…), when the user no longer wants it.",
+      description: "Cancel one of your schedules for good, by its full id (e.g. s-…, as list_schedules gives it), when the user no longer wants it.",
       parameters: Type.Object({ status, id: Type.String() }),
       async execute(_, { id }) {
         const done = io().act({ kind: "unschedule", id });

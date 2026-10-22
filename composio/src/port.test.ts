@@ -12,6 +12,7 @@ function recording(onAct: (action: AgentAction) => void = () => {}, onReport: (n
   return {
     chat: "main",
     chats: () => [],
+    schedules: () => [],
     readChat: () => null,
     emit: () => {},
     act: (action) => (onAct(action), { ok: true, id: "x" }),
