@@ -14,12 +14,28 @@
         var kept = localStorage.getItem("amuse.theme");
         var dark = kept === "dark" || (kept !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
         document.documentElement.className = dark ? "dark" : "light";
+        // the language the same way (language.ts): the user's pick, else the first of the browser's
+        // preferred languages that is Chinese or English
+        var pick = localStorage.getItem("amuse.language");
+        var preferred = pick === "en" || pick === "zh-CN" ? [pick] : navigator.languages || [navigator.language];
+        var lang = "en";
+        for (var i = 0; i < preferred.length; i++) {
+          var primary = String(preferred[i]).toLowerCase().split("-")[0];
+          if (primary === "zh" || primary === "en") {
+            lang = primary === "zh" ? "zh-CN" : "en";
+            break;
+          }
+        }
+        document.documentElement.lang = lang;
       })();
     </script>
     <!-- if Amuse cannot start here (a browser too old for it, a script that fails to load or run), say so, with why, not a blank page -->
     <script>
       (function () {
         var errors = [];
+        var chinese = function () {
+          return document.documentElement.lang === "zh-CN";
+        };
         var note = function (message) {
           if (errors.length < 4) errors.push(String(message).slice(0, 400));
         };
@@ -27,7 +43,8 @@
           "error",
           function (event) {
             var source = event.target && event.target.src;
-            note(event.message || (source ? "Could not load " + source : "An error"));
+            var zh = chinese();
+            note(event.message || (source ? (zh ? "无法加载 " : "Could not load ") + source : zh ? "出错" : "An error"));
           },
           true,
         );
@@ -37,17 +54,18 @@
         setTimeout(function () {
           var root = document.getElementById("root");
           if (!root || root.textContent.trim() !== "") return;
+          var zh = chinese();
           var box = document.createElement("div");
           box.style.cssText = "font:15px/1.5 system-ui,sans-serif;padding:48px 24px;max-width:560px;color:#8e8e93";
           var title = document.createElement("p");
           title.style.cssText = "font-weight:600;font-size:17px;margin:0 0 8px";
-          title.textContent = "Amuse could not start in this browser";
+          title.textContent = zh ? "Amuse 无法在此浏览器中启动" : "Amuse could not start in this browser";
           var text = document.createElement("p");
           text.style.cssText = "margin:0 0 16px";
-          text.textContent = "Try updating the browser, or open Amuse in another one. What went wrong:";
+          text.textContent = zh ? "请更新浏览器，或换一个浏览器打开 Amuse。出错原因：" : "Try updating the browser, or open Amuse in another one. What went wrong:";
           var detail = document.createElement("pre");
           detail.style.cssText = "white-space:pre-wrap;word-break:break-word;font-size:12px;margin:0";
-          var stage = document.documentElement.getAttribute("data-amuse") || "the app's script never ran";
+          var stage = document.documentElement.getAttribute("data-amuse") || (zh ? "应用脚本没有运行" : "the app's script never ran");
           var loads = (performance.getEntriesByType ? performance.getEntriesByType("resource") : [])
             .filter(function (entry) {
               return /\/(assets|unlock|rpc)/.test(entry.name);
@@ -56,8 +74,8 @@
               return entry.name.replace(location.origin, "") + ": " + Math.round(entry.duration) + " ms, " + (entry.responseStatus || "?") + ", " + (entry.transferSize || 0) + " bytes";
             });
           detail.textContent =
-            (errors.length ? errors.join("\n") : "Nothing failed that the page could see.") +
-            "\nGot as far as: " + stage +
+            (errors.length ? errors.join("\n") : zh ? "页面没有看到失败。" : "Nothing failed that the page could see.") +
+            (zh ? "\n进行到：" : "\nGot as far as: ") + stage +
             "\n" + loads.join("\n") +
             "\n\n" + navigator.userAgent;
           box.append(title, text, detail);

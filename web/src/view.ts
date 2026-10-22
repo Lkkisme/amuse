@@ -4,6 +4,7 @@
  * the conversation; nothing here is state.
  */
 import type { Activity, Browser, BrowserStatus, Entity, State, TaskStatus } from "@amuse/protocol";
+import { activeLocale } from "./i18n/language.ts";
 
 export const browserStatus: Record<BrowserStatus, { label: string; color: string }> = {
   queued: { label: "Queued", color: "var(--icon-secondary)" },
@@ -70,7 +71,7 @@ export const thinking = (state: State) => state.activity !== null && !state.enti
 
 export const busy = (state: State) => state.activity !== null;
 
-export const time = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+export const time = (iso: string) => new Date(iso).toLocaleTimeString(activeLocale(), { hour: "numeric", minute: "2-digit" });
 
 export const host = (url: string) => new URL(url).host;
 export const path = (url: string) => new URL(url).pathname;

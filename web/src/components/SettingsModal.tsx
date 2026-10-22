@@ -25,6 +25,8 @@ import {
 import type { Session } from "@amuse/protocol";
 import type { Actions, SettingsSection, Theme, Ui } from "../ui.ts";
 import { THEMES } from "../theme.ts";
+import type { Choice } from "../i18n/language.ts";
+import { useLanguageChoice, useT } from "../i18n/react.ts";
 import { usePresence } from "./usePresence";
 import { barButton, barButtonLook, barIcon } from "./bar";
 import { AppsKey } from "./AppsKey";
@@ -63,6 +65,13 @@ function GeneralSection({
   server: boolean;
   actions: Actions;
 }) {
+  const t = useT();
+  const [language, setLanguage] = useLanguageChoice();
+  const languages = [
+    { value: "system", label: t.settings.languageSystem },
+    { value: "en", label: "English" },
+    { value: "zh-CN", label: "简体中文" },
+  ] satisfies { value: Choice; label: string }[];
   return (
     <div className="flex-1 overflow-y-auto p-5">
       <p
@@ -71,32 +80,59 @@ function GeneralSection({
       >
         Appearance
       </p>
-      <div
-        className="overflow-hidden rounded-xl"
-        style={{ background: "var(--fill-secondary)" }}
+      <OptionList
+        options={THEMES.map((t) => ({ value: t, label: themeName[t] }))}
+        value={theme}
+        onPick={actions.setTheme}
+      />
+      <p
+        className="mb-2 mt-6 text-[15px] font-semibold"
+        style={{ color: "var(--text-primary)" }}
       >
-        {THEMES.map((t, i) => (
-          <button
-            key={t}
-            className="flex w-full items-center justify-between px-4 py-3 text-left"
-            style={{
-              borderTop: i === 0 ? undefined : "1px solid var(--fill-divider)",
-            }}
-            onClick={() => actions.setTheme(t)}
-          >
-            <span
-              className="text-[14px]"
-              style={{ color: "var(--text-primary)" }}
-            >
-              {themeName[t]}
-            </span>
-            {theme === t && (
-              <Check size={18} style={{ color: "var(--text-primary)" }} />
-            )}
-          </button>
-        ))}
-      </div>
+        {t.settings.language}
+      </p>
+      <OptionList
+        options={languages}
+        value={language}
+        onPick={setLanguage}
+      />
       {server && <PasswordGroup />}
+    </div>
+  );
+}
+
+/** A group of rows, one chosen: each row picks its value. */
+function OptionList<T extends string>({
+  options,
+  value,
+  onPick,
+}: {
+  options: { value: T; label: string }[];
+  value: T;
+  onPick: (value: T) => void;
+}) {
+  return (
+    <div
+      className="overflow-hidden rounded-xl"
+      style={{ background: "var(--fill-secondary)" }}
+    >
+      {options.map((option, i) => (
+        <button
+          key={option.value}
+          className="flex w-full items-center justify-between px-4 py-3 text-left"
+          style={{
+            borderTop: i === 0 ? undefined : "1px solid var(--fill-divider)",
+          }}
+          onClick={() => onPick(option.value)}
+        >
+          <span className="text-[14px]" style={{ color: "var(--text-primary)" }}>
+            {option.label}
+          </span>
+          {value === option.value && (
+            <Check size={18} style={{ color: "var(--text-primary)" }} />
+          )}
+        </button>
+      ))}
     </div>
   );
 }
