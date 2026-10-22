@@ -24,6 +24,8 @@ volumes:
     driver: local
     driver_opts: { type: none, o: bind, device: "${HOME}/.local/share/remuse/dev-handoff/3" }
 networks:
+  # the sandbox runs with the API outside Docker in dev: its network is the browsers' alone here
+  sandbox: {}
   pair-1: { internal: false }
   pair-2: { internal: false }
   pair-3: { internal: false }

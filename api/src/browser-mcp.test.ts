@@ -7,7 +7,7 @@ import { test, type TestContext } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { BrowserMcpStepSchema, createBrowserMcp, type BrowserMcp, type BrowserMcpActions } from "./browser-mcp.ts";
+import { BrowserMcpStepSchema, browserMcpTools, createBrowserMcp, type BrowserMcp, type BrowserMcpActions } from "./browser-mcp.ts";
 
 function files(t: TestContext) {
   const dir = mkdtempSync(join(tmpdir(), "amuse-browser-mcp-"));
@@ -58,7 +58,7 @@ test("step schemas accept observed refs and reject ambiguous or executable navig
   assert.ok(!BrowserMcpStepSchema.safeParse({ kind: "navigate", url: "file:///private" }).success);
 });
 
-async function httpFixture(t: TestContext) {
+async function httpFixture(t: TestContext, extra: Partial<BrowserMcpActions> = {}) {
   const { tokenPath } = files(t);
   const f = actions();
   let mcp: BrowserMcp | undefined;
@@ -69,7 +69,7 @@ async function httpFixture(t: TestContext) {
   const address = http.address();
   assert.ok(address && typeof address !== "string");
   const origin = `http://127.0.0.1:${address.port}`;
-  mcp = createBrowserMcp({ actions: f.api, url: origin, tokenPath });
+  mcp = createBrowserMcp({ actions: { ...f.api, ...extra }, url: origin, tokenPath });
   const config = mcp.config("chat-a").amuse_browser;
   t.after(async () => {
     await mcp?.close();
@@ -108,4 +108,40 @@ test("HTTP rejects missing capabilities and foreign origins without invoking act
   assert.equal((await fetch(f.config.url, { method: "POST", headers: { ...f.config.headers, Origin: "https://foreign.test" } })).status, 403);
   assert.equal((await fetch(`${f.origin}/wrong`, { headers: f.config.headers })).status, 404);
   assert.equal(f.calls.length, 0);
+});
+
+test("optional browser upload and download tools retain schemas and bind the capability's scope", async (t) => {
+  const uploads: unknown[][] = []; const downloads: unknown[][] = [];
+  const signals: (AbortSignal | undefined)[] = [];
+  const f = await httpFixture(t, { upload: async (chat, id, ref, path, signal) => { uploads.push([chat, id, ref, path]); signals.push(signal); }, downloads: async (chat, id, signal) => { downloads.push([chat, id]); signals.push(signal); return [{ path: "downloads/fixture.txt" }]; } });
+  const client = new Client({ name: "optional-browser-test", version: "1" });
+  await client.connect(new StreamableHTTPClientTransport(new URL(f.config.url), { requestInit: { headers: f.config.headers } }) as Transport);
+  t.after(() => client.close());
+  const listed = (await client.listTools()).tools;
+  const upload = listed.find((tool) => tool.name === "browser_upload"); assert.ok(upload);
+  assert.deepEqual(upload.inputSchema.required, ["id", "ref", "path"]);
+  assert.ok(listed.some((tool) => tool.name === "browser_downloads"));
+  const missing = await client.callTool({ name: "browser_upload", arguments: { id: "browser-1", ref: "e-file" } });
+  assert.equal(missing.isError, true); assert.equal(uploads.length, 0);
+  const invalid = await client.callTool({ name: "browser_upload", arguments: { id: "browser-1", ref: "e-file", path: 123 } });
+  assert.equal(invalid.isError, true); assert.equal(uploads.length, 0);
+  const uploaded = await client.callTool({ name: "browser_upload", arguments: { id: "browser-1", ref: "e-file", path: "user/fixture.txt", chat: "chat-b" } });
+  assert.notEqual(uploaded.isError, true);
+  assert.deepEqual(uploads, [["chat-a", "browser-1", "e-file", "user/fixture.txt"]]);
+  const files = await client.callTool({ name: "browser_downloads", arguments: { id: "browser-1", chat: "chat-b" } });
+  assert.notEqual(files.isError, true); assert.deepEqual(downloads, [["chat-a", "browser-1"]]);
+  assert.match(JSON.stringify(files.content), /downloads\/fixture.txt/);
+  assert.ok(signals.every((signal) => signal instanceof AbortSignal), "SDK cancellation must reach the native upload/download operations");
+});
+
+test("codemode browser tools pass cancellation into the native operation and reject already stopped calls", async () => {
+  const controller = new AbortController(); const received: (AbortSignal | undefined)[] = [];
+  const f = actions();
+  const tool = browserMcpTools({ ...f.api, act: async (_chat, _id, _step, signal) => { received.push(signal); return {}; } }, "chat-a").find((tool) => tool.name === "browser_act")!;
+  const args = { id: "browser-1", step: { kind: "click", ref: "e1" } };
+  await tool.execute("one", args, controller.signal);
+  assert.equal(received[0], controller.signal);
+  controller.abort();
+  await assert.rejects(tool.execute("two", args, controller.signal), /abort/i);
+  assert.equal(received.length, 1);
 });

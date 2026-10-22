@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { fileCredentials } from "./credentials.ts";
 import { adoptEnvironment, bare, piKeys, plainly } from "./keys.ts";
 import { runtime } from "./session.ts";
+import { transcriber } from "./voice.ts";
 
 const composio = {
   id: "composio",
@@ -198,7 +199,7 @@ test("custom local providers are adopted from the environment and offered for se
   const keys = piKeys({ keys: fileCredentials(keysPath), choicePath, modelsPath });
   const listed = await keys.list();
   assert.equal(listed.providers.find((p) => p.id === "swift-local")?.connected, true);
-  assert.deepEqual(listed.models, [{ id: "swift-local/swift", name: "Swift", provider: "swift-local", images: true }]);
+  assert.deepEqual(listed.models, [{ id: "swift-local/swift", name: "Swift", provider: "swift-local", images: true, thinking: ["off"] }]);
   assert.equal(keys.model("chat"), "swift-local/swift");
   await keys.choose("browser", "swift-local/swift");
   assert.equal(keys.model("browser"), "swift-local/swift");
@@ -226,4 +227,113 @@ test("a credential source caches separate runtimes for separate custom model fil
   assert.equal(withoutCustomModels.getModel("private-endpoint", "private-model"), undefined);
   assert.ok(withCustomModels.getModel("private-endpoint", "private-model"));
   assert.equal(await runtime({ auth: { kind: "keys", keys }, modelsPath }), withCustomModels);
+});
+
+test("each role's model thinks as much as chosen, within what the model takes; another model keeps the nearest level", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "amuse-keys-"));
+  const keys = piKeys({ keys: fileCredentials(join(dir, "keys.json")), choicePath: join(dir, "models.json") });
+  for (const provider of ["fireworks", "openrouter"]) {
+    const first = await keys.login(provider);
+    if (first.kind !== "prompt") return assert.fail("expected a prompt");
+    await keys.answer(first.login, "secret_key_1234");
+  }
+  const { models } = await keys.list();
+  const thinker = models.find((m) => m.thinking.includes("off") && m.thinking.includes("high"));
+  const plain = models.find((m) => m.thinking.length === 1 && m.thinking[0] === "off");
+  const always = models.find((m) => m.images && !m.thinking.includes("off"));
+  assert.ok(thinker && plain && always, "models that think, that do not, and that always do");
+
+  await assert.rejects(keys.think("chat", "high"), /Choose a model first/);
+  await keys.choose("chat", thinker.id);
+  assert.equal(keys.thinking("chat"), "off");
+  await keys.think("chat", "high");
+  assert.equal(keys.thinking("chat"), "high");
+  assert.deepEqual((await keys.list()).thinking, { chat: "high", browser: "off", background: "off" });
+
+  await keys.choose("chat", plain.id);
+  assert.equal(keys.thinking("chat"), "off", "a model that does not think");
+  await assert.rejects(keys.think("chat", "high"), /does not take/);
+
+  // a model that cannot be off thinks at the nearest level it takes, and says so
+  await keys.choose("browser", always.id);
+  const shown = (await keys.list()).thinking.browser;
+  assert.ok(always.thinking.includes(shown), `${shown} is one of ${always.thinking.join(",")}`);
+});
+
+test("scheduled work runs on the chat's model until it has one of its own, and goes back to it", async () => {
+  const { keys } = setup();
+  const first = await keys.login("fireworks");
+  if (first.kind !== "prompt") return assert.fail("expected a prompt");
+  await keys.answer(first.login, "fw_secret_key_1234");
+  const [a, b] = (await keys.list()).models;
+  assert.ok(a && b);
+  await keys.choose("chat", a.id);
+  assert.equal(keys.model("background"), a.id);
+  await keys.choose("background", b.id);
+  assert.equal(keys.model("background"), b.id);
+  assert.equal((await keys.list()).background, b.id);
+  await keys.choose("background", null);
+  assert.equal(keys.model("background"), a.id);
+  await assert.rejects(keys.choose("chat", null), /needs a model/);
+});
+
+test("the mic's speech service is chosen among those with a key; none chosen means the first of them", async () => {
+  const { keys } = setup();
+  assert.deepEqual((await keys.list()).voice, { services: [], chosen: null, local: null });
+  for (const provider of ["fireworks", "groq"]) {
+    const first = await keys.login(provider);
+    if (first.kind !== "prompt") return assert.fail("expected a prompt");
+    await keys.answer(first.login, "secret_key_1234");
+  }
+  const { voice } = await keys.list();
+  assert.deepEqual(voice.services.map((s) => s.provider), ["groq", "fireworks"]);
+  assert.equal(voice.chosen, null);
+  await keys.voice("fireworks");
+  assert.equal(keys.voiceChoice(), "fireworks");
+  await assert.rejects(keys.voice("openai"), /Add a key for openai/);
+  await assert.rejects(keys.voice("anthropic"), /does not turn speech into text/);
+  await keys.voice(null);
+  assert.equal(keys.voiceChoice(), null);
+});
+
+test("a chosen speech service is the one used", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "amuse-keys-"));
+  const store = fileCredentials(join(dir, "keys.json"));
+  await store.modify("groq", async () => ({ type: "api_key", key: "gsk_1" }));
+  await store.modify("fireworks", async () => ({ type: "api_key", key: "fw_1" }));
+  const asked: string[] = [];
+  const http: typeof fetch = async (input) => (asked.push(String(input)), new Response(JSON.stringify({ text: "hi" })));
+  await transcriber(store, () => "fireworks", http)(new Uint8Array([1]), "audio/webm");
+  await transcriber(store, () => null, http)(new Uint8Array([1]), "audio/webm");
+  assert.deepEqual(asked.map((u) => new URL(u).hostname), ["api.fireworks.ai", "api.groq.com"]);
+});
+
+test("the user's own speech server: set up, chosen, called without a key when it has none, and removed", async () => {
+  const { keys } = setup();
+  await assert.rejects(keys.voice("local"), /Set up your own speech server first/);
+  await assert.rejects(keys.localVoice({ url: "host:8000", model: "whisper", key: null }), /http/);
+  await keys.localVoice({ url: "http://host.docker.internal:8000/v1/", model: "Systran/faster-whisper-small", key: null });
+  const { voice } = await keys.list();
+  assert.deepEqual(voice.local, { url: "http://host.docker.internal:8000/v1/", model: "Systran/faster-whisper-small" });
+  assert.deepEqual(voice.services, [{ provider: "local", name: "Your own server (Systran/faster-whisper-small)" }]);
+  await keys.voice("local");
+  assert.equal(keys.voiceChoice(), "local");
+  await keys.localVoice(null);
+  assert.equal(keys.voiceChoice(), null, "removing the server lets go of the choice");
+  assert.equal(keys.localVoiceService(), null);
+});
+
+test("speech goes to the user's own server at its transcriptions endpoint, with its key only if it has one", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "amuse-keys-"));
+  const store = fileCredentials(join(dir, "keys.json"));
+  const asked: { url: string; auth: string | null }[] = [];
+  const http: typeof fetch = async (input, init) => (asked.push({ url: String(input), auth: new Headers(init?.headers).get("authorization") }), new Response(JSON.stringify({ text: "本地转写" })));
+  const own = () => ({ url: "http://host.docker.internal:8000/v1/", model: "Systran/faster-whisper-small" });
+  assert.equal(await transcriber(store, () => "local", http, own)(new Uint8Array([1]), "audio/webm"), "本地转写");
+  await store.modify("local-voice", async () => ({ type: "api_key", key: "local_secret" }));
+  await transcriber(store, () => null, http, own)(new Uint8Array([1]), "audio/webm");
+  assert.deepEqual(asked, [
+    { url: "http://host.docker.internal:8000/v1/audio/transcriptions", auth: null },
+    { url: "http://host.docker.internal:8000/v1/audio/transcriptions", auth: "Bearer local_secret" },
+  ]);
 });

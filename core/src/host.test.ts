@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type Schedule, type Session, type State, apply, prepend } from "@amuse/protocol";
-import { type AgentIO, type Ports, type Timers, type Turn, createHost, memoryChats, memoryRules, noKeys, noWorkspace } from "./index.ts";
+import { type Account, type Schedule, type Session, type State, apply, prepend } from "@amuse/protocol";
+import { type AgentIO, type Ports, type Timers, type Turn, createHost, memoryChats, memoryRules, noKeys, noLogins, noSandbox, noWorkspace } from "./index.ts";
 
 /** Ports that do nothing but hand over the AgentIO, so tests can act like an agent. */
 function capture() {
@@ -34,6 +34,8 @@ function capture() {
     rules: memoryRules(),
     // one file was uploaded: the cat photo
     keys: noKeys,
+    logins: noLogins,
+    sandbox: noSandbox,
     files: { ...noWorkspace, holds: async (a) => a.id === "f-cat" && a.name === "cat.jpg" && a.size === 2048 },
   };
   return { ports, io: () => io, runs };
@@ -77,6 +79,27 @@ test("a decision already made is answered at once; one still open waits for the 
   await host.call("approval.resolve", { id: asked.id, resolution: "allow_once" });
   assert.deepEqual(await early, { verdict: "approved", remember: false });
   assert.deepEqual(await agent.decision(asked.id), { verdict: "approved", remember: false }); // asked again after the fact
+});
+
+test("trusted harness tools use the existing chat IO, journal and approval decisions without starting a model", async () => {
+  const { ports, io } = capture();
+  const host = createHost(ports);
+  assert.throws(() => host.agent("not-a-chat"), /no chat/);
+  assert.equal(io(), undefined);
+  const side = await host.call("chats.create", {});
+  const agent = host.agent(side.id);
+  assert.equal(agent.chat, side.id);
+  const asked = agent.act({ kind: "ask", action: "Change", target: "fixture", detail: "test", remember: false });
+  assert.ok(asked.ok);
+  const pending = agent.decision(asked.id);
+  await host.call("approval.resolve", { id: asked.id, resolution: "deny" });
+  assert.deepEqual(await pending, { verdict: "denied", remember: false });
+  assert.equal((await host.call("session.history", { chat: side.id, before: 100, limit: 100 })).entities.filter((e) => e.kind === "approval").length, 1);
+  assert.equal((await host.call("session.history", { chat: "main", before: 100, limit: 100 })).entities.length, 0);
+  await host.call("chat.send", { chat: side.id, text: "continue", timezone: "UTC", attachments: [] });
+  assert.equal(io(), agent, "the harness and the normal port share one IO");
+  await host.call("chats.delete", { id: side.id });
+  assert.throws(() => host.agent(side.id), /no chat/);
 });
 
 test("an agent cannot move a run the user stopped", async () => {
@@ -356,4 +379,202 @@ test("a turn Amuse could not reply to is tried again once: the user's message as
     { kind: "note", text: "[task done] found 3 offers" },
   ]);
   await assert.rejects(host.call("chat.retry", { id: "x1" }), /cannot retry from retried/);
+});
+
+test("a reply with nothing in it (no words, no files) never reaches the chat; a file alone does", async () => {
+  const { ports, io } = capture();
+  const host = createHost(ports);
+  await host.call("chat.send", { chat: "main", text: "anything new?", timezone: "UTC", attachments: [] });
+  const agent = io();
+  assert.ok(agent);
+  const at = "2026-10-20T08:00:00Z";
+  agent.emit({ kind: "upserted", entity: { kind: "reply", id: "r1", at, text: "", streaming: false, attachments: [] } });
+  agent.emit({ kind: "upserted", entity: { kind: "reply", id: "r2", at, text: " \n\t ", streaming: false, attachments: [] } });
+  agent.emit({ kind: "upserted", entity: { kind: "reply", id: "r3", at, text: "", streaming: false, attachments: [{ id: "f1", name: "a.txt", type: "text/plain", size: 1, path: "user/a.txt" }] } });
+  agent.emit({ kind: "upserted", entity: { kind: "reply", id: "r4", at, text: "Nothing new.", streaming: false, attachments: [] } });
+  const { entities } = await host.call("session.history", { chat: "main", before: 100, limit: 100 });
+  assert.deepEqual(entities.filter((e) => e.kind === "reply").map((e) => e.id), ["r3", "r4"]);
+});
+
+test("work handed off is looked in on: the chat agent hears how a task goes every ten minutes while it runs, and no more once it ends", async () => {
+  const time = manualTime("2026-10-20T08:00:00Z");
+  const notes: string[] = [];
+  const { ports, io } = capture();
+  const host = createHost(
+    { ...ports, prompt: (turn, agent) => (turn.kind === "note" ? void notes.push(turn.text) : ports.prompt(turn, agent)) },
+    { clock: time.clock, timers: time.timers },
+  );
+  await host.call("chat.send", { chat: "main", text: "compare the offers", timezone: "UTC", attachments: [] });
+  const agent = io();
+  assert.ok(agent);
+  const made = agent.act({ kind: "task", title: "Compare offers", instructions: "Compare them" });
+  assert.ok(made.ok);
+  assert.ok(agent.act({ kind: "taskSteps", id: made.id, steps: [{ label: "Read", done: true }, { label: "Compare", done: false }] }).ok);
+  time.advance(9 * 60_000);
+  assert.deepEqual(notes, [], "not before ten minutes");
+  time.advance(60_000);
+  assert.equal(notes.length, 1);
+  assert.match(notes[0] ?? "", /\[heartbeat\] Your task "Compare offers" .* has been going 10 minutes; it is \w+, 1 of 2 steps done \(next: Compare\)/);
+  time.advance(10 * 60_000);
+  assert.equal(notes.length, 2);
+  assert.match(notes[1] ?? "", /going 20 minutes/);
+  assert.ok(agent.act({ kind: "taskEnded", id: made.id, status: "completed", result: "B" }).ok);
+  time.advance(30 * 60_000);
+  assert.equal(notes.length, 2, "an ended task is not looked in on");
+});
+
+test("a Connect card still waiting is connected once its app has an account connected since, however it got one; the agent hears", async () => {
+  const notes: string[] = [];
+  const { ports, io } = capture();
+  const gmail = { id: "gmail", name: "Gmail", description: "", logo: null };
+  // the user's first Gmail, from before: the card is for another one
+  const accounts: Account[] = [{ id: "ca_0", app: gmail, label: "old@a.com", status: "active", since: "2020-01-01T00:00:00Z" }];
+  const host = createHost(
+    {
+      ...ports,
+      prompt: (turn, agent) => (turn.kind === "note" ? void notes.push(turn.text) : ports.prompt(turn, agent)),
+      apps: { ...ports.apps, accounts: async () => accounts },
+    },
+    { timers: manualTime("2026-10-20T08:00:00Z").timers },
+  );
+  await host.call("chat.send", { chat: "main", text: "read my mail", timezone: "UTC", attachments: [] });
+  const agent = io();
+  assert.ok(agent);
+  const card = agent.act({ kind: "connect", provider: "gmail", title: "Gmail" });
+  const other = agent.act({ kind: "connect", provider: "slack", title: "Slack" });
+  assert.ok(card.ok && other.ok);
+  const status = async (id: string) => {
+    const { entities } = await host.call("session.history", { chat: "main", before: 100, limit: 100 });
+    const found = entities.find((e) => e.id === id);
+    return found?.kind === "connection" ? found.status : null;
+  };
+  await host.call("apps.accounts", {});
+  assert.equal(await status(card.id), "pending", "an account there before the card is not the one it asked for");
+  accounts.push({ id: "ca_1", app: gmail, label: "me@a.com", status: "active", since: new Date().toISOString() });
+  await host.call("apps.accounts", {});
+  assert.equal(await status(card.id), "connected");
+  assert.equal(await status(other.id), "pending", "an app without an account still waits");
+  assert.deepEqual(notes, ["[connection] Gmail is connected now. Tell the user so in a short line; if something was waiting on it, carry on with it."]);
+  await host.call("apps.accounts", {});
+  assert.equal(notes.length, 1, "once");
+});
+
+test("every approval asked, in any chat, is listed newest first with its chat, and an answer for good says so", async () => {
+  const time = manualTime("2026-10-20T08:00:00Z");
+  const { ports, io } = capture();
+  const host = createHost(ports, { clock: time.clock, timers: time.timers });
+  await host.call("chat.send", { chat: "main", text: "send it", timezone: "UTC", attachments: [] });
+  const main = io();
+  assert.ok(main);
+  const first = main.act({ kind: "ask", action: "Send the email", target: "me@a.com", detail: "To: x", remember: true, app: "gmail" });
+  assert.ok(first.ok);
+  await host.call("approval.resolve", { id: first.id, resolution: "allow_always" });
+  time.advance(60_000);
+  const side = await host.call("chats.create", {});
+  await host.call("chat.send", { chat: side.id, text: "and visit", timezone: "UTC", attachments: [] });
+  const other = io();
+  assert.ok(other);
+  const second = other.act({ kind: "ask", action: "Visit", target: "news.example", detail: "to read", remember: true });
+  assert.ok(second.ok);
+  const { approvals } = await host.call("approvals.list", {});
+  assert.deepEqual(
+    approvals.map((a) => [a.chat.id, a.approval.action, a.approval.status, a.approval.always, a.approval.app]),
+    [
+      [side.id, "Visit", "pending", false, null],
+      ["main", "Send the email", "approved", true, "gmail"],
+    ],
+  );
+});
+
+test("the sandbox is reset when the user asks; with none on the server they are told so", async () => {
+  const { ports } = capture();
+  await assert.rejects(createHost(ports).call("sandbox.reset", {}), /no sandbox/);
+  let wiped = 0;
+  const host = createHost({ ...ports, sandbox: { ...noSandbox, reset: async () => void wiped++ } });
+  assert.equal(await host.call("sandbox.reset", {}), null);
+  assert.equal(wiped, 1);
+});
+
+test("a credential the user gives goes to the sandbox alone: not the chat, its record or what the agent hears", async () => {
+  const notes: string[] = [];
+  const given: { name: string; value: string }[] = [];
+  const { ports, io } = capture();
+  const host = createHost({
+    ...ports,
+    prompt: (turn, agent) => (turn.kind === "note" ? void notes.push(turn.text) : ports.prompt(turn, agent)),
+    sandbox: { ...noSandbox, give: async (request, value) => void given.push({ name: request.name, value }) },
+  });
+  await host.call("chat.send", { chat: "main", text: "log in to the CLI", timezone: "UTC", attachments: [] });
+  const agent = io();
+  assert.ok(agent);
+  const asked = agent.act({ kind: "askSecret", name: "Login code", why: "the CLI waits for it", deliver: { kind: "stdin", pane: "w1:p2" } });
+  assert.ok(asked.ok);
+  await host.call("secret.answer", { id: asked.id, value: "code-very-secret" });
+  assert.deepEqual(given, [{ name: "Login code", value: "code-very-secret" }]);
+  const { entities } = await host.call("session.history", { chat: "main", before: 100, limit: 100 });
+  const request = entities.find((e) => e.id === asked.id);
+  assert.equal(request?.kind === "secret" ? request.status : null, "provided");
+  assert.doesNotMatch(JSON.stringify(entities), /code-very-secret/);
+  assert.equal(notes.length, 1);
+  assert.doesNotMatch(notes[0] ?? "", /code-very-secret/);
+  await assert.rejects(host.call("secret.answer", { id: asked.id, value: "again" }), /answered already/);
+
+  const declined = agent.act({ kind: "askSecret", name: "API key", why: "a tool needs it", deliver: { kind: "env", name: "TOOL_KEY" } });
+  assert.ok(declined.ok);
+  await host.call("secret.answer", { id: declined.id, value: null });
+  assert.equal(given.length, 1, "nothing goes to the sandbox when declined");
+  assert.match(notes[1] ?? "", /declined/);
+});
+
+test("the browser's rules are listed with their defaults and what the user chose, and a site's exceptions are kept as a whole", async () => {
+  const { ports } = capture();
+  const host = createHost(ports);
+  assert.deepEqual((await host.call("browser.rules", {})).rules, [
+    { action: "visit", permission: "ask", chosen: false },
+    { action: "submit", permission: "ask", chosen: false },
+    { action: "download", permission: "allow", chosen: false },
+    { action: "upload", permission: "ask", chosen: false },
+  ]);
+  await host.call("browser.permit", { action: "submit", permission: "deny" });
+  await host.call("browser.permit", { action: "download", permission: "ask" });
+  assert.deepEqual(
+    (await host.call("browser.rules", {})).rules.map((r) => `${r.action} ${r.permission}${r.chosen ? "*" : ""}`),
+    ["visit ask", "submit deny*", "download ask*", "upload ask"],
+  );
+  await host.call("browser.permit", { action: "submit", permission: null });
+  assert.deepEqual((await host.call("browser.rules", {})).rules[1], { action: "submit", permission: "ask", chosen: false });
+
+  await host.call("sites.permit", { site: "bank.com", rule: { never: true, actions: {} } });
+  await host.call("sites.permit", { site: "a5.ucsd.edu", rule: { never: false, actions: { visit: "allow", submit: "allow" } } });
+  assert.deepEqual((await host.call("sites.rules", {})).rules, [
+    { site: "a5.ucsd.edu", never: false, actions: { visit: "allow", submit: "allow" } },
+    { site: "bank.com", never: true, actions: {} },
+  ]);
+  await host.call("sites.permit", { site: "bank.com", rule: null });
+  await host.call("sites.permit", { site: "a5.ucsd.edu", rule: { never: false, actions: {} } });
+  assert.deepEqual((await host.call("sites.rules", {})).rules, [], "a site with nothing set is none");
+});
+
+test("a refusal by the user's rule is an approval that ends denied, marked as the rule's; it is listed with the others and cannot be answered", async () => {
+  const time = manualTime("2026-10-20T08:00:00Z");
+  const { ports, io } = capture();
+  const host = createHost(ports, { clock: time.clock, timers: time.timers });
+  await host.call("chat.send", { chat: "main", text: "mail them", timezone: "UTC", attachments: [] });
+  const agent = io();
+  assert.ok(agent);
+  const refused = agent.act({ kind: "refuse", action: "Email x@y.z", target: "me@a.com", detail: "Your rule for Gmail (Write permissions: Deny)", app: "gmail" });
+  assert.ok(refused.ok);
+  const asked = agent.act({ kind: "ask", action: "Visit", target: "news.example", detail: "to read", remember: true });
+  assert.ok(asked.ok);
+  const { approvals } = await host.call("approvals.list", {});
+  const record = approvals.find((a) => a.approval.id === refused.id)?.approval;
+  assert.deepEqual(record && { status: record.status, byRule: record.byRule, remember: record.remember, app: record.app, target: record.target }, {
+    status: "denied",
+    byRule: true,
+    remember: false,
+    app: "gmail",
+    target: "me@a.com",
+  });
+  assert.equal(approvals.find((a) => a.approval.id === asked.id)?.approval.byRule, false);
+  await assert.rejects(host.call("approval.resolve", { id: refused.id, resolution: "allow_once" }), /cannot resolve from denied/);
 });

@@ -1,17 +1,31 @@
 /**
- * Muse's page navigation, shared by the desktop icon rail and the mobile
- * drawer (Muse mobile has a bottom bar; amuse puts the same pages in the
- * drawer instead, per owner). Only pages that exist are listed; Muse's
- * others (Search, Docs, Ideas, Tasks, Apps) join as they are built.
+ * The sidebar's pages, always at its top: the user's things, shown in the
+ * sidebar under them. Chats is where it starts. Feeds joins when it is built.
+ * (Settings is not one: it sits at the sidebar's bottom and opens its window.)
  */
-import { type LucideIcon, MessageCircle } from "lucide-react";
+import { BookOpen, type LucideIcon, MessageCircle, Target } from "lucide-react";
+import type { Actions, LeftSection } from "../ui.ts";
 
 export interface NavPage {
   icon: LucideIcon;
   label: string;
-  active: boolean;
+  /** whether it is the page the sidebar shows (`left` its section, null for the chats) */
+  shown(left: LeftSection | null): boolean;
+  open(actions: Actions): void;
 }
 
 export const NAV_PAGES: NavPage[] = [
-  { icon: MessageCircle, label: "Chat", active: true },
+  {
+    icon: MessageCircle,
+    label: "Chats",
+    shown: (left) => left === null,
+    open: (actions) => actions.openLeft(null),
+  },
+  {
+    icon: Target,
+    label: "Goals",
+    shown: (left) => left === "goals",
+    open: (actions) => actions.openLeft("goals"),
+  },
+  { icon: BookOpen, label: "Skills", shown: (left) => left === "skills", open: (actions) => actions.openLeft("skills") },
 ];

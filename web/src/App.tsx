@@ -15,19 +15,30 @@ import { Files, serverFiles } from "./files.ts";
 import { Unlock } from "./components/Unlock";
 import { type Actions, type Ui, initialUi } from "./ui.ts";
 import { viewerTabs } from "./view.ts";
+import { type Outgoing, outgoingIn } from "./outgoing.ts";
 import { transition } from "./transition.ts";
 import { close, useBack } from "./back.ts";
 
-const VIEWER_WIDTH = "amuse.viewerWidth";
-/** The viewer is at least 420px; the chat keeps at least 360px beside the 56px rail. */
+/** the width the user dragged the viewer to (only that is kept; the default follows the window) */
+const VIEWER_WIDTH = "amuse.viewerDragged";
+/** The viewer is at least 420px; the chat keeps at least 360px (the sidebar gives way first). */
 const clampViewer = (width: number) =>
-  Math.round(Math.max(420, Math.min(width, innerWidth - 56 - 360)));
+  Math.round(Math.max(420, Math.min(width, innerWidth - 360)));
+/** whether the sidebar is docked where there is room (the user's choice) */
+const SIDEBAR = "amuse.sidebar";
+/** the chat's least width beside a docked sidebar: with less, the sidebar collapses */
+const CHAT_ROOM = 480;
 import { MusePanel } from "./components/MusePanel";
 import { ChatFeed } from "./components/ChatFeed";
-import { ChatsPanel } from "./components/ChatsPanel";
+import {
+  DockedSidebar,
+  DrawerSidebar,
+  SIDEBAR_INSET,
+  SIDEBAR_ROOM,
+  SIDEBAR_WIDTH,
+} from "./components/ChatsPanel";
 import { Composer } from "./components/Composer";
 import { ExplainerModal } from "./components/ExplainerModal";
-import { IconRail } from "./components/IconRail";
 import { SettingsModal } from "./components/SettingsModal";
 import { TaskDetailSheet } from "./components/TaskDetailSheet";
 import { BrowserButton } from "./components/BrowserButton";
@@ -79,12 +90,19 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
   const [ui, setUi] = useState<Ui>(() => ({
     ...initialUi,
     theme: storedTheme(),
+    sidebar: localStorage.getItem(SIDEBAR) !== "false",
   }));
   const {
     state: conversation,
     older,
     release,
   } = useConversation(session, ui.chat);
+  /** messages on their way, shown at once (outgoing.ts) */
+  const [outgoing, setOutgoing] = useState<Outgoing[]>([]);
+  const shownOutgoing = useMemo(
+    () => outgoingIn(conversation.entities, outgoing, ui.chat),
+    [conversation.entities, outgoing, ui.chat],
+  );
   /** where files go and come from: the server's (the demo keeps none) */
   const files = useMemo(
     () => (where.kind === "server" ? serverFiles(where.rpc) : null),
@@ -106,6 +124,23 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
       () => {},
     );
   }, [session, where.kind, ui.settings.open]);
+  // back from connecting an app (another tab, or Settings): a Connect card still waiting asks how it went
+  useEffect(() => {
+    if (where.kind !== "server") return;
+    const waiting = () =>
+      conversationRef.current.entities.some(
+        (e) => e.kind === "connection" && e.status === "pending",
+      );
+    const look = () => {
+      if (document.visibilityState === "visible" && waiting())
+        session.call("apps.accounts", {}).catch(() => {});
+    };
+    if (!ui.settings.open) look();
+    document.addEventListener("visibilitychange", look);
+    return () => document.removeEventListener("visibilitychange", look);
+  }, [session, where.kind, ui.settings.open]);
+  const conversationRef = useRef(conversation);
+  conversationRef.current = conversation;
   const needsAppsKeyRef = useRef(needsAppsKey);
   needsAppsKeyRef.current = needsAppsKey;
   /** the chat on screen, for actions made once (sending goes where the user is now) */
@@ -123,10 +158,63 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
 
   // desktop: how wide the browser viewer is (its left edge is dragged), kept on this device
   const [viewerWidth, setViewerWidth] = useState(() =>
-    clampViewer(Number(localStorage.getItem(VIEWER_WIDTH)) || innerWidth - 482),
+    // first time: at most two thirds of the window, the chat keeping the rest
+    clampViewer(
+      Number(localStorage.getItem(VIEWER_WIDTH)) ||
+        Math.min(innerWidth - 482, (innerWidth * 2) / 3),
+    ),
   );
+  /** the window's width: what decides whether the sidebar has room to dock */
+  const [width, setWidth] = useState(innerWidth);
   useEffect(() => {
-    localStorage.setItem(VIEWER_WIDTH, String(viewerWidth));
+    const resized = () => setWidth(innerWidth);
+    addEventListener("resize", resized);
+    return () => removeEventListener("resize", resized);
+  }, []);
+  // the right side's share: the browser (docked from lg), or a docked Muse panel
+  const right =
+    ui.viewer && width >= 1024
+      ? viewerWidth + 8
+      : ui.museOpen && !ui.viewer && width >= 768
+        ? 368
+        : 0;
+  /** room to dock the sidebar and leave the chat enough (md up) */
+  const fits = width >= 768 && width - right - SIDEBAR_ROOM >= CHAT_ROOM;
+  const docked = ui.sidebar && fits;
+  /** the sidebar is out, docked or over the chat */
+  const sidebarOut = docked || ui.chatsOpen;
+  // ☰ sits in the sidebar's top right while it is out (4px in from its edge), else at the chat's top left
+  // (on a phone the sidebar is a page of its own: the screen's top right)
+  const drawerWidth = width >= 768 ? SIDEBAR_WIDTH : width;
+  const menuLeft = sidebarOut
+    ? (width >= 768 ? SIDEBAR_INSET : 0) + drawerWidth - 4 - 44
+    : 12;
+  // once there is room to dock it, the sidebar is no longer a drawer over the chat
+  useEffect(() => {
+    if (docked) setUi((u) => (u.chatsOpen ? { ...u, chatsOpen: false } : u));
+  }, [docked]);
+  useEffect(() => {
+    // what the right side takes of the window: the browser button keeps to the chat's corner beside it
+    document.documentElement.style.setProperty(
+      "--right-room",
+      `${width >= 768 ? right : 0}px`,
+    );
+  }, [width, right]);
+  useEffect(() => {
+    // the browser's share of the window, when it is docked there: what floats over the chat dims all but it
+    document.documentElement.style.setProperty(
+      "--viewer-room",
+      `${ui.viewer && width >= 1024 ? viewerWidth + 8 : 0}px`,
+    );
+  }, [ui.viewer, width, viewerWidth]);
+  useEffect(() => {
+    // read by what floats over the chat (the Muse panel), to keep beside the sidebar
+    document.documentElement.style.setProperty(
+      "--sidebar-width",
+      `${docked ? SIDEBAR_ROOM : 0}px`,
+    );
+  }, [docked]);
+  useEffect(() => {
     document.documentElement.style.setProperty(
       "--viewer-width",
       `${viewerWidth}px`,
@@ -145,15 +233,50 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
       );
     return {
       // the device's time zone is the user's: times the agent sets and says are on their clock
-      send: (text, attachments) =>
-        call("chat.send", {
-          chat: chatRef.current,
-          text,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          attachments,
-        }),
+      // shown at once as sending; one that does not get through comes off the chat (the composer takes it back)
+      send: (text, attachments) => {
+        const chat = chatRef.current;
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const key = `sending-${crypto.randomUUID()}`;
+        setOutgoing((list) => [
+          ...list,
+          {
+            key,
+            chat,
+            text,
+            attachments,
+            at: new Date().toISOString(),
+            timezone,
+            sent: null,
+            after: conversationRef.current.entities.at(-1)?.id ?? null,
+          },
+        ]);
+        return session
+          .call("chat.send", { chat, text, timezone, attachments })
+          .then(
+            ({ id }) =>
+              setOutgoing((list) =>
+                list.map((o) => (o.key === key ? { ...o, sent: id } : o)),
+              ),
+            (error: unknown) => {
+              setOutgoing((list) => list.filter((o) => o.key !== key));
+              const reason =
+                error instanceof Error ? error.message : String(error);
+              patch((u) => ({
+                ...u,
+                notice:
+                  reason === "disconnected"
+                    ? "Not sent: Amuse could not be reached. Your message is back in the box."
+                    : `Not sent: ${reason}`,
+              }));
+              throw error;
+            },
+          );
+      },
       stop: () => call("chat.stop", { chat: chatRef.current }),
       retry: (id) => call("chat.retry", { id }),
+      answerSecret: async (id, value) =>
+        void (await session.call("secret.answer", { id, value })),
       resolveApproval: (id, resolution) =>
         call("approval.resolve", { id, resolution }),
       // before apps are set up, a Connect card goes straight to where their key goes
@@ -205,7 +328,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           patch((u) => ({
             ...u,
             museOpen: false,
-            viewer: { browserId },
+            viewer: { browserId, shown: "browser" },
           }));
         // only a docked Muse panel's avatar has somewhere to travel; otherwise the viewer just slides in
         // (a transition would lift the avatar over the viewer, then drop it at the end)
@@ -217,6 +340,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         patch((u) =>
           u.viewer ? { ...u, viewer: { ...u.viewer, browserId } } : u,
         ),
+      showInViewer: (shown) =>
+        patch((u) => (u.viewer ? { ...u, viewer: { ...u.viewer, shown } } : u)),
       // closing a tab closes its browser; the viewer moves to another open one, or goes
       closeTab: (browserId) => {
         call("browser.control", { id: browserId, action: "stop" });
@@ -226,10 +351,11 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
             .filter((b) => b.id !== browserId)
             .at(-1);
           // the last one closed: the viewer stays, saying none is open
-          if (!last) return { ...u, viewer: { browserId: null } };
+          if (!last) return { ...u, viewer: { ...u.viewer, browserId: null } };
           return {
             ...u,
             viewer: {
+              ...u.viewer,
               browserId:
                 u.viewer.browserId === browserId ? last.id : u.viewer.browserId,
             },
@@ -247,7 +373,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
               patch((u) => ({
                 ...u,
                 museOpen: false,
-                viewer: { browserId: id },
+                viewer: { browserId: id, shown: "browser" },
               })),
             (error: unknown) =>
               patch((u) => ({
@@ -262,6 +388,14 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
       stopTask: (id) => call("task.stop", { id }),
       openTaskDetail: (taskDetail) => patch((u) => ({ ...u, taskDetail })),
       setChats: (chatsOpen) => patch((u) => ({ ...u, chatsOpen })),
+      setSidebar: (sidebar) => {
+        localStorage.setItem(SIDEBAR, String(sidebar));
+        patch((u) => ({ ...u, sidebar, chatsOpen: false }));
+      },
+      openLeft: (left) =>
+        patch((u) => ({ ...u, left, goal: null, skill: null })),
+      openGoal: (goal) => patch((u) => ({ ...u, goal })),
+      openSkill: (skill) => patch((u) => ({ ...u, skill })),
       // a chat's browsers are its own: the viewer starts over
       openChat: (chat) =>
         patch((u) => ({ ...u, chat, chatsOpen: false, viewer: null })),
@@ -325,13 +459,30 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         className="flex h-full"
         style={{ background: "var(--chat-background)" }}
       >
-        <IconRail actions={actions} />
+        {/* on a desktop, closing (by ☰, or giving way) as it opens: by its width */}
+        <DockedSidebar
+          open={docked}
+          chats={chats}
+          current={ui.chat}
+          left={ui.left}
+          goal={ui.goal}
+          skill={ui.skill}
+          session={session}
+          actions={actions}
+        />
         {/* with the viewer open on desktop, the chat keeps what the viewer leaves */}
         <div
-          className={`relative flex min-w-0 flex-1 flex-col ${ui.viewer ? "lg:mr-[var(--viewer-width)]" : ""}`}
+          className="relative flex min-w-0 flex-1 flex-col"
+          // the right side's panel (the Amuse panel, or the browser) pushes the chat aside on the same curve as the
+          // sidebar on the left
+          style={{
+            marginRight: width >= 768 ? right : 0,
+            transition: "margin-right 0.24s cubic-bezier(0.2, 0, 0, 1)",
+          }}
         >
           <ChatFeed
             conversation={conversation}
+            outgoing={shownOutgoing}
             older={older}
             release={release}
             thumb={where.kind === "server" ? where.thumb : null}
@@ -342,7 +493,19 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
             museOpen={ui.museOpen}
             actions={actions}
           />
-          <MenuButton open={ui.chatsOpen} actions={actions} />
+          <MenuButton
+            open={sidebarOut}
+            left={menuLeft}
+            onClick={() =>
+              docked
+                ? actions.setSidebar(false)
+                : ui.chatsOpen
+                  ? actions.setChats(false)
+                  : fits
+                    ? actions.setSidebar(true)
+                    : actions.setChats(true)
+            }
+          />
           <BrowserButton
             conversation={conversation}
             open={ui.viewer !== null}
@@ -385,17 +548,21 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           />
         </div>
 
-        {ui.museOpen && (
-          <MusePanel
-            conversation={conversation}
-            mode={ui.viewer ? "floating" : "docked"}
-            actions={actions}
-          />
-        )}
-        <ChatsPanel
-          open={ui.chatsOpen}
+        <MusePanel
+          open={ui.museOpen}
+          conversation={conversation}
+          session={session}
+          mode={ui.viewer ? "floating" : "docked"}
+          actions={actions}
+        />
+        <DrawerSidebar
+          open={ui.chatsOpen && !docked}
           chats={chats}
           current={ui.chat}
+          left={ui.left}
+          goal={ui.goal}
+          skill={ui.skill}
+          session={session}
           actions={actions}
         />
         <SettingsModal
@@ -420,7 +587,12 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           viewer={ui.viewer}
           live={where.kind === "server" ? where.live : null}
           thumb={where.kind === "server" ? where.thumb : null}
-          onResize={(edge) => setViewerWidth(clampViewer(innerWidth - edge))}
+          terminal={where.kind === "server" ? where.terminal : null}
+          onResize={(edge) => {
+            const width = clampViewer(innerWidth - 8 - edge);
+            localStorage.setItem(VIEWER_WIDTH, String(width));
+            setViewerWidth(width);
+          }}
           actions={actions}
         />
       </div>

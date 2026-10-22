@@ -16,6 +16,55 @@
         document.documentElement.className = dark ? "dark" : "light";
       })();
     </script>
+    <!-- if Amuse cannot start here (a browser too old for it, a script that fails to load or run), say so, with why, not a blank page -->
+    <script>
+      (function () {
+        var errors = [];
+        var note = function (message) {
+          if (errors.length < 4) errors.push(String(message).slice(0, 400));
+        };
+        window.addEventListener(
+          "error",
+          function (event) {
+            var source = event.target && event.target.src;
+            note(event.message || (source ? "Could not load " + source : "An error"));
+          },
+          true,
+        );
+        window.addEventListener("unhandledrejection", function (event) {
+          note((event.reason && event.reason.message) || event.reason);
+        });
+        setTimeout(function () {
+          var root = document.getElementById("root");
+          if (!root || root.textContent.trim() !== "") return;
+          var box = document.createElement("div");
+          box.style.cssText = "font:15px/1.5 system-ui,sans-serif;padding:48px 24px;max-width:560px;color:#8e8e93";
+          var title = document.createElement("p");
+          title.style.cssText = "font-weight:600;font-size:17px;margin:0 0 8px";
+          title.textContent = "Amuse could not start in this browser";
+          var text = document.createElement("p");
+          text.style.cssText = "margin:0 0 16px";
+          text.textContent = "Try updating the browser, or open Amuse in another one. What went wrong:";
+          var detail = document.createElement("pre");
+          detail.style.cssText = "white-space:pre-wrap;word-break:break-word;font-size:12px;margin:0";
+          var stage = document.documentElement.getAttribute("data-amuse") || "the app's script never ran";
+          var loads = (performance.getEntriesByType ? performance.getEntriesByType("resource") : [])
+            .filter(function (entry) {
+              return /\/(assets|unlock|rpc)/.test(entry.name);
+            })
+            .map(function (entry) {
+              return entry.name.replace(location.origin, "") + ": " + Math.round(entry.duration) + " ms, " + (entry.responseStatus || "?") + ", " + (entry.transferSize || 0) + " bytes";
+            });
+          detail.textContent =
+            (errors.length ? errors.join("\n") : "Nothing failed that the page could see.") +
+            "\nGot as far as: " + stage +
+            "\n" + loads.join("\n") +
+            "\n\n" + navigator.userAgent;
+          box.append(title, text, detail);
+          root.append(box);
+        }, 10000);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -31,15 +31,34 @@ const handlers: Handlers = {
   "apps.disconnect": async () => null,
   "apps.permissions": async () => ({ rules: [] }),
   "apps.permit": async () => null,
+  "browser.rules": async () => ({ rules: [] }),
+  "browser.permit": async () => null,
   "sites.rules": async () => ({ rules: [] }),
   "sites.permit": async () => null,
-  "keys.list": async () => ({ providers: [], models: [], chat: null, browser: null }),
+  "logins.list": async () => ({ sites: [] }),
+  "logins.forget": async () => null,
+  "sandbox.reset": async () => null,
+  "approvals.list": async () => ({ approvals: [] }),
+  "goals.list": async () => ({ goals: [] }),
+  "goals.get": async () => ({ goal: { id: "g", title: "G", status: "active", muted: false, added: "", about: "", latest: null }, log: [] }),
+  "goals.add": async () => ({ id: "g", title: "G", status: "active", muted: false, added: "", about: "", latest: null }),
+  "goals.update": async () => null,
+  "secret.answer": async () => null,
+  "secrets.list": async () => ({ secrets: [] }),
+  "secrets.remove": async () => null,
+  "skills.list": async () => ({ skills: [] }),
+  "skills.get": async () => ({ skill: { name: "s", description: "d", origin: "yours", replaced: false }, body: "", files: [] }),
+  "skills.remove": async () => null,
+  "keys.list": async () => ({ providers: [], models: [], chat: null, browser: null, background: null, thinking: { chat: "off", browser: "off", background: "off" }, voice: { services: [], chosen: null, local: null } }),
   "keys.login": async () => ({ kind: "done" }),
   "keys.answer": async () => ({ kind: "done" }),
   "keys.cancel": async () => null,
   "keys.test": async () => ({ ok: true, detail: "GLM 5.3 Flash answered." }),
   "keys.logout": async () => null,
   "models.choose": async () => null,
+  "models.think": async () => null,
+  "models.voice": async () => null,
+  "models.localVoice": async () => null,
 };
 
 test("a framed request parses into a typed call and dispatches to its handler", async () => {
@@ -55,4 +74,20 @@ test("unknown methods and bad params are rejected by Call, not by framing", () =
   assert.equal(Call.safeParse({ method: unknown.method, params: unknown.params }).success, false);
   assert.equal(Call.safeParse({ method: "chat.send", params: { chat: "main", text: "", timezone: "UTC", attachments: [] } }).success, false);
   assert.equal(Call.safeParse({ method: "browser.control", params: { id: "b1", action: "fly" } }).success, false);
+});
+
+test("the browser's rules: an upload can be asked about or denied, never allowed, for the browser and for a site; a site's rule is typed", () => {
+  const ok = (call: unknown) => Call.safeParse(call).success;
+  assert.ok(ok({ method: "browser.permit", params: { action: "submit", permission: "allow" } }));
+  assert.ok(ok({ method: "browser.permit", params: { action: "upload", permission: "ask" } }));
+  assert.ok(ok({ method: "browser.permit", params: { action: "upload", permission: null } }));
+  assert.equal(ok({ method: "browser.permit", params: { action: "upload", permission: "allow" } }), false);
+  assert.equal(ok({ method: "browser.permit", params: { action: "fly", permission: "ask" } }), false);
+  assert.ok(ok({ method: "sites.permit", params: { site: "a5.ucsd.edu", rule: { never: false, actions: { submit: "allow", download: "deny" } } } }));
+  assert.ok(ok({ method: "sites.permit", params: { site: "bank.com", rule: { never: true, actions: {} } } }));
+  assert.ok(ok({ method: "sites.permit", params: { site: "bank.com", rule: null } }));
+  assert.equal(ok({ method: "sites.permit", params: { site: "bank.com", rule: { never: false, actions: { upload: "allow" } } } }), false);
+  assert.equal(ok({ method: "sites.permit", params: { site: "bank.com", rule: { never: false, actions: { fly: "allow" } } } }), false);
+  assert.equal(ok({ method: "sites.permit", params: { site: "not a site", rule: null } }), false);
+  assert.equal(ok({ method: "sites.permit", params: { site: "bank.com", permission: "deny" } }), false, "the old shape");
 });

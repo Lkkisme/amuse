@@ -34,7 +34,7 @@ async function fixture(t: TestContext, options: { live?: boolean; native?: boole
   const browsers: Browsers = {
     open: async () => {}, look: async () => ({ url: "https://example.com/", title: "Test", text: "", elements: [] }),
     step: async () => {}, screenshot: async (id) => ["native-run", "rfb-run"].includes(id) ? png : null,
-    remember: async () => {}, fit: async () => {}, close: async () => {},
+    remember: async () => {}, fit: async () => {}, close: async () => {}, logins: async () => [], forgetLogin: async () => {},
     vnc: (id) => id === "rfb-run" ? target : null,
     upload: async () => {}, downloads: async () => [], stillOpen: async () => true,
   };

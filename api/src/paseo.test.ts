@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, rmdirSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
-import { type AgentIO, type Ports, createHost, memoryChats, memoryRules, noKeys, noWorkspace } from "@amuse/core";
+import { type AgentIO, type Ports, createHost, memoryChats, memoryRules, noKeys, noWorkspace, noLogins, noSandbox } from "@amuse/core";
 import type { Session, Task } from "@amuse/protocol";
 import type { FileStore } from "./workspace.ts";
 import { type BridgeAgent, type BridgeClient, type BridgeEntry, type PaseoBridgeOptions, paseoBridge } from "./paseo.ts";
@@ -24,7 +24,8 @@ class FakeClient implements BridgeClient {
   closed = false;
   announceCreated = false;
   announceWatched = false;
-  failSend: "before" | "after" | null = null;
+  failSend: "before" | "after" | "busy" | "unknown" | null = null;
+  rejectedBusyIds = new Set<string>();
   async listAgents() { return [...this.agents.values()].map((value) => structuredClone(value)); }
   async createAgent(title?: string, cwd?: string, options?: PaseoCreateOptions) {
     this.createCalls.push({ title, cwd, options: structuredClone(options) });
@@ -51,7 +52,10 @@ class FakeClient implements BridgeClient {
     this.sends.push({ id, text, ...options });
     const fail = this.failSend;
     this.failSend = null;
+    if (options?.clientMessageId && this.rejectedBusyIds.has(options.clientMessageId)) throw new Error("agent_request_outcome_unknown");
     if (fail === "before") throw new Error("mock transport rejected before receipt");
+    if (fail === "unknown") throw new Error("agent_request_outcome_unknown");
+    if (fail === "busy") { if (options?.clientMessageId) this.rejectedBusyIds.add(options.clientMessageId); throw new Error("The local Qwen worker is busy. Another native team owns its lease."); }
     const existing = this.entries.get(id) ?? [];
     const seq = (existing.at(-1)?.seqEnd ?? 0) + 1;
     this.entries.set(id, [...existing, { seqStart: seq, seqEnd: seq, timestamp: at, item: { type: "user_message", text, messageId: `message-${seq}`, clientMessageId: options?.clientMessageId } }]);
@@ -69,18 +73,18 @@ function ports(): Ports {
     interrupt: () => {}, title: async () => "unused", browse: () => {}, job: () => {}, task: () => {}, schedule: () => {},
     browser: () => {}, approval: () => {}, stopTask: () => {}, fit: () => {}, connect: async () => "https://example.invalid/",
     apps: { search: async () => ({ apps: [], cursor: null }), accounts: async () => [], connect: async () => "https://example.invalid/", disconnect: async () => {}, permissions: async () => [], permit: async () => {} },
-    rules: memoryRules(), keys: noKeys, files: noWorkspace,
+    rules: memoryRules(), keys: noKeys, files: noWorkspace, logins: noLogins, sandbox: noSandbox,
   };
 }
 
-async function setup(t: TestContext, client = new FakeClient(), browser: Pick<PaseoBridgeOptions, "browserOpen" | "browserMcp" | "browserInstructions"> = {}) {
+async function setup(t: TestContext, client = new FakeClient(), browser: Partial<PaseoBridgeOptions> = {}) {
   const dir = mkdtempSync(join(tmpdir(), "amuse-paseo-test-"));
   const path = join(dir, "bridge.json");
   const store = memoryChats();
   const host = createHost(ports(), { store });
   const options: PaseoBridgeOptions = {
     path, cwd: "D:\\LocalAI\\Amuse", workspaceRoot: dir, model: "same-qwen", contextWindow: 262144,
-    files: { ...noWorkspace, save: async () => null, find: () => null } satisfies FileStore,
+    files: { ...noWorkspace, save: async () => null, find: () => null, serve: async () => null } satisfies FileStore,
     ...browser,
   };
   const bridge = paseoBridge(client, options);
@@ -99,6 +103,79 @@ async function mirrored(session: Session, title: string) {
   assert.ok(chat, `missing mirrored chat ${title}`);
   return chat.id;
 }
+
+test("an explicit worker-busy refusal retains a durable queued message and retries only after the lease backoff", async (t) => {
+  let now = Date.parse(at);
+  t.mock.method(Date, "now", () => now);
+  const client = new FakeClient(); client.failSend = "busy";
+  const f = await setup(t, client, { browserInstructions: () => "Same browser, model and context." });
+  await f.session.call("chat.send", { chat: "main", text: "Wait for the existing team", timezone: "UTC", attachments: [] });
+  await settled();
+  let saved = JSON.parse(readFileSync(f.path, "utf8")) as { queue: { id: string; state: string; retryAfter: number }[] };
+  assert.equal(saved.queue.length, 1);
+  assert.equal(saved.queue[0]?.state, "queued", "an explicit pre-start lease refusal is safe to retry");
+  assert.equal(saved.queue[0]?.retryAfter, now + 15_000);
+  assert.equal(f.host.external.state("main").entities.some((entity) => entity.kind === "failure"), false);
+  assert.equal(client.entries.get("created-1"), undefined, "no native receipt exists for the refused attempt");
+  await f.session.call("session.sync", { chat: "main", since: null }); await settled();
+  assert.equal(client.sends.length, 1, "refresh must not immediately retry a busy worker");
+  const messageId = saved.queue[0]!.id;
+  now += 15_001;
+  await f.session.call("session.sync", { chat: "main", since: null }); await settled();
+  assert.equal(client.sends.length, 2);
+  assert.notEqual(client.sends[1]?.clientMessageId, client.sends[0]?.clientMessageId, "Paseo caches a refused request id; a proven pre-start refusal needs a fresh delivery id");
+  assert.ok(client.sends[1]?.clientMessageId);
+  assert.equal(client.sends[0]?.text, client.sends[1]?.text, "the one-time capability notice stays with the queued delivery");
+  saved = JSON.parse(readFileSync(f.path, "utf8")) as typeof saved;
+  assert.equal(saved.queue.length, 0);
+  assert.deepEqual(client.cancels, []);
+  assert.equal(client.created, 1, "reuse the existing native session instead of creating or restarting one");
+  await f.session.call("session.sync", { chat: "main", since: null });
+  let prompts = f.host.external.state("main").entities.filter((entity) => entity.kind === "prompt");
+  assert.equal(prompts.length, 1, "a fresh native delivery receipt still acknowledges the existing phone prompt");
+  assert.equal(prompts[0]?.id, messageId);
+  assert.equal(prompts[0]?.text, "Wait for the existing team");
+  f.bridge.close();
+  const host = createHost(ports(), { store: f.store });
+  const restarted = paseoBridge(client, f.options); f.bridges.push(restarted);
+  const session = await restarted.attach(host); await session.call("session.sync", { chat: "main", since: null });
+  prompts = host.external.state("main").entities.filter((entity) => entity.kind === "prompt");
+  assert.equal(prompts.length, 1, "delivery aliases must survive restart and a full history replay");
+  assert.equal(prompts[0]?.id, messageId);
+});
+
+test("an unknown send outcome without an explicit busy refusal is never automatically retried", async (t) => {
+  let now = Date.parse(at); t.mock.method(Date, "now", () => now);
+  const client = new FakeClient(); client.failSend = "unknown";
+  const f = await setup(t, client);
+  await f.session.call("chat.send", { chat: "main", text: "Do this only once", timezone: "UTC", attachments: [] }); await settled();
+  const saved = JSON.parse(readFileSync(f.path, "utf8")) as { queue: { state: string }[] };
+  assert.equal(saved.queue[0]?.state, "sending");
+  now += 300_000;
+  await f.session.call("session.sync", { chat: "main", since: null }); await settled();
+  assert.equal(client.sends.length, 1, "lack of a receipt is not proof that an uncertain request was refused");
+  assert.deepEqual(client.cancels, []);
+});
+
+test("a restored queued message waits for the shared tool endpoint to be ready before activation", async (t) => {
+  let ready = false; let prepared = 0;
+  const f = await setup(t, new FakeClient(), { ready: () => ready, prepare: async () => { prepared++; return "Ready shared memory and skills"; } });
+  await f.session.call("chat.send", { chat: "main", text: "Retain this queued instruction", timezone: "UTC", attachments: [] }); await settled();
+  assert.equal(f.client.sends.length, 0); assert.equal(prepared, 0);
+  f.bridge.close();
+  const host = createHost(ports(), { store: f.store });
+  const restarted = paseoBridge(f.client, f.options); f.bridges.push(restarted);
+  const session = await restarted.attach(host);
+  await session.call("session.sync", { chat: "main", since: null }); restarted.activate(); await settled();
+  assert.equal(f.client.sends.length, 0, "restored queues and explicit activate both respect service readiness");
+  ready = true; restarted.activate(); await settled();
+  assert.equal(f.client.sends.length, 1);
+  assert.match(f.client.sends[0]!.text, /Ready shared memory and skills/);
+  assert.match(f.client.sends[0]!.text, /Retain this queued instruction/);
+  assert.equal(prepared, 1);
+  restarted.activate(); await settled(); assert.equal(f.client.sends.length, 1);
+  assert.equal(f.client.created, 1); assert.deepEqual(f.client.cancels, []);
+});
 
 test("Paseo bridge imports Qwen chats, retains stable history across refreshes, and preserves model status", async (t) => {
   const client = new FakeClient();
@@ -360,7 +437,7 @@ test("background helpers inherit the originating chat's MCP and browser CLI inst
   await settled();
   assert.deepEqual(minted, ["main"]);
   assert.deepEqual(fixture.client.createCalls, [{ title: task.title, cwd: fixture.options.cwd, options: { mcpServers } }]);
-  assert.ok(fixture.client.sends[0]?.text.startsWith("The same browser and takeover gate belong to main.\n\n"));
+  assert.ok(fixture.client.sends[0]?.text.startsWith("The same browser and takeover gate belong to main~task-browser.\n\n"));
   assert.ok(fixture.client.sends[0]?.text.includes("originating chat context"));
   assert.ok(actions.some((action) => action.kind === "taskEnded"));
 });

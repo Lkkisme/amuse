@@ -62,6 +62,12 @@ export interface Controller {
   act(session: string, action: Action): Promise<{ before: string | null; after: Observation | null }>;
   screenshot(session: string): Promise<Uint8Array>;
   saveProfile(session: string, profile: string): Promise<void>;
+  /** The sites a saved profile holds logins for, with how many cookies (never the cookies). */
+  profileSites(profile: string): Promise<{ site: string; cookies: number }[]>;
+  /** Take a site's logins out of a saved profile. */
+  forgetProfileSite(profile: string, site: string): Promise<void>;
+  /** Sign an open session out of a site (its cookies for it go). */
+  clearSessionSite(session: string, site: string): Promise<void>;
   delete(session: string): Promise<void>;
   /** Ids of sessions the controller still has live (left over from a crash, say). */
   live(): Promise<string[]>;
@@ -112,6 +118,16 @@ export function controller(base: string, token: string, http: typeof fetch = fet
     },
     async saveProfile(session, profile) {
       await request("POST", `/sessions/${session}/auth-profiles`, { profile_name: profile });
+    },
+    profileSites: async (profile) =>
+      (await json(z.array(z.object({ site: z.string(), cookies: z.int() }).loose()), "GET", `/auth-profiles/${encodeURIComponent(profile)}/sites`)).map(
+        ({ site, cookies }) => ({ site, cookies }),
+      ),
+    async forgetProfileSite(profile, site) {
+      await request("DELETE", `/auth-profiles/${encodeURIComponent(profile)}/sites/${encodeURIComponent(site)}`);
+    },
+    async clearSessionSite(session, site) {
+      await request("DELETE", `/sessions/${session}/cookies/${encodeURIComponent(site)}`);
     },
     async delete(session) {
       await request("DELETE", `/sessions/${session}`);

@@ -8,12 +8,15 @@
  */
 import {
   type Account,
+  type Approval,
   type Attachment,
   type Permission,
   type KindRule,
   type KeyTest,
   type LoginStep,
   type ModelRole,
+  type LocalVoice,
+  type ThinkingLevel,
   type ToolKind,
   type Browser,
   Chat,
@@ -27,6 +30,10 @@ import {
   type Reply,
   type Results,
   type Schedule,
+  type SecretInfo,
+  type SecretRequest,
+  type SkillInfo,
+  type SkillOrigin,
   type Session,
   type Task,
   type State,
@@ -54,9 +61,11 @@ import {
   lasting,
   verdict,
 } from "./decide.ts";
-import { deadline, userZone } from "./schedule.ts";
+import { deadline, localTime, userZone } from "./schedule.ts";
+import { addGoal, goalLog, listGoals, readGoal, updateGoal } from "./goals.ts";
+import { BEAT_MS, beatNote, inFlight } from "./heartbeat.ts";
 import { type Timers, realTimers } from "./timers.ts";
-import type { Rules } from "./policy.ts";
+import { type Rules, browserActions, defaultBrowser } from "./policy.ts";
 import { type Budget, type Where, agentContext, budget, mentions, recall } from "./context.ts";
 
 /**
@@ -65,6 +74,9 @@ import { type Budget, type Where, agentContext, budget, mentions, recall } from 
  */
 export type Say = { kind: "upserted"; entity: Reply | Failure } | Extract<Change, { kind: "appended" | "activity" }>;
 export type Emit = (say: Say) => void;
+
+/** A finished reply with nothing in it (no words, no files): never shown, however the agent came to write it. */
+export const blank = (say: Say): boolean => say.kind === "upserted" && say.entity.kind === "reply" && !say.entity.streaming && !say.entity.text.trim() && say.entity.attachments.length === 0;
 
 /** Ids that stay unique across restarts and processes (a journal outlives any counter). */
 export const newId = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
@@ -149,7 +161,61 @@ export interface Ports {
   files: Workspace;
   /** The user's keys and the models chosen (outside the conversation). */
   keys: Keys;
+  /** The logins the browsers keep, by site (none where there are no browsers). */
+  logins: Logins;
+  /** The skills, built in and the user's (none where they are not kept). */
+  skills?: Skills;
+  /** Amuse's own machine, as far as the user controls it (none where there is no sandbox). */
+  sandbox: Sandbox;
 }
+
+/** The sandbox Amuse works in, as the user sees it: it can be wiped, and given credentials. */
+export interface Sandbox {
+  /** Stop what runs in the sandbox and wipe its home folder; the workspace is kept, and system-wide installs stay until the container is recreated. Rejects, in words, when it cannot. */
+  reset(): Promise<void>;
+  /** Give the sandbox a credential the user typed, where `request` says. Rejects, in words, when it cannot. */
+  give(request: SecretRequest, value: string): Promise<void>;
+  /** The credentials given, never their values. */
+  secrets(): Promise<SecretInfo[]>;
+  /** Take one back, from the sandbox too. */
+  forget(id: string): Promise<void>;
+}
+
+const noSandboxHere = () => new Rejected({ kind: "unsound", reason: "This server has no sandbox." });
+
+/** No sandbox on this server (the demo, tests). */
+export const noSandbox: Sandbox = {
+  reset: async () => {
+    throw noSandboxHere();
+  },
+  give: async () => {
+    throw noSandboxHere();
+  },
+  secrets: async () => [],
+  forget: async () => {
+    throw noSandboxHere();
+  },
+};
+
+/** What the browsers keep of the user's sign-ins, by site: to see, and to sign out of. */
+export interface Logins {
+  list(): Promise<{ site: string; cookies: number }[]>;
+  forget(site: string): Promise<void>;
+}
+
+/** No browsers, no logins kept (the demo, tests). */
+export const noLogins: Logins = { list: async () => [], forget: async () => {} };
+
+/** The skills, to see and to remove the user's own (Settings-like, in the sidebar). */
+export interface Skills {
+  list(): Promise<SkillInfo[]>;
+  /** null: there is no such skill */
+  get(name: string, origin: SkillOrigin): Promise<{ skill: SkillInfo; body: string; files: string[] } | null>;
+  remove(name: string): Promise<void>;
+}
+
+/** No skills to show (the demo, tests). */
+export const noSkills: Skills = { list: async () => [], get: async () => null, remove: async () => {} };
 
 /** A file or folder in the workspace. */
 export interface Entry {
@@ -242,12 +308,18 @@ export interface Keys {
   /** Try a provider's key with one short request. */
   test(provider: string): Promise<KeyTest>;
   logout(provider: string): Promise<void>;
-  choose(role: ModelRole, model: string): Promise<void>;
+  choose(role: ModelRole, model: string | null): Promise<void>;
+  /** How much a role's model thinks. */
+  think(role: ModelRole, level: ThinkingLevel): Promise<void>;
+  /** Which speech service the mic uses (null: the first with a key). */
+  voice(provider: string | null): Promise<void>;
+  /** Set up (or remove) the user's own speech server. */
+  localVoice(service: (LocalVoice & { key: string | null }) | null): Promise<void>;
 }
 
 /** No keys: where none are kept (the demo, tests); the demo's agent needs none. */
 export const noKeys: Keys = {
-  list: async () => ({ providers: [], models: [], chat: null, browser: null }),
+  list: async () => ({ providers: [], models: [], chat: null, browser: null, background: null, thinking: { chat: "off", browser: "off", background: "off" }, voice: { services: [], chosen: null, local: null } }),
   login: async () => ({ kind: "failed", reason: "No keys are kept here." }),
   answer: async () => ({ kind: "failed", reason: "No keys are kept here." }),
   cancel: async () => {},
@@ -255,6 +327,15 @@ export const noKeys: Keys = {
   logout: async () => {},
   choose: async () => {
     throw new Error("No models are chosen here.");
+  },
+  think: async () => {
+    throw new Error("No models are chosen here.");
+  },
+  voice: async () => {
+    throw new Error("No speech service is chosen here.");
+  },
+  localVoice: async () => {
+    throw new Error("No speech service is set up here.");
   },
 };
 
@@ -338,6 +419,8 @@ export interface HostOptions {
 
 /** Trusted backend synchronization only; these operations are not exposed over RPC. */
 export interface Host extends Session {
+  /** Trusted in-process tools share this chat's normal policy, approvals and effects. Never exposed over RPC. */
+  agent(chatId: string): AgentIO;
   external: {
     /** Create a mirrored chat if absent; an existing chat keeps its metadata and feed. */
     ensureChat(chat: Chat): void;
@@ -352,6 +435,8 @@ export interface Host extends Session {
 
 /** setTimeout's longest wait (about 24.8 days); a later deadline is woken for and looked at again. */
 const LONGEST_WAIT = 2 ** 31 - 1;
+/** how far the app service's clock may be behind ours, settling a Connect card by when an account was connected */
+const SETTLE_SLACK_MS = 60_000;
 
 /** How much of another chat the agent reads at once. */
 const otherChat: Budget = { full: 12_000, brief: 4_000 };
@@ -389,8 +474,13 @@ function subjectOf(action: AgentAction): string | null {
     case "browse":
     case "task":
     case "ask":
+    case "refuse":
     case "schedule":
+    case "revisePreset": // set up in the main chat, where this is asked
+    case "askSecret":
       return null;
+    case "secretAnswered":
+      return action.id;
   }
 }
 
@@ -437,6 +527,11 @@ export function createHost(ports: Ports, options: HostOptions = {}): Host {
     room.journal.append(envelope);
     push({ kind: "event", chat: room.chat.id, envelope });
     if (change.kind !== "upserted") return;
+    // a run that starts is looked in on from now; one that is done is no longer
+    const { entity: moved } = change;
+    if (inFlight(moved)) {
+      if (!beats.has(moved.id)) beats.set(moved.id, { room, since: clock.now(), last: clock.now() });
+    } else beats.delete(moved.id);
     arm(); // only an entity can move a deadline
     // something said moves the chat up the list
     const { entity } = change;
@@ -449,8 +544,29 @@ export function createHost(ports: Ports, options: HostOptions = {}): Host {
   /** One timer, for the earliest deadline in any chat; when it fires, whatever is due happens (decide.ts `tick`). */
   const timers = options.timers ?? realTimers;
   let armed: { at: string; handle: unknown } | null = null;
+  /** Runs in flight, by id: their chat, since when, and when the chat agent last heard how they go. */
+  const beats = new Map<string, { room: Room; since: string; last: string }>();
+  const nextBeat = (): string | null =>
+    [...beats.values()].map((b) => new Date(Date.parse(b.last) + BEAT_MS).toISOString()).reduce<string | null>((a, b) => (a === null || Date.parse(b) < Date.parse(a) ? b : a), null);
+  /** Tell the chat agent how each run that is due goes. */
+  const beat = (now: string) => {
+    for (const [id, b] of beats) {
+      if (Date.parse(now) - Date.parse(b.last) < BEAT_MS) continue;
+      const entity = b.room.state.entities.find((e) => e.id === id);
+      if (!entity || !inFlight(entity) || rooms.get(b.room.chat.id) !== b.room) {
+        beats.delete(id);
+        continue;
+      }
+      b.last = now;
+      const note = beatNote(entity, Math.round((Date.parse(now) - Date.parse(b.since)) / 60_000));
+      if (note) ports.prompt({ kind: "note", text: note }, b.room.agent);
+    }
+  };
   function arm(): void {
-    const at = [...rooms.values()].map((r) => deadline(r.state)).reduce<string | null>((a, b) => (b !== null && (a === null || Date.parse(b) < Date.parse(a)) ? b : a), null);
+    const at = [...[...rooms.values()].map((r) => deadline(r.state)), nextBeat()].reduce<string | null>(
+      (a, b) => (b !== null && (a === null || Date.parse(b) < Date.parse(a)) ? b : a),
+      null,
+    );
     if (armed?.at === at) return;
     if (armed) timers.clear(armed.handle);
     armed = null;
@@ -465,6 +581,7 @@ export function createHost(ports: Ports, options: HostOptions = {}): Host {
       due.changes.forEach((change) => commit(room, change));
       due.effects.forEach((effect) => run(room, effect));
     }
+    beat(clock.now());
     arm();
   }
 
@@ -493,7 +610,9 @@ export function createHost(ports: Ports, options: HostOptions = {}): Host {
   function agentOf(chat: string, at: () => Room): AgentIO {
     const io: AgentIO = {
       chat,
-      emit: (say) => commit(at(), say),
+      emit: (say) => {
+        if (!blank(say)) commit(at(), say);
+      },
       decision(id) {
         const approval = holder(id)?.state.entities.find((e) => e.kind === "approval" && e.id === id);
         if (approval?.kind === "approval" && approval.status !== "pending") return Promise.resolve({ verdict: approval.status, remember: false });
@@ -552,6 +671,33 @@ export function createHost(ports: Ports, options: HostOptions = {}): Host {
     };
     return io;
   }
+  /**
+   * A Connect card still waiting for an app that has an active account now (connected in
+   * Settings, or its own callback missed) is connected: the card says so, and the chat's
+   * agent hears, to carry on with what waited on it.
+   */
+  function settleConnections(accounts: Account[]): void {
+    const active = accounts.filter((a) => a.status === "active");
+    // an account connected since the card was shown: one there already (the first Gmail, when the card is for a second) is not it
+    const connected = (a: Account) => (a.since === null ? Number.NaN : Date.parse(a.since));
+    const answers = (c: Connection) =>
+      active.some((a) => a.app.id === c.provider && (Number.isNaN(connected(a)) || connected(a) >= Date.parse(c.at) - SETTLE_SLACK_MS));
+    for (const room of [...rooms.values()]) {
+      const waiting = room.state.entities.filter((e): e is Connection => e.kind === "connection" && e.status === "pending" && answers(e));
+      for (const connection of waiting) {
+        if (room.agent.act({ kind: "connected", id: connection.id }).ok)
+          room.agent.report(`[connection] ${connection.title} is connected now. Tell the user so in a short line; if something was waiting on it, carry on with it.`);
+      }
+    }
+  }
+
+  /** The user's day now (YYYY-MM-DD), on their clock. */
+  const today = () => localTime(clock.now(), userZone(main().state)).split(" ")[0] ?? "";
+  /** A change to the workspace's files; what cannot be done comes back in words. */
+  const kept = <T>(change: () => Promise<T>) =>
+    change().catch((e: unknown) => {
+      throw e instanceof WorkspaceError ? new Rejected({ kind: "unsound", reason: e.message }) : e;
+    });
   /** The user's time zone: their device's when they last wrote, in this chat or, failing that, the main one. */
   const userZoneOf = (room: Room) => (room.state.entities.some((e) => e.kind === "prompt") ? userZone(room.state) : userZone(main().state));
 
@@ -715,20 +861,88 @@ export function createHost(ports: Ports, options: HostOptions = {}): Host {
     }),
     "schedule.control": async (params) => about(params.id, "schedule.control", params),
     "apps.search": ({ query, cursor }) => ports.apps.search(query, cursor),
-    "apps.accounts": async () => ({ accounts: await ports.apps.accounts() }),
+    "logins.list": async () => ({ sites: await ports.logins.list() }),
+    "logins.forget": async ({ site }) => {
+      await ports.logins.forget(site);
+      return null;
+    },
+    "sandbox.reset": async () => {
+      await ports.sandbox.reset();
+      return null;
+    },
+    "approvals.list": async () => ({
+      approvals: [...rooms.values()]
+        .flatMap((room) => room.state.entities.filter((e): e is Approval => e.kind === "approval").map((approval) => ({ chat: room.chat, approval })))
+        .sort((a, b) => Date.parse(b.approval.at) - Date.parse(a.approval.at)),
+    }),
+    // the value goes from here to the sandbox, never into the chat, the journal or the agent's context
+    "secret.answer": async ({ id, value }) => {
+      const room = holder(id);
+      const request = room?.state.entities.find((e): e is SecretRequest => e.kind === "secret" && e.id === id);
+      if (!room || !request) throw new Rejected({ kind: "notFound", entity: "secret", id });
+      if (request.status !== "pending") throw new Rejected({ kind: "unsound", reason: "That has been answered already." });
+      if (value !== null) await ports.sandbox.give(request, value);
+      const provided = value !== null;
+      room.agent.act({ kind: "secretAnswered", id, outcome: provided ? "provided" : "declined" });
+      room.agent.report(
+        provided
+          ? `[credential] The user provided ${request.name}; it is in your sandbox as asked. Carry on with what needed it (you never see the value, and output shows it masked).`
+          : `[credential] The user declined to give ${request.name}. Do not ask for it again unless they bring it up.`,
+      );
+      return null;
+    },
+    "secrets.list": async () => ({ secrets: await ports.sandbox.secrets() }),
+    "secrets.remove": async ({ id }) => {
+      await ports.sandbox.forget(id);
+      return null;
+    },
+    "skills.list": async () => ({ skills: await (ports.skills ?? noSkills).list() }),
+    "skills.get": async ({ name, origin }) => {
+      const found = await (ports.skills ?? noSkills).get(name, origin);
+      if (!found) throw new Rejected({ kind: "unsound", reason: "That skill is not there any more." });
+      return found;
+    },
+    "skills.remove": async ({ name }) => {
+      await kept(() => (ports.skills ?? noSkills).remove(name));
+      return null;
+    },
+    "goals.list": async () => ({ goals: await listGoals(ports.files) }),
+    "goals.get": async ({ id }) => {
+      const goal = await readGoal(ports.files, id);
+      if (!goal) throw new Rejected({ kind: "unsound", reason: "That goal is not there any more." });
+      return { goal, log: await goalLog(ports.files, id) };
+    },
+    "goals.add": (goal) => kept(() => addGoal(ports.files, goal, today())),
+    "goals.update": async ({ id, status, muted }) => {
+      await kept(() => updateGoal(ports.files, id, { status, muted }, today()));
+      return null;
+    },
+    "apps.accounts": async () => {
+      const accounts = await ports.apps.accounts();
+      settleConnections(accounts);
+      return { accounts };
+    },
     "apps.connect": async ({ app }) => ({ url: await ports.apps.connect(app) }),
     "apps.disconnect": async ({ account }) => {
       await ports.apps.disconnect(account);
       return null;
     },
     "apps.permissions": async ({ app }) => ({ rules: await ports.apps.permissions(app) }),
+    "browser.rules": async () => {
+      const chosen = await ports.rules.browser();
+      return { rules: browserActions.map((action) => ({ action, permission: chosen[action] ?? defaultBrowser[action], chosen: chosen[action] !== undefined })) };
+    },
+    "browser.permit": async ({ action, permission }) => {
+      await ports.rules.setBrowser(action, permission);
+      return null;
+    },
     "sites.rules": async () => ({
       rules: Object.entries(await ports.rules.sites())
-        .map(([site, permission]) => ({ site, permission }))
+        .map(([site, entry]) => ({ site, never: entry.never, actions: entry.actions }))
         .sort((a, b) => a.site.localeCompare(b.site)),
     }),
-    "sites.permit": async ({ site, permission }) => {
-      await ports.rules.setSite(site, permission);
+    "sites.permit": async ({ site, rule }) => {
+      await ports.rules.setSite(site, rule);
       return null;
     },
     "apps.permit": async ({ app, kind, permission }) => {
@@ -751,9 +965,22 @@ export function createHost(ports: Ports, options: HostOptions = {}): Host {
       await ports.keys.choose(role, model);
       return null;
     },
+    "models.think": async ({ role, level }) => {
+      await ports.keys.think(role, level);
+      return null;
+    },
+    "models.voice": async ({ provider }) => {
+      await ports.keys.voice(provider);
+      return null;
+    },
+    "models.localVoice": async ({ service }) => {
+      await ports.keys.localVoice(service);
+      return null;
+    },
   };
 
   return {
+    agent: (chat) => roomOf(chat).agent,
     call: (method, params) => dispatch(handlers, { method, params }),
     subscribe(listener) {
       listeners.add(listener);

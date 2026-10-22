@@ -19,15 +19,23 @@ import type {
   Resolution,
   RunOutcome,
   Schedule,
+  SecretDestination,
   State,
   Task,
   TaskStatus,
   When,
+  Needs,
 } from "@amuse/protocol";
 import { APPROVAL_TTL_MS, GRACE_MS, MAX_SCHEDULES, check, later, nextRun, standing } from "./schedule.ts";
 
-/** Calls that do not touch the conversation: reading it, the app directory (Ports.apps) and the keys (Ports.keys). */
-export type Query = Extract<Call, { method: "backend.status" | "session.sync" | "session.history" | "schedules.list" | `chats.${string}` | `apps.${string}` | `sites.${string}` | `keys.${string}` | `models.${string}` }>;
+/** The same refusal (what, and where) again within this long is the same record. */
+export const REFUSAL_GROUP_MS = 10 * 60_000;
+/** Refusals by the user's rules recorded in an hour, in a chat, at most. */
+export const MOST_REFUSALS_PER_HOUR = 40;
+const HOUR_MS = 60 * 60_000;
+
+/** Calls that do not touch the conversation: reading it, the app directory (Ports.apps), the keys (Ports.keys), the sandbox (Ports.sandbox), the browser's rules and the goals (in the workspace). */
+export type Query = Extract<Call, { method: "backend.status" | "session.sync" | "session.history" | "schedules.list" | `chats.${string}` | `apps.${string}` | `sites.${string}` | `keys.${string}` | `models.${string}` | `approvals.${string}` | `logins.${string}` | `sandbox.${string}` | "browser.rules" | "browser.permit" | `goals.${string}` | `skills.${string}` | `secret.${string}` | `secrets.${string}` }>;
 /** Client calls that change the conversation. */
 export type Command = Exclude<Call, Query>;
 type CommandMethod = Command["method"];
@@ -90,7 +98,9 @@ export type AgentAction =
   /** Hand a browser task to the browser port; it starts working at once. `instructions`: the user's ask in full; `files`: workspace files it may upload. */
   | { kind: "browse"; title: string; url: string; instructions: string; files: string[] }
   /** Ask the user to approve a consequential step before taking it; `remember`: the answer may become a rule. */
-  | { kind: "ask"; action: string; target: string; detail: string; remember: boolean }
+  | { kind: "ask"; action: string; target: string; detail: string; remember: boolean; app?: string | null }
+  /** Record that the user's own rule refused a step, without asking: an approval that ends denied by the rule (their Approvals list shows it). */
+  | { kind: "refuse"; action: string; target: string; detail: string; app?: string | null }
   /** A browser run's progress, from the agent driving it. */
   | { kind: "browserStatus"; id: string; status: BrowserProgress }
   /** What the agent driving a run is doing right now (null: nothing in particular). */
@@ -111,11 +121,18 @@ export type AgentAction =
   /** The app's account is live: the connection is connected. */
   | { kind: "connected"; id: string }
   /** Set up work to run later or regularly. */
-  | { kind: "schedule"; title: string; instructions: string; when: When }
+  | { kind: "schedule"; title: string; instructions: string; when: When; needs?: Needs | null; preset?: boolean; goal?: string | null }
   /** Cancel a schedule for good. */
   | { kind: "unschedule"; id: string }
+  /** Ask the user for a credential for the sandbox, on a card (the value goes from there to the sandbox, never through here). */
+  | { kind: "askSecret"; name: string; why: string; deliver: SecretDestination }
+  /** A credential request was answered (by the server, once the value is where it was to go). */
+  | { kind: "secretAnswered"; id: string; outcome: "provided" | "declined" }
+  /** One every instance starts with takes its instructions as this version of Amuse words them (they ship with it, like the built-in skills). */
+  | { kind: "revisePreset"; title: string; instructions: string }
   /** A schedule's run has ended, and how. */
-  | { kind: "scheduleRan"; id: string; outcome: Exclude<RunOutcome, "missed">; summary: string }
+  /** `skipped`: its condition (`needs`) held it back; it does not count as a run */
+  | { kind: "scheduleRan"; id: string; outcome: Exclude<RunOutcome, "missed"> | "skipped"; summary: string }
   /** Muse tells a run in flight something more: a further instruction, a correction. */
   | { kind: "instruct"; run: string; text: string }
   /** Muse stops a run in flight (not one the user holds: that is theirs). */
@@ -259,7 +276,7 @@ const rules: Rules = {
     if (approval.status !== "pending") return reject({ kind: "invalid", action: "resolve", from: approval.status });
     // "always" is offered only where a rule can hold it
     if (lasting(resolution) && !approval.remember) return reject({ kind: "invalid", action: "always", from: approval.status });
-    return ok([upsert({ ...approval, status: verdict(resolution) })], [{ kind: "approval", id, resolution }], null);
+    return ok([upsert({ ...approval, status: verdict(resolution), always: lasting(resolution) })], [{ kind: "approval", id, resolution }], null);
   },
 
   "connection.begin": (state, { id }) => {
@@ -349,17 +366,49 @@ const agentRules: AgentRules = {
     const id = ctx.id("c");
     return ok([upsert({ kind: "connection", id, at: ctx.now, provider, title, status: "pending" })], [], { id });
   },
-  ask: (_, { action, target, detail, remember }, ctx) => {
+  ask: (_, { action, target, detail, remember, app = null }, ctx) => {
     const id = ctx.id("a");
     const expires = later(ctx.now, APPROVAL_TTL_MS);
-    return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, remember, status: "pending", expires })], [], { id });
+    return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, remember, status: "pending", expires, app, always: false, byRule: false })], [], { id });
   },
-  schedule: (state, { title, instructions, when }, ctx) => {
+  refuse: (state, { action, target, detail, app = null }, ctx) => {
+    const now = Date.parse(ctx.now);
+    const refusals = state.entities.filter((e): e is Approval => e.kind === "approval" && e.byRule);
+    // a retrying agent is one refusal, as of its latest try, not a flood of them
+    const again = refusals.findLast((e) => e.action === action && e.target === target && e.app === app && now - Date.parse(e.at) < REFUSAL_GROUP_MS);
+    if (again) return ok([upsert({ ...again, at: ctx.now })], [], { id: again.id });
+    // and however it varies its words, only so many in an hour are recorded (the step is refused all the same)
+    const lately = refusals.filter((e) => now - Date.parse(e.at) < HOUR_MS);
+    const last = lately.at(-1);
+    if (last && lately.length >= MOST_REFUSALS_PER_HOUR) return ok([], [], { id: last.id });
+    const id = ctx.id("a");
+    return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, remember: false, status: "denied", expires: ctx.now, app, always: false, byRule: true })], [], { id });
+  },
+  schedule: (state, { title, instructions, when, needs = null, preset = false, goal = null }, ctx) => {
     if (standing(state).length >= MAX_SCHEDULES) return reject({ kind: "unsound", reason: `there are already ${MAX_SCHEDULES} schedules; cancel one first` });
     const sound = check(when, ctx.now);
     if (!sound.ok) return reject({ kind: "unsound", reason: sound.reason });
     const id = ctx.id("s");
-    return ok([upsert({ kind: "schedule", id, at: ctx.now, title, instructions, when, status: "active", next: sound.next, running: false, last: null })], [], { id });
+    return ok([upsert({ kind: "schedule", id, at: ctx.now, title, instructions, when, status: "active", next: sound.next, running: false, last: null, needs, preset, goal })], [], { id });
+  },
+  askSecret: (state, { name, why, deliver }, ctx) => {
+    // asked again while one for the same is open: that one stands
+    const open = state.entities.find((e) => e.kind === "secret" && e.status === "pending" && e.name === name);
+    if (open) return ok([], [], { id: open.id });
+    const id = ctx.id("k");
+    return ok([upsert({ kind: "secret", id, at: ctx.now, name, why, deliver, status: "pending" })], [], { id });
+  },
+  secretAnswered: (state, { id, outcome }) => {
+    const request = find(state, "secret", id);
+    if (!request) return reject({ kind: "notFound", entity: "secret", id });
+    if (request.status !== "pending") return ok([], [], { id });
+    return ok([upsert({ ...request, status: outcome })], [], { id });
+  },
+  revisePreset: (state, { title, instructions }) => {
+    const preset = state.entities.find((e): e is Schedule => e.kind === "schedule" && e.preset && e.title === title && (e.status === "active" || e.status === "paused"));
+    // cancelled by the user, or as this version has it already: nothing to do
+    if (!preset || preset.instructions === instructions) return ok([], [], { id: preset?.id ?? "" });
+    return ok([upsert({ ...preset, instructions })], [], { id: preset.id });
   },
   unschedule: (state, { id }) => {
     const schedule = find(state, "schedule", id);
@@ -372,7 +421,8 @@ const agentRules: AgentRules = {
     if (!schedule) return reject({ kind: "notFound", entity: "schedule", id });
     if (!schedule.running) return reject({ kind: "invalid", action: "scheduleRan", from: schedule.status });
     const closed = closeQuestions(state, id);
-    return ok([upsert({ ...schedule, running: false, last: { at: ctx.now, outcome, summary } }), ...closed.changes], closed.effects, { id });
+    const last = outcome === "skipped" ? schedule.last : { at: ctx.now, outcome, summary };
+    return ok([upsert({ ...schedule, running: false, last }), ...closed.changes], closed.effects, { id });
   },
   instruct: (state, { run, text }, ctx) => {
     const target = flight(state, run);
@@ -550,6 +600,7 @@ export function recover(state: State, now: string): Change[] {
         return e.running ? { ...e, running: false, last: { at: now, outcome: "failed", summary: "cut short by a restart" } } : null; // ended now, as far as anyone can tell
       case "prompt":
       case "connection":
+      case "secret": // still to be answered after a restart (what waited for it may be gone: then the answer says so)
         return null;
     }
   };

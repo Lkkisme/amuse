@@ -54,6 +54,7 @@ data class ShellState(
     val connectionError: String? = null,
     val canGoBack: Boolean = false,
     val webGeneration: Int = 0,
+    val microphonePrompt: Boolean = false,
 )
 
 @Composable
@@ -70,10 +71,17 @@ fun AmuseApp(
     onForget: () -> Unit,
     onRetry: () -> Unit,
     onBack: () -> Unit,
+    onMicrophoneAllow: () -> Unit,
+    onMicrophoneDeny: () -> Unit,
 ) {
     BackHandler(state.settingsVisible || (state.unlocked && state.canGoBack)) {
         if (state.settingsVisible) onCloseSettings() else onBack()
     }
+    if (state.microphonePrompt) AlertDialog(onDismissRequest = onMicrophoneDeny,
+        icon = { Icon(Icons.Outlined.Mic, null) }, title = { Text("允许使用麦克风？") },
+        text = { Text("${state.server.host} 希望录制语音输入。首次使用还需要允许 Android 的麦克风权限。") },
+        confirmButton = { TextButton(onClick = onMicrophoneAllow) { Text("允许") } },
+        dismissButton = { TextButton(onClick = onMicrophoneDeny) { Text("暂不允许") } })
     Surface(color = MuseSurface, modifier = Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
             if (state.settingsVisible) {

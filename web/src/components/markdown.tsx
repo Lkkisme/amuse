@@ -1,21 +1,58 @@
 /**
  * Tiny rich-markdown renderer for agent bubbles: **bold**, `inline code`
- * chips, and "- " bullets. Hand-parsed (no dangerouslySetInnerHTML).
+ * chips, [links](https://…) and bare web addresses, "# " headings (as bold
+ * lines), "- " bullets and ``` code blocks (as they are, in a mono box).
+ * Hand-parsed (no dangerouslySetInnerHTML); a link goes only to http(s).
  */
 import type { ReactNode } from "react";
+import { addressesIn } from "../addresses";
+
+const linkStyle = { color: "var(--fill-blue)" };
+
+/** `text` with its web addresses as links, the rest as it is; `plain`: in the text's own colour (on the user's blue bubble). */
+export function linked(text: string, keyBase: string, plain = false): ReactNode[] {
+  const parts: ReactNode[] = [];
+  let last = 0;
+  let i = 0;
+  for (const { at, address } of addressesIn(text)) {
+    if (at > last) parts.push(text.slice(last, at));
+    parts.push(
+      <a
+        key={`${keyBase}-a${i++}`}
+        href={address}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline"
+        style={plain ? undefined : linkStyle}
+      >
+        {address}
+      </a>,
+    );
+    last = at + address.length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts;
+}
 
 function renderInline(text: string, keyBase: string): ReactNode[] {
   const parts: ReactNode[] = [];
-  const regex = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  const regex = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^)\s]+\))/g;
   let last = 0;
   let m: RegExpExecArray | null;
   let i = 0;
   while ((m = regex.exec(text)) !== null) {
-    if (m.index > last) parts.push(text.slice(last, m.index));
+    if (m.index > last) parts.push(...linked(text.slice(last, m.index), `${keyBase}-t${i}`));
     const tok = m[0];
     const key = `${keyBase}-i${i++}`;
     if (tok.startsWith("**")) {
       parts.push(<strong key={key}>{tok.slice(2, -2)}</strong>);
+    } else if (tok.startsWith("[")) {
+      const at = tok.indexOf("](");
+      parts.push(
+        <a key={key} href={tok.slice(at + 2, -1)} target="_blank" rel="noopener noreferrer" className="underline" style={{ color: "var(--fill-blue)" }}>
+          {tok.slice(1, at)}
+        </a>,
+      );
     } else {
       parts.push(
         <code
@@ -29,7 +66,7 @@ function renderInline(text: string, keyBase: string): ReactNode[] {
     }
     last = m.index + tok.length;
   }
-  if (last < text.length) parts.push(text.slice(last));
+  if (last < text.length) parts.push(...linked(text.slice(last), `${keyBase}-t${i}`));
   return parts;
 }
 
@@ -50,22 +87,55 @@ export function RichText({ text }: { text: string }) {
 
   /** a blank line came before: the next block starts a new paragraph, 8px down (Muse) */
   let paragraph = false;
-  lines.forEach((line, i) => {
+  /** the lines of a ``` block being read, or null outside one */
+  let code: string[] | null = null;
+  for (const [i, line] of lines.entries()) {
+    if (line.trimStart().startsWith("```")) {
+      if (code === null) {
+        flushBullets(`u${i}`);
+        code = [];
+      } else {
+        blocks.push(
+          <pre
+            key={`c${i}`}
+            className="my-2 overflow-x-auto rounded-xl px-3 py-2 text-[13px] leading-[19px]"
+            style={{ background: "var(--fill-secondary)", fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}
+          >
+            {code.join("\n")}
+          </pre>,
+        );
+        code = null;
+      }
+      continue;
+    }
+    if (code !== null) {
+      code.push(line);
+      continue;
+    }
     if (line.startsWith("- ")) {
       bullets.push(<li key={`b${i}`}>{renderInline(line.slice(2), `l${i}`)}</li>);
     } else {
       flushBullets(`u${i}`);
       if (line.trim()) {
+        const heading = line.match(/^#{1,6}\s+(.*)$/);
         blocks.push(
-          <p key={`p${i}`} className={paragraph && blocks.length > 0 ? "mt-3" : undefined}>
-            {renderInline(line, `l${i}`)}
+          <p key={`p${i}`} className={`${paragraph && blocks.length > 0 ? "mt-3" : ""} ${heading ? "font-semibold" : ""}`.trim() || undefined}>
+            {renderInline(heading?.[1] ?? line, `l${i}`)}
           </p>,
         );
         paragraph = false;
       } else paragraph = true;
     }
-  });
+  }
   flushBullets("u-end");
+  // a block never closed: what was in it, as it is
+  const open = code;
+  if (open !== null)
+    blocks.push(
+      <pre key="c-end" className="my-2 overflow-x-auto rounded-xl px-3 py-2 text-[13px]" style={{ background: "var(--fill-secondary)" }}>
+        {open.join("\n")}
+      </pre>,
+    );
 
   return <>{blocks}</>;
 }

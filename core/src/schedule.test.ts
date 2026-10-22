@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Approval, type Entity, type Schedule, type State, apply, empty } from "@amuse/protocol";
 import { type Change, type Context, decide, decideAgent, place, recover, tick } from "./decide.ts";
-import { APPROVAL_TTL_MS, GRACE_MS, MAX_SCHEDULES, check, deadline, later, localTime, nextRun, wallClock } from "./schedule.ts";
+import { APPROVAL_TTL_MS, GRACE_MS, MAX_SCHEDULES, check, deadline, later, localTime, nextRun, nowIn, wallClock } from "./schedule.ts";
 import { agentContext } from "./context.ts";
 
 const at = "2026-10-20T08:00:00Z"; // 16:00 in Shanghai
@@ -21,6 +21,9 @@ const daily: Schedule = {
   next: "2026-10-21T00:00:00Z",
   running: false,
   last: null,
+  needs: null,
+  preset: false,
+  goal: null,
 };
 
 test("a cron runs on the user's clock, strictly after the given instant; a one-off once", () => {
@@ -131,4 +134,24 @@ test("the agent sees times on the user's clock, and its schedules", () => {
       "  Instructions: Sum up today's calendar",
     ].join("\n"),
   );
+});
+
+test("now is told with the weekday, the user's local time and their zone", () => {
+  assert.equal(nowIn("2026-10-21T07:30:00Z", "America/Los_Angeles"), "Wednesday 2026-10-21 00:30 (America/Los_Angeles)");
+  assert.equal(nowIn("2026-10-21T07:30:00Z", "Nowhere/Else"), "Wednesday 2026-10-21 07:30 (UTC)");
+});
+
+test("a run its condition held back is skipped: it ends, and the last run stays what it was", () => {
+  const before: Schedule["last"] = { at: "2026-10-20T00:00:00Z", outcome: "quiet", summary: "Nothing new" };
+  const running: Schedule = { ...daily, running: true, last: before, needs: "conversation" };
+  const skipped = decideAgent(stateOf(running), "scheduleRan", { kind: "scheduleRan", id: "s1", outcome: "skipped", summary: "" }, ctx);
+  assert.ok(skipped.ok);
+  assert.deepEqual(skipped.changes, [{ kind: "upserted", entity: { ...running, running: false, last: before } }]);
+});
+
+test("a schedule keeps what its runs wait for", () => {
+  const made = decideAgent(empty, "schedule", { kind: "schedule", title: "Memory", instructions: "Tidy memory", when: daily.when, needs: "conversation" }, ctx);
+  assert.ok(made.ok);
+  const entity = made.changes[0]?.kind === "upserted" ? made.changes[0].entity : null;
+  assert.equal(entity?.kind === "schedule" ? entity.needs : undefined, "conversation");
 });

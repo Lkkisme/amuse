@@ -1,8 +1,10 @@
 package live.amuse.app
 
+import android.Manifest
 import android.app.KeyguardManager
 import android.content.ContentValues
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.hardware.biometrics.BiometricManager
@@ -25,6 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
@@ -56,6 +59,9 @@ class MainActivity : ComponentActivity() {
     private var pausedCookie: String? = null
     private var pickedFiles: Array<Uri>? = null
     private var pickerReturned = false
+    private var microphoneRequest: PermissionRequest? = null
+    private var permissionDialogInFlight = false
+    private var microphoneResult: Boolean? = null
     private val picker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val picked = WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data)
         val selection = picked?.filter { it.scheme == "content" }?.toTypedArray()
@@ -67,6 +73,10 @@ class MainActivity : ComponentActivity() {
             fileCallback?.onReceiveValue(selection)
             fileCallback = null
         }
+    }
+    private val recordAudio = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        permissionDialogInFlight = false
+        if (foreground) finishMicrophonePermission(granted) else microphoneResult = granted
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -106,7 +116,9 @@ class MainActivity : ComponentActivity() {
                     },
                     onCloseSettings = { state = state.copy(settingsVisible = false) },
                     onSaveSettings = ::saveSettings, onForget = ::forgetSession, onRetry = ::retry,
-                    onBack = { webView?.let { if (it.canGoBack()) it.goBack() } })
+                    onBack = { webView?.let { if (it.canGoBack()) it.goBack() } },
+                    onMicrophoneAllow = ::requestMicrophonePermission,
+                    onMicrophoneDeny = ::denyMicrophonePermission)
             }
         }
     }
@@ -122,22 +134,45 @@ class MainActivity : ComponentActivity() {
             pendingGrant = null
             if (grant.first == attempt) finishUnlock(grant.second, grant.first)
         }
+        webView?.onResume()
+        microphoneResult?.let { granted ->
+            microphoneResult = null
+            finishMicrophonePermission(granted)
+        }
         resumePickerWithoutDeviceGate()
         openSavedSessionIfNeeded()
     }
 
     override fun onPause() {
-        if (fileCallback != null && state.unlocked) suspendForPicker()
-        else if (!state.pickerSuspended) lockSession(cancelPrompt = false)
-        // A native prompt may hand off to the system credential screen. Keep
-        // that operation alive, but invalidate an unfinished cookie restoration.
-        if (promptCancellation == null) cancelAuthentication()
+        if (permissionDialogInFlight) {
+            // Preserve the requesting renderer only while Android's runtime
+            // dialog is open. Recheck foreground, origin and request on return.
+            webView?.onPause()
+        } else {
+            denyMicrophonePermission()
+            if (fileCallback != null && state.unlocked) suspendForPicker()
+            else if (!state.pickerSuspended) lockSession(cancelPrompt = false)
+            // Keep a system credential operation alive across its own dialog.
+            if (promptCancellation == null) cancelAuthentication()
+        }
         foreground = false
         super.onPause()
     }
 
+    override fun onStop() {
+        // A true background transition must not retain a microphone request.
+        // Android's normal permission dialog pauses, rather than stops, us.
+        if (microphoneRequest != null || permissionDialogInFlight) {
+            denyMicrophonePermission()
+            permissionDialogInFlight = false
+            if (!state.pickerSuspended) lockSession(cancelPrompt = false)
+        }
+        super.onStop()
+    }
+
     override fun onDestroy() {
         cancelAuthentication()
+        denyMicrophonePermission()
         releaseWebView(webView)
         fileCallback?.onReceiveValue(null)
         fileCallback = null
@@ -327,6 +362,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun lockSession(cancelPrompt: Boolean = true) {
+        denyMicrophonePermission()
         captureSession()
         captureJob?.cancel()
         captureJob = null
@@ -379,6 +415,41 @@ class MainActivity : ComponentActivity() {
         webView?.loadUrl(state.server.home)
     }
 
+    private fun microphoneAllowed(request: PermissionRequest): Boolean =
+        foreground && state.unlocked && !state.settingsVisible &&
+            webView?.url?.let(state.server::contains) == true &&
+            WebPermissionPolicy.microphone(state.server, request.origin.toString(), request.resources.toList())
+
+    private fun offerMicrophone(request: PermissionRequest) {
+        if (microphoneRequest != null || !microphoneAllowed(request)) { request.deny(); return }
+        microphoneRequest = request
+        state = state.copy(microphonePrompt = true)
+    }
+
+    private fun requestMicrophonePermission() {
+        state = state.copy(microphonePrompt = false)
+        val request = microphoneRequest ?: return
+        if (!microphoneAllowed(request)) { denyMicrophonePermission(); return }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
+            finishMicrophonePermission(true)
+        else { permissionDialogInFlight = true; recordAudio.launch(Manifest.permission.RECORD_AUDIO) }
+    }
+
+    private fun finishMicrophonePermission(granted: Boolean) {
+        val request = microphoneRequest ?: return
+        microphoneRequest = null
+        state = state.copy(microphonePrompt = false)
+        if (granted && microphoneAllowed(request)) request.grant(arrayOf(PermissionRequest.RESOURCE_AUDIO_CAPTURE))
+        else request.deny()
+    }
+
+    private fun denyMicrophonePermission() {
+        microphoneRequest?.deny()
+        microphoneRequest = null
+        microphoneResult = null
+        state = state.copy(microphonePrompt = false)
+    }
+
     @Suppress("SetJavaScriptEnabled", "DEPRECATION")
     private fun createWebView(): WebView = WebView(this).apply {
         webView = this
@@ -402,6 +473,13 @@ class MainActivity : ComponentActivity() {
         cookies.setAcceptCookie(true)
         cookies.setAcceptThirdPartyCookies(this, false)
         webChromeClient = object : WebChromeClient() {
+            override fun onPermissionRequest(request: PermissionRequest) { runOnUiThread { offerMicrophone(request) } }
+            override fun onPermissionRequestCanceled(request: PermissionRequest) {
+                if (request === microphoneRequest) {
+                    microphoneRequest = null
+                    state = state.copy(microphonePrompt = false)
+                }
+            }
             override fun onConsoleMessage(message: ConsoleMessage): Boolean {
                 // Diagnostics identify a failing script without logging page
                 // content, entered credentials, messages or session cookies.
@@ -450,6 +528,7 @@ class MainActivity : ComponentActivity() {
             }
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                 if (view !== webView) return
+                denyMicrophonePermission()
                 Log.i("AmuseShell", "Page started; sameOrigin=${state.server.contains(url)}")
                 if (!state.server.contains(url)) { view.stopLoading(); return }
                 state = state.copy(loading = true, progress = 0, connectionError = null)
@@ -553,6 +632,7 @@ class MainActivity : ComponentActivity() {
 
     private fun releaseWebView(view: WebView?) {
         if (view == null || view !== webView) return
+        denyMicrophonePermission()
         Log.i("AmuseShell", "WebView released; unlocked=${state.unlocked}; picker=${state.pickerSuspended}")
         webView = null
         view.stopLoading()

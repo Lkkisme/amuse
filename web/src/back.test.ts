@@ -63,3 +63,12 @@ test("closing the top layer each time unwinds them one at a time, down to nothin
   }
   assert.deepEqual(seen, ["explainer", "app", "section", "settings", "muse"]);
 });
+
+test("in the sidebar, Back leaves a goal's page for the list, then Goals for the chats", () => {
+  const onGoal: Ui = { ...initialUi, left: "goals", goal: "gain-weight" };
+  assert.deepEqual(layers(onGoal, true), ["left", "goal"]);
+  const list = close(onGoal, "goal");
+  assert.deepEqual([list.left, list.goal], ["goals", null]);
+  const chats = close(list, "left");
+  assert.deepEqual([chats.left, chats.goal], [null, null]);
+});

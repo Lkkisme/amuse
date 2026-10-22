@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Chat, Prompt, Reply, Update } from "@amuse/protocol";
-import { type Change, type Ports, createHost, memoryChats, memoryRules, noKeys, noWorkspace } from "./index.ts";
+import { type Change, type Ports, createHost, memoryChats, memoryRules, noKeys, noLogins, noSandbox, noWorkspace } from "./index.ts";
 
 const at = "2026-10-21T12:00:00.000Z";
 const later = "2026-10-21T12:05:00.000Z";
@@ -34,6 +34,8 @@ function fixture() {
     },
     rules: memoryRules(),
     keys: noKeys,
+    logins: noLogins,
+    sandbox: noSandbox,
     files: noWorkspace,
   };
   const store = memoryChats();
@@ -146,7 +148,7 @@ test("external schedules are rejected before writing so imports cannot start the
     { kind: "upserted", entity: prompt },
     { kind: "upserted", entity: {
       kind: "schedule", id: "external-schedule", at, title: "Owned by Paseo", instructions: "do work",
-      when: { kind: "once", at: later }, status: "active", next: later, running: false, last: null,
+      when: { kind: "once", at: later }, status: "active", next: later, running: false, last: null, needs: null, preset: false, goal: null,
     } },
   ]), /external schedule imports are not supported/);
   assert.equal(store.journal(chat.id).load().length, 0);

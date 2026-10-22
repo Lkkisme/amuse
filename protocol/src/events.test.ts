@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Entity, type Envelope, type Reply, type State, apply, empty, prepend, recent } from "./index.ts";
-import { Envelope as EnvelopeSchema, State as StateSchema } from "./index.ts";
+import { Entity as EntitySchema, Envelope as EnvelopeSchema, State as StateSchema } from "./index.ts";
 
 const at = "2026-10-20T08:24:00Z";
 const reply = (text: string, streaming: boolean): Reply => ({ kind: "reply", id: "r1", at, text, streaming, attachments: [] });
@@ -117,6 +117,17 @@ test("the recent end reaches back to whatever is still in play", () => {
   ]);
   assert.equal(recent(withRun, 2).earlier, 3);
   assert.equal(recent(feed(2), 5).earlier, 0);
+  // with nothing to let go of (what is in play is first), the very same state: a view that trims on every change must not loop
+  const heldFromStart = fold([{ kind: "upserted", index: 0, entity: running }, ...Array.from({ length: 6 }, (_, i): Envelope["event"] => ({ kind: "upserted", index: 1 + i, entity: prompt(`r${i}`) }))]);
+  assert.equal(recent(heldFromStart, 2), heldFromStart);
+  const short = feed(2);
+  assert.equal(recent(short, 5), short);
+  // a browser closed between jobs (idle, its browser gone) is a record, and holds nothing back
+  const closed = fold([{ kind: "upserted", index: 0, entity: { ...running, status: "idle", live: false } }, ...Array.from({ length: 6 }, (_, i): Envelope["event"] => ({ kind: "upserted", index: 1 + i, entity: prompt(`s${i}`) }))]);
+  assert.equal(recent(closed, 2).earlier, 5);
+  // one still open, idle between jobs, is in play
+  const open = fold([{ kind: "upserted", index: 0, entity: { ...running, status: "idle" } }, ...Array.from({ length: 6 }, (_, i): Envelope["event"] => ({ kind: "upserted", index: 1 + i, entity: prompt(`t${i}`) }))]);
+  assert.equal(recent(open, 2).earlier, 0);
 });
 
 test("a page goes in front only when it is the part just before, at the same seq", () => {
@@ -126,4 +137,15 @@ test("a page goes in front only when it is the part just before, at the same seq
   assert.deepEqual(prepend(window, page), recent(whole, 6));
   assert.equal(prepend(window, { ...page, seq: whole.seq - 1 }), null);
   assert.equal(prepend(window, { ...page, earlier: 3, entities: whole.entities.slice(3, 6) }), null);
+});
+
+test("an approval from before rules could refuse one replays as an ordinary one", () => {
+  const old = { kind: "approval", id: "a1", at: "2026-10-20T08:00:00Z", action: "Visit", target: "bank.com", detail: "x", remember: true, status: "denied", expires: "2026-10-20T08:30:00Z" };
+  const replayed = EntitySchema.parse(old);
+  assert.ok(replayed.kind === "approval");
+  assert.equal(replayed.byRule, false);
+  assert.equal(replayed.always, false);
+  assert.equal(replayed.app, null);
+  const refused = EntitySchema.parse({ ...old, byRule: true });
+  assert.ok(refused.kind === "approval" && refused.byRule);
 });

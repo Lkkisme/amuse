@@ -24,7 +24,7 @@ export function TopBar({ conversation, museOpen, actions }: { conversation: Stat
           Amuse avatar bubble, drawn over the top of its name badge (Amuse: 52px avatar, badge tucked 4px under).
           Its shadow is a layer of its own under the badge, so it falls on the chat, not on the badge. */}
       {!museOpen && (
-        <div className="pointer-events-none absolute left-1/2 top-2 z-10 flex -translate-x-1/2 flex-col items-center">
+        <div className="pointer-events-none absolute left-1/2 top-3 z-10 flex -translate-x-1/2 flex-col items-center">
           <span
             aria-hidden
             className="absolute top-0 size-[52px] rounded-full"
@@ -75,22 +75,30 @@ function AvatarBadge({ line }: { line: AgentLine | null }) {
  * under the viewer's z-50) and morphs into a collapse icon while the drawer
  * is open, so one tap target opens and closes it.
  */
-export function MenuButton({ open, actions }: { open: boolean; actions: Actions }) {
+/**
+ * ☰, one round button for the sidebar, as the browser's is: away, it sits at the chat's top left; with the
+ * sidebar out, it moves into the sidebar's top right and becomes the way to put it away (App.tsx places it), on the
+ * same curve the sidebar moves on.
+ */
+export function MenuButton({ open, left, onClick }: { open: boolean; left: number; onClick: () => void }) {
   const icon = "absolute transition-all duration-200 ease-out";
+  const ease = "0.24s cubic-bezier(0.2, 0, 0, 1)";
   return (
     <button
-      aria-label={open ? "Close menu" : "Open menu"}
+      aria-label={open ? "Close sidebar" : "Open menu"}
       aria-expanded={open}
-      className="hover-fade absolute left-3 top-2 z-[45] flex size-11 items-center justify-center rounded-full"
-      style={{ background: "var(--fill-primary)", color: "var(--text-primary)", boxShadow: "var(--shadow-float)" }}
-      onClick={() => actions.setChats(!open)}
+      className="hover-fade fixed top-3 z-[45] flex size-11 items-center justify-center rounded-full"
+      style={{
+        left,
+        background: "var(--fill-primary)",
+        color: "var(--text-primary)",
+        boxShadow: "var(--shadow-float)",
+        transition: `left ${ease}`,
+      }}
+      onClick={onClick}
     >
       <Menu size={20} className={icon} style={{ opacity: open ? 0 : 1, transform: open ? "rotate(90deg) scale(0.6)" : "none" }} />
-      <PanelLeftClose
-        size={20}
-        className={icon}
-        style={{ opacity: open ? 1 : 0, transform: open ? "none" : "rotate(-90deg) scale(0.6)" }}
-      />
+      <PanelLeftClose size={20} className={icon} style={{ opacity: open ? 1 : 0, transform: open ? "none" : "rotate(-90deg) scale(0.6)" }} />
     </button>
   );
 }

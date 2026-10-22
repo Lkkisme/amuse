@@ -77,6 +77,8 @@ export function connect(url: string): Session & { close(): void } {
       socket = null;
       for (const entry of pending.values()) entry.fail(new Error("disconnected"));
       pending.clear();
+      // what waited to go out has failed with them: sent later, a message the user takes back would arrive anyway
+      outbox.length = 0;
       if (!closed) setTimeout(open, Math.min(10_000, 500 * 2 ** retry++));
     };
   };

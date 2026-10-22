@@ -12,15 +12,8 @@ import {
   Copy,
   File as FileIcon,
   Share,
-  TextSelect,
 } from "lucide-react";
-import type {
-  Attachment,
-  Entity,
-  Prompt,
-  Reply,
-  State,
-} from "@amuse/protocol";
+import type { Attachment, Entity, Prompt, Reply, State } from "@amuse/protocol";
 import { size } from "@amuse/core";
 import { useFiles } from "../files.ts";
 import type { Actions } from "../ui.ts";
@@ -29,11 +22,12 @@ import {
   ApprovalCard,
   BrowserCard,
   ConnectionCard,
+  SecretCard,
   FailureCard,
   ScheduleCard,
   TaskCard,
 } from "./cards";
-import { RichText } from "./markdown";
+import { RichText, linked } from "./markdown";
 import { type Place, type Side, corners } from "./shape.ts";
 
 type Message = Prompt | Reply;
@@ -48,8 +42,6 @@ const joins = (a: Entity | undefined, b: Entity | undefined): boolean =>
   !!b &&
   side(a) === side(b) &&
   Date.parse(b.at) - Date.parse(a.at) < GROUP_GAP_MS;
-const isMessage = (e: Entity | undefined) =>
-  e?.kind === "prompt" || e?.kind === "reply";
 
 /** A time line goes in only after a pause this long (and before the first item). */
 const STAMP_GAP_MS = 10 * 60_000;
@@ -73,12 +65,22 @@ function shown(entity: Entity): boolean {
         entity.text.trim() !== "" ||
         entity.attachments.length > 0
       );
+    // one every instance starts with was not asked for here: it is in Settings › Schedules; one that is over
+    // (cancelled, or done) is a record, not shown (Amuse still knows of it)
+    case "schedule":
+      return (
+        !entity.preset &&
+        entity.status !== "cancelled" &&
+        entity.status !== "done"
+      );
+    // one refused by the user's own rule was never a card: it is in the Approvals list, and Amuse says so in a line
+    case "approval":
+      return !entity.byRule;
     case "prompt":
     case "task":
-    case "approval":
     case "connection":
+    case "secret":
     case "browser":
-    case "schedule":
     case "failure":
       return true;
   }
@@ -91,17 +93,22 @@ function EntityView({
   thumb,
   actions,
   onMenu,
+  sending,
 }: {
   entity: Entity;
   place: Place;
   thumb: Thumb;
   actions: Actions;
   onMenu: (menu: Menu) => void;
+  /** a message of the user's still on its way */
+  sending: boolean;
 }) {
   switch (entity.kind) {
     case "prompt":
     case "reply":
-      return <Bubble item={entity} place={place} onMenu={onMenu} />;
+      return (
+        <Bubble item={entity} place={place} onMenu={onMenu} sending={sending} />
+      );
     case "task":
       return <TaskCard task={entity} place={place} actions={actions} />;
     case "approval":
@@ -110,6 +117,8 @@ function EntityView({
       return (
         <ConnectionCard connection={entity} place={place} actions={actions} />
       );
+    case "secret":
+      return <SecretCard secret={entity} place={place} actions={actions} />;
     case "browser":
       return (
         <BrowserCard
@@ -164,8 +173,7 @@ function ActionRow({ mine, text }: { mine: boolean; text: string }) {
   );
 }
 
-/** A message's long-press menu, and the bubble it came from (where it sits on screen). */
-/** A long-pressed message: where the finger was, and its bubble (for selecting its text). */
+/** A tapped message: where the finger was, and its bubble (where it sits on screen). */
 type Menu = {
   message: Message;
   point: { x: number; y: number };
@@ -176,8 +184,9 @@ const MENU_WIDTH = 176;
 const MARGIN = 12;
 
 /**
- * Touch: a long press on a bubble opens this (Muse): a card over the bubble, from its sender's
- * side, kept on screen; when it was said, and what can be done with it. A tap elsewhere closes it.
+ * Touch: a tap on a bubble opens this: a card over the bubble (above it, else below), from its
+ * sender's side, kept on screen; what can be done with it. A tap elsewhere closes it. A long press
+ * is the phone's own: it selects words, with the phone's handles and its copy button.
  */
 function MessageMenu({
   menu,
@@ -191,13 +200,22 @@ function MessageMenu({
   useLayoutEffect(() => setHeight(card.current?.offsetHeight ?? 0), [menu]);
   if (!menu) return null;
   const { message, point, bubble } = menu;
-  // where the finger was: beside it, toward the middle of the screen; above it when there is no room below
+  // over the bubble, not on its selected words: above it, else below it, from the side of whoever said it;
+  // a bubble too tall for either has it where the finger was
+  const rect = bubble.getBoundingClientRect();
+  const mine = message.kind === "prompt";
+  const fits = (y: number) => y >= MARGIN && y + height <= innerHeight - MARGIN;
+  const above = rect.top - 8 - height;
+  const under = rect.bottom + 8;
+  const top = fits(above)
+    ? above
+    : fits(under)
+      ? under
+      : Math.max(MARGIN, Math.min(point.y + 8, innerHeight - MARGIN - height));
   const left = Math.min(
-    Math.max(MARGIN, point.x > innerWidth / 2 ? point.x - MENU_WIDTH : point.x),
+    Math.max(MARGIN, mine ? rect.right - MENU_WIDTH : rect.left),
     innerWidth - MENU_WIDTH - MARGIN,
   );
-  const below = point.y + 8 + height <= innerHeight - MARGIN;
-  const top = Math.max(MARGIN, below ? point.y + 8 : point.y - 8 - height);
   const act = (fn: () => void) => () => {
     fn();
     onClose();
@@ -205,7 +223,12 @@ function MessageMenu({
   const row =
     "hover-fade flex h-11 w-full items-center gap-3 rounded-[12px] px-3 text-[15px]";
   return (
-    <div className="fixed inset-0 z-[80]" onClick={onClose}>
+    // a press held on the menu is no selection of its words
+    <div
+      className="fixed inset-0 z-[80] select-none [-webkit-touch-callout:none]"
+      onClick={onClose}
+      onContextMenu={(e) => e.preventDefault()}
+    >
       <div
         ref={card}
         role="menu"
@@ -228,14 +251,6 @@ function MessageMenu({
         >
           <Copy size={18} /> Copy
         </button>
-        <button
-          role="menuitem"
-          className={row}
-          style={{ color: "var(--text-primary)" }}
-          onClick={act(() => selectText(bubble))}
-        >
-          <TextSelect size={18} /> Select
-        </button>
         {canShare() && (
           <button
             role="menuitem"
@@ -249,69 +264,6 @@ function MessageMenu({
       </div>
     </div>
   );
-}
-
-/**
- * Select a bubble's words, for the phone's own handles to adjust: a bubble's text is not selectable
- * on touch (the long press is the menu's), so it is, until the selection is let go of.
- */
-function selectText(bubble: HTMLElement) {
-  const words = bubble.querySelector("[data-words]") ?? bubble;
-  bubble.dataset["selecting"] = "";
-  const range = document.createRange();
-  range.selectNodeContents(words);
-  const selection = getSelection();
-  selection?.removeAllRanges();
-  selection?.addRange(range);
-  const letGo = () => {
-    if (getSelection()?.isCollapsed === false) return;
-    delete bubble.dataset["selecting"];
-    document.removeEventListener("selectionchange", letGo);
-  };
-  // the selection is made before this listens, so only a later change lets go
-  setTimeout(() => document.addEventListener("selectionchange", letGo), 0);
-}
-
-/** Long press: held this long without moving. */
-const PRESS_MS = 450;
-function useLongPress(onPress: (point: { x: number; y: number }) => void) {
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const start = useRef({ x: 0, y: 0 });
-  const cancel = () => clearTimeout(timer.current);
-  return {
-    onPointerDown: (e: React.PointerEvent) => {
-      if (e.pointerType !== "touch") return;
-      start.current = { x: e.clientX, y: e.clientY };
-      timer.current = setTimeout(() => {
-        onPress(start.current);
-        // lifting the finger clicks where it is, which is now the menu's backdrop: that click is the press's own
-        const swallow = (click: MouseEvent) => {
-          click.stopPropagation();
-          click.preventDefault();
-        };
-        window.addEventListener("click", swallow, {
-          capture: true,
-          once: true,
-        });
-        setTimeout(
-          () => window.removeEventListener("click", swallow, { capture: true }),
-          600,
-        );
-      }, PRESS_MS);
-    },
-    onPointerMove: (e: React.PointerEvent) => {
-      if (
-        Math.hypot(e.clientX - start.current.x, e.clientY - start.current.y) > 8
-      )
-        cancel();
-    },
-    onPointerUp: cancel,
-    onPointerCancel: cancel,
-    onContextMenu: (e: React.MouseEvent) => {
-      if (timer.current !== undefined && matchMedia("(hover: none)").matches)
-        e.preventDefault();
-    },
-  };
 }
 
 /** Files sent with a message, above its words: images and videos shown, anything else as a file to open or download. */
@@ -431,32 +383,46 @@ function Bubble({
   item,
   place,
   onMenu,
+  sending,
 }: {
   item: Message;
   place: Place;
   onMenu: (menu: Menu) => void;
+  sending: boolean;
 }) {
   const isUser = item.kind === "prompt";
   const bubble = useRef<HTMLDivElement>(null);
-  const press = useLongPress((point) => {
-    if (bubble.current)
-      onMenu({ message: item, point, bubble: bubble.current });
-  });
+  /** A tap (touch only: with a mouse, the row under the bubble has these) opens the menu; not one on a link, nor one ending a selection. */
+  const tap = (e: React.MouseEvent) => {
+    if (!matchMedia("(hover: none)").matches || !bubble.current) return;
+    if (
+      e.target instanceof Element &&
+      e.target.closest("a, button, img, video")
+    )
+      return;
+    if (getSelection()?.isCollapsed === false) return;
+    onMenu({
+      message: item,
+      point: { x: e.clientX, y: e.clientY },
+      bubble: bubble.current,
+    });
+  };
   const { attachments } = item;
   return (
     <div
-      className={`anim-fade-in flex flex-col gap-1.5 ${isUser ? "items-end" : "items-start"}`}
+      className={`anim-fade-in flex flex-col gap-1.5 ${isUser ? "items-end" : "items-start"} transition-opacity ${sending ? "opacity-60" : ""}`}
     >
       {attachments.length > 0 && (
         <Sent attachments={attachments} mine={isUser} />
       )}
       {(item.text !== "" || attachments.length === 0) && (
         <div
-          {...press}
+          onClick={tap}
           ref={bubble}
           // 16px text on 22px lines; 12px above and below (15px to the eye, with the leading) to 20px at the sides, 4:3;
           // a line is 46px high, a pill with the 22px corners
-          className="msg relative w-fit max-w-[88%] sm:max-w-[78%] px-5 py-3 text-[16px] leading-[22px]"
+          // a long run with no space (a web address) breaks where it must, inside the bubble
+          className="msg relative w-fit max-w-[88%] sm:max-w-[78%] px-5 py-3 text-[16px] leading-[22px] [overflow-wrap:anywhere]"
           style={{
             ...corners(isUser ? "user" : "muse", place),
             background: isUser
@@ -466,14 +432,25 @@ function Bubble({
           }}
         >
           {item.kind === "prompt" ? (
-            <span data-words>{item.text}</span>
+            <span data-words>{linked(item.text, item.id, true)}</span>
           ) : (
-            <div data-words className={item.streaming ? "shimmer-text" : undefined}>
+            <div
+              data-words
+              className={item.streaming ? "shimmer-text" : undefined}
+            >
               <RichText text={item.text} />
             </div>
           )}
           <ActionRow mine={isUser} text={item.text} />
         </div>
+      )}
+      {sending && (
+        <span
+          className="activity-indicator-fade px-1 text-[12px]"
+          style={{ color: "var(--text-tertiary)" }}
+        >
+          Sending…
+        </span>
       )}
     </div>
   );
@@ -493,12 +470,16 @@ function TimeDivider({ time }: { time: string }) {
 }
 
 /** px from the bottom past which the jump-to-bottom button shows */
+/** how long after the user's own touch a scroll counts as theirs (momentum runs on a while) */
+const USER_SCROLL_MS = 1500;
 const JUMP_BUTTON_DISTANCE = 240;
 /** px from the top within which older messages are fetched */
 const OLDER_DISTANCE = 600;
 
 interface Props {
   conversation: State;
+  /** messages on their way (outgoing.ts): those not on the server yet, and the keys theirs keep once there */
+  outgoing: { sending: Prompt[]; keys: Map<string, string> };
   /** fetch the page before the oldest message held */
   older: () => Promise<void>;
   /** let go of pages fetched back */
@@ -509,18 +490,24 @@ interface Props {
 
 export function ChatFeed({
   conversation,
+  outgoing,
   older,
   release,
   thumb,
   actions,
 }: Props) {
+  // what is on its way goes at the end, as it will be once the server has it
   const feed = useMemo(
-    () => conversation.entities.filter(shown),
-    [conversation.entities],
+    () => [...conversation.entities.filter(shown), ...outgoing.sending],
+    [conversation.entities, outgoing.sending],
+  );
+  const sending = useMemo(
+    () => new Set(outgoing.sending.map((p) => p.id)),
+    [outgoing.sending],
   );
   /** messages in the whole feed: what "new" is counted against, so pages fetched back are not new */
   const total = conversation.earlier + conversation.entities.length;
-  /** the message whose long-press menu is open (touch) */
+  /** the message whose menu is open (touch: tapped) */
   const [menu, setMenu] = useState<Menu | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -567,7 +554,16 @@ export function ChatFeed({
     const el = scrollRef.current;
     const content = contentRef.current;
     if (!el || !content) return;
+    // the fades spare the scrollbar (index.css, and the composer's): how wide it is now (none where it floats, or before
+    // there is anything to scroll); on the root, where the composer reads it too
+    const bar = () =>
+      document.documentElement.style.setProperty(
+        "--chat-scrollbar",
+        `${el.offsetWidth - el.clientWidth}px`,
+      );
+    bar();
     const follow = new ResizeObserver(() => {
+      bar();
       if (!stick.current) return;
       if (gliding.current)
         el.scrollTo({ top: el.scrollHeight, behavior: "smooth" }); // keep the glide aimed at the end
@@ -580,7 +576,10 @@ export function ChatFeed({
   /** the user's own hand on the scroll ends a glide: from then on, where they scroll counts */
   const handOn = () => {
     gliding.current = false;
+    handled.current = Date.now();
   };
+  /** when the user last touched the scroll (wheel, touch, keys, the scrollbar): a scroll long after is not theirs */
+  const handled = useRef(0);
 
   /** Where the first message held sat before older ones went in above it, to put it back there. */
   const anchor = useRef<{ id: string; top: number } | null>(null);
@@ -626,6 +625,15 @@ export function ChatFeed({
     const near = distance < 80;
     setFar(distance > JUMP_BUTTON_DISTANCE);
     if (gliding.current) return; // positions a glide passes through are not the user's
+    // a scroll the user did not make (the page laid out anew as cards arrived) does not unstick the view
+    if (
+      !near &&
+      stick.current &&
+      Date.now() - handled.current > USER_SCROLL_MS
+    ) {
+      el.scrollTop = el.scrollHeight;
+      return;
+    }
     stick.current = near;
     setAtBottom(near);
     if (near) {
@@ -671,17 +679,20 @@ export function ChatFeed({
         onScroll={onScroll}
         onWheel={handOn}
         onTouchStart={handOn}
+        onTouchMove={handOn}
         onKeyDown={handOn}
+        onPointerDown={handOn}
         className="h-full overflow-y-auto px-4 pt-16 pb-28 chat-scroll-fade"
-        style={{ background: "var(--chat-background)" }}
+        // no scroll anchoring: it moves the view when cards arrive above the end, and the view would think the user scrolled
+        style={{ background: "var(--chat-background)", overflowAnchor: "none" }}
       >
         <div ref={contentRef} className="mx-auto flex max-w-3xl flex-col gap-3">
           {feed.map((entity, i) => (
-            // joining the one above: 2px under it between bubbles, 4px where a card is involved (the feed's gap is 12px)
+            // joining the one above: 4px under it, bubble or card alike (the feed's gap is 12px)
             <div
-              key={entity.id}
+              key={outgoing.keys.get(entity.id) ?? entity.id}
               data-entity={entity.id}
-              className={`flex flex-col gap-3 ${joins(feed[i - 1], entity) ? (isMessage(entity) && isMessage(feed[i - 1]) ? "-mt-2.5" : "-mt-2") : ""}`}
+              className={`flex flex-col gap-3 ${joins(feed[i - 1], entity) ? "-mt-2" : ""}`}
             >
               {stamped(feed[i - 1], entity) && (
                 <TimeDivider time={time(entity.at)} />
@@ -695,6 +706,7 @@ export function ChatFeed({
                 thumb={thumb}
                 actions={actions}
                 onMenu={setMenu}
+                sending={sending.has(entity.id)}
               />
             </div>
           ))}

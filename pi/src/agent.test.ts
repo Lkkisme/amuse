@@ -52,3 +52,15 @@ test("the user's language is told by the script they write in, links aside", asy
   assert.equal(scriptOf("open https://例え.jp/ please"), null);
   assert.equal(scriptOf("download the first file"), null);
 });
+
+test("new and changed skills of the user's are told once; the first look and the built-in ones are not", async () => {
+  const { skillsSince } = await import("./agent.ts");
+  const skill = (name: string, description: string, from = `skills/${name}`) => ({ name, description, body: "Do it.", from });
+  const first = skillsSince(null, [skill("trips", "Planning trips"), skill("memory", "Built in", "built in")]);
+  assert.equal(first.news, "");
+  const later = skillsSince(first.seen, [skill("trips", "Planning trips, the way I like"), skill("pdf", "PDF tools"), skill("memory", "Changed", "built in")]);
+  assert.match(later.news, /^- trips \(changed\): Planning trips, the way I like$/m);
+  assert.match(later.news, /^- pdf \(new\): PDF tools$/m);
+  assert.doesNotMatch(later.news, /memory/);
+  assert.equal(skillsSince(later.seen, [skill("trips", "Planning trips, the way I like"), skill("pdf", "PDF tools")]).news, "", "told once");
+});

@@ -9,13 +9,14 @@
  * go through other apps' client ids, so they are left out.
  */
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import type { AuthEvent, AuthInteraction, AuthPrompt } from "@earendil-works/pi-ai";
+import { type AuthEvent, type AuthInteraction, type AuthPrompt, clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { type Keys, Rejected, newId } from "@amuse/core";
-import type { KeyProvider, LoginNote, LoginPrompt, LoginStep, ModelOption, ModelRole } from "@amuse/protocol";
+import { type KeyProvider, type LoginNote, type LoginPrompt, type LoginStep, type ModelOption, type ModelRole, ThinkingLevel } from "@amuse/protocol";
 import { z } from "zod";
 import { type KeyFile, fileCredentials, readOnlyCredentials } from "./credentials.ts";
 import { redact } from "./redact.ts";
 import { type PiModelConfig, parseModel, runtime, withoutOutputLimit } from "./session.ts";
+import { voiceServices } from "./voice.ts";
 
 /** A key that is not a model provider's: one secret, asked for in a sentence, with where to get it. */
 export interface AppKey {
@@ -33,8 +34,14 @@ export interface AppKey {
 const TEST_TIMEOUT_MS = 30_000;
 
 export interface PiKeys extends Keys {
-  /** The model chosen for `role`, as "provider/model-id"; null: none yet. */
+  /** The model `role` runs on, as "provider/model-id" (scheduled work: the chat's when it has none of its own); null: none yet. */
   model(role: ModelRole): string | null;
+  /** How much `role`'s model thinks. */
+  thinking(role: ModelRole): ThinkingLevel;
+  /** The mic's speech service, as the user chose it (null: the first with a key). */
+  voiceChoice(): string | null;
+  /** The user's own speech server, when set up. */
+  localVoiceService(): { url: string; model: string } | null;
   /** An app key (by its id), when set up. */
   appKey(id: string): string | null;
   /** Called after any key is set up or forgotten. */
@@ -44,8 +51,20 @@ export interface PiKeys extends Keys {
 const Choice = z.object({
   chat: z.string().nullable(),
   browser: z.string().nullable(),
+  /** scheduled work's model; null: the chat's */
+  background: z.string().nullable().default(null),
+  /** the mic's speech service (a provider, or "local"); null: the first with a key */
+  voice: z.string().nullable().default(null),
+  /** a speech server the user runs themselves (its key, if any, is kept with the keys as LOCAL_VOICE) */
+  localVoice: z.object({ url: z.string(), model: z.string() }).nullable().default(null),
+  thinking: z
+    .object({ chat: ThinkingLevel, browser: ThinkingLevel, background: ThinkingLevel.default("off") })
+    .default({ chat: "off", browser: "off", background: "off" }),
 });
 type Choice = z.infer<typeof Choice>;
+
+/** Where the key of the user's own speech server is kept, among the keys. */
+export const LOCAL_VOICE = "local-voice";
 
 /** How long a sign-in may wait for its next answer. */
 const LOGIN_TIMEOUT_MS = 10 * 60_000;
@@ -133,7 +152,7 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath, omitOutputLimi
     auth: { kind: "keys", keys },
     ...(modelsPath ? { modelsPath } : {}),
   };
-  let choice: Choice = existsSync(choicePath) ? Choice.parse(JSON.parse(readFileSync(choicePath, "utf8"))) : { chat: null, browser: null };
+  let choice: Choice = existsSync(choicePath) ? Choice.parse(JSON.parse(readFileSync(choicePath, "utf8"))) : { chat: null, browser: null, background: null, voice: null, localVoice: null, thinking: { chat: "off", browser: "off", background: "off" } };
   const choose = (next: Choice) => {
     writeFileSync(`${choicePath}.tmp`, JSON.stringify(next, null, 2), {
       mode: 0o600,
@@ -166,7 +185,18 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath, omitOutputLimi
       name: m.name,
       provider: m.provider,
       images: m.input.includes("image"),
+      thinking: getSupportedThinkingLevels(m),
     }));
+  };
+
+  /** The model `role` runs on: its own, or (scheduled work) the chat's when it has none. */
+  const runs = (role: ModelRole): string | null => (role === "background" ? (choice.background ?? choice.chat) : choice[role]);
+  /** The level `role`'s model thinks at: the one chosen, or the nearest it takes (some cannot be off). */
+  const inEffect = async (role: ModelRole): Promise<ThinkingLevel> => {
+    const ref = runs(role);
+    const spec = ref ? parseModel(ref) : undefined;
+    const model = spec && (await runtime(cfg)).getModel(spec.provider, spec.id);
+    return model ? clampThinkingLevel(model, choice.thinking[role]) : choice.thinking[role];
   };
 
   /** Run a sign-in to its first step; later steps come with each answer. */
@@ -226,7 +256,10 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath, omitOutputLimi
   };
 
   return {
-    model: (role) => choice[role],
+    model: (role) => runs(role),
+    thinking: (role) => choice.thinking[role],
+    voiceChoice: () => choice.voice,
+    localVoiceService: () => choice.localVoice,
     appKey: (id) => appKeys.get(id) ?? null,
     onChange: (listener) => void listeners.push(listener),
 
@@ -261,6 +294,16 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath, omitOutputLimi
         models: await available(),
         chat: choice.chat,
         browser: choice.browser,
+        background: choice.background,
+        thinking: { chat: await inEffect("chat"), browser: await inEffect("browser"), background: await inEffect("background") },
+        voice: {
+          services: [
+            ...voiceServices.filter((v) => stored.has(v.provider)).map(({ provider, name }) => ({ provider, name })),
+            ...(choice.localVoice ? [{ provider: "local", name: `Your own server (${choice.localVoice.model})` }] : []),
+          ],
+          chosen: choice.voice,
+          local: choice.localVoice,
+        },
       };
     },
 
@@ -344,15 +387,54 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath, omitOutputLimi
       await loadAppKeys();
       // a model of a provider without a key can no longer be used
       const keep = (ref: string | null) => (ref !== null && parseModel(ref)?.provider === provider ? null : ref);
-      choose({ chat: keep(choice.chat), browser: keep(choice.browser) });
+      choose({ ...choice, chat: keep(choice.chat), browser: keep(choice.browser), background: keep(choice.background) });
       changed();
     },
 
     async choose(role, model) {
+      if (model === null) {
+        if (role !== "background") throw new Rejected({ kind: "unsound", reason: `The ${role} needs a model of its own.` });
+        return choose({ ...choice, background: null });
+      }
       const option = (await available()).find((m) => m.id === model);
       if (!option) throw new Rejected({ kind: "unsound", reason: `${model} is not offered by a provider set up with a key.` });
       if (role === "browser" && !option.images) throw new Rejected({ kind: "unsound", reason: `${option.name} does not see pictures, which the browser needs.` });
-      choose({ ...choice, [role]: model });
+      // the thinking level goes as near as the new model takes
+      const spec = parseModel(model);
+      const picked = spec && (await runtime(cfg)).getModel(spec.provider, spec.id);
+      const level = picked ? clampThinkingLevel(picked, choice.thinking[role]) : "off";
+      choose({ ...choice, [role]: model, thinking: { ...choice.thinking, [role]: level } });
+    },
+
+    async voice(provider) {
+      if (provider === "local") {
+        if (!choice.localVoice) throw new Rejected({ kind: "unsound", reason: "Set up your own speech server first." });
+        return choose({ ...choice, voice: "local" });
+      }
+      if (provider !== null && !voiceServices.some((v) => v.provider === provider))
+        throw new Rejected({ kind: "unsound", reason: `${provider} does not turn speech into text here.` });
+      if (provider !== null && !(await keys.read(provider))) throw new Rejected({ kind: "unsound", reason: `Add a key for ${provider} first.` });
+      choose({ ...choice, voice: provider });
+    },
+
+    async localVoice(service) {
+      if (service === null) {
+        await keys.delete(LOCAL_VOICE);
+        return choose({ ...choice, localVoice: null, voice: choice.voice === "local" ? null : choice.voice });
+      }
+      if (!/^https?:\/\//.test(service.url)) throw new Rejected({ kind: "unsound", reason: "The server's address starts with http:// or https://." });
+      const key = service.key?.trim();
+      if (key) await keys.modify(LOCAL_VOICE, async () => ({ type: "api_key", key: bare(key) }));
+      else await keys.delete(LOCAL_VOICE);
+      choose({ ...choice, localVoice: { url: service.url.trim(), model: service.model.trim() } });
+    },
+
+    async think(role, level) {
+      const chosen = runs(role);
+      if (chosen === null) throw new Rejected({ kind: "unsound", reason: "Choose a model first." });
+      const option = (await available()).find((m) => m.id === chosen);
+      if (!option?.thinking.includes(level)) throw new Rejected({ kind: "unsound", reason: `${option?.name ?? chosen} does not take the thinking level ${level}.` });
+      choose({ ...choice, thinking: { ...choice.thinking, [role]: level } });
     },
   };
 }
@@ -413,6 +495,10 @@ export async function adoptEnvironment({
     const choice: Choice = {
       chat,
       browser: env["AMUSE_PI_BROWSER_MODEL"]?.trim() || chat,
+      background: null,
+      voice: null,
+      localVoice: null,
+      thinking: { chat: "off", browser: "off", background: "off" },
     };
     writeFileSync(choicePath, JSON.stringify(choice, null, 2), { mode: 0o600 });
   }

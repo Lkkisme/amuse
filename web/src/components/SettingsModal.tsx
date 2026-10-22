@@ -1,8 +1,8 @@
 /**
  * Settings (surfaces 7, 9, 10): a page on a phone, a modal with a nav column on
  * a desktop — General (appearance; the password), Models (the user's keys and
- * the models chosen: Models.tsx), Connectors (the server's app directory: Connectors.tsx),
- * Permissions (per-site Allow/Ask/Deny) and Schedules. Modeled on the reference
+ * the models chosen: Models.tsx), Connections (the server's directory: Connectors.tsx),
+ * Permissions (per-site Allow/Ask/Deny), Schedules and the Sandbox (reset it). Modeled on the reference
  * settings sheet. (Muse's secure store is left out: the browser keeps logins
  * from the user's own sign-ins instead.)
  */
@@ -17,6 +17,8 @@ import {
   Settings as SettingsIcon,
   Shield,
   Sparkles,
+  KeyRound,
+  Terminal,
   X,
   CalendarClock,
 } from "lucide-react";
@@ -31,13 +33,17 @@ import { Schedules } from "./Schedules";
 import { Models } from "./Models";
 import { PinSecurity } from "./PinSecurity";
 import { BackendStatus, useBackendStatus } from "./BackendStatus";
+import { Logins } from "./Logins";
+import { Sandbox } from "./Sandbox";
 
 const NAV: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
   { id: "general", label: "General", icon: <SettingsIcon size={18} /> },
   { id: "models", label: "Models", icon: <Sparkles size={18} /> },
-  { id: "connectors", label: "Connectors", icon: <LayoutGrid size={18} /> },
+  { id: "connectors", label: "Connections", icon: <LayoutGrid size={18} /> },
   { id: "permissions", label: "Permissions", icon: <Shield size={18} /> },
+  { id: "logins", label: "Saved logins", icon: <KeyRound size={18} /> },
   { id: "schedules", label: "Schedules", icon: <CalendarClock size={18} /> },
+  { id: "sandbox", label: "Sandbox", icon: <Terminal size={18} /> },
 ];
 
 /* ---------------- General ---------------- */
@@ -121,7 +127,7 @@ export function SettingsModal({
   actions: Actions;
 }) {
   const { mounted, closing, onAnimationEnd } = usePresence(ui.open);
-  // adding (a website rule, a login) starts from the bar's +, and ends with the section
+  // Adding a website rule starts from the bar's +, and ends with the section.
   const [adding, setAdding] = useState(false);
   const { backend, loading: backendLoading, unavailable: backendUnavailable } = useBackendStatus(session, ui.open && !demo);
   useEffect(() => setAdding(false), [ui.section, ui.open]);
@@ -130,8 +136,8 @@ export function SettingsModal({
   const section = ui.section;
   const shown = section ?? "general";
   const paseo = backend?.kind === "paseo";
-  const viewingProvider = paseo ? null : ui.provider;
-  const nav = NAV.map((item) => item.id === "models" && paseo ? { ...item, label: "Backend" } : item);
+  const viewingProvider = ui.provider;
+  const nav = NAV.map((item) => item.id === "models" && paseo ? { ...item, label: "Backend & voice" } : item);
   const round = "flex size-8 shrink-0 items-center justify-center rounded-full";
   // the page's bar: what it is, and its one action (adding, where there is something to add)
   const title = !section
@@ -141,7 +147,7 @@ export function SettingsModal({
       : viewingProvider
         ? viewingProvider.name
         : (nav.find((n) => n.id === section)?.label ?? "");
-  const adds = !paseo && !backendLoading && !ui.app && shown === "permissions" ? "Add a website" : null;
+  const adds = !ui.app && shown === "permissions" ? "Add a website" : null;
   // a phone's bar has the chat's round buttons; a desktop's has small labelled ones, the height of its close button
   const add = adds && (
     <button
@@ -190,7 +196,7 @@ export function SettingsModal({
               !section
                 ? "Close settings"
                 : ui.app
-                  ? "All connectors"
+                  ? "All connections"
                   : viewingProvider
                     ? "All providers"
                     : "All settings"
@@ -229,7 +235,7 @@ export function SettingsModal({
           >
             Settings
           </p>
-          {nav.map((n) => (
+          {nav.filter((n) => !demo || n.id !== "sandbox").map((n) => (
             <button
               key={n.id}
               className="flex items-center gap-3 rounded-xl px-3 py-3 text-left text-[16px] font-medium sm:py-2.5 sm:text-[15px]"
@@ -272,19 +278,17 @@ export function SettingsModal({
               className="flex-1 truncate text-[20px] font-semibold"
               style={{ color: "var(--text-primary)" }}
             >
-              {ui.app || viewingProvider ? "" : title}
+              {/* General is shown before a section is chosen on desktop. */}
+              {ui.app || viewingProvider ? "" : (nav.find((n) => n.id === shown)?.label ?? "")}
             </p>
             {addLabelled}
             <button
               aria-label="Close settings"
-              className={round}
-              style={{
-                background: "var(--fill-secondary)",
-                color: "var(--icon-primary)",
-              }}
+              className={barButton}
+              style={barButtonLook}
               onClick={() => actions.closeSettings()}
             >
-              <X size={17} />
+              <X size={barIcon} />
             </button>
           </header>
           {shown === "connectors" && (
@@ -301,43 +305,31 @@ export function SettingsModal({
               />
             </>
           )}
-          {shown === "permissions" && paseo && (
-            <div className="flex-1 overflow-y-auto px-5 pb-6 sm:px-6">
-              <div className="rounded-[18px] p-4" style={{ background: "var(--fill-secondary)" }}>
-                <p className="flex items-center gap-2 text-[15px] font-medium" style={{ color: "var(--text-primary)" }}>
-                  <Shield size={18} /> Paseo / Codex
-                </p>
-                <p className="mt-3 text-[13px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-                  执行权限沿用电脑 Paseo 的 Codex 配置。当前 Amuse 站点规则不控制该后端。
-                </p>
-              </div>
-            </div>
-          )}
-          {shown === "permissions" && !paseo && backendLoading && (
-            <div className="px-5 sm:px-6"><BackendStatus backend={null} loading /></div>
-          )}
-          {shown === "permissions" && !paseo && !backendLoading && (
-            <SitePermissions
-              session={session}
-              adding={adding}
-              onAdded={() => setAdding(false)}
-            />
+          {shown === "permissions" && (
+            <>
+              {paseo && <p className="mx-5 mb-4 rounded-xl px-4 py-3 text-[13px] leading-relaxed sm:mx-6"
+                style={{ background: "var(--fill-secondary)", color: "var(--text-secondary)" }}>
+                These rules apply to Amuse's shared browser and app connections. Other Codex tools follow your computer's Paseo configuration.
+              </p>}
+              <SitePermissions session={session} adding={adding} onAdded={() => setAdding(false)} />
+            </>
           )}
           {shown === "schedules" && <Schedules session={session} />}
-          {shown === "models" && paseo && (
-            <div className="flex-1 overflow-y-auto px-5 pb-6 sm:px-6">
-              <BackendStatus backend={backend} unavailable={backendUnavailable} />
-              <p className="text-[13px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-                Chats use the Paseo session on your computer. The model, sign-in and tool permissions follow that session’s configuration. Change them on your computer; this app reuses the same configuration.
-              </p>
-            </div>
-          )}
-          {shown === "models" && !paseo && backendLoading && (
+          {shown === "logins" && <Logins session={session} />}
+          {shown === "sandbox" && <Sandbox session={session} />}
+          {shown === "models" && backendLoading && (
             <div className="px-5 sm:px-6"><BackendStatus backend={null} loading /></div>
           )}
-          {shown === "models" && !paseo && !backendLoading && (
+          {shown === "models" && !backendLoading && (
             <Models
               session={session}
+              executionManaged={paseo}
+              header={paseo ? <>
+                <BackendStatus backend={backend} unavailable={backendUnavailable} />
+                <p className="mb-4 text-[13px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                  Chats and background work use your computer's Paseo / Codex model and context settings. Speech to text is configured separately below.
+                </p>
+              </> : null}
               viewing={viewingProvider}
               onView={actions.openProvider}
             />

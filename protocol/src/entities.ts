@@ -88,6 +88,12 @@ export const Approval = z.object({
   remember: z.boolean(),
   status: z.enum(["pending", "approved", "denied", "timed_out"]),
   expires: Instant,
+  /** the app it is for (e.g. "gmail"), shown with its logo; null: not an app's */
+  app: z.string().nullable().default(null),
+  /** the answer was for good (it became a rule) */
+  always: z.boolean().default(false),
+  /** refused by the user's rule, not asked and not answered: it never was a card (it ends denied, and is only a record) */
+  byRule: z.boolean().default(false),
 });
 
 /** The agent asking the user to connect an app (provider: e.g. "gmail"). */
@@ -98,6 +104,42 @@ export const Connection = z.object({
   provider: z.string(),
   title: z.string(),
   status: z.enum(["pending", "connected", "dismissed"]),
+});
+
+/**
+ * Where a credential the user gives for Amuse's sandbox goes: an environment variable every command there gets, a file
+ * in its home, or typed into a terminal (a pane of herdr's, w1:p2, where a CLI waits for a code). Typing went to a
+ * running service's input before terminals were herdr's: such a `service` is read as the pane it names (none, now).
+ */
+export const SecretDestination = z.preprocess(
+  (raw) =>
+    typeof raw === "object" && raw !== null && "kind" in raw && raw.kind === "stdin" && "service" in raw && !("pane" in raw)
+      ? { kind: "stdin", pane: raw.service }
+      : raw,
+  z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("env"), name: z.string().regex(/^[A-Z_][A-Z0-9_]{0,63}$/) }),
+    z.object({ kind: z.literal("file"), path: z.string().min(1).max(1024) }),
+    z.object({ kind: z.literal("stdin"), pane: z.string().min(1).max(60) }),
+  ]),
+);
+export type SecretDestination = z.infer<typeof SecretDestination>;
+
+/**
+ * The agent asking the user for a credential for its sandbox (an API key, a
+ * login code). The user types it on the card; it goes from there to the
+ * sandbox through the server, never through the agent, the chat or this
+ * entity, which keeps only that it was asked and how it was answered.
+ */
+export const SecretRequest = z.object({
+  kind: z.literal("secret"),
+  id: Id,
+  at: Instant,
+  /** what it is, as the user knows it ("OpenAI API key") */
+  name: z.string(),
+  /** what it is for */
+  why: z.string(),
+  deliver: SecretDestination,
+  status: z.enum(["pending", "provided", "declined"]),
 });
 
 /**
@@ -162,6 +204,15 @@ export const RunOutcome = z.enum(["reported", "quiet", "failed", "missed", "stop
  *   done       a one-off that has run
  *   cancelled  for good
  */
+/**
+ * When a schedule's run is worth starting at all (checked before any work):
+ *   conversation  there was conversation since its last run
+ *   lull          there was, it has gone quiet (20 minutes), and the last run is 4 hours back
+ * A run its condition holds back is skipped, and not counted as a run.
+ */
+export const Needs = z.enum(["conversation", "lull"]);
+export type Needs = z.infer<typeof Needs>;
+
 export const Schedule = z.object({
   kind: z.literal("schedule"),
   id: Id,
@@ -176,6 +227,12 @@ export const Schedule = z.object({
   running: z.boolean(),
   /** how the latest run went, in a few words; null before the first */
   last: z.object({ at: Instant, outcome: RunOutcome, summary: z.string() }).nullable(),
+  /** what a run waits for besides its time; null: nothing */
+  needs: Needs.nullable().default(null),
+  /** one every instance starts with (not asked for in the chat, so not shown there); the user's like any other */
+  preset: z.boolean().default(false),
+  /** the user's goal it serves (its id, a folder in memory/goals/); null: none */
+  goal: z.string().nullable().default(null),
 });
 
 /**
@@ -230,7 +287,7 @@ export const Failure = z.object({
   status: z.enum(["open", "retried"]),
 });
 
-export const Entity = z.discriminatedUnion("kind", [Prompt, Reply, Task, Approval, Connection, Browser, Schedule, Instruction, Question, Failure]);
+export const Entity = z.discriminatedUnion("kind", [Prompt, Reply, Task, Approval, Connection, SecretRequest, Browser, Schedule, Instruction, Question, Failure]);
 
 /**
  * What the agent is doing, shown under its name. `label` overrides the
@@ -246,6 +303,7 @@ export const Activity = z.object({
 export type Prompt = z.infer<typeof Prompt>;
 export type Attachment = z.infer<typeof Attachment>;
 export type Reply = z.infer<typeof Reply>;
+export type SecretRequest = z.infer<typeof SecretRequest>;
 export type Task = z.infer<typeof Task>;
 export type Approval = z.infer<typeof Approval>;
 export type Connection = z.infer<typeof Connection>;

@@ -16,6 +16,8 @@ export type Connection =
       rpc: string;
       live: (id: string) => string;
       thumb: (id: string) => string;
+      /** the sandbox's terminals, a websocket, at a size */
+      terminal: (cols: number, rows: number) => string;
     };
 
 /** A route next to /rpc on the same server, for a run id (ws for /live, http for /thumb). */
@@ -33,6 +35,12 @@ function server(rpc: string): Connection {
     rpc,
     live: (id) => route(rpc, "/live", id, false),
     thumb: (id) => route(rpc, "/thumb", id, true),
+    terminal: (cols, rows) => {
+      const url = new URL(rpc);
+      url.pathname = "/terminal";
+      url.search = new URLSearchParams({ cols: String(cols), rows: String(rows) }).toString();
+      return url.toString();
+    },
   };
 }
 
@@ -50,15 +58,20 @@ async function reason(response: Response): Promise<string> {
   return response.status === 401 ? "That is not the password." : "Something went wrong. Try again.";
 }
 
+/** How far starting has got, for the page that says why it could not start (index.html). */
+export const startedTo = (stage: string) => void (document.documentElement.dataset["amuse"] = stage);
+
 export async function connection(): Promise<Connection> {
   const explicit = import.meta.env["VITE_AMUSE_URL"];
   if (typeof explicit === "string" && explicit) return server(explicit);
   if (import.meta.env["VITE_AMUSE_MODE"] !== "same-origin") return { kind: "demo" };
 
+  startedTo("asking the server (/unlock)");
   const abort = new AbortController();
   const timeout = setTimeout(() => abort.abort(), 12_000);
   try {
     const unlocked = await fetch("/unlock", { signal: abort.signal }).catch(() => null);
+    startedTo(unlocked ? `the server answered /unlock (${unlocked.status})` : "/unlock could not be reached");
     if (unlocked?.status !== 204) {
       const said: unknown = await unlocked?.json().catch(() => null);
       const ready = typeof said === "object" && said !== null && "ready" in said ? said.ready !== false : true;

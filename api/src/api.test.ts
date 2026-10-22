@@ -221,13 +221,20 @@ async function guarded() {
     });
   const cookieOf = (response: Response) => (response.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
   const { WebSocket: Ws } = await import("ws");
-  const opens = (headers: Record<string, string>) =>
+  const opens = (headers: Record<string, string>, path = "/rpc") =>
     new Promise((resolve) => {
-      const ws = new Ws(`ws://127.0.0.1:${server.port}/rpc`, { headers });
+      const ws = new Ws(`ws://127.0.0.1:${server.port}${path}`, { headers });
       ws.on("open", () => (ws.close(), resolve("open")));
       ws.on("error", () => resolve("refused"));
     });
-  return { http, post, cookieOf, opens, close: () => server.close() };
+  /** How a socket at `path` ended: refused, or the close code the server gave. */
+  const ends = (headers: Record<string, string>, path: string) =>
+    new Promise((resolve) => {
+      const ws = new Ws(`ws://127.0.0.1:${server.port}${path}`, { headers });
+      ws.on("close", (code) => resolve(code));
+      ws.on("error", () => resolve("refused"));
+    });
+  return { http, post, cookieOf, opens, ends, close: () => server.close() };
 }
 
 test("the first visit sets the master password; then only the password opens a session, an HttpOnly cookie that alone opens the socket", async () => {
@@ -373,5 +380,45 @@ test("pages from another origin cannot open the sockets, even with a valid sessi
     assert.equal(await opens({ cookie, origin: http }), "open"); // same origin
   } finally {
     await close();
+  }
+});
+
+test("the terminals' socket is the session's and this origin's alone; without a sandbox it says there are none", async () => {
+  const { post, cookieOf, ends, http, close } = await guarded();
+  try {
+    const cookie = cookieOf(await post("/setup", { password: "correct horse" }));
+    assert.equal(await ends({}, "/terminal?cols=80&rows=24"), "refused");
+    assert.equal(await ends({ cookie, origin: "https://evil.example" }, "/terminal"), "refused");
+    assert.equal(await ends({ cookie, origin: http }, "/terminal?cols=80&rows=24"), 4404);
+  } finally {
+    await close();
+  }
+});
+
+test("speech becomes text for a session, from this origin, audio only; when it cannot, the reason comes back", async () => {
+  const access = fileAccess(join(mkdtempSync(join(tmpdir(), "amuse-access-")), "access.json"));
+  const heard: string[] = [];
+  const server = await listen({
+    session: createHost(demoPorts(instant), { timers: never }),
+    access,
+    transcribe: async (audio, type) => (heard.push(`${audio.length} ${type}`), audio.length > 2 ? { text: "hello" } : { reason: "Voice needs a key" }),
+    port: 0,
+    host: "127.0.0.1",
+  });
+  const http = `http://127.0.0.1:${server.port}`;
+  try {
+    const set = await fetch(`${http}/setup`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: "correct horse" }) });
+    const cookie = (set.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+    const say = (body: Uint8Array<ArrayBuffer>, type: string, headers: Record<string, string> = { cookie }) =>
+      fetch(`${http}/transcribe`, { method: "POST", headers: { "content-type": type, ...headers }, body });
+    assert.equal((await say(new Uint8Array([1, 2, 3]), "audio/webm", {})).status, 401);
+    assert.equal((await say(new Uint8Array([1, 2, 3]), "text/plain")).status, 415);
+    const said = await say(new Uint8Array([1, 2, 3]), "audio/ogg;codecs=opus");
+    assert.deepEqual([said.status, await said.json()], [200, { text: "hello" }]);
+    const cannot = await say(new Uint8Array([1]), "audio/webm");
+    assert.deepEqual([cannot.status, await cannot.json()], [400, { reason: "Voice needs a key" }]);
+    assert.deepEqual(heard, ["3 audio/ogg;codecs=opus", "1 audio/webm"]);
+  } finally {
+    await server.close();
   }
 });

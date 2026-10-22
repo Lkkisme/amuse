@@ -12,8 +12,8 @@ android {
         applicationId = "live.amuse.app"
         minSdk = 29
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.1.3"
+        versionCode = 5
+        versionName = "0.1.4"
         // Extra diagnostics for local USB development. Screenshots are allowed
         // in normal and diagnostic builds at the owner's request.
         buildConfigField("boolean", "SCREEN_PREVIEW", providers.gradleProperty("amuse.screenPreview").orElse("false").get().toBoolean().toString())
@@ -21,7 +21,9 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
         }
     }
     compileOptions {

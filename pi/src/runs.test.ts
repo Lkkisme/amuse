@@ -47,3 +47,21 @@ test("Amuse's message reaches a session mid-run before its next step; between pr
   mail.close();
   assert.equal(r.listening(), false);
 });
+
+test("a message the run takes now (waiting for the user, say) is not steered or kept for later; one it does not take is", async () => {
+  const r = run();
+  const steered: string[] = [];
+  const session: Steerable = { isStreaming: true, steer: async (text) => void steered.push(text) };
+  const taken: string[] = [];
+  let waiting = true;
+  const mail = inbox(r.handle, () => session, () => {}, (text) => (waiting ? (taken.push(text), true) : false));
+  r.send({ kind: "instruction", text: "The code is 31672857" });
+  assert.deepEqual(taken, ["The code is 31672857"]);
+  assert.deepEqual(steered, []);
+  waiting = false;
+  r.send({ kind: "instruction", text: "Then save" });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(steered.length, 1);
+  assert.match(steered[0] ?? "", /Then save/);
+  mail.close();
+});

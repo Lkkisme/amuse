@@ -75,15 +75,18 @@ function reduce(state: State, event: Event): State {
   }
 }
 
-/** Still in play: a reply streaming, a run or task not ended, an approval not decided, a schedule's run under way, a question not answered. */
+/** Still in play: a reply streaming, a browser still open, a task not ended, an approval or a credential asked and not answered, a schedule's run under way, a question not answered. */
 export function unsettled(entity: Entity): boolean {
   switch (entity.kind) {
     case "reply":
       return entity.streaming;
     case "browser":
+      // a browser is in play while it is open (idle between jobs, too); once it is gone, it is a record
+      return entity.live && !["completed", "failed", "stopped"].includes(entity.status);
     case "task":
       return !["completed", "failed", "stopped"].includes(entity.status);
     case "approval":
+    case "secret":
       return entity.status === "pending";
     case "schedule":
       return entity.running;
@@ -106,6 +109,8 @@ export function unsettled(entity: Entity): boolean {
 export function recent(state: State, size: number): State {
   const oldestLive = state.entities.findIndex(unsettled);
   const start = Math.max(0, Math.min(state.entities.length - size, oldestLive < 0 ? Infinity : oldestLive));
+  // nothing to let go of (something old still in play holds it all): the same state, so no one takes it for a change
+  if (start === 0) return state;
   return { ...state, earlier: state.earlier + start, entities: state.entities.slice(start) };
 }
 

@@ -5,15 +5,17 @@
  * shows), each with a page of its own to test, replace or remove its key; and
  * every other one to add.
  */
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, KeyRound, Search } from "lucide-react";
 import type {
   KeyProvider,
   KeysState,
   ModelRole,
   Session,
+  ThinkingLevel,
 } from "@amuse/protocol";
 import { KeyLine, KeyLogin, type TestState, useKeyTests } from "./KeyLogin";
+import { Sheet } from "./Sheet";
 
 const label = "mb-2 mt-6 px-1 text-[13px] font-medium";
 const group = "divide-y divide-[var(--fill-divider)] rounded-[18px] px-4";
@@ -23,8 +25,13 @@ export function Models({
   session,
   viewing,
   onView,
+  executionManaged = false,
+  header,
 }: {
   session: Session;
+  /** Execution model settings belong to the connected Paseo / Codex profile. */
+  executionManaged?: boolean;
+  header?: ReactNode;
   viewing: KeyProvider | null;
   onView: (provider: KeyProvider | null) => void;
 }) {
@@ -33,6 +40,7 @@ export function Models({
   const [setting, setSetting] = useState<KeyProvider | null>(null);
   const { tests, test, clear } = useKeyTests(session);
   const [query, setQuery] = useState("");
+  const [ownVoice, setOwnVoice] = useState(false);
 
   const load = useCallback(
     () =>
@@ -45,9 +53,17 @@ export function Models({
   useEffect(() => void load(), [load]);
   const fail = (e: unknown) =>
     setError(e instanceof Error ? e.message : String(e));
-  const choose = (role: ModelRole, model: string) => {
+  const choose = (role: ModelRole, model: string | null) => {
     setError(null);
     session.call("models.choose", { role, model }).then(load, fail);
+  };
+  const think = (role: ModelRole, level: ThinkingLevel) => {
+    setError(null);
+    session.call("models.think", { role, level }).then(load, fail);
+  };
+  const voice = (provider: string | null) => {
+    setError(null);
+    session.call("models.voice", { provider }).then(load, fail);
   };
   const forget = (provider: KeyProvider) => {
     setError(null);
@@ -101,11 +117,12 @@ export function Models({
 
   return (
     <div className="flex-1 overflow-y-auto px-5 pb-6 sm:px-6">
+      {header}
       <p
         className="text-[13px] leading-snug"
         style={{ color: "var(--text-secondary)" }}
       >
-        Amuse runs on a model you choose, with your own API key.
+        {executionManaged ? "Configure speech to text with a provider key or your own server." : "Amuse runs on a model you choose, with your own API key."}
       </p>
       {error && (
         <p
@@ -117,8 +134,9 @@ export function Models({
         </p>
       )}
 
-      {mine.length > 0 && state && (
+      {state && (
         <>
+          {!executionManaged && mine.length > 0 && <>
           <p className={label} style={{ color: "var(--text-secondary)" }}>
             Models
           </p>
@@ -132,13 +150,137 @@ export function Models({
               options={models}
               onChange={(m) => choose("chat", m)}
             />
+            <ThinkingPicker
+              title="Chat"
+              levels={models.find((m) => m.id === state.chat)?.thinking ?? []}
+              value={state.thinking.chat}
+              onChange={(level) => think("chat", level)}
+            />
             <ModelPicker
               title="Browser"
               value={state.browser}
               options={models.filter((m) => m.images)}
               onChange={(m) => choose("browser", m)}
             />
+            <ThinkingPicker
+              title="Browser"
+              levels={
+                models.find((m) => m.id === state.browser)?.thinking ?? []
+              }
+              value={state.thinking.browser}
+              onChange={(level) => think("browser", level)}
+            />
+            {/* scheduled work: memory upkeep, reflection, the user's schedules */}
+            <ModelPicker
+              title="Background"
+              value={state.background}
+              options={models}
+              unset="Same as chat"
+              onChange={(m) => choose("background", m)}
+            />
+            <ThinkingPicker
+              title="Background"
+              levels={
+                models.find((m) => m.id === (state.background ?? state.chat))
+                  ?.thinking ?? []
+              }
+              value={state.thinking.background}
+              onChange={(level) => think("background", level)}
+            />
           </div>
+          <p
+            className="mt-2 px-1 text-[13px] leading-snug"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            Background runs your schedules, and keeps memory between
+            conversations every hour; a cheaper model does well there.
+          </p>
+          </>}
+          <p className={label} style={{ color: "var(--text-secondary)" }}>
+            Voice
+          </p>
+          <div
+            className={group}
+            style={{ background: "var(--fill-secondary)" }}
+          >
+            <label className="flex items-center gap-3 py-2.5">
+              <span
+                className="text-[16px]"
+                style={{ color: "var(--text-primary)" }}
+              >
+                Speech to text
+              </span>
+              <select
+                aria-label="Speech to text"
+                className="min-w-0 flex-1 truncate bg-transparent text-right text-[15px] outline-none"
+                style={{ color: "var(--text-secondary)" }}
+                value={state.voice.chosen ?? ""}
+                onChange={(e) => voice(e.target.value || null)}
+              >
+                <option value="">
+                  {state.voice.services.length > 0
+                    ? "Automatic"
+                    : "Needs a key, or your own server"}
+                </option>
+                {state.voice.services.map((s) => (
+                  <option key={s.provider} value={s.provider}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              className="flex w-full items-center gap-3 py-2.5 text-left"
+              onClick={() => setOwnVoice(true)}
+            >
+              <span className="min-w-0 flex-1">
+                <span
+                  className="block text-[16px]"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  Your own server
+                </span>
+                <span
+                  className="block truncate text-[13px]"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  {state.voice.local
+                    ? `${state.voice.local.model} · ${state.voice.local.url}`
+                    : "Not set up"}
+                </span>
+              </span>
+              <ChevronRight
+                size={16}
+                style={{ color: "var(--icon-secondary)" }}
+              />
+            </button>
+          </div>
+          <LocalVoiceSheet
+            open={ownVoice}
+            defaultUrl={executionManaged ? "http://127.0.0.1:8000/v1" : "http://host.docker.internal:8000/v1"}
+            current={state.voice.local}
+            onClose={() => setOwnVoice(false)}
+            onSave={(service) => {
+              setError(null);
+              return session.call("models.localVoice", { service }).then(
+                () => {
+                  setOwnVoice(false);
+                  void load();
+                },
+                (e: unknown) => {
+                  throw e instanceof Error ? e : new Error(String(e));
+                },
+              );
+            }}
+          />
+          <p
+            className="mt-2 px-1 text-[13px] leading-snug"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            Turns what you say into the mic into text. Automatic uses the first
+            of OpenAI, Groq and Fireworks you have a key for, then your own
+            server; with your own server, recordings stay on your machines.
+          </p>
           <p className={label} style={{ color: "var(--text-secondary)" }}>
             Your providers
           </p>
@@ -170,7 +312,12 @@ export function Models({
       )}
 
       <p className={label} style={{ color: "var(--text-secondary)" }}>
-        {mine.length > 0 ? "Add a provider" : "Choose a provider to start"}
+        {/* until the list is in, nothing is said about what is set up */}
+        {state === null
+          ? "Providers"
+          : mine.length > 0
+            ? "Add a provider"
+            : "Choose a provider to start"}
       </p>
       <label
         className="mb-2 flex items-center gap-2 rounded-full px-4 py-2.5"
@@ -187,7 +334,12 @@ export function Models({
         />
       </label>
       <ul className={group} style={{ background: "var(--fill-secondary)" }}>
-        {state === null && <li className="skeleton my-3 h-6 rounded" />}
+        {state === null &&
+          [0, 1, 2, 3, 4].map((i) => (
+            <li key={i} className="py-3">
+              <div className="skeleton h-5 w-2/5 rounded" />
+            </li>
+          ))}
         {state && others.length === 0 && (
           <li
             className="py-3.5 text-[15px]"
@@ -324,17 +476,203 @@ function ProviderPage({
   );
 }
 
+const levelName: Record<ThinkingLevel, string> = {
+  off: "Off",
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra high",
+  max: "Max",
+};
+
+/** How much a role's model thinks; only for a model that can (it takes more than "off"). */
+function ThinkingPicker({
+  title,
+  levels,
+  value,
+  onChange,
+}: {
+  title: string;
+  levels: ThinkingLevel[];
+  value: ThinkingLevel;
+  onChange: (level: ThinkingLevel) => void;
+}) {
+  if (levels.length < 2) return null;
+  return (
+    <label className="flex items-center gap-3 py-2.5 pl-4">
+      <span className="text-[15px]" style={{ color: "var(--text-secondary)" }}>
+        Thinking
+      </span>
+      <select
+        aria-label={`${title} thinking`}
+        className="min-w-0 flex-1 bg-transparent text-right text-[15px] outline-none"
+        style={{ color: "var(--text-secondary)" }}
+        value={value}
+        onChange={(e) => {
+          const level = levels.find((l) => l === e.target.value);
+          if (level) onChange(level);
+        }}
+      >
+        {levels.map((level) => (
+          <option key={level} value={level}>
+            {levelName[level]}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/**
+ * The user's own speech server: an OpenAI-style /audio/transcriptions (faster-whisper-server,
+ * whisper.cpp's server, LocalAI…), by its address, the model it serves, and a key if it wants one.
+ */
+function LocalVoiceSheet({
+  open,
+  defaultUrl,
+  current,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  defaultUrl: string;
+  current: { url: string; model: string } | null;
+  onClose: () => void;
+  onSave: (
+    service: { url: string; model: string; key: string | null } | null,
+  ) => Promise<void>;
+}) {
+  const [url, setUrl] = useState("");
+  const [model, setModel] = useState("");
+  const [key, setKey] = useState("");
+  const [problem, setProblem] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    setUrl(current?.url ?? defaultUrl);
+    setModel(current?.model ?? "");
+    setKey("");
+    setProblem(null);
+  }, [open, current, defaultUrl]);
+  const save = (
+    service: { url: string; model: string; key: string | null } | null,
+  ) =>
+    onSave(service).catch((e: unknown) =>
+      setProblem(e instanceof Error ? e.message : String(e)),
+    );
+  const field = "w-full bg-transparent px-4 py-3.5 text-[16px] outline-none";
+  return (
+    <Sheet open={open} onClose={onClose} bare>
+      <div className="flex flex-col items-center px-6 pb-6 pt-5 text-center">
+        <p
+          className="text-[20px] font-semibold"
+          style={{ color: "var(--text-primary)" }}
+        >
+          Your own speech server
+        </p>
+        <p
+          className="mt-1 text-[14px]"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          Any server that turns speech into text the way OpenAI's does, like
+          faster-whisper-server or whisper.cpp. Use an address reachable from
+          the computer running Amuse. With Amuse running directly on that
+          computer, a local service can use 127.0.0.1; from Docker, use its
+          service name or host.docker.internal.
+        </p>
+        <div
+          className="mt-5 w-full divide-y divide-[var(--fill-divider)] overflow-hidden rounded-[18px] text-left"
+          style={{ background: "var(--field)" }}
+        >
+          <input
+            aria-label="Address"
+            className={field}
+            style={{ color: "var(--text-primary)" }}
+            placeholder={defaultUrl}
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+          />
+          <input
+            aria-label="Model"
+            className={field}
+            style={{ color: "var(--text-primary)" }}
+            placeholder="Model, e.g. Systran/faster-whisper-small"
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+          />
+          <input
+            aria-label="Key (if it needs one)"
+            type="password"
+            autoComplete="off"
+            className={field}
+            style={{ color: "var(--text-primary)" }}
+            placeholder={
+              current
+                ? "Key (leave empty to keep none)"
+                : "Key, if it needs one"
+            }
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+          />
+        </div>
+        {problem && (
+          <p
+            role="alert"
+            className="mt-2 text-[13px]"
+            style={{ color: "var(--fill-red)" }}
+          >
+            {problem}
+          </p>
+        )}
+        <button
+          disabled={!url.trim() || !model.trim()}
+          className="mt-6 h-12 w-full rounded-full text-[16px] font-semibold text-white disabled:opacity-40"
+          style={{ background: "var(--fill-blue)" }}
+          onClick={() =>
+            void save({
+              url: url.trim(),
+              model: model.trim(),
+              key: key.trim() || null,
+            })
+          }
+        >
+          Save
+        </button>
+        {current && (
+          <button
+            className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
+            style={{ color: "var(--fill-red)" }}
+            onClick={() => void save(null)}
+          >
+            Remove
+          </button>
+        )}
+        <button
+          className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
+          style={{ color: "var(--text-primary)" }}
+          onClick={onClose}
+        >
+          Cancel
+        </button>
+      </div>
+    </Sheet>
+  );
+}
+
 /** One role's model: the providers' models to choose from (none chosen yet: said so). */
 function ModelPicker({
   title,
   value,
   options,
+  unset,
   onChange,
 }: {
   title: string;
   value: string | null;
   options: KeysState["models"];
-  onChange: (model: string) => void;
+  /** what no choice means, where it means something ("Same as chat"); else one must be chosen */
+  unset?: string;
+  onChange: (model: string | null) => void;
 }) {
   return (
     <label className="flex items-center gap-3 py-2.5">
@@ -344,11 +682,19 @@ function ModelPicker({
       <select
         aria-label={`${title} model`}
         className="min-w-0 flex-1 truncate bg-transparent text-right text-[15px] outline-none"
-        style={{ color: value ? "var(--text-secondary)" : "var(--fill-blue)" }}
+        style={{
+          color: value || unset ? "var(--text-secondary)" : "var(--fill-blue)",
+        }}
         value={value ?? ""}
-        onChange={(e) => e.target.value && onChange(e.target.value)}
+        onChange={(e) =>
+          e.target.value ? onChange(e.target.value) : unset && onChange(null)
+        }
       >
-        {!value && <option value="">Choose a model</option>}
+        {unset ? (
+          <option value="">{unset}</option>
+        ) : (
+          !value && <option value="">Choose a model</option>
+        )}
         {value && !options.some((o) => o.id === value) && (
           <option value={value}>{value}</option>
         )}

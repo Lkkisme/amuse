@@ -12,11 +12,15 @@ import type { AgentIO } from "@amuse/core";
 import type { PiConfig } from "./agent.ts";
 import { workspaceTools } from "./attachments.ts";
 import { redact } from "./redact.ts";
+import { sandboxTools, secretTools } from "./sandbox.ts";
 import { type Hold, type RunHandle, askTool, inbox } from "./runs.ts";
 import { type PiSession, openSession, secretsOf } from "./session.ts";
-import { appTools, tools } from "./tools.ts";
+import { appTools, chatTools, tools } from "./tools.ts";
+import { memoryReadTools } from "./memory.ts";
+import { allSkills, catalog, skillTools } from "./skills.ts";
 import { untrustedRule } from "./untrusted.ts";
 import { webTools } from "./web.ts";
+import { aboutTools } from "./about.ts";
 
 /** How a helper's work went: done (with its closing words), failed (why), or stopped by Muse. */
 export type Worked = { kind: "done"; record: string } | { kind: "failed"; reason: string } | { kind: "stopped" };
@@ -38,11 +42,17 @@ export const helperRules = [
 export function helperTools(cfg: PiConfig, run: RunHandle, hold: Hold): ToolDefinition[] {
   const io = () => run.io;
   return [
-    ...tools(io, cfg.rules, { files: cfg.files, hold }).filter((t) => t.name !== "request_connection"),
+    ...tools(io, cfg.rules, { files: cfg.files, hold }).filter((t) => t.name !== "request_connection" && !(cfg.files && t.name === "recall")),
+    // what was said, and what is remembered: to look up (memory files are kept with the workspace tools)
+    ...chatTools(io),
+    ...(cfg.files ? memoryReadTools(io, cfg.files) : []),
+    ...skillTools(cfg.skills ?? [], cfg.files),
+    ...(cfg.about ? aboutTools(cfg.about) : []),
     ...webTools(io, cfg.rules, cfg.search, hold),
     ...(cfg.apps ? appTools(io, cfg.apps, hold) : []),
     ...(cfg.files ? workspaceTools(io, cfg.files, { send: false }) : []),
     ...(cfg.extraTools ?? []),
+    ...(cfg.sandbox ? [...sandboxTools(cfg.sandbox), ...secretTools(io)] : []),
     askTool(run),
   ];
 }
@@ -62,7 +72,9 @@ export async function work(cfg: PiConfig, run: RunHandle & { abort(): void }, sy
   });
   let record = "";
   try {
-    session = await openSession(cfg, [system, cfg.extraSystem].filter(Boolean).join("\n"), toolset);
+    // a helper reads up as the chat agent does
+    const skills = catalog(await allSkills(cfg.skills ?? [], cfg.files));
+    session = await openSession(cfg, [system, cfg.extraSystem, skills].filter(Boolean).join("\n\n"), toolset, { codemode: true });
     try {
       let current = "";
       let failure: string | undefined;

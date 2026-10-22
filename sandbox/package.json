@@ -1,0 +1,20 @@
+{
+  "name": "@amuse/sandbox",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "node --test 'src/**/*.test.ts'",
+    "start": "node src/main.ts"
+  },
+  "dependencies": {
+    "zod": "^4.6.7",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
+  }
+}

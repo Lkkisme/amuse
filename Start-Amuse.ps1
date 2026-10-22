@@ -28,6 +28,12 @@ $env:AMUSE_DESKTOP_CONFIG = Join-Path $amuseLocal 'desktop.json'
 $env:AMUSE_BACKEND = 'paseo'
 $env:AMUSE_PASEO_CONFIG = Join-Path $amuseLocal 'paseo.json'
 $env:AMUSE_NATIVE_BROWSER_CONFIG = Join-Path $amuseLocal 'native-browser.json'
+$amuseSandboxFile = Join-Path $amuseLocal 'sandbox.json'
+if (Test-Path -LiteralPath $amuseSandboxFile) {
+    $amuseSandbox = Get-Content -LiteralPath $amuseSandboxFile -Raw | ConvertFrom-Json
+    $env:AMUSE_SANDBOX_URL = $amuseSandbox.url
+    $env:AMUSE_SANDBOX_SUBNET = $amuseSandbox.subnet
+}
 if (-not (Test-Path -LiteralPath $env:AMUSE_PASEO_CONFIG)) { throw 'Missing local Paseo connection configuration.' }
 if (-not (Test-Path -LiteralPath $env:AMUSE_NATIVE_BROWSER_CONFIG)) { throw 'Missing native browser configuration.' }
 $env:AMUSE_PI_MODEL = 'swift-local/sc117-swift-1.5-qwen3.8-flash-next-iq3_xxs'

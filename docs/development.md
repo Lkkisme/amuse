@@ -8,7 +8,8 @@ core/      the pure rules (decide) and the host that runs them; no IO
 api/       the server: JSON-RPC, the live browser relay, the journal
 pi/        the chat and browser agents (Pi)
 browser/   the auto-browser pool, and desktop sizing
-composio/  app connections
+sandbox/   Amuse's own machine: its image (Dockerfile), control daemon and the client the agents use
+composio/  connections (Composio)
 demo/      scripted ports and seed, for the demo and tests
 web/       web app (Vite + React)
 docs/      UI spec, measured design tokens, reference notes

@@ -1,21 +1,26 @@
 /**
- * Settings › Permissions: what Muse may do on each website, the server's rules
- * (sites.* calls; core/policy.ts), Muse's Allow / Ask / Deny. A site not
- * listed is not visited until the user allows it (Muse asks). Allow: it visits
- * and acts without asking. Ask: it visits, and asks before any step that
- * commits the user. Deny: it never goes there and does not ask (a link or
- * redirect there is undone). A rule covers the site's subdomains too.
+ * Settings › Permissions: what Amuse may do in the browser, the server's
+ * rules (browser.* and sites.* calls; core/policy.ts). By kind of action,
+ * for every website: visit (also reading a page), submit forms (steps with
+ * consequences), download files, upload files. Then the exceptions per
+ * website: never visit it (which wins over everything), or set any of the
+ * four for it and its subdomains; the nearest rule wins over the setting.
+ * Deny is a hard no: Amuse does not even ask.
  */
 import { useCallback, useEffect, useState } from "react";
-import { Globe, X } from "lucide-react";
-import { siteOf } from "@amuse/core";
+import { ChevronRight, Globe } from "lucide-react";
+import { siteOf, withSiteAction } from "@amuse/core";
 import {
+  type BrowserAction,
+  type BrowserRule,
   type Permission,
   type Session,
   Site,
+  type SiteEntry,
   type SiteRule,
 } from "@amuse/protocol";
-import { PermissionSelect } from "./PermissionSelect";
+import { ACTIONS, mergedEntry, summary } from "../browserRules.ts";
+import { ActionSelect, PermissionSelect } from "./PermissionSelect";
 import { Sheet } from "./Sheet";
 
 /** What the user typed, as a site: "https://www.Bank.com/login" and "bank.com" are both bank.com. */
@@ -24,6 +29,82 @@ const asSite = (input: string): string | null => {
   const site = siteOf(trimmed.includes("://") ? trimmed : `https://${trimmed}`);
   return site && Site.safeParse(site).success ? site : null;
 };
+
+/** Never visit, and each action: Default (follow the browser's setting), or a choice of its own. */
+function RuleEditor({
+  entry,
+  onChange,
+}: {
+  entry: SiteEntry | null;
+  onChange: (next: SiteEntry | null) => void;
+}) {
+  const never = entry?.never ?? false;
+  return (
+    <div
+      className="w-full overflow-hidden rounded-[18px] px-4 text-left"
+      style={{ background: "var(--field)" }}
+    >
+      <div className="flex items-center justify-between py-2.5 text-[16px]">
+        <span style={{ color: "var(--text-primary)" }}>Never visit</span>
+        <button
+          role="switch"
+          aria-checked={never}
+          aria-label="Never visit"
+          className="relative h-[26px] w-[44px] rounded-full transition-colors"
+          style={{
+            background: never ? "var(--fill-red)" : "var(--fill-tertiary)",
+          }}
+          onClick={() =>
+            onChange(
+              withSiteAction(
+                entry ?? undefined,
+                "never",
+                never ? null : "deny",
+              ),
+            )
+          }
+        >
+          <span
+            className="absolute top-[3px] size-[20px] rounded-full bg-white transition-all"
+            style={{ left: never ? 21 : 3 }}
+          />
+        </button>
+      </div>
+      {never ? (
+        <p
+          className="border-t py-2.5 text-[13px] leading-snug"
+          style={{
+            borderColor: "var(--fill-divider)",
+            color: "var(--text-secondary)",
+          }}
+        >
+          Amuse does not go there and does not ask. This wins over everything
+          else.
+        </p>
+      ) : (
+        ACTIONS.map((a) => (
+          <div
+            key={a.id}
+            className="flex items-center justify-between border-t py-2.5 text-[16px]"
+            style={{
+              borderColor: "var(--fill-divider)",
+              color: "var(--text-primary)",
+            }}
+          >
+            {a.name}
+            <ActionSelect
+              value={entry?.actions[a.id] ?? null}
+              options={a.options}
+              onChange={(p) =>
+                onChange(withSiteAction(entry ?? undefined, a.id, p))
+              }
+            />
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
 
 export function SitePermissions({
   session,
@@ -34,41 +115,69 @@ export function SitePermissions({
   adding: boolean;
   onAdded: () => void;
 }) {
+  const [browser, setBrowser] = useState<BrowserRule[] | null>(null);
   const [rules, setRules] = useState<SiteRule[] | null>(null);
   const [draft, setDraft] = useState("");
-  const [permission, setPermission] = useState<Permission>("ask");
+  const [fresh, setFresh] = useState<SiteEntry | null>(null);
+  /** the website whose exceptions are open */
+  const [editing, setEditing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const said = (e: unknown) =>
+    setError(e instanceof Error ? e.message : String(e));
   const load = useCallback(
     () =>
-      session.call("sites.rules", {}).then(
-        ({ rules }) => setRules(rules),
-        (e: unknown) => setError(String(e)),
-      ),
+      Promise.all([
+        session.call("browser.rules", {}),
+        session.call("sites.rules", {}),
+      ]).then(([b, s]) => {
+        setBrowser(b.rules);
+        setRules(s.rules);
+      }, said),
     [session],
   );
   useEffect(() => void load(), [load]);
-  const permit = (site: string, next: Permission | null) => {
+
+  const setting = (action: BrowserAction, permission: Permission) => {
     setError(null);
     session
-      .call("sites.permit", { site, permission: next })
-      .then(load, (e: unknown) =>
-        setError(e instanceof Error ? e.message : String(e)),
-      );
+      .call("browser.permit", { action, permission })
+      .then(load, (e: unknown) => (said(e), load()));
+  };
+  const permit = (site: string, rule: SiteEntry | null) => {
+    setError(null);
+    // shown at once; the server's answer follows
+    setRules((all) => {
+      const others = (all ?? []).filter((r) => r.site !== site);
+      return rule && (rule.never || Object.keys(rule.actions).length > 0)
+        ? [...others, { site, ...rule }].sort((a, b) =>
+            a.site.localeCompare(b.site),
+          )
+        : others;
+    });
+    return session
+      .call("sites.permit", { site, rule })
+      .then(load, (e: unknown) => (said(e), load()));
   };
   const cancel = () => {
     setDraft("");
+    setFresh(null);
     setError(null);
     onAdded();
   };
   const add = () => {
     const site = asSite(draft);
     if (!site) return setError(`“${draft}” is not a website address.`);
-    permit(site, permission);
-    setDraft("");
-    setPermission("ask");
-    onAdded();
+    if (!fresh)
+      return setError("Choose Never visit, or set at least one action.");
+    // a website that has exceptions already keeps them (a Never above all): what is set here is added to them
+    void permit(
+      site,
+      mergedEntry(rules?.find((r) => r.site === site) ?? null, fresh),
+    );
+    cancel();
   };
+  const open = rules?.find((r) => r.site === editing) ?? null;
 
   return (
     <div className="flex-1 overflow-y-auto px-5 pb-6 sm:px-6">
@@ -76,31 +185,9 @@ export function SitePermissions({
         className="text-[13px] leading-snug"
         style={{ color: "var(--text-secondary)" }}
       >
-        Amuse asks before visiting a website not listed here.
+        What Amuse may do in the browser, for every website, and exceptions for
+        some. Deny is a hard no: Amuse does not even ask.
       </p>
-      <ul
-        className="mt-2 space-y-0.5 text-[13px] leading-snug"
-        style={{ color: "var(--text-secondary)" }}
-      >
-        <li>
-          <b className="font-medium" style={{ color: "var(--text-primary)" }}>
-            Allow
-          </b>{" "}
-          visits and acts without asking
-        </li>
-        <li>
-          <b className="font-medium" style={{ color: "var(--text-primary)" }}>
-            Ask
-          </b>{" "}
-          visits, asks before buying, sending or submitting
-        </li>
-        <li>
-          <b className="font-medium" style={{ color: "var(--text-primary)" }}>
-            Deny
-          </b>{" "}
-          never goes there
-        </li>
-      </ul>
       {error && !adding && (
         <p
           role="alert"
@@ -110,6 +197,47 @@ export function SitePermissions({
           {error}
         </p>
       )}
+
+      <p
+        className="mb-2 mt-5 px-1 text-[13px] font-medium"
+        style={{ color: "var(--text-secondary)" }}
+      >
+        Browser
+      </p>
+      <ul
+        className="divide-y divide-[var(--fill-divider)] rounded-[18px] px-4"
+        style={{ background: "var(--fill-secondary)" }}
+      >
+        {ACTIONS.map((a) => (
+          <li key={a.id} className="flex items-center gap-3 py-2.5">
+            <span className="min-w-0 flex-1">
+              <span
+                className="block truncate text-[16px]"
+                style={{ color: "var(--text-primary)" }}
+              >
+                {a.name}
+              </span>
+              <span
+                className="block truncate text-[13px]"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                {a.about}
+              </span>
+            </span>
+            {browser ? (
+              <PermissionSelect
+                value={
+                  browser.find((r) => r.action === a.id)?.permission ?? "ask"
+                }
+                options={a.options}
+                onChange={(p) => setting(a.id, p)}
+              />
+            ) : (
+              <div className="skeleton h-5 w-14 rounded" />
+            )}
+          </li>
+        ))}
+      </ul>
 
       {/* the bar's + opens this: a sheet from the bottom on a phone, a dialog on a desktop */}
       <Sheet open={adding} onClose={cancel} bare>
@@ -130,7 +258,7 @@ export function SitePermissions({
             className="mt-1 text-[14px]"
             style={{ color: "var(--text-secondary)" }}
           >
-            What Amuse may do there
+            What Amuse may do there, for it and its subdomains
           </p>
           <div
             className="mt-5 w-full overflow-hidden rounded-[18px] text-left"
@@ -144,19 +272,10 @@ export function SitePermissions({
               placeholder="Website, like news.ycombinator.com"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && draft.trim() && add()}
             />
-            <div
-              className="mx-4 border-t"
-              style={{ borderColor: "var(--fill-divider)" }}
-            />
-            <div
-              className="flex items-center justify-between px-4 py-2.5 text-[16px]"
-              style={{ color: "var(--text-secondary)" }}
-            >
-              Amuse may
-              <PermissionSelect value={permission} onChange={setPermission} />
-            </div>
+          </div>
+          <div className="mt-3 w-full">
+            <RuleEditor entry={fresh} onChange={setFresh} />
           </div>
           {error && (
             <p
@@ -185,6 +304,56 @@ export function SitePermissions({
         </div>
       </Sheet>
 
+      {/* a website's exceptions: each action, or Default to follow the browser's setting */}
+      <Sheet open={open !== null} onClose={() => setEditing(null)} bare>
+        <div className="flex flex-col items-center px-6 pb-6 pt-5 text-center">
+          <span
+            className="flex size-14 items-center justify-center rounded-[16px]"
+            style={{ background: "#ffffff", color: "#111112" }}
+          >
+            <Globe size={26} />
+          </span>
+          <p
+            className="mt-4 break-all text-[20px] font-semibold"
+            style={{ color: "var(--text-primary)" }}
+          >
+            {editing}
+          </p>
+          <p
+            className="mt-1 text-[14px]"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            For it and its subdomains. Default follows the browser's setting.
+          </p>
+          <div className="mt-5 w-full">
+            <RuleEditor
+              entry={open ? { never: open.never, actions: open.actions } : null}
+              onChange={(next) => {
+                if (editing) void permit(editing, next);
+                if (!next) setEditing(null);
+              }}
+            />
+          </div>
+          <button
+            className="hover-fade mt-4 h-11 w-full rounded-full text-[16px] font-medium"
+            style={{ color: "var(--fill-red)" }}
+            onClick={() => {
+              if (editing) void permit(editing, null);
+              setEditing(null);
+            }}
+          >
+            Remove these exceptions
+          </button>
+          <button
+            className="hover-fade h-11 w-full rounded-full text-[16px] font-medium"
+            style={{ color: "var(--text-primary)" }}
+            onClick={() => setEditing(null)}
+          >
+            Done
+          </button>
+        </div>
+      </Sheet>
+
       <p
         className="mb-2 mt-6 px-1 text-[13px] font-medium"
         style={{ color: "var(--text-secondary)" }}
@@ -200,28 +369,37 @@ export function SitePermissions({
             className="py-3.5 text-[15px]"
             style={{ color: "var(--text-secondary)" }}
           >
-            None yet. Add one with +.
+            No exceptions yet. Add a website with +.
           </li>
         )}
         {rules?.map((rule) => (
-          <li key={rule.site} className="flex items-center gap-3 py-2.5">
-            <span
-              className="min-w-0 flex-1 truncate text-[16px]"
-              style={{ color: "var(--text-primary)" }}
-            >
-              {rule.site}
-            </span>
-            <PermissionSelect
-              value={rule.permission}
-              onChange={(p) => permit(rule.site, p)}
-            />
+          <li key={rule.site}>
             <button
-              aria-label={`Remove the rule for ${rule.site}`}
-              className="hover-fade rounded-full p-1"
-              style={{ color: "var(--icon-secondary)" }}
-              onClick={() => permit(rule.site, null)}
+              className="flex w-full items-center gap-3 py-2.5 text-left"
+              onClick={() => setEditing(rule.site)}
             >
-              <X size={16} />
+              <span className="min-w-0 flex-1">
+                <span
+                  className="block truncate text-[16px]"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  {rule.site}
+                </span>
+                <span
+                  className="block truncate text-[13px]"
+                  style={{
+                    color: rule.never
+                      ? "var(--fill-red)"
+                      : "var(--text-secondary)",
+                  }}
+                >
+                  {summary(rule)}
+                </span>
+              </span>
+              <ChevronRight
+                size={16}
+                style={{ color: "var(--icon-secondary)" }}
+              />
             </button>
           </li>
         ))}

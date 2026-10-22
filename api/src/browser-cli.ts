@@ -8,7 +8,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { BrowserMcpStepSchema } from "./browser-mcp.ts";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
-const help = "用法：AMUSE-BROWSER.cmd --chat <聊天ID> open <URL>|list|observe <浏览器ID>|act <浏览器ID> <JSON>|screenshot <浏览器ID>|finish <浏览器ID> <结果>；act 可用 --json-file <绝对路径> 代替内联 JSON。";
+const help = "用法：AMUSE-BROWSER.cmd --chat <聊天ID> open <URL>|list|observe <浏览器ID>|act <浏览器ID> <JSON>|screenshot <浏览器ID>|finish <浏览器ID> <结果>；AMUSE-TOOLS.cmd --chat <聊天ID> tools 或 call <工具名称> --json-file <参数JSON绝对路径>。";
 export interface BrowserCliCall { chat: string; name: string; arguments: Record<string, unknown> }
 
 export function parseBrowserCli(argv: string[], read = (path: string) => readFileSync(path, "utf8")): BrowserCliCall {
@@ -26,7 +26,14 @@ export function parseBrowserCli(argv: string[], read = (path: string) => readFil
   }
   if (!chat?.trim()) throw new Error(help);
   const [command, id, ...extra] = args;
-  if (jsonFile && (command !== "act" || extra.length > 0 || !isAbsolute(jsonFile))) throw new Error("--json-file 仅用于 act，必须是绝对路径，且不能同时提供内联 JSON。");
+  if (jsonFile && (!["act", "call"].includes(command ?? "") || extra.length > 0 || !isAbsolute(jsonFile))) throw new Error("--json-file 仅用于 act/call，必须是绝对路径，且不能同时提供内联 JSON。");
+  if (command === "tools" && !id) return { chat, name: "$tools", arguments: {} };
+  if (command === "call" && id && /^[A-Za-z_][A-Za-z0-9_-]{0,95}$/.test(id) && (jsonFile || extra.length === 1)) {
+    let value: unknown;
+    try { value = JSON.parse(jsonFile ? read(jsonFile) : extra[0]!); } catch { throw new Error("工具参数必须是 JSON 对象。"); }
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("工具参数必须是 JSON 对象。");
+    return { chat, name: id, arguments: value as Record<string, unknown> };
+  }
   if (command === "open" && id && extra.length === 0) {
     let url: URL;
     try { url = new URL(id); } catch { throw new Error("请使用完整的 HTTP 或 HTTPS 地址。"); }
@@ -77,6 +84,7 @@ export async function runBrowserCli(argv: string[], options: { root?: string; en
     // The SDK's getter is string|undefined while Transport declares an optional
     // string; they interoperate at runtime under exactOptionalPropertyTypes.
     await client.connect(transport as unknown as Parameters<Client["connect"]>[0]);
+    if (call.name === "$tools") { write(withoutBrowserCredential(JSON.stringify(await client.listTools()), token)); return 0; }
     const result = await client.callTool({ name: call.name, arguments: call.arguments }, undefined, { timeout: 120_000 });
     const content = Array.isArray(result.content) ? result.content : [];
     for (const block of content) {

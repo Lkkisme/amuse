@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
-import { createHost, memoryChats, memoryRules, noKeys, noWorkspace, type Ports } from "@amuse/core";
+import { createHost, memoryChats, memoryRules, noKeys, noWorkspace, noLogins, noSandbox, type Ports } from "@amuse/core";
 import { WebSocket, WebSocketServer } from "ws";
 import { NativeBrowserManager } from "./native-browser.ts";
 
@@ -20,7 +20,7 @@ function ports(): Ports {
     interrupt: () => {}, title: async () => "unused", browse: () => {}, job: () => {}, task: () => {}, schedule: () => {},
     browser: () => {}, approval: () => {}, stopTask: () => {}, fit: () => {}, connect: async () => "https://example.invalid/",
     apps: { search: async () => ({ apps: [], cursor: null }), accounts: async () => [], connect: async () => "https://example.invalid/", disconnect: async () => {}, permissions: async () => [], permit: async () => {} },
-    rules: memoryRules(), keys: noKeys, files: noWorkspace,
+    rules: memoryRules(), keys: noKeys, files: noWorkspace, logins: noLogins, sandbox: noSandbox,
   };
 }
 
@@ -78,7 +78,10 @@ test("real isolated Edge shares agent/viewer state, enforces takeover and releas
   const verifiedParent = realpathSync(tmpdir());
   assert.equal(dirname(verifiedDirectory).toLowerCase(), verifiedParent.toLowerCase());
   assert.ok(basename(verifiedDirectory).startsWith("amuse-native-edge-test-"));
-  const manager = new NativeBrowserManager({ executablePath: edge, directory, maxBrowsers: 1 });
+  const rules = memoryRules();
+  await rules.setBrowser("visit", "allow");
+  await rules.setBrowser("submit", "allow");
+  const manager = new NativeBrowserManager({ executablePath: edge, directory, maxBrowsers: 1, rules });
   const host = createHost({ ...ports(), ...manager.ports() }, { store: memoryChats() });
   manager.bind(host);
   let fixtureState = { seq: 0, value: "", count: 0, submitted: "", sawDrag: false, shiftDown: false, shiftUps: 0, mouseDowns: 0, mouseUps: 0 };

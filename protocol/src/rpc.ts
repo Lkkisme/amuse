@@ -5,11 +5,17 @@
  * Live browser pixels are not JSON-RPC; they stream on their own channel.
  */
 import { z } from "zod";
-import { Account, App, KindRule, Permission, Site, SiteRule, ToolKind } from "./apps.ts";
-import { Attachment, Id, Resolution, Schedule, TimeZone } from "./entities.ts";
+import { Account, App, BrowserAction, BrowserRule, KindRule, Permission, Site, SiteEntry, SiteRule, ToolKind } from "./apps.ts";
+import { Approval, Attachment, Id, Resolution, Schedule, SecretDestination, TimeZone } from "./entities.ts";
 import { Envelope, Index, Page, Seq, State } from "./events.ts";
 import { Chat, Push } from "./chats.ts";
-import { KeyTest, KeysState, LoginStep, ModelRef, ModelRole } from "./keys.ts";
+import { Goal, GoalNote, GoalStatus } from "./goals.ts";
+import { SkillInfo, SkillOrigin } from "./skills.ts";
+import { KeyTest, KeysState, LocalVoice, LoginStep, ModelRef, ModelRole, ThinkingLevel } from "./keys.ts";
+
+/** A credential given for the sandbox, as it is listed: never its value. */
+export const SecretInfo = z.object({ id: Id, name: z.string(), deliver: SecretDestination, at: z.string() });
+export type SecretInfo = z.infer<typeof SecretInfo>;
 
 const call = <M extends string, P extends z.ZodObject>(method: M, params: P) =>
   z.object({ method: z.literal(method), params });
@@ -80,10 +86,43 @@ export const Call = z.discriminatedUnion("method", [
   call("apps.permissions", z.object({ app: Id })),
   /** Set what the agent may do with an app's tools of one kind; null: back to the default. */
   call("apps.permit", z.object({ app: Id, kind: ToolKind, permission: Permission.nullable() })),
-  /** The sites the user has set a rule for (every other site: ask). */
+  /** The browser's rules by kind of action: visit, submit, download, upload. */
+  call("browser.rules", z.object({})),
+  /** Set what the browser may do for a kind of action, everywhere; null: back to the default. Uploads are asked about or denied, never allowed. */
+  call(
+    "browser.permit",
+    z.object({ action: BrowserAction, permission: Permission.nullable() }).refine((p) => !(p.action === "upload" && p.permission === "allow"), "Uploads are always asked about: they can be asked or denied."),
+  ),
+  /** The sites the user has set exceptions for (a site with none follows the browser's rules). */
   call("sites.rules", z.object({})),
-  /** Set what the browser agent may do on a site; null: back to the default (ask). */
-  call("sites.permit", z.object({ site: Site, permission: Permission.nullable() })),
+  /** Set a site's exceptions (it and its subdomains): never visited, and actions set for it; null: none (the site follows the browser's rules). */
+  call("sites.permit", z.object({ site: Site, rule: SiteEntry.nullable() })),
+  /** The sites the browsers keep logins for (from the user's own sign-ins), with how many cookies. */
+  call("logins.list", z.object({})),
+  /** Sign the browsers out of a site: its kept logins go, from every open browser too. */
+  call("logins.forget", z.object({ site: z.string().min(1).max(253) })),
+  /** Every approval asked in any chat, newest first, with the chat it is in: what was allowed or denied, and when. */
+  call("approvals.list", z.object({})),
+  /** The user's goals, active first, newest first. */
+  call("goals.list", z.object({})),
+  /** A goal in full: what it is, and its log, newest first. */
+  call("goals.get", z.object({ id: z.string().min(1).max(100) })),
+  /** Add a goal: what the user wants, and anything more about it. */
+  call("goals.add", z.object({ title: z.string().trim().min(1).max(200), about: z.string().max(4000) })),
+  /** Answer a request for a credential: its value (taken to the sandbox, never kept in the chat), or null to decline. */
+  call("secret.answer", z.object({ id: Id, value: z.string().min(1).max(200_000).nullable() })),
+  /** The credentials given for the sandbox: what and where, never their values. */
+  call("secrets.list", z.object({})),
+  /** Take a credential back: from the sandbox too. */
+  call("secrets.remove", z.object({ id: Id })),
+  /** Every skill: the user's first, then the built-in ones. */
+  call("skills.list", z.object({})),
+  /** A skill in full: what it says, and the files in its folder (the user's own). */
+  call("skills.get", z.object({ name: z.string().min(1).max(100), origin: SkillOrigin })),
+  /** Remove one of the user's skills (its folder in skills/); a built-in one stays. */
+  call("skills.remove", z.object({ name: z.string().min(1).max(100) })),
+  /** Finish a goal or take it up again (its schedules rest while it is done), or mute it or not. */
+  call("goals.update", z.object({ id: z.string().min(1).max(100), status: GoalStatus.optional(), muted: z.boolean().optional() })),
   /** The providers there are for keys, which are set up, the models they offer and the ones chosen. */
   call("keys.list", z.object({})),
   /** Start setting up a provider's key: its first prompt (or done/failed). */
@@ -96,7 +135,16 @@ export const Call = z.discriminatedUnion("method", [
   /** Forget a provider's key. */
   call("keys.logout", z.object({ provider: z.string().min(1).max(100) })),
   /** Choose the model Muse chats with, or the one that works in the browser (it must see pictures). */
-  call("models.choose", z.object({ role: ModelRole, model: ModelRef })),
+  /** null: back to the default (only the background's: the chat's model) */
+  call("models.choose", z.object({ role: ModelRole, model: ModelRef.nullable() })),
+  /** How much the chat's or the browser's model thinks (one of the levels its model takes). */
+  call("models.think", z.object({ role: ModelRole, level: ThinkingLevel })),
+  /** Which speech service turns the mic into text (by provider); null: the first one with a key. */
+  call("models.voice", z.object({ provider: z.string().min(1).max(100).nullable() })),
+  /** Set up (or, null, remove) a speech server the user runs themselves; `key` only if it wants one. */
+  call("models.localVoice", z.object({ service: LocalVoice.extend({ key: z.string().max(8192).nullable() }).nullable() })),
+  /** Stop what runs in the sandbox and wipe its home folder; the workspace is kept, and system-wide installs stay until the container is recreated. */
+  call("sandbox.reset", z.object({})),
 ]);
 
 export type Call = z.infer<typeof Call>;
@@ -134,8 +182,23 @@ export const results = {
   "apps.disconnect": done,
   "apps.permissions": z.object({ rules: z.array(KindRule) }),
   "apps.permit": done,
+  "browser.rules": z.object({ rules: z.array(BrowserRule) }),
+  "browser.permit": done,
   "sites.rules": z.object({ rules: z.array(SiteRule) }),
   "sites.permit": done,
+  "logins.list": z.object({ sites: z.array(z.object({ site: z.string(), cookies: z.int() })) }),
+  "logins.forget": done,
+  "approvals.list": z.object({ approvals: z.array(z.object({ chat: Chat, approval: Approval })) }),
+  "goals.list": z.object({ goals: z.array(Goal) }),
+  "goals.get": z.object({ goal: Goal, log: z.array(GoalNote) }),
+  "goals.add": Goal,
+  "goals.update": done,
+  "secret.answer": done,
+  "secrets.list": z.object({ secrets: z.array(SecretInfo) }),
+  "secrets.remove": done,
+  "skills.list": z.object({ skills: z.array(SkillInfo) }),
+  "skills.get": z.object({ skill: SkillInfo, body: z.string(), files: z.array(z.string()) }),
+  "skills.remove": done,
   "keys.list": KeysState,
   "keys.login": LoginStep,
   "keys.answer": LoginStep,
@@ -143,6 +206,10 @@ export const results = {
   "keys.test": KeyTest,
   "keys.logout": done,
   "models.choose": done,
+  "models.think": done,
+  "models.voice": done,
+  "models.localVoice": done,
+  "sandbox.reset": done,
 } satisfies Record<Method, z.ZodType>;
 
 export type Params = { [C in Call as C["method"]]: C["params"] };
@@ -178,8 +245,23 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "apps.disconnect": (raw) => results["apps.disconnect"].parse(raw),
   "apps.permissions": (raw) => results["apps.permissions"].parse(raw),
   "apps.permit": (raw) => results["apps.permit"].parse(raw),
+  "browser.rules": (raw) => results["browser.rules"].parse(raw),
+  "browser.permit": (raw) => results["browser.permit"].parse(raw),
   "sites.rules": (raw) => results["sites.rules"].parse(raw),
   "sites.permit": (raw) => results["sites.permit"].parse(raw),
+  "logins.list": (raw) => results["logins.list"].parse(raw),
+  "logins.forget": (raw) => results["logins.forget"].parse(raw),
+  "approvals.list": (raw) => results["approvals.list"].parse(raw),
+  "goals.list": (raw) => results["goals.list"].parse(raw),
+  "goals.get": (raw) => results["goals.get"].parse(raw),
+  "goals.add": (raw) => results["goals.add"].parse(raw),
+  "goals.update": (raw) => results["goals.update"].parse(raw),
+  "secret.answer": (raw) => results["secret.answer"].parse(raw),
+  "secrets.list": (raw) => results["secrets.list"].parse(raw),
+  "secrets.remove": (raw) => results["secrets.remove"].parse(raw),
+  "skills.list": (raw) => results["skills.list"].parse(raw),
+  "skills.get": (raw) => results["skills.get"].parse(raw),
+  "skills.remove": (raw) => results["skills.remove"].parse(raw),
   "keys.list": (raw) => results["keys.list"].parse(raw),
   "keys.login": (raw) => results["keys.login"].parse(raw),
   "keys.answer": (raw) => results["keys.answer"].parse(raw),
@@ -187,6 +269,10 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "keys.test": (raw) => results["keys.test"].parse(raw),
   "keys.logout": (raw) => results["keys.logout"].parse(raw),
   "models.choose": (raw) => results["models.choose"].parse(raw),
+  "models.think": (raw) => results["models.think"].parse(raw),
+  "models.voice": (raw) => results["models.voice"].parse(raw),
+  "models.localVoice": (raw) => results["models.localVoice"].parse(raw),
+  "sandbox.reset": (raw) => results["sandbox.reset"].parse(raw),
 };
 
 /** What a server implements: one function per method. */

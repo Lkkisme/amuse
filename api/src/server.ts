@@ -1,27 +1,33 @@
 /**
  * The network edge: an HTTP server — the built web app, the way in (/setup,
  * /unlock, /lock, /password), /thumb, /files (uploads and the files themselves)
- * and /connected — with two WebSocket routes: /rpc (one shared Session, one
- * Peer per socket) and /live?id=<run> (a run's live browser view). Requests
+ * and /connected — with three WebSocket routes: /rpc (one shared Session, one
+ * Peer per socket), /live?id=<run> (a run's live browser view) and
+ * /terminal?cols=<n>&rows=<n> (the sandbox's terminals). Requests
  * authenticate with the HttpOnly session cookie the master password opens
  * (access.ts). Browsers may open the sockets, and post to the way in, only
- * from this origin; anything else is refused.
+ * from this origin; anything else is refused. So is every request, whatever it
+ * asks, from an address given to `refuse` (the sandbox's network).
  */
-import { createReadStream, statSync } from "node:fs";
 import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
+import { pipeline } from "node:stream";
 import type { Session } from "@amuse/protocol";
+import { Cols, Rows } from "@amuse/sandbox";
 import { WebSocketServer } from "ws";
 import { z } from "zod";
 import { type Access, PasswordRejected } from "./access.ts";
 import { type FileStore, shownInline } from "./workspace.ts";
 import { type Live, attach, thumbnail } from "./live.ts";
 import { serve } from "./rpc.ts";
+import { TERMINAL_CLOSED, attachTerminal } from "./terminal.ts";
 import { staticFiles } from "./static.ts";
 
 export interface Options {
   session: Session;
   /** Live browser views at /live?id=<run>; off when absent. */
   live?: Live;
+  /** The sandbox's terminals at /terminal?cols=<n>&rows=<n>: where the daemon shows one that size; off when absent. */
+  terminal?: (cols: number, rows: number) => string;
   /** The user's files: POST /files uploads one, GET /files/<id> serves it; off when absent. */
   files?: FileStore;
   /** Directory of the built web app to serve over HTTP; 404 for everything when absent. */
@@ -31,6 +37,10 @@ export interface Options {
   /** Scoped browser MCP endpoint; its handler authenticates the agent's bearer token itself. */
   browserMcp?: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
   access: Access;
+  /** Whether the server turns away everything from this remote address (the sandbox's network: it has no business here, signed in or not). */
+  refuse?: (address: string | undefined) => boolean;
+  /** Speech to text for the composer's mic (POST /transcribe); off when absent. The reason, in words, when it cannot. */
+  transcribe?: (audio: Uint8Array, type: string) => Promise<{ text: string } | { reason: string }>;
   port: number;
   host: string;
 }
@@ -59,6 +69,9 @@ const Password = z.string().min(1).max(1024);
 const SetUp = z.object({ password: Password });
 const Change = z.object({ current: Password, next: Password });
 
+/** The longest recording taken (the services take 25 MB). */
+const MAX_SPEECH = 25 * 1024 * 1024;
+
 /** Wrong passwords a client may try in a window before it has to wait. */
 const TRIES = 10;
 const TRY_WINDOW_MS = 15 * 60_000;
@@ -71,7 +84,7 @@ function parseJson(text: string): unknown {
   }
 }
 
-type Target = { kind: "rpc" } | { kind: "live"; id: string; live: Live };
+type Target = { kind: "rpc" } | { kind: "live"; id: string; live: Live } | { kind: "terminal"; at: string | null };
 
 /** A running server: where it listens, and how to stop it (sockets included). */
 export interface Listening {
@@ -79,9 +92,15 @@ export interface Listening {
   close(): Promise<void>;
 }
 
-export function listen({ session, live, files: uploads, web, returned, browserMcp, access, port, host }: Options): Promise<Listening> {
+export function listen({ session, live, terminal, files: uploads, web, returned, browserMcp, access, refuse, transcribe, port, host }: Options): Promise<Listening> {
   const route = (url: URL): Target | null => {
     if (url.pathname === "/rpc") return { kind: "rpc" };
+    // without a sandbox the socket opens only to say so (the viewer shows "no terminals here")
+    if (url.pathname === "/terminal") {
+      const cols = Cols.safeParse(Number(url.searchParams.get("cols")));
+      const rows = Rows.safeParse(Number(url.searchParams.get("rows")));
+      return { kind: "terminal", at: terminal ? terminal(cols.success ? cols.data : 80, rows.success ? rows.data : 24) : null };
+    }
     const id = url.searchParams.get("id");
     return url.pathname === "/live" && live && id ? { kind: "live", id, live } : null;
   };
@@ -188,6 +207,24 @@ export function listen({ session, live, files: uploads, web, returned, browserMc
     return void res.writeHead(404).end();
   };
 
+  /** POST /transcribe (the recording as the body, its type in Content-Type) → { text } or, when it cannot be, { reason }. */
+  const speech = async (req: IncomingMessage, res: ServerResponse) => {
+    if (!transcribe) return void res.writeHead(404).end();
+    if (req.method !== "POST" || !ours(req) || !allowed(req)) return void res.writeHead(req.method === "POST" ? 401 : 405).end();
+    const type = String(req.headers["content-type"] ?? "").split(";")[0]?.trim() ?? "";
+    if (!type.startsWith("audio/") && type !== "video/webm") return void res.writeHead(415).end();
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const chunk of req) {
+      const piece = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+      size += piece.length;
+      if (size > MAX_SPEECH) return void res.writeHead(413).end();
+      chunks.push(piece);
+    }
+    const said = await transcribe(new Uint8Array(Buffer.concat(chunks)), String(req.headers["content-type"] ?? ""));
+    json(res, "text" in said ? 200 : 400, said);
+  };
+
   /** GET /thumb?id=<run> → a screenshot of the run's page, for its card. */
   const thumb = async (req: IncomingMessage, url: URL, res: ServerResponse) => {
     const id = url.searchParams.get("id");
@@ -239,10 +276,10 @@ export function listen({ session, live, files: uploads, web, returned, browserMc
       if (!saved) return void res.writeHead(413).end();
       return void res.writeHead(201, { "content-type": "application/json" }).end(JSON.stringify(saved));
     }
-    const found = req.method === "GET" ? uploads.find(url.pathname.slice("/files/".length)) : null;
+    // opened by the workspace, never through a link; the size is as it is now (Amuse may have rewritten it)
+    const found = req.method === "GET" ? await uploads.serve(url.pathname.slice("/files/".length)) : null;
     if (!found) return void res.writeHead(404).end();
-    const { attachment, file: path } = found;
-    const size = statSync(path).size; // as it is now (Amuse may have rewritten it)
+    const { attachment, size, handle } = found;
     const inline = shownInline(attachment.type);
     const headers = {
       "content-type": inline ? attachment.type : "application/octet-stream",
@@ -257,16 +294,19 @@ export function listen({ session, live, files: uploads, web, returned, browserMc
     if (range && size > 0) {
       const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
       const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
-      if (start > end || start >= size) return void res.writeHead(416, { "content-range": `bytes */${size}` }).end();
+      if (start > end || start >= size) {
+        await handle.close();
+        return void res.writeHead(416, { "content-range": `bytes */${size}` }).end();
+      }
       res.writeHead(206, {
         ...headers,
         "content-range": `bytes ${start}-${end}/${size}`,
         "content-length": end - start + 1,
       });
-      return void createReadStream(path, { start, end }).pipe(res);
+      return void pipeline(handle.createReadStream({ start, end }), res, () => {});
     }
     res.writeHead(200, { ...headers, "content-length": size });
-    createReadStream(path).pipe(res);
+    pipeline(handle.createReadStream(), res, () => {});
   };
   /** GET /connected?key=… → check the connection now, then tell the user they can go back. */
   const back = async (url: URL, res: ServerResponse) => {
@@ -282,6 +322,7 @@ export function listen({ session, live, files: uploads, web, returned, browserMc
     );
   };
   const http = createServer((req, res) => {
+    if (refuse?.(req.socket.remoteAddress)) return void res.writeHead(403).end();
     const url = new URL(req.url ?? "/", "http://local");
     const handled = ["/setup", "/unlock", "/lock", "/password"].includes(url.pathname)
       ? way(req, url, res)
@@ -291,6 +332,8 @@ export function listen({ session, live, files: uploads, web, returned, browserMc
           ? browserView(req, url, res)
           : url.pathname === "/mcp/browser"
             ? scopedBrowserMcp(req, res)
+        : url.pathname === "/transcribe"
+        ? speech(req, res)
         : url.pathname === "/files" || url.pathname.startsWith("/files/")
           ? file(req, url, res)
           : url.pathname === "/connected"
@@ -314,6 +357,10 @@ export function listen({ session, live, files: uploads, web, returned, browserMc
   });
 
   http.on("upgrade", (req, socket, head) => {
+    if (refuse?.(req.socket.remoteAddress)) {
+      socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
+      return;
+    }
     const url = new URL(req.url ?? "/", "http://local");
     const target = route(url);
     // a page elsewhere (even a sibling subdomain carrying the cookie) may not open our sockets
@@ -324,6 +371,7 @@ export function listen({ session, live, files: uploads, web, returned, browserMc
     wss.handleUpgrade(req, socket, head, (ws) => {
       ws.on("error", () => ws.terminate());
       if (target.kind === "live") return attach(ws, target.id, target.live);
+      if (target.kind === "terminal") return target.at === null ? ws.close(TERMINAL_CLOSED.none, "no terminals") : attachTerminal(ws, target.at);
       const peer = serve(session, (frame) => ws.send(frame));
       ws.on("message", (data, binary) => {
         if (!binary) void peer.receive(data.toString()).catch(() => ws.close(1011, "Request handling failed"));

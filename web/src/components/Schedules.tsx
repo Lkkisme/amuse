@@ -2,14 +2,20 @@
  * Settings › Schedules: the work Muse set up to run later or regularly
  * (schedules.list; the feed a client holds may not reach back to them). Each
  * can be paused, resumed (from then on) or deleted (cancelled for good).
- * Done and cancelled ones stay listed below as a record.
+ * Done and cancelled ones are not listed (they are kept, as a record).
  */
 import { useCallback, useEffect, useState } from "react";
 import { CalendarClock } from "lucide-react";
-import type { Schedule, Session } from "@amuse/protocol";
+import type { Needs, Schedule, Session } from "@amuse/protocol";
 import { moment, outcomes, repeats, scheduleState } from "../schedules.ts";
 
 type Control = "pause" | "resume" | "cancel";
+
+/** What a run waits for besides its time, said after when it runs. */
+const waits: Record<Needs, string> = {
+  conversation: "when there was conversation",
+  lull: "after a conversation goes quiet",
+};
 
 export function Schedules({ session }: { session: Session }) {
   const [schedules, setSchedules] = useState<Schedule[] | null>(null);
@@ -48,9 +54,6 @@ export function Schedules({ session }: { session: Session }) {
   const standing =
     schedules?.filter((s) => s.status === "active" || s.status === "paused") ??
     [];
-  const past =
-    schedules?.filter((s) => s.status === "done" || s.status === "cancelled") ??
-    [];
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6 sm:px-6">
@@ -62,7 +65,7 @@ export function Schedules({ session }: { session: Session }) {
         run works in the background with the same permissions as Amuse and tells
         you only what is worth telling. Ask Amuse in the chat to set one up.
       </p>
-      {schedules && schedules.length === 0 && (
+      {schedules && standing.length === 0 && (
         <p
           className="mt-6 text-center text-[14px]"
           style={{ color: "var(--text-secondary)" }}
@@ -71,17 +74,6 @@ export function Schedules({ session }: { session: Session }) {
         </p>
       )}
       {standing.length > 0 && <List schedules={standing} control={control} />}
-      {past.length > 0 && (
-        <>
-          <h3
-            className="mt-6 text-[13px] font-medium"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            Past
-          </h3>
-          <List schedules={past} control={control} />
-        </>
-      )}
       {error && (
         <p
           role="alert"
@@ -126,7 +118,9 @@ function List({
                 className="text-[13px]"
                 style={{ color: "var(--text-secondary)" }}
               >
-                {repeats(s.when)} · {scheduleState(s)}
+                {repeats(s.when)}
+                {s.needs ? ` ${waits[s.needs]}` : ""} · {scheduleState(s)}
+                {s.preset ? " · Built in" : ""}
               </p>
               {s.last && (
                 <p

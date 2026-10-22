@@ -10,6 +10,7 @@ COPY demo/package.json demo/
 COPY pi/package.json pi/
 COPY composio/package.json composio/
 COPY browser/package.json browser/
+COPY sandbox/package.json sandbox/
 COPY api/package.json api/
 COPY web/package.json web/
 RUN npm ci --no-audit --no-fund
@@ -31,6 +32,7 @@ COPY demo demo
 COPY pi pi
 COPY composio composio
 COPY browser browser
+COPY sandbox sandbox
 COPY api api
 COPY --from=web /app/web/dist web/dist
 RUN mkdir -p /data && chown node:node /data

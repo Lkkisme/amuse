@@ -3,5 +3,11 @@
 **/.generated
 android
 .git
+.local
+artifacts
+**/*.jks
+**/*.keystore
+.env
+.env.*
 *.apk
 *.xapk

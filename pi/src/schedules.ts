@@ -7,8 +7,8 @@
  * A briefing down, a report up; no reply to the user of its own.
  */
 import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
-import { type AgentIO, type Ports, describe, localTime, wallClock } from "@amuse/core";
-import type { RunOutcome, When } from "@amuse/protocol";
+import { type AgentIO, type Ports, type Workspace, describe, localTime, noteGoal, nowIn, readGoal, wallClock } from "@amuse/core";
+import type { Chat, RunOutcome, Schedule, When } from "@amuse/protocol";
 import { Type } from "typebox";
 import type { PiConfig } from "./agent.ts";
 import { briefed, clip, helperRules, helperTools, holding, work } from "./worker.ts";
@@ -16,6 +16,22 @@ import { status } from "./status.ts";
 
 type Text = { content: { type: "text"; text: string }[]; details: null };
 const text = (value: string): Text => ({ content: [{ type: "text", text: value }], details: null });
+
+const QUIET_MS = 20 * 60_000;
+const LULL_GAP_MS = 4 * 60 * 60_000;
+
+/**
+ * Whether a run is worth starting (Schedule.needs): conversation since its last run; for a lull,
+ * also quiet for a while now, and the last run hours back. Checked before any model is asked.
+ */
+export function worthRunning(schedule: Schedule, chats: Pick<Chat, "updated">[], now: string): boolean {
+  if (!schedule.needs) return true;
+  const since = Date.parse(schedule.last?.at ?? schedule.at);
+  const latest = Math.max(0, ...chats.map((c) => Date.parse(c.updated)));
+  if (latest <= since) return false;
+  if (schedule.needs === "conversation") return true;
+  return Date.parse(now) - latest >= QUIET_MS && Date.parse(now) - since >= LULL_GAP_MS;
+}
 
 /** What the agent asked for, as a When on the user's clock; or why it cannot be one. */
 export function whenOf(args: { cron?: string; at?: string; timezone?: string }, userZone: string): { ok: true; when: When } | { ok: false; reason: string } {
@@ -30,7 +46,7 @@ export function whenOf(args: { cron?: string; at?: string; timezone?: string }, 
 }
 
 /** The chat agent's tools for setting schedules up and cancelling them. */
-export function scheduleTools(io: () => AgentIO): ToolDefinition[] {
+export function scheduleTools(io: () => AgentIO, files?: Workspace): ToolDefinition[] {
   return [
     defineTool({
       name: "schedule",
@@ -49,13 +65,27 @@ export function scheduleTools(io: () => AgentIO): ToolDefinition[] {
         cron: Type.Optional(Type.String({ description: "Repeating: a 5-field cron pattern (minute hour day-of-month month day-of-week), e.g. '0 8 * * *' for every day at 8:00, '0 * * * *' hourly. At most every 15 minutes." })),
         at: Type.Optional(Type.String({ description: "One-off: the user's local date and time, 'YYYY-MM-DD HH:mm'" })),
         timezone: Type.Optional(Type.String({ description: "An IANA time zone, only if the user names one other than their own" })),
+        goal: Type.Optional(
+          Type.String({
+            description:
+              "The user's goal this serves, by its id (its folder in memory/goals/, e.g. 'gain-weight'), e.g. meal reminders for a weight goal. It shows on the goal's page, rests while the goal is done, and stays quiet while the goal is muted.",
+          }),
+        ),
+        needs: Type.Optional(
+          Type.Union([Type.Literal("conversation"), Type.Literal("lull")], {
+            description:
+              "Only for upkeep that is pointless when nothing happened (keeping notes from conversations): 'conversation' runs only if there was conversation since the last run; 'lull' once a conversation has gone quiet (at most every 4 hours). Never for what the user wants at its time (a reminder, a briefing, a check of their mail): leave it out.",
+          }),
+        ),
       }),
-      async execute(_, { title, instructions, cron, at, timezone }) {
+      async execute(_, { title, instructions, cron, at, timezone, needs, goal }) {
         const agent = io();
+        const served = goal?.trim() ? (files ? await readGoal(files, goal.trim()).catch(() => null) : null) : null;
+        if (goal?.trim() && !served) return text(`Not scheduled: there is no goal "${goal}" (goals are the folders in memory/goals/).`);
         const { timezone: zone } = agent.time();
         const when = whenOf({ ...(cron ? { cron } : {}), ...(at ? { at } : {}), ...(timezone ? { timezone } : {}) }, zone);
         if (!when.ok) return text(`Not scheduled: ${when.reason}.`);
-        const made = agent.act({ kind: "schedule", title, instructions, when: when.when });
+        const made = agent.act({ kind: "schedule", title, instructions, when: when.when, needs: needs ?? null, goal: served?.id ?? null });
         if (!made.ok) return text(`Not scheduled: ${describe(made.rejection)}.`);
         return text(`Scheduled ${made.id}. Tell the user briefly when it will run (their time zone is ${zone}); the schedule shows in the chat.`);
       },
@@ -85,16 +115,29 @@ export function piScheduleRunner(cfg: PiConfig): Pick<Ports, "schedule"> {
   return {
     schedule: (schedule, io) =>
       void (async () => {
+        // nothing to do yet: no model is asked, and it does not count as a run
+        if (!worthRunning(schedule, io.chats(), io.time().now)) return void io.act({ kind: "scheduleRan", id: schedule.id, outcome: "skipped", summary: "" });
+        // the work for a goal rests while the goal is done, and goes on once it is taken up again
+        const goal = schedule.goal !== null && cfg.files ? await readGoal(cfg.files, schedule.goal).catch(() => null) : null;
+        if (goal?.status === "done") return void io.act({ kind: "scheduleRan", id: schedule.id, outcome: "skipped", summary: "" });
         const stop = new AbortController();
         const run = { id: schedule.id, title: schedule.title, noun: "scheduled task", io, stop: stop.signal, abort: () => stop.abort() };
         let reported = false;
+        let kept = false;
         const report = defineTool({
           name: "report",
           label: "Tell the user",
           description: "Tell the user something worth their attention from this task. Once per run, only when it matters.",
           parameters: Type.Object({ message: Type.String({ description: "What the user should hear, in their language, plain text" }) }),
           async execute(_, { message }) {
-            if (reported) return text("Already reported this run.");
+            if (reported || kept) return text("Already reported this run.");
+            // a muted goal's work tells the user nothing unasked: what it would have said goes in the goal's log
+            if (goal?.muted && cfg.files) {
+              kept = true;
+              const { now, timezone } = io.time();
+              await noteGoal(cfg.files, goal.id, localTime(now, timezone).split(" ")[0] ?? "", `From ${schedule.title}`, message);
+              return text(`The user muted the goal "${goal.title}", so this went in its log instead of to them. Finish with your one-line record.`);
+            }
             reported = true;
             io.report(`[scheduled task "${schedule.title}" (${schedule.id})]\n${message}`);
             return text("Reported. Finish with your one-line record.");
@@ -106,7 +149,7 @@ export function piScheduleRunner(cfg: PiConfig): Pick<Ports, "schedule"> {
           run,
           background,
           [...helperTools(cfg, run, holding(run)), report],
-          briefed(io, `${localTime(now, timezone)} (${timezone})`, `Scheduled task "${schedule.title}" (${schedule.id}). Instructions:\n${schedule.instructions}`),
+          briefed(io, nowIn(now, timezone), `Scheduled task "${schedule.title}" (${schedule.id}). Instructions:\n${schedule.instructions}`),
         );
         const end = (outcome: Exclude<RunOutcome, "missed">, summary: string) => io.act({ kind: "scheduleRan", id: schedule.id, outcome, summary: clip(summary) });
         switch (worked.kind) {

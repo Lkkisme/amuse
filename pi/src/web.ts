@@ -1,9 +1,11 @@
 /**
  * Looking things up without a browser: a web search, and reading a page as
  * text. Much lighter than a browser run, for when nothing on a page needs
- * doing. Both keep to the user's site rules: a denied site is neither shown
- * in results nor read; a site with no rule is read only once the user allows
- * it (the agent asks, and gets the page later). Reading refuses anything that is not the public
+ * doing. Both keep to the user's rules for visiting (core/policy.ts): a site
+ * they say no to is neither shown in results nor read (reading it is a refusal
+ * by their rule: recorded, and the agent told which rule); one the rules leave
+ * to ask is read only once the user allows it (the agent asks, and gets the
+ * page later). Reading refuses anything that is not the public
  * web: the server can reach places the user's browser cannot (this machine,
  * its private networks), and a page could talk the agent into asking for
  * them. Every redirect is checked again. What comes back is the web's, so it
@@ -12,11 +14,11 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
-import { type AgentIO, type Rules, siteAccess, siteOf } from "@amuse/core";
+import { type AgentIO, type BrowserRules, type RuleSource, type Rules, browserRulesOf, decideBrowser, hostOf } from "@amuse/core";
 import { Type } from "typebox";
 import { status } from "./status.ts";
 import { untrusted } from "./untrusted.ts";
-import { askToVisit, notVisited, visitAnswer } from "./visits.ts";
+import { askToVisit, notVisited, refuseByRule, visitAnswer } from "./visits.ts";
 import type { Hold } from "./runs.ts";
 
 export interface SearchResult {
@@ -53,19 +55,22 @@ export function privateAddress(ip: string): boolean {
   );
 }
 
-/** A read: the page as text (or why there is none), or a site the user must allow first. */
-export type Read = { kind: "text"; text: string } | { kind: "unlisted"; url: string };
+/**
+ * A read: the page as text (or why there is none), a site the user must allow first (`ask`), or a refusal by a rule of theirs
+ * (`refused`: with the rule, to tell the agent and to record).
+ */
+export type Read = { kind: "text"; text: string } | { kind: "ask"; url: string } | { kind: "refused"; url: string; source: RuleSource };
 
-/** Why a URL may not be read, or null when it may; unlisted when its site needs the user's leave and has not got it. */
+/** Why a URL may not be read, or null when it may; `ask` when its site needs the user's leave and has not got it. */
 async function refusal(url: string, rules: Rules, granted: ReadonlySet<string>): Promise<Read | null> {
-  const site = siteOf(url);
+  const site = hostOf(url);
   if (!site) return { kind: "text", text: `"${url}" is not an http(s) address.` };
-  const access = siteAccess(await rules.sites(), url);
-  if (access === "deny") return { kind: "text", text: `The user does not allow ${site}. Do not try to reach it another way.` };
+  const { permission, source } = decideBrowser(await browserRulesOf(rules), url, "visit");
+  if (permission === "deny") return { kind: "refused", url, source };
   // what is not the public web is never read, so the user is not even asked about it
   const refused = await unreachable(url);
   if (refused !== null) return { kind: "text", text: refused };
-  return access === "unlisted" && !granted.has(site) ? { kind: "unlisted", url } : null;
+  return permission === "ask" && !granted.has(site) ? { kind: "ask", url } : null;
 }
 
 /** Why a URL is not on the public web, or null when it is. */
@@ -118,7 +123,7 @@ export async function readPage(url: string, rules: Rules, http: typeof fetch = f
       at = new URL(next, at).href;
       continue;
     }
-    if (!response.ok) return page(`${siteOf(at)} answered ${response.status}.`);
+    if (!response.ok) return page(`${hostOf(at)} answered ${response.status}.`);
     const type = response.headers.get("content-type") ?? "";
     if (!/text\/|html|json|xml/.test(type)) return page(`${at} is not a page to read (${type || "unknown type"}).`);
     const body = Buffer.from(await response.arrayBuffer()).subarray(0, READ_LIMIT).toString("utf8");
@@ -139,32 +144,40 @@ const failed = (url: string, e: unknown) => `Could not read ${url}: ${e instance
 export async function readForAgent(io: AgentIO, rules: Rules, url: string, http: typeof fetch = fetch, hold?: Hold): Promise<string> {
   const read = await readPage(url, rules, http).catch((e: unknown): Read => ({ kind: "text", text: failed(url, e) }));
   if (read.kind === "text") return untrusted(read.text);
+  if (read.kind === "refused") return refuseByRule(io, "visit", hostOf(read.url) ?? read.url, read.source, "Visit", read.url);
   const asked = askToVisit(io, read.url, "To read the page");
-  if (!asked.ok) return `Could not ask to visit ${siteOf(read.url)}.`;
+  if (!asked.ok) return `Could not ask to visit ${hostOf(read.url)}.`;
   if (hold) {
     // a helper holds here until the user answers, then reads on
-    hold.waiting(`to visit ${siteOf(read.url)} (to read ${read.url})`);
+    hold.waiting(`to visit ${hostOf(read.url)} (to read ${read.url})`);
     const outcome = await visitAnswer(io, rules, asked.id, read.url);
     hold.working();
     if (outcome !== "approved") return notVisited(read.url, outcome);
-    const site = siteOf(read.url);
+    const site = hostOf(read.url);
     const again = await readPage(read.url, rules, http, new Set(site ? [site] : [])).catch((e: unknown): Read => ({ kind: "text", text: failed(read.url, e) }));
-    return again.kind === "text" ? untrusted(again.text) : `${read.url} led on to ${siteOf(again.url)}, which needs the user's permission too; read that address to ask for it.`;
+    return again.kind === "text" ? untrusted(again.text) : onward(io, again);
   }
   void visitAnswer(io, rules, asked.id, read.url).then(async (outcome) => {
     if (outcome !== "approved") return io.report(`[page not read] ${notVisited(read.url, outcome)}`);
-    const site = siteOf(read.url);
+    const site = hostOf(read.url);
     const again = await readPage(read.url, rules, http, new Set(site ? [site] : [])).catch((e: unknown): Read => ({ kind: "text", text: failed(read.url, e) }));
-    io.report(
-      again.kind === "text"
-        ? `[page read: ${read.url}]\n${untrusted(again.text)}`
-        : `[page not read] ${read.url} led on to ${siteOf(again.url)}, which needs the user's permission too; read that address if it is still wanted.`,
-    );
+    io.report(again.kind === "text" ? `[page read: ${read.url}]\n${untrusted(again.text)}` : `[page not read] ${onward(io, again)}`);
   });
-  return `${siteOf(read.url)} has no rule yet, so the user is asked first. If they allow it, the page is read in the background and you get it as a report. Tell the user briefly that you need their OK.`;
+  return `The user is asked first about visiting ${hostOf(read.url)}. If they allow it, the page is read in the background and you get it as a report. Tell the user briefly that you need their OK.`;
+}
+
+/** A page led on to a site that needs the user's say first (or whose rule says no): what the agent is told. */
+function onward(io: AgentIO, to: Exclude<Read, { kind: "text" }>): string {
+  const where = hostOf(to.url) ?? to.url;
+  return to.kind === "refused"
+    ? `It led on to ${where}. ${refuseByRule(io, "visit", where, to.source, "Visit", to.url)}`
+    : `It led on to ${where}, which needs the user's permission too; read that address to ask for it.`;
 }
 
 const text = (value: string) => ({ content: [{ type: "text" as const, text: value }], details: null });
+
+/** The results the rules allow showing: a site they say no to is not even shown; one they leave to ask is (reading it asks first). */
+export const visible = (results: SearchResult[], rules: BrowserRules): SearchResult[] => results.filter((r) => decideBrowser(rules, r.url, "visit").permission !== "deny");
 
 /** web_read always; web_search where a search is configured. */
 export function webTools(io: () => AgentIO, rules: Rules, search: Search | undefined, hold?: Hold): ToolDefinition[] {
@@ -182,9 +195,7 @@ export function webTools(io: () => AgentIO, rules: Rules, search: Search | undef
     description: "Search the web; returns titles, links and snippets. Read a result with web_read.",
     parameters: Type.Object({ status, query: Type.String() }),
     async execute(_, { query }) {
-      const sites = await rules.sites();
-      // a denied site is not even shown; one with no rule is (reading it asks first)
-      const results = (await search(query)).filter((r) => siteAccess(sites, r.url) !== "deny");
+      const results = visible(await search(query), await browserRulesOf(rules));
       if (results.length === 0) return text(`No results for "${query}".`);
       return text(untrusted(results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`).join("\n")));
     },

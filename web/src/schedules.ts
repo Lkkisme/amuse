@@ -17,7 +17,9 @@ export function repeats(when: When): string {
     text = when.cron;
   }
   // cronstrue says only the time for a daily pattern
-  const daily = when.cron.trim().split(/\s+/).slice(2).every((field) => field === "*");
+  // (a set hour; "30 * * * *" is hourly)
+  const fields = when.cron.trim().split(/\s+/);
+  const daily = /^\d+$/.test(fields[1] ?? "") && fields.slice(2).every((field) => field === "*");
   if (daily && text.startsWith("At ")) text = `Every day at ${text.slice(3)}`;
   return when.timezone === here() ? text : `${text} (${when.timezone})`;
 }

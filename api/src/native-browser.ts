@@ -1,12 +1,14 @@
 /** A browser page shared by the phone viewer and Codex's scoped MCP tools. */
-import { mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, readdirSync, statSync } from "node:fs";
+import { rm } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { chromium, type BrowserContext, type Page, type CDPSession } from "playwright-core";
+import { chromium, request as browserRequest, type APIRequestContext, type BrowserContext, type Page, type CDPSession } from "playwright-core";
 import { WebSocket } from "ws";
 import { fitted, type Browsers, type FileData, type PageView, type Size, type Step } from "@amuse/browser";
-import type { Host, Ports, AgentIO } from "@amuse/core";
-import type { Browser as BrowserEntity } from "@amuse/protocol";
+import { browserRulesOf, decideBrowser, hostOf, memoryRules, type Rules, type Host, type Ports, type AgentIO } from "@amuse/core";
+import { permitStep } from "@amuse/pi";
+import type { Browser as BrowserEntity, BrowserAction } from "@amuse/protocol";
 import { z } from "zod";
 
 const coordinate = z.number().finite().min(0).max(1);
@@ -18,14 +20,24 @@ const Input = z.discriminatedUnion("type", [
   z.object({ type: z.literal("navigate"), url: z.string().max(8192) }),
   z.object({ type: z.literal("history"), action: z.enum(["back", "forward", "reload"]) }),
 ]);
-export type NativeStep = { kind: string; ref?: string; selector?: string; text?: string; clear?: boolean; submit?: boolean; key?: string; url?: string; x?: number; y?: number; button?: "left" | "middle" | "right"; clickCount?: number; direction?: "up" | "down"; deltaX?: number; deltaY?: number };
-type Run = { id: string; chat: string; io: AgentIO; page: Page; context: BrowserContext; cdp: CDPSession; held: boolean; generation: number; refs: Set<string>; viewers: Set<WebSocket>; queue: Promise<void>; stream: Promise<void>; streaming: boolean; downloads: FileData[]; closing: boolean; pointer: { x: number; y: number; buttons: number }; keys: Map<string, { key: string; code: string }> };
+export type NativeStep = { kind: string; consequential?: boolean; what?: string; why?: string; ref?: string; selector?: string; text?: string; clear?: boolean; submit?: boolean; key?: string; url?: string; x?: number; y?: number; button?: "left" | "middle" | "right"; clickCount?: number; direction?: "up" | "down"; deltaX?: number; deltaY?: number };
+type Run = { id: string; chat: string; io: AgentIO; page: Page; context: BrowserContext; cdp: CDPSession; held: boolean; generation: number; refs: Set<string>; viewers: Set<WebSocket>; queue: Promise<void>; stream: Promise<void>; streaming: boolean; downloads: FileData[]; closing: boolean; pointer: { x: number; y: number; buttons: number }; keys: Map<string, { key: string; code: string }>; stop: AbortController; granted: Set<string>; policy: Promise<void>; policies: Set<Promise<void>>; downloaded: Set<Promise<void>>; policyError: Error | null; submitGranted: string | null; initialState: LoginState; forgotten: Set<string>; directory: string; preview: APIRequestContext | null; previewSockets: Set<WebSocket>; operationSignal: AbortSignal | undefined };
 
 function webUrl(value: string) {
   const url = new URL(value.includes(":") ? value : `https://${value}`);
   if (!["http:", "https:"].includes(url.protocol)) throw new Error("请输入 http 或 https 网页地址。");
   return url.href;
 }
+
+const LoginCookie = z.object({ name: z.string(), value: z.string(), domain: z.string(), path: z.string(), expires: z.number(), httpOnly: z.boolean(), secure: z.boolean(), sameSite: z.enum(["Strict", "Lax", "None"]) });
+const LoginState = z.object({ cookies: z.array(LoginCookie), origins: z.array(z.object({ origin: z.string().url(), localStorage: z.array(z.object({ name: z.string(), value: z.string() })) })) });
+type LoginState = z.infer<typeof LoginState>;
+const emptyLogins = (): LoginState => ({ cookies: [], origins: [] });
+const cookieKey = (cookie: LoginState["cookies"][number]) => `${cookie.domain}\0${cookie.path}\0${cookie.name}`;
+const onSite = (domain: string, site: string) => { const host = domain.toLowerCase().replace(/^\./, "").replace(/\.$/, ""); return host === site || host.endsWith(`.${site}`); };
+const cookieOnSite = (domain: string, site: string) => onSite(domain, site) || domain.startsWith(".") && site.endsWith(domain.toLowerCase());
+const originOnSite = (origin: string, site: string) => { try { return onSite(new URL(origin).hostname, site); } catch { return false; } };
+
 const digest = (value: string) => createHash("sha256").update(value).digest("hex").slice(0, 24);
 
 export class NativeBrowserManager implements Browsers {
@@ -34,13 +46,252 @@ export class NativeBrowserManager implements Browsers {
   private launching = 0;
   private cancelled = new Set<string>();
   private host: Host | undefined;
-  private options: { executablePath: string; directory: string; maxBrowsers?: number };
-  constructor(options: { executablePath: string; directory: string; maxBrowsers?: number }) { this.options = options; mkdirSync(options.directory, { recursive: true }); }
+  private options: { executablePath: string; directory: string; maxBrowsers?: number; rules?: Rules; sandboxUrl?: string };
+  private rules: Rules;
+  private loginQueue: Promise<void> = Promise.resolve();
+  private loginState: LoginState;
+  private migration: Promise<number> | undefined;
+  private openingSignals = new Map<string, AbortSignal>();
+  private restoration: Promise<{ restored: number; ended: number; migratedProfiles: number }> | undefined;
+  constructor(options: { executablePath: string; directory: string; maxBrowsers?: number; rules?: Rules; sandboxUrl?: string }) {
+    this.options = options;
+    this.rules = options.rules ?? memoryRules();
+    if (options.sandboxUrl) {
+      const url = new URL(options.sandboxUrl);
+      if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error("Invalid sandbox preview daemon URL.");
+    }
+    mkdirSync(options.directory, { recursive: true });
+    const path = join(options.directory, "logins.json");
+    this.loginState = existsSync(path) ? LoginState.parse(JSON.parse(readFileSync(path, "utf8"))) : emptyLogins();
+  }
+  private async recordedBrowsers() {
+    if (!this.host) return [];
+    const { chats } = await this.host.call("chats.list", {});
+    return chats.flatMap((chat) => this.host!.external.state(chat.id).entities.filter((entity): entity is BrowserEntity => entity.kind === "browser").map((browser) => ({ chat: chat.id, browser })));
+  }
+  private migrateProfiles(): Promise<number> {
+    this.migration ??= (async () => {
+      const file = join(this.options.directory, "logins.json");
+      if (existsSync(file)) { this.loginState = LoginState.parse(JSON.parse(readFileSync(file, "utf8"))); return 0; }
+      const root = join(this.options.directory, "profiles");
+      if (!existsSync(root)) return 0;
+      const directories = readdirSync(root, { withFileTypes: true }).filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() && /^[a-f0-9]{24}$/.test(entry.name)).map((entry) => join(root, entry.name)).sort((a, b) => statSync(a).mtimeMs - statSync(b).mtimeMs);
+      if (!directories.length) return 0;
+      const history = await this.recordedBrowsers();
+      const snapshots: LoginState[] = [];
+      for (const directory of directories) {
+        const context = await chromium.launchPersistentContext(directory, { executablePath: this.options.executablePath, headless: true, serviceWorkers: "block", args: ["--no-first-run", "--no-default-browser-check", "--disable-background-networking"] });
+        try {
+          // Discover origin storage without contacting the sites or running their
+          // JavaScript: these blank documents only unlock existing localStorage.
+          await context.route("**/*", (route) => route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><title>Local login migration</title>" }));
+          const origins = new Set<string>();
+          for (const { browser } of history) if (digest(browser.id) === basename(directory)) {
+            try { origins.add(new URL(webUrl(browser.url)).origin); } catch { /* Non-web legacy entries have no origin storage. */ }
+          }
+          for (const cookie of await context.cookies()) {
+            const domain = cookie.domain.replace(/^\./, "");
+            if (domain) origins.add(`${cookie.secure ? "https" : "http"}://${domain}`);
+          }
+          const page = context.pages()[0] ?? await context.newPage();
+          for (const origin of origins) await page.goto(origin, { waitUntil: "domcontentloaded", timeout: 10000 });
+          snapshots.push(LoginState.parse(await context.storageState()));
+        } finally { await context.close(); }
+      }
+      await this.loginExclusive(async () => {
+        const cookies = new Map(this.loginState.cookies.map((cookie) => [cookieKey(cookie), cookie]));
+        const origins = new Map(this.loginState.origins.map((origin) => [origin.origin, origin]));
+        for (const snapshot of snapshots) {
+          for (const cookie of snapshot.cookies) if (cookie.expires === -1 || cookie.expires > Date.now() / 1000) cookies.set(cookieKey(cookie), cookie);
+          for (const origin of snapshot.origins) if (origin.localStorage.length) origins.set(origin.origin, origin);
+        }
+        this.loginState = { cookies: [...cookies.values()], origins: [...origins.values()] };
+        this.saveLogins(); // Old profiles are removed only after durable owner state exists.
+      });
+      for (const directory of directories) await this.eraseProfile(directory);
+      return directories.length;
+    })();
+    return this.migration;
+  }
+  private endExisting(chat: string, browser: BrowserEntity, message: string) {
+    const io = this.host!.agent(chat);
+    const ended = io.act({ kind: "browserEnded", id: browser.id, status: "failed", result: message });
+    if (!ended.ok) this.host!.external.ingest(chat, [{ kind: "upserted", entity: { ...browser, status: "idle", outcome: "failed", result: message, step: null, live: false } }]);
+    io.act({ kind: "released", id: browser.id });
+  }
+  /** Reopen saved viewer pages without replaying any agent task. Idempotent. */
+  restoreExisting(host?: Host): Promise<{ restored: number; ended: number; migratedProfiles: number }> {
+    if (host) this.bind(host);
+    if (!this.host) throw new Error("Browser host is not ready.");
+    this.restoration ??= (async () => {
+      const recorded = await this.recordedBrowsers();
+      const live = recorded.filter(({ browser }) => browser.live);
+      let restored = 0, ended = 0;
+      if (!existsSync(this.options.executablePath)) {
+        for (const { chat, browser } of live) { this.endExisting(chat, browser, "The saved browser could not be restored: the configured Edge executable is unavailable."); ended++; }
+        return { restored, ended, migratedProfiles: 0 };
+      }
+      const migratedProfiles = await this.migrateProfiles();
+      for (const { chat, browser } of live) {
+        if (this.owns(browser.id)) continue;
+        if (!["paused", "idle"].includes(browser.status)) { this.endExisting(chat, browser, "This browser's previous agent task was not replayed after the server update. Open a new browser task to continue."); ended++; continue; }
+        try {
+          const url = new URL(webUrl(browser.url));
+          if (url.hostname === "sandbox" && !this.options.sandboxUrl) throw new Error("The sandbox preview service is not configured.");
+          if (browser.status === "idle" && decideBrowser(await browserRulesOf(this.rules), url.href, "visit").permission === "deny") {
+            const permission = await permitStep({ io: this.host!.agent(chat), rules: this.rules, url: url.href, stop: new AbortController() }, { waiting: () => {}, working: () => {} }, "visit", "Restore browser page", url.href);
+            throw new Error(permission.kind === "rule" ? permission.told : "The saved page could not be visited.");
+          }
+          await this.start(browser, this.host!.agent(chat), true);
+          restored++;
+        } catch (error) { this.endExisting(chat, browser, `The saved browser could not be restored: ${error instanceof Error ? error.message : String(error)}`); ended++; }
+      }
+      return { restored, ended, migratedProfiles };
+    })();
+    return this.restoration;
+  }
+  private start(browser: BrowserEntity, io: AgentIO, restoring = false): Promise<void> {
+    const existing = this.opening.get(browser.id);
+    if (existing) return existing;
+    if (this.runs.has(browser.id)) return Promise.resolve();
+    const promise = this.launch(browser, io, restoring).catch((error) => {
+      this.opening.delete(browser.id);
+      io.act({ kind: "browserEnded", id: browser.id, status: "failed", result: error instanceof Error ? error.message : String(error) });
+      io.act({ kind: "released", id: browser.id });
+      throw error;
+    });
+    this.opening.set(browser.id, promise); void promise.catch(() => {});
+    return promise;
+  }
+  private loginExclusive<T>(action: () => Promise<T>): Promise<T> {
+    const result = this.loginQueue.then(action);
+    this.loginQueue = result.then(() => {}, () => {});
+    return result;
+  }
+  private saveLogins() {
+    const path = join(this.options.directory, "logins.json");
+    writeFileSync(`${path}.next`, JSON.stringify(this.loginState), { mode: 0o600 });
+    renameSync(`${path}.next`, path);
+  }
+  private async eraseProfile(directory: string) {
+    const expectedParent = resolve(this.options.directory, "profiles");
+    const target = resolve(directory);
+    if (dirname(target).toLowerCase() !== expectedParent.toLowerCase() || !/^[a-f0-9]{24}$/.test(basename(target))) throw new Error("Refusing to remove a browser profile outside its owned directory.");
+    await rm(target, { recursive: true, force: true, maxRetries: 6, retryDelay: 100 });
+  }
+  private trackPolicy(run: Run, action: () => Promise<void>) {
+    const pending = run.policy.then(action);
+    run.policy = pending.catch(() => {});
+    run.policies.add(pending);
+    void pending.catch((error: unknown) => { run.policyError = error instanceof Error ? error : new Error(String(error)); }).finally(() => run.policies.delete(pending));
+    return pending;
+  }
+  private async permit(run: Run, url: string, action: BrowserAction, what: string, why: string, requireAgent = true) {
+    if (requireAgent) this.assertAgent(run);
+    const decision = decideBrowser(await browserRulesOf(this.rules), url, action);
+    const host = hostOf(url);
+    if (action === "visit" && decision.permission === "ask" && host && run.granted.has(host)) return;
+    const stop = new AbortController();
+    const signals = [run.stop.signal, run.operationSignal].filter((signal): signal is AbortSignal => signal !== undefined);
+    const aborted = () => stop.abort();
+    for (const signal of signals) { if (signal.aborted) stop.abort(); else signal.addEventListener("abort", aborted, { once: true }); }
+    let result: Awaited<ReturnType<typeof permitStep>>;
+    try {
+      result = await permitStep({ io: run.io, rules: this.rules, url, stop }, {
+        waiting: () => { if (!run.held && !run.closing) run.io.act({ kind: "browserStatus", id: run.id, status: "waiting" }); },
+        working: () => { if (!run.held && !run.closing) run.io.act({ kind: "browserStatus", id: run.id, status: "working" }); },
+      }, action, what, why);
+    } finally { for (const signal of signals) signal.removeEventListener("abort", aborted); }
+    if (result.kind !== "yes") throw new Error(result.kind === "rule" ? result.told : result.kind === "stopped" ? "Browser action stopped before approval." : `The user did not approve ${what}. Do not work around this refusal.`);
+    if (requireAgent) this.assertAgent(run);
+    if (action === "visit" && host) run.granted.add(host);
+  }
+  private previewUrl(logical: URL) {
+    if (!this.options.sandboxUrl) throw new Error("The sandbox preview service is not configured.");
+    const port = Number(logical.port || (logical.protocol === "https:" || logical.protocol === "wss:" ? 443 : 80));
+    if (!Number.isInteger(port) || port < 1 || port > 65535 || port === 7070) throw new Error("The sandbox control port cannot be opened as a webpage.");
+    const target = new URL(`/preview/${port}${logical.pathname}${logical.search}`, this.options.sandboxUrl);
+    if (logical.protocol === "ws:" || logical.protocol === "wss:") target.protocol = target.protocol === "https:" ? "wss:" : "ws:";
+    return target;
+  }
+  private async previewResponse(run: Run, request: { url: string; method: string; headers: Record<string, string>; postData?: string; postDataEntries?: { bytes?: string }[] }) {
+    const logical = new URL(request.url);
+    let response: Awaited<ReturnType<APIRequestContext["fetch"]>> | undefined;
+    try {
+      const target = this.previewUrl(logical);
+      const original = Object.fromEntries(Object.entries(request.headers).map(([name, value]) => [name.toLowerCase(), value]));
+      const headers = Object.fromEntries(Object.entries(original).filter(([key]) => !["host", "origin", "referer", "connection", "content-length"].includes(key) && !key.startsWith("sec-fetch-")));
+      // This API context has no browser cookies. An explicit source Cookie
+      // header also keeps previews isolated from the daemon's loopback origin.
+      headers["cookie"] = original["cookie"] ?? "";
+      run.preview ??= await browserRequest.newContext();
+      const body = request.postDataEntries?.some((entry) => entry.bytes) ? Buffer.concat(request.postDataEntries.map((entry) => Buffer.from(entry.bytes ?? "", "base64"))) : request.postData;
+      response = await run.preview.fetch(target.href, { method: request.method, headers, data: body, maxRedirects: 0, timeout: 30000 });
+      const outgoing = Object.fromEntries(Object.entries(response.headers()).filter(([key]) => !["connection", "content-length", "content-encoding", "transfer-encoding"].includes(key)));
+      if (outgoing["location"]) {
+        const redirect = new URL(outgoing["location"], logical);
+        if (["localhost", "127.0.0.1", "[::1]"].includes(redirect.hostname) && (redirect.port || "80") === (logical.port || "80")) { redirect.hostname = "sandbox"; outgoing["location"] = redirect.href; }
+      }
+      return { responseCode: response.status(), responseHeaders: Object.entries(outgoing).flatMap(([name, value]) => (name === "set-cookie" ? value.split("\n") : [value]).map((value) => ({ name, value }))), body: (await response.body()).toString("base64") };
+    } catch (error) {
+      return { responseCode: 502, responseHeaders: [{ name: "content-type", value: "text/plain; charset=utf-8" }], body: Buffer.from(error instanceof Error ? error.message : "The sandbox preview could not be reached.").toString("base64") };
+    } finally { await response?.dispose().catch(() => {}); }
+  }
+  private async previewRoutes(run: Run) {
+    const context = run.context;
+    // Initialize once before any page resources race to use the preview proxy.
+    if (this.options.sandboxUrl) run.preview = await browserRequest.newContext();
+    await context.routeWebSocket((url) => url.hostname === "sandbox", async (route) => {
+      let remote: WebSocket | undefined;
+      const buffered: (string | Buffer)[] = [];
+      let size = 0;
+      let closed = false;
+      route.onMessage((message) => {
+        if (closed) return;
+        if (remote?.readyState === WebSocket.OPEN) remote.send(message);
+        else if ((size += Buffer.byteLength(message)) <= 1024 * 1024) buffered.push(message);
+        else { closed = true; void route.close({ code: 1000, reason: "Preview connection buffer exceeded." }); remote?.terminate(); }
+      });
+      route.onClose(() => { closed = true; remote?.close(); });
+      try {
+        const logical = new URL(route.url());
+        const target = this.previewUrl(logical);
+        const policyUrl = new URL(logical); policyUrl.protocol = policyUrl.protocol === "wss:" ? "https:" : "http:";
+        if (!run.held) await this.trackPolicy(run, () => this.permit(run, policyUrl.href, "visit", "Open sandbox preview connection", policyUrl.href));
+        if (closed || run.closing) return;
+        remote = new WebSocket(target, route.protocols());
+        run.previewSockets.add(remote);
+        remote.on("open", () => { for (const message of buffered) remote!.send(message); buffered.length = 0; });
+        remote.on("message", (data, binary) => { if (!closed) route.send(binary ? Buffer.from(data as Buffer) : data.toString()); });
+        remote.on("close", () => { run.previewSockets.delete(remote!); if (!closed) { closed = true; void route.close({ code: 1000, reason: "Preview connection closed." }); } });
+        remote.on("error", () => { if (!closed) { closed = true; void route.close({ code: 1000, reason: "The sandbox preview connection failed." }); } });
+      } catch (error) { closed = true; await route.close({ code: 1000, reason: error instanceof Error ? error.message.slice(0, 100) : "The sandbox preview connection failed." }).catch(() => {}); }
+    });
+  }
+  private async guardRequest(run: Run, request: { url(): string; method(): string; isNavigationRequest(): boolean }) {
+    if (run.held) return; // A held browser receives direct human input, gated by /live.
+    this.assertAgent(run);
+    const url = request.url();
+    if (!/^https?:/.test(url)) return;
+    const rules = await browserRulesOf(this.rules);
+    const navigation = request.isNavigationRequest();
+    // Denied sites are blocked before their requests leave this isolated browser,
+    // including subframes, redirects, script navigation and background resources.
+    if (navigation || decideBrowser(rules, url, "visit").permission === "deny") {
+      await this.permit(run, url, "visit", "Visit", `${url}\nThe current page is opening this address.`);
+    }
+    if (!["GET", "HEAD", "OPTIONS"].includes(request.method())) {
+      const decision = decideBrowser(await browserRulesOf(this.rules), url, "submit");
+      if (run.submitGranted !== new URL(url).origin || decision.permission === "deny") await this.permit(run, url, "submit", "Submit browser request", `${request.method()} ${url}\nThe page is sending information or changing server state.`);
+    }
+    this.assertAgent(run);
+  }
   bind(host: Host) { this.host = host; }
   owns = (id: string) => this.runs.has(id) || this.opening.has(id);
   private async run(id: string) { await this.opening.get(id); const run = this.runs.get(id); if (!run) throw new Error("此浏览器已关闭。"); return run; }
   private assertScope(run: Run, chat: string) { if (run.chat !== chat) throw new Error("该浏览器属于另一个会话。"); }
-  private assertAgent(run: Run) { if (run.held) throw new Error("用户正在手机或网页端接管这个浏览器。请停止操作，等待用户点击 Done／交还控制权；不要改用其他工具绕过接管。"); }
+  private checkSignal(signal?: AbortSignal) { if (signal?.aborted) throw new DOMException("The browser operation was cancelled.", "AbortError"); }
+  private assertAgent(run: Run) { this.checkSignal(run.operationSignal); if (run.closing) throw new Error("此浏览器已关闭。"); if (run.held) throw new Error("用户正在手机或网页端接管这个浏览器。请停止操作，等待用户点击 Done／交还控制权；不要改用其他工具绕过接管。"); }
   private beginJob(run: Run) {
     this.assertAgent(run);
     const entity = this.host?.external.state(run.chat).entities.find((item) => item.id === run.id);
@@ -49,8 +300,14 @@ export class NativeBrowserManager implements Browsers {
       if (!result.ok) throw new Error(`无法开始浏览器任务：${JSON.stringify(result.rejection)}`);
     }
   }
-  private exclusive<T>(run: Run, action: () => Promise<T>): Promise<T> {
-    const result = run.queue.then(() => { this.assertAgent(run); return action(); });
+  private exclusive<T>(run: Run, action: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    const result = run.queue.then(async () => {
+      this.checkSignal(signal);
+      const previous = run.operationSignal;
+      run.operationSignal = signal;
+      try { this.assertAgent(run); const value = await action(); this.checkSignal(signal); return value; }
+      finally { run.operationSignal = previous; }
+    });
     run.queue = result.then(() => {}, () => {});
     return result;
   }
@@ -89,39 +346,57 @@ export class NativeBrowserManager implements Browsers {
   }
   ports(): Pick<Ports, "browse" | "browser" | "job" | "fit"> {
     return {
-      browse: (browser, io) => {
-        const promise = this.launch(browser, io).catch((error) => {
-          io.act({ kind: "browserEnded", id: browser.id, status: "failed", result: error instanceof Error ? error.message : String(error) });
-          io.act({ kind: "released", id: browser.id });
-          throw error;
-        });
-        this.opening.set(browser.id, promise); void promise.catch(() => {});
-      },
+      browse: (browser, io) => { void this.start(browser, io); },
       browser: ({ browser, action }) => {
         if (action === "stop") this.cancelled.add(browser.id);
         const run = this.runs.get(browser.id); if (!run) return;
         run.held = action === "take";
+        if (run.held || action === "stop") run.stop.abort();
+        else run.stop = new AbortController();
         if (action === "stop") { void this.close(browser.id).catch(() => {}); return; }
-        run.queue = run.queue.then(() => this.releaseInput(run));
+        run.queue = run.queue.then(async () => { await this.releaseInput(run); if (action === "handBack") await this.remember(browser.id); }).catch(() => {});
         this.notify(run);
       },
       job: () => {},
       fit: ({ id, viewer }) => { void this.fit(id, viewer).catch(() => {}); },
     };
   }
-  private async launch(browser: BrowserEntity, io: AgentIO) {
+  private async launch(browser: BrowserEntity, io: AgentIO, restoring = false) {
+    await this.migrateProfiles();
     if (this.runs.size + this.launching >= (this.options.maxBrowsers ?? 2)) throw new Error("浏览器数量已达上限，请先关闭一个。");
     this.launching++;
     const directory = join(this.options.directory, "profiles", digest(browser.id));
     let context: BrowserContext;
-    try { context = await chromium.launchPersistentContext(directory, { executablePath: this.options.executablePath, headless: true, viewport: { width: 1024, height: 768 }, acceptDownloads: true, downloadsPath: join(this.options.directory, "downloads"), args: ["--no-first-run", "--no-default-browser-check", "--disable-background-networking"] }); }
+    try { context = await chromium.launchPersistentContext(directory, { executablePath: this.options.executablePath, headless: true, viewport: { width: 1024, height: 768 }, acceptDownloads: true, serviceWorkers: "block", downloadsPath: join(this.options.directory, "downloads"), args: ["--no-first-run", "--no-default-browser-check", "--disable-background-networking"] }); }
     finally { this.launching--; }
     try {
       if (this.cancelled.has(browser.id)) throw new Error("浏览器已关闭。");
       const page = context.pages()[0] ?? await context.newPage();
       const cdp = await context.newCDPSession(page);
-      const run: Run = { id: browser.id, chat: io.chat, io, page, context, cdp, held: browser.status === "paused", generation: 1, refs: new Set(), viewers: new Set(), queue: Promise.resolve(), stream: Promise.resolve(), streaming: false, downloads: [], closing: false, pointer: { x: 0, y: 0, buttons: 0 }, keys: new Map() };
-      this.runs.set(browser.id, run);
+      const run: Run = { id: browser.id, chat: io.chat, io, page, context, cdp, held: browser.status === "paused", generation: 1, refs: new Set(), viewers: new Set(), queue: Promise.resolve(), stream: Promise.resolve(), streaming: false, downloads: [], closing: false, pointer: { x: 0, y: 0, buttons: 0 }, keys: new Map(), stop: new AbortController(), granted: new Set(), policy: Promise.resolve(), policies: new Set(), downloaded: new Set(), policyError: null, submitGranted: null, initialState: emptyLogins(), forgotten: new Set(), directory, preview: null, previewSockets: new Set(), operationSignal: this.openingSignals.get(browser.id) };
+      await this.loginExclusive(async () => {
+        run.initialState = structuredClone(this.loginState);
+        await context.setStorageState(run.initialState);
+        this.runs.set(browser.id, run);
+      });
+      // Playwright route() only sees the first request in an HTTP redirect
+      // chain. CDP Fetch pauses every hop before it reaches the network.
+      cdp.on("Fetch.requestPaused", (event) => {
+        void (async () => {
+          try {
+            await this.trackPolicy(run, () => this.guardRequest(run, { url: () => event.request.url, method: () => event.request.method, isNavigationRequest: () => event.resourceType === "Document" }));
+            if (new URL(event.request.url).hostname === "sandbox") {
+              // Fulfilling at CDP level also covers every redirect hop; a
+              // Playwright route only sees the first URL in a redirect chain.
+              const response = await this.previewResponse(run, event.request);
+              await cdp.send("Fetch.fulfillRequest", { requestId: event.requestId, ...response });
+            } else await cdp.send("Fetch.continueRequest", { requestId: event.requestId });
+          } catch { await cdp.send("Fetch.failRequest", { requestId: event.requestId, errorReason: "Aborted" }).catch(() => {}); }
+        })();
+      });
+      await cdp.send("Fetch.enable", { patterns: [{ urlPattern: "*", requestStage: "Request" }] });
+      await this.previewRoutes(run);
+      context.on("page", (extra) => { if (extra !== run.page) void extra.close().catch(() => {}); });
       cdp.on("Page.screencastFrame", (event) => {
         void cdp.send("Page.screencastFrameAck", { sessionId: event.sessionId }).catch(() => {});
         const frame = Buffer.from(event.data, "base64");
@@ -130,11 +405,27 @@ export class NativeBrowserManager implements Browsers {
       page.on("framenavigated", (frame) => { if (frame === page.mainFrame()) { run.refs.clear(); run.generation++; void this.metadata(run).catch(() => {}); } });
       page.on("load", () => { void this.metadata(run).catch(() => {}); });
       page.on("close", () => { if (!run.closing) void this.close(run.id).catch(() => {}); });
-      page.on("download", (download) => { void (async () => { const path = await download.path(); if (!path) return; const { readFile } = await import("node:fs/promises"); run.downloads.push({ name: download.suggestedFilename(), data: await readFile(path) }); })().catch(() => {}); });
-      await page.goto(webUrl(browser.url), { waitUntil: "domcontentloaded", timeout: 30_000 });
-      if (this.cancelled.has(browser.id)) throw new Error("浏览器已关闭。");
-      await this.metadata(run);
-    } catch (error) { await context.close().catch(() => {}); this.runs.delete(browser.id); throw error; }
+      page.on("download", (download) => {
+        const human = run.held;
+        const pending = (async () => {
+          if (!human) await this.trackPolicy(run, () => this.permit(run, /^https?:/.test(download.url()) ? download.url() : run.page.url(), "download", `Download ${download.suggestedFilename()}`, `Keep ${download.suggestedFilename()} from this page.`));
+          const path = await download.path();
+          if (path) { const { readFile } = await import("node:fs/promises"); run.downloads.push({ name: download.suggestedFilename(), data: await readFile(path) }); }
+        })().catch(async () => { await download.cancel().catch(() => {}); }).finally(async () => { await download.delete().catch(() => {}); run.downloaded.delete(pending); });
+        run.downloaded.add(pending);
+      });
+      const load = async () => {
+        await page.goto(webUrl(browser.url), { waitUntil: "domcontentloaded", timeout: 0 }).catch((error: unknown) => { if (!run.held || this.cancelled.has(browser.id)) throw run.policyError ?? error; });
+        if (run.policyError && !run.held) throw run.policyError;
+        if (this.cancelled.has(browser.id)) throw new Error("浏览器已关闭。");
+        await this.metadata(run);
+      };
+      // The HTTP listener must come up before a saved idle page asks the user
+      // for permission. Its blank viewer is live while the normal card waits.
+      if (restoring && browser.status === "idle" && decideBrowser(await browserRulesOf(this.rules), webUrl(browser.url), "visit").permission === "ask") {
+        void load().catch(async (error: unknown) => { this.endExisting(run.chat, browser, error instanceof Error ? error.message : String(error)); await this.close(run.id).catch(() => {}); });
+      } else await load();
+    } catch (error) { await context.close().catch(() => {}); this.runs.delete(browser.id); await this.eraseProfile(directory); throw error; }
   }
   async open(): Promise<void> { throw new Error("Use the authenticated Amuse browser.open command."); }
   async waitReady(id: string) { await this.run(id); }
@@ -144,11 +435,20 @@ export class NativeBrowserManager implements Browsers {
     await this.run(result.id);
     return result;
   }
-  async openForAgent(chat: string, url: string) { const opened = await this.openForChat(chat, url); await this.host!.call("browser.control", { id: opened.id, action: "handBack" }); this.beginJob(await this.run(opened.id)); return opened; }
+  async openForAgent(chat: string, url: string, signal?: AbortSignal) {
+    this.checkSignal(signal);
+    if (!this.host) throw new Error("Browser host is not ready.");
+    const result = this.host.agent(chat).act({ kind: "browse", title: "Browser", url: webUrl(url), instructions: "Use this shared Amuse browser for the user's task.", files: [] });
+    if (!result.ok) throw new Error(`Cannot open the browser: ${JSON.stringify(result.rejection)}`);
+    if (signal) this.openingSignals.set(result.id, signal);
+    try { await this.run(result.id); this.checkSignal(signal); return { id: result.id }; }
+    finally { this.openingSignals.delete(result.id); const run = this.runs.get(result.id); if (run && run.operationSignal === signal) run.operationSignal = undefined; }
+  }
   list(chat: string) { return [...this.runs.values()].filter((run) => run.chat === chat).map((run) => ({ id: run.id, url: run.page.url(), controlledBy: run.held ? "user" : "agent" })); }
   async info(id: string) { const run = await this.run(id); return { transport: "native" as const, ...(run.page.viewportSize() ?? { width: 1024, height: 768 }) }; }
   async look(id: string): Promise<PageView> {
     const run = await this.run(id); this.assertAgent(run);
+    await this.trackPolicy(run, () => this.permit(run, run.page.url(), "visit", "Read page", run.page.url()));
     const prefix = `a${randomUUID().replaceAll("-", "").slice(0, 12)}`;
     const view = await run.page.evaluate((prefix) => {
       let index = 0;
@@ -160,32 +460,116 @@ export class NativeBrowserManager implements Browsers {
     }, prefix);
     run.refs = new Set(view.elements.map((element) => element.ref)); return view;
   }
-  async observeForChat(chat: string, id: string) { const run = await this.run(id); this.assertScope(run, chat); return this.look(id); }
-  async actForChat(chat: string, id: string, step: NativeStep) { const run = await this.run(id); this.assertScope(run, chat); return this.exclusive(run, async () => { await this.act(run, step); return this.look(id); }); }
+  async observeForChat(chat: string, id: string, signal?: AbortSignal) { this.checkSignal(signal); const run = await this.run(id); this.assertScope(run, chat); return this.exclusive(run, () => this.look(id), signal); }
+  async actForChat(chat: string, id: string, step: NativeStep, signal?: AbortSignal) { this.checkSignal(signal); const run = await this.run(id); this.assertScope(run, chat); return this.exclusive(run, async () => { await this.act(run, step); this.assertAgent(run); return this.look(id); }, signal); }
   async step(id: string, step: Step) { const run = await this.run(id); await this.exclusive(run, () => this.act(run, step)); }
   private async act(run: Run, step: NativeStep) {
     this.assertAgent(run);
     this.beginJob(run);
+    run.policyError = null;
+    await this.trackPolicy(run, () => this.permit(run, run.page.url(), "visit", "Read current page", run.page.url()));
+    if (step.consequential && (!step.what?.trim() || !step.why?.trim())) throw new Error("A consequential browser step needs what and why for the user's approval card.");
+    if (step.kind === "navigate") await this.trackPolicy(run, () => this.permit(run, webUrl(step.url ?? ""), "visit", step.what || "Visit", step.why || webUrl(step.url ?? "")));
+    if (step.consequential) await this.trackPolicy(run, () => this.permit(run, run.page.url(), "submit", step.what!, step.why!));
+    this.assertAgent(run);
+    run.submitGranted = step.consequential ? new URL(run.page.url()).origin : null;
+    try {
     const locator = step.ref ? (() => { if (!run.refs.has(step.ref!)) throw new Error("页面引用已过期，请重新 observe。"); return run.page.locator(`[data-amuse-ref="${step.ref}"]`); })() : step.selector ? run.page.locator(step.selector) : undefined;
-    if (step.kind === "navigate") await run.page.goto(webUrl(step.url ?? ""), { waitUntil: "domcontentloaded" });
+    const target = locator ?? (step.kind === "press" ? run.page.locator(":focus") : undefined);
+    const possible = target ? await target.evaluate((element) => {
+      const anchor = element.closest("a");
+      const control = element as HTMLInputElement | HTMLButtonElement;
+      const form = control.form ?? element.closest("form");
+      return { href: anchor?.href ?? null, formAction: form?.action ?? null, formMethod: form?.method.toUpperCase() ?? "GET", submitButton: element instanceof HTMLButtonElement ? element.type === "submit" : element instanceof HTMLInputElement && ["submit", "image"].includes(element.type) };
+    }).catch(() => null) : null;
+    const formSubmit = possible && possible.formMethod !== "GET" && (step.kind === "click" && possible.submitButton || step.kind === "type" && step.submit || step.kind === "press" && (step.key ?? "Enter") === "Enter");
+    if (possible?.href && step.kind === "click" && /^https?:/.test(possible.href)) await this.trackPolicy(run, () => this.permit(run, possible.href!, "visit", "Visit linked page", possible.href!));
+    if (formSubmit && !step.consequential) {
+      await this.trackPolicy(run, () => this.permit(run, possible.formAction || run.page.url(), "submit", step.what || "Submit form", step.why || "The browser control submits this page's form."));
+      run.submitGranted = new URL(possible.formAction || run.page.url()).origin;
+    }
+    this.assertAgent(run);
+    if (step.kind === "navigate") await run.page.goto(webUrl(step.url ?? ""), { waitUntil: "domcontentloaded", timeout: 0 }).catch((error: unknown) => { throw run.policyError ?? error; });
     else if (step.kind === "click") {
-      if (locator) { await locator.click({ trial: true, timeout: 5000 }); this.assertAgent(run); await locator.click({ button: step.button ?? "left", clickCount: step.clickCount ?? 1, force: true, timeout: 1000 }); }
+      if (locator) { await locator.click({ trial: true, timeout: 5000 }); this.assertAgent(run); await locator.click({ button: step.button ?? "left", clickCount: step.clickCount ?? 1, force: true, noWaitAfter: false, timeout: 0 }); }
       else { this.assertAgent(run); await run.page.mouse.click(step.x ?? 0, step.y ?? 0, { button: step.button ?? "left", clickCount: step.clickCount ?? 1 }); }
     } else if (step.kind === "type") { if (locator) { this.assertAgent(run); if (step.clear !== false) await locator.fill(step.text ?? "", { timeout: 1000 }); else { await locator.focus(); this.assertAgent(run); await run.page.keyboard.insertText(step.text ?? ""); } if (step.submit) { this.assertAgent(run); await locator.press("Enter"); } } else await run.page.keyboard.insertText(step.text ?? ""); }
     else if (step.kind === "press") await run.page.keyboard.press(step.key ?? "Enter");
     else if (step.kind === "scroll") await run.page.mouse.wheel(step.deltaX ?? 0, step.deltaY ?? (step.direction === "up" ? -500 : 500));
     else throw new Error("Unknown browser action.");
+    // Browser events can arrive just after the input command returns (XHR, a
+    // script navigation or download). Let this turn deliver them before reporting.
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    await Promise.allSettled([...run.policies, ...run.downloaded]);
+    if (run.policyError) throw run.policyError;
     await this.metadata(run);
+    } finally { run.submitGranted = null; }
   }
   async screenshot(id: string) { return new Uint8Array(await (await this.run(id)).page.screenshot({ type: "png" })); }
-  async screenshotForChat(chat: string, id: string) { const run = await this.run(id); this.assertScope(run, chat); this.assertAgent(run); return this.screenshot(id); }
-  async finishForChat(chat: string, id: string, result: string) { const run = await this.run(id); this.assertScope(run, chat); this.assertAgent(run); this.beginJob(run); const ended = run.io.act({ kind: "browserEnded", id, status: "completed", result }); if (!ended.ok) throw new Error(`无法结束浏览器任务：${JSON.stringify(ended.rejection)}`); }
-  async remember() {} // Persistent isolated profiles retain the browser's own cookies on disk.
+  async screenshotForChat(chat: string, id: string, signal?: AbortSignal) { this.checkSignal(signal); const run = await this.run(id); this.assertScope(run, chat); return this.exclusive(run, async () => { await this.trackPolicy(run, () => this.permit(run, run.page.url(), "visit", "Read page image", run.page.url())); this.assertAgent(run); return this.screenshot(id); }, signal); }
+  async finishForChat(chat: string, id: string, result: string, signal?: AbortSignal) { this.checkSignal(signal); const run = await this.run(id); this.assertScope(run, chat); return this.exclusive(run, async () => { this.assertAgent(run); this.beginJob(run); const ended = run.io.act({ kind: "browserEnded", id, status: "completed", result }); if (!ended.ok) throw new Error(`无法结束浏览器任务：${JSON.stringify(ended.rejection)}`); }, signal); }
+  async remember(id: string) {
+    const run = await this.run(id);
+    await this.loginExclusive(async () => {
+      const current = LoginState.parse(await run.context.storageState());
+      const forgotten = (domain: string) => [...run.forgotten].some((site) => cookieOnSite(domain, site));
+      const before = new Map(run.initialState.cookies.map((cookie) => [cookieKey(cookie), cookie]));
+      const now = new Map(current.cookies.filter((cookie) => !forgotten(cookie.domain)).map((cookie) => [cookieKey(cookie), cookie]));
+      const shared = new Map(this.loginState.cookies.map((cookie) => [cookieKey(cookie), cookie]));
+      for (const [key, cookie] of before) if (!now.has(key) && !forgotten(cookie.domain)) shared.delete(key);
+      for (const [key, cookie] of now) if (JSON.stringify(before.get(key)) !== JSON.stringify(cookie)) shared.set(key, cookie);
+      const oldOrigins = new Map(run.initialState.origins.map((origin) => [origin.origin, origin]));
+      const origins = new Map(this.loginState.origins.map((origin) => [origin.origin, origin]));
+      for (const origin of current.origins) if (![...run.forgotten].some((site) => originOnSite(origin.origin, site)) && JSON.stringify(oldOrigins.get(origin.origin)) !== JSON.stringify(origin)) origins.set(origin.origin, origin);
+      this.loginState = { cookies: [...shared.values()], origins: [...origins.values()] };
+      this.saveLogins();
+      run.initialState = current;
+    });
+  }
+  async logins() {
+    await this.loginQueue;
+    const sites = new Map<string, number>();
+    for (const cookie of this.loginState.cookies) {
+      if (cookie.expires !== -1 && cookie.expires <= Date.now() / 1000) continue;
+      const site = cookie.domain.toLowerCase().replace(/^\./, "");
+      sites.set(site, (sites.get(site) ?? 0) + 1);
+    }
+    return [...sites].sort(([a], [b]) => a.localeCompare(b)).map(([site, cookies]) => ({ site, cookies }));
+  }
+  async forgetLogin(value: string) {
+    const site = value.toLowerCase().replace(/^\./, "").replace(/\.$/, "");
+    if (!/^[a-z0-9-]+(?:\.[a-z0-9-]+)*$/.test(site)) throw new Error("Invalid saved-login site.");
+    await this.loginExclusive(async () => {
+      this.loginState.cookies = this.loginState.cookies.filter((cookie) => !cookieOnSite(cookie.domain, site));
+      this.loginState.origins = this.loginState.origins.filter((origin) => !originOnSite(origin.origin, site));
+      this.saveLogins();
+      for (const run of this.runs.values()) {
+        run.forgotten.add(site); // A stale open page must never save this login back.
+        for (const cookie of await run.context.cookies()) if (cookieOnSite(cookie.domain, site)) await run.context.clearCookies({ domain: cookie.domain, name: cookie.name, path: cookie.path });
+        const current = await run.context.storageState();
+        const origins = new Set(current.origins.filter((origin) => originOnSite(origin.origin, site)).map((origin) => origin.origin));
+        if (originOnSite(run.page.url(), site)) origins.add(new URL(run.page.url()).origin);
+        for (const origin of origins) await run.cdp.send("Storage.clearDataForOrigin", { origin, storageTypes: "local_storage,indexeddb,cache_storage,service_workers" });
+        run.initialState.cookies = run.initialState.cookies.filter((cookie) => !cookieOnSite(cookie.domain, site));
+        run.initialState.origins = run.initialState.origins.filter((origin) => !originOnSite(origin.origin, site));
+      }
+    });
+  }
   async fit(id: string, viewer: Size | null) { const run = await this.run(id); const size = viewer ? fitted(viewer) : { width: 1024, height: 768 }; if (JSON.stringify(run.page.viewportSize()) !== JSON.stringify(size)) { await run.page.setViewportSize(size); run.generation++; this.notify(run); } }
-  async close(id: string) { this.cancelled.add(id); const run = this.runs.get(id); if (!run || run.closing) return; run.closing = true; for (const viewer of run.viewers) viewer.close(1000, "browser closed"); try { await run.context.close(); } finally { this.runs.delete(id); this.opening.delete(id); run.io.act({ kind: "released", id }); } }
+  async close(id: string) { this.cancelled.add(id); const run = this.runs.get(id); if (!run || run.closing) return; run.closing = true; run.stop.abort(); for (const connection of run.previewSockets) connection.terminate(); await run.preview?.dispose().catch(() => {}); for (const viewer of run.viewers) viewer.close(1000, "browser closed"); try { await this.remember(id); } finally { try { await run.context.close(); } finally { this.runs.delete(id); this.opening.delete(id); run.io.act({ kind: "released", id }); await this.eraseProfile(run.directory); } } }
   vnc() { return null; }
-  async upload(id: string, ref: string, file: FileData) { const run = await this.run(id); this.assertAgent(run); if (!run.refs.has(ref)) throw new Error("请重新观察页面。"); await run.page.locator(`[data-amuse-ref="${ref}"]`).setInputFiles({ name: file.name, mimeType: "application/octet-stream", buffer: Buffer.from(file.data) }); }
-  async downloads(id: string) { return (await this.run(id)).downloads.splice(0); }
+  async upload(id: string, ref: string, file: FileData, signal?: AbortSignal) {
+    this.checkSignal(signal);
+    const run = await this.run(id);
+    await this.exclusive(run, async () => {
+      this.assertAgent(run);
+      if (!run.refs.has(ref)) throw new Error("请重新观察页面。");
+      await this.trackPolicy(run, () => this.permit(run, run.page.url(), "upload", `Upload ${file.name}`, `Send ${file.name} to this page.`, true));
+      this.assertAgent(run);
+      await run.page.locator(`[data-amuse-ref="${ref}"]`).setInputFiles({ name: file.name, mimeType: "application/octet-stream", buffer: Buffer.from(file.data) });
+    }, signal);
+  }
+  async downloads(id: string) { const run = await this.run(id); await Promise.allSettled([...run.downloaded]); return run.downloads.splice(0); }
   async stillOpen(id: string) { return this.runs.has(id) && !this.runs.get(id)!.page.isClosed(); }
   attach = (viewer: WebSocket, id: string, controlled: () => boolean) => {
     let attached: Run | undefined;

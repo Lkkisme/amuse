@@ -24,16 +24,23 @@ export type KeyProvider = z.infer<typeof KeyProvider>;
 /** "provider/model-id", the way a model is chosen */
 export const ModelRef = z.string().min(3).max(300);
 
+/** How much a model thinks before it answers (Pi's levels; a model takes only some). */
+export const ThinkingLevel = z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+export type ThinkingLevel = z.infer<typeof ThinkingLevel>;
+
 export const ModelOption = z.object({
   id: ModelRef,
   name: z.string(),
   provider: z.string(),
   /** it sees pictures (the browser's model must) */
   images: z.boolean(),
+  /** the thinking levels it takes (only "off" for a model that does not think) */
+  thinking: z.array(ThinkingLevel),
 });
 export type ModelOption = z.infer<typeof ModelOption>;
 
-export const ModelRole = z.enum(["chat", "browser"]);
+/** chat: Amuse in the chat; browser: its browser agent; background: scheduled work (the chat's model when none is chosen) */
+export const ModelRole = z.enum(["chat", "browser", "background"]);
 export type ModelRole = z.infer<typeof ModelRole>;
 
 export const LoginPrompt = z.object({
@@ -64,11 +71,26 @@ export type LoginStep = z.infer<typeof LoginStep>;
 export const KeyTest = z.object({ ok: z.boolean(), detail: z.string() });
 export type KeyTest = z.infer<typeof KeyTest>;
 
+/** A speech-to-text server the user runs (an OpenAI-style /audio/transcriptions): where, and which model. */
+export const LocalVoice = z.object({ url: z.url(), model: z.string().min(1).max(200) });
+export type LocalVoice = z.infer<typeof LocalVoice>;
+
 export const KeysState = z.object({
   providers: z.array(KeyProvider),
   /** the models the providers set up offer */
   models: z.array(ModelOption),
   chat: ModelRef.nullable(),
   browser: ModelRef.nullable(),
+  /** null: scheduled work runs on the chat's model */
+  background: ModelRef.nullable(),
+  /** how much each thinks */
+  thinking: z.object({ chat: ThinkingLevel, browser: ThinkingLevel, background: ThinkingLevel }),
+  /** speech to text for the mic: the services the user has a key for, and the one chosen (null: the first of them) */
+  voice: z.object({
+    services: z.array(z.object({ provider: z.string(), name: z.string() })),
+    chosen: z.string().nullable(),
+    /** a speech service the user runs themselves (provider "local"), when set up */
+    local: LocalVoice.nullable(),
+  }),
 });
 export type KeysState = z.infer<typeof KeysState>;

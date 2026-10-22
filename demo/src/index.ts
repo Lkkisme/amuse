@@ -13,6 +13,8 @@ import {
   memoryRules,
   newId,
   noKeys,
+  noLogins,
+  noSandbox,
   noWorkspace,
   permissionOf,
   verdict,
@@ -46,6 +48,7 @@ function demoApps(rules: Rules): AppDirectory {
         app: demoApp("gmail", "Gmail", "Read, search and send email"),
         label: "you@example.com",
         status: "active",
+        since: null,
       },
     ],
   ]);
@@ -70,6 +73,7 @@ function demoApps(rules: Rules): AppDirectory {
         app,
         label: n === 0 ? "you@example.com" : `you+${n}@example.com`,
         status: "active",
+        since: new Date().toISOString(),
       });
       return "https://example.com/";
     },
@@ -141,6 +145,8 @@ export function demoPorts<H>(timers: Timers<H>): Ports {
     fit: () => {}, // the demo's browsers are sketches
     files: noWorkspace, // the demo keeps no files
     keys: noKeys, // nor keys: its agent is scripted
+    logins: noLogins, // nor real browsers
+    sandbox: noSandbox, // nor a machine of its own
     // a side chat is named after its first few words
     title: async (text) => text.split(/\s+/).slice(0, 4).join(" "),
     prompt: (turn, { emit, act, time }) => {
@@ -336,6 +342,9 @@ export function seed(): Entity[] {
       remember: true,
       status: "pending",
       expires: minutesAgo(-30),
+      app: "gmail",
+      always: false,
+      byRule: false,
     },
     {
       kind: "browser",

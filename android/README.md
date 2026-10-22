@@ -60,8 +60,18 @@ WebView keeps top-level navigation on the configured HTTPS origin. HTTP(S)
 external links open in the phone's browser. File/content URL access, universal
 file URL access, mixed content, third-party cookies and WebView debugging are
 disabled. TLS certificate errors are rejected without a bypass. No JavaScript
-native bridge or camera, microphone, broad-storage or notification permission
-is installed.
+native bridge or camera, broad-storage or notification permission is installed.
+
+Version 0.1.4 supports the upstream Voice button: only the configured HTTPS
+origin can request audio capture. Each request first asks for native confirmation,
+then Android's `RECORD_AUDIO` permission if needed. The requesting WebView is kept
+only across that system permission dialog; the grant is checked again on return
+against the current foreground page and origin. Navigation, locking, backgrounding,
+cancellation and renderer disposal reject pending requests. Camera, mixed-resource,
+unknown-resource and off-origin requests are denied. The voice transcription
+provider is still configured on the Amuse server. Paired automatic sign-in,
+disabled-by-default biometric locking, screenshots and the existing signing key
+are unchanged.
 
 User-requested downloads use normal platform TLS validation and explicitly check
 every redirect before sending the session cookie. Only the original origin is

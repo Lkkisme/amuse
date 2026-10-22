@@ -1,0 +1,119 @@
+# Sandbox only, for an Amuse server already running on the Windows host.
+# AMUSE_WORKSPACE must be an explicit absolute path; never mount a whole drive.
+# Start/recreate the network owner and sandbox together to preserve the ready gate.
+name: amuse-qwen
+
+x-sandbox-image: &sandbox-image
+  build:
+    context: .
+    dockerfile: sandbox/Dockerfile
+  image: ${AMUSE_SANDBOX_IMAGE:-amuse-sandbox-local:20261021}
+
+services:
+  sandbox:
+    <<: *sandbox-image
+    restart: unless-stopped
+    init: true
+    network_mode: "service:sandbox-net"
+    cpus: ${AMUSE_SANDBOX_CPUS:-1}
+    mem_limit: ${AMUSE_SANDBOX_MEMORY:-768m}
+    memswap_limit: ${AMUSE_SANDBOX_MEMORY:-768m}
+    pids_limit: ${AMUSE_SANDBOX_PIDS:-256}
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID, CHOWN, DAC_OVERRIDE, FOWNER, FSETID, SETFCAP, KILL, AUDIT_WRITE, NET_BIND_SERVICE, SYS_CHROOT]
+    environment:
+      AMUSE_SANDBOX_READY: /run/sandbox-ready/mark
+    depends_on:
+      sandbox-init: { condition: service_completed_successfully }
+      sandbox-net: { condition: service_healthy, restart: true }
+    volumes:
+      - sandbox-ready:/run/sandbox-ready:ro
+      - sandbox-home:/home/amuse
+      - type: bind
+        source: ${AMUSE_WORKSPACE:?Set AMUSE_WORKSPACE to the absolute workspace path}
+        target: /home/amuse/workspace
+        bind: { create_host_path: false }
+      - type: bind
+        source: ${AMUSE_WORKSPACE}/memory
+        target: /home/amuse/workspace/memory
+        read_only: true
+        bind: { create_host_path: false }
+      - type: bind
+        source: ${AMUSE_WORKSPACE}/user
+        target: /home/amuse/workspace/user
+        read_only: true
+        bind: { create_host_path: false }
+      - type: bind
+        source: ${AMUSE_WORKSPACE}/skills
+        target: /home/amuse/.agents/skills
+        bind: { create_host_path: false }
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:7070/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 5s
+
+  sandbox-net:
+    <<: *sandbox-image
+    hostname: sandbox
+    restart: unless-stopped
+    init: true
+    user: "0"
+    read_only: true
+    networks:
+      sandbox:
+        aliases: [sandbox]
+    ports:
+      - "127.0.0.1:${AMUSE_SANDBOX_PORT:-7088}:7070"
+    environment:
+      AMUSE_SANDBOX_SUBNET: ${AMUSE_SANDBOX_SUBNET:-10.231.249.0/24}
+      AMUSE_SANDBOX_READY: /run/sandbox-ready/mark
+      AMUSE_SANDBOX_IPV6: ${AMUSE_SANDBOX_IPV6:-}
+    volumes:
+      - sandbox-ready:/run/sandbox-ready
+    command: [node, /opt/amuse/sandbox/src/net.ts]
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    pids_limit: 64
+    healthcheck:
+      test: [CMD, node, /opt/amuse/sandbox/src/net.ts, check]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  sandbox-init:
+    <<: *sandbox-image
+    user: "0"
+    network_mode: none
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE]
+    mem_limit: 64m
+    pids_limit: 32
+    entrypoint:
+      - sh
+      - -c
+      - mkdir -p /home/amuse/workspace/memory /home/amuse/workspace/skills /home/amuse/workspace/user /home/amuse/.agents && chown 1000:1000 /home/amuse /home/amuse/.agents /home/amuse/workspace /home/amuse/workspace/memory /home/amuse/workspace/skills /home/amuse/workspace/user
+    volumes:
+      - sandbox-home:/home/amuse
+      - type: bind
+        source: ${AMUSE_WORKSPACE:?Set AMUSE_WORKSPACE to the absolute workspace path}
+        target: /home/amuse/workspace
+        bind: { create_host_path: false }
+
+networks:
+  sandbox:
+    ipam:
+      config:
+        - subnet: ${AMUSE_SANDBOX_SUBNET:-10.231.249.0/24}
+
+volumes:
+  sandbox-home:
+  sandbox-ready:
+    driver: local
+    driver_opts: { type: tmpfs, device: tmpfs, o: "size=1m,mode=0755" }
