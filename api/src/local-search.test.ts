@@ -15,7 +15,7 @@ test("local search is opt-in, validates the file, and rejects remote or credenti
     assert.equal(loadLocalSearchConfig(file), null);
     writeFileSync(file, JSON.stringify({ provider: "searxng", url: "http://127.0.0.1:8889" }));
     assert.equal(loadLocalSearchConfig(file)?.maxResults, 8);
-    for (const url of ["https://example.com", "http://127.0.0.1@evil.test", "http://owner:secret@localhost:8889", "file:///tmp/search", "http://localhost:8889/?key=x"]) {
+    for (const url of ["not a URL", "", "https://example.com", "http://127.0.0.1@evil.test", "http://owner:secret@localhost:8889", "file:///tmp/search", "http://localhost:8889/?key=x"]) {
       assert.equal(LocalSearchConfigSchema.safeParse({ provider: "searxng", url }).success, false, url);
     }
     writeFileSync(file, "{}");

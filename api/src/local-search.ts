@@ -8,10 +8,12 @@ import type { Search, SearchResult } from "@amuse/pi";
 import { z } from "zod";
 
 const loopbackUrl = z.string().url().refine((value) => {
-  const url = new URL(value);
-  return ["http:", "https:"].includes(url.protocol)
-    && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
-    && !url.username && !url.password && !url.search && !url.hash;
+  try {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol)
+      && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
+      && !url.username && !url.password && !url.search && !url.hash;
+  } catch { return false; }
 }, "Search must use an http(s) loopback URL without credentials, query or fragment.");
 
 export const LocalSearchConfigSchema = z.object({
