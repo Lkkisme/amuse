@@ -10,6 +10,7 @@ import type { App, KeyProvider, Session } from "@amuse/protocol";
 import { Connectors } from "./Connectors";
 import { KeyLine, KeyLogin, useKeyTests } from "./KeyLogin";
 import { Sheet } from "./Sheet";
+import { useT } from "../i18n/react.ts";
 
 /** `demo`: the in-browser demo, whose connectors are scripted and need no key. */
 export function AppsKey({
@@ -23,6 +24,7 @@ export function AppsKey({
   viewing: App | null;
   onView: (app: App | null) => void;
 }) {
+  const t = useT();
   const [key, setKey] = useState<KeyProvider | null | undefined>(undefined);
   const [setting, setSetting] = useState<KeyProvider | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -62,7 +64,7 @@ export function AppsKey({
           </p>
         ) : (
           // loading: the shape of the page to come
-          <div aria-label="Loading" className="space-y-3">
+          <div aria-label={t.connections.loading} className="space-y-3">
             <div className="skeleton h-10 rounded-full" />
             <div className="skeleton h-9 rounded-full" />
             <div className="skeleton h-64 rounded-[18px]" />
@@ -78,22 +80,19 @@ export function AppsKey({
           className="mt-3 text-[16px] font-semibold"
           style={{ color: "var(--text-primary)" }}
         >
-          Connect your services
+          {t.connections.connectTitle}
         </p>
         <p
           className="mt-1 max-w-[300px] text-[14px]"
           style={{ color: "var(--text-secondary)" }}
         >
-          Amuse reaches Gmail, your calendar and many other services through
-          Composio. Each one only lets in software it has approved; Composio is
-          approved by them, so you need not set each up yourself.
+          {t.connections.connectHelp}
         </p>
         <p
           className="mt-2 max-w-[300px] text-[14px]"
           style={{ color: "var(--text-secondary)" }}
         >
-          You use your own Composio account: the logins to your services stay in it,
-          and you can take them back there at any time.
+          {t.connections.ownAccount}
         </p>
         {/* where the key is, per Composio's docs */}
         <ol
@@ -105,7 +104,7 @@ export function AppsKey({
         >
           {[
             <>
-              Sign in or sign up at{" "}
+              {t.connections.steps.signIn}
               <a
                 href="https://dashboard.composio.dev/"
                 target="_blank"
@@ -115,9 +114,10 @@ export function AppsKey({
               >
                 dashboard.composio.dev
               </a>
+              {t.connections.steps.signInAfter}
             </>,
-            <>Open Settings › Project Settings</>,
-            <>Under API Keys, copy the key (it starts with ak_)</>,
+            <>{t.connections.steps.openSettings}</>,
+            <>{t.connections.steps.copyKey}</>,
           ].map((step, i) => (
             <li key={i} className="flex gap-3">
               <span
@@ -139,7 +139,7 @@ export function AppsKey({
             style={{ background: "var(--fill-blue)" }}
             onClick={() => setSetting(key)}
           >
-            Add Composio key
+            {t.connections.addKey}
           </button>
         )}
         {sheet}
@@ -198,7 +198,7 @@ export function AppsKey({
                 style={{ color: "var(--fill-blue)" }}
                 onClick={() => test(key.id)}
               >
-                Test key
+                {t.keys.testKey}
               </button>
             </li>
             <li>
@@ -210,7 +210,7 @@ export function AppsKey({
                   setSetting(key);
                 }}
               >
-                Replace key
+                {t.keys.replaceKey}
               </button>
             </li>
             <li>
@@ -225,7 +225,7 @@ export function AppsKey({
                     .then(load);
                 }}
               >
-                Remove key
+                {t.keys.removeKey}
               </button>
             </li>
           </ul>
@@ -234,7 +234,7 @@ export function AppsKey({
             style={{ color: "var(--text-primary)" }}
             onClick={() => setManaging(false)}
           >
-            Done
+            {t.common.done}
           </button>
         </div>
       </Sheet>

@@ -8,8 +8,10 @@ import { useCallback, useEffect, useState } from "react";
 import { Globe, KeyRound } from "lucide-react";
 import type { Session } from "@amuse/protocol";
 import { Sheet } from "./Sheet";
+import { useT } from "../i18n/react.ts";
 
 export function Logins({ session }: { session: Session }) {
+  const t = useT();
   const [sites, setSites] = useState<
     { site: string; cookies: number }[] | null
   >(null);
@@ -50,8 +52,7 @@ export function Logins({ session }: { session: Session }) {
         className="text-[13px] leading-snug"
         style={{ color: "var(--text-secondary)" }}
       >
-        When you sign in to a site in Amuse's browser, it stays signed in for
-        next time. Sign out of a site here to make it forget.
+        {t.logins.description}
       </p>
       {error && (
         <p
@@ -77,7 +78,7 @@ export function Logins({ session }: { session: Session }) {
             className="py-3.5 text-[15px]"
             style={{ color: "var(--text-secondary)" }}
           >
-            No saved logins yet.
+            {t.logins.none}
           </li>
         )}
         {sites?.map(({ site }) => (
@@ -94,7 +95,7 @@ export function Logins({ session }: { session: Session }) {
               style={{ color: "var(--fill-red)" }}
               onClick={() => setLeaving(site)}
             >
-              Sign out
+              {t.logins.signOut}
             </button>
           </li>
         ))}
@@ -112,14 +113,13 @@ export function Logins({ session }: { session: Session }) {
             className="mt-4 text-[20px] font-semibold"
             style={{ color: "var(--text-primary)" }}
           >
-            Sign out of {leaving}?
+            {t.logins.signOutOf(leaving ?? "")}
           </p>
           <p
             className="mt-1 text-[14px]"
             style={{ color: "var(--text-secondary)" }}
           >
-            Amuse's browsers forget this login, open ones too. You will sign in
-            again the next time a task needs it.
+            {t.logins.forgetHelp}
           </p>
           <button
             disabled={busy}
@@ -127,14 +127,14 @@ export function Logins({ session }: { session: Session }) {
             style={{ background: "var(--fill-red)" }}
             onClick={() => leaving && signOut(leaving)}
           >
-            Sign out
+            {t.logins.signOut}
           </button>
           <button
             className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
             style={{ color: "var(--text-primary)" }}
             onClick={() => setLeaving(null)}
           >
-            Cancel
+            {t.common.cancel}
           </button>
         </div>
       </Sheet>

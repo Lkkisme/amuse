@@ -565,7 +565,7 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers, rules: Ru
             allowed: browser.url, granted: new Set(start ? [start] : []), workspace, downloaded: [], jobs: 0, queue: Promise.resolve(), idle: null, mail: null, end: null, watch: null, taken: theirs, nudge: null,
           };
           runs.set(browser.id, run);
-          const pi = await openSession(cfg, system, runTools(run));
+          const pi = await openSession(cfg, system, runTools(run), { images: true });
           run.session = pi.session;
           // what the browser's agent is doing is the browser's (the chat agent's activity line is its own);
           // a browser the user holds, or one between jobs, takes no step (the rules refuse it, which is fine)

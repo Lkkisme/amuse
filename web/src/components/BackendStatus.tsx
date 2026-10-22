@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Check, Monitor, Unplug } from "lucide-react";
 import type { BackendStatus as Status, Session } from "@amuse/protocol";
+import { useT } from "../i18n/react.ts";
 
 /** Older servers and the demo may not implement this optional settings read. */
 export function useBackendStatus(session: Session, enabled: boolean) {
@@ -50,12 +51,13 @@ export function useBackendStatus(session: Session, enabled: boolean) {
 
 /** Settings use server-reported facts; choosing models stays with the active backend. */
 export function BackendStatus({ backend, loading = false, unavailable = false }: { backend: Status | null; loading?: boolean; unavailable?: boolean }) {
+  const t = useT();
   if (!backend) return loading ? (
-    <p className="mb-6 text-[13px]" style={{ color: "var(--text-secondary)" }} role="status">Checking execution backend…</p>
+    <p className="mb-6 text-[13px]" style={{ color: "var(--text-secondary)" }} role="status">{t.backend.checking}</p>
   ) : null;
   return (
-    <section className="mb-6" aria-label="Execution backend">
-      <p className="mb-2 text-[15px] font-semibold" style={{ color: "var(--text-primary)" }}>Execution backend</p>
+    <section className="mb-6" aria-label={t.backend.title}>
+      <p className="mb-2 text-[15px] font-semibold" style={{ color: "var(--text-primary)" }}>{t.backend.title}</p>
       <div className="overflow-hidden rounded-[18px] p-4" style={{ background: "var(--fill-secondary)" }}>
         <div className="flex items-center gap-3">
           <Monitor size={21} className="shrink-0" style={{ color: "var(--icon-secondary)" }} />
@@ -64,24 +66,24 @@ export function BackendStatus({ backend, loading = false, unavailable = false }:
           </span>
           <span className="flex shrink-0 items-center gap-1 text-[12px]" style={{ color: unavailable ? "var(--text-secondary)" : backend.connected ? "var(--fill-green)" : "var(--fill-red)" }}>
             {backend.connected && !unavailable ? <Check size={14} /> : <Unplug size={14} />}
-            {unavailable ? "Unavailable" : backend.connected ? "Connected" : "Disconnected"}
+            {unavailable ? t.backend.unavailable : backend.connected ? t.backend.connected : t.backend.disconnected}
           </span>
         </div>
-        {(unavailable || backend.detail) && <p className="mt-3 break-words text-[13px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>{unavailable ? "The backend status could not be refreshed. Showing its last reported configuration." : backend.detail}</p>}
+        {(unavailable || backend.detail) && <p className="mt-3 break-words text-[13px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>{unavailable ? t.backend.stale : backend.detail}</p>}
         <dl className="mt-3 space-y-2 text-[13px]">
           <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
-            <dt style={{ color: "var(--text-secondary)" }}>Model</dt>
-            <dd className="min-w-0 break-all" style={{ color: "var(--text-primary)" }}>{backend.model ?? (backend.kind === "paseo" ? "Computer default" : "Not reported")}</dd>
+            <dt style={{ color: "var(--text-secondary)" }}>{t.backend.model}</dt>
+            <dd className="min-w-0 break-all" style={{ color: "var(--text-primary)" }}>{backend.model ?? (backend.kind === "paseo" ? t.backend.computerDefault : t.backend.notReported)}</dd>
           </div>
           {backend.contextWindow !== null && <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
-            <dt style={{ color: "var(--text-secondary)" }}>Context window</dt>
+            <dt style={{ color: "var(--text-secondary)" }}>{t.backend.context}</dt>
             <dd style={{ color: "var(--text-primary)" }}>{backend.contextWindow.toLocaleString()} tokens</dd>
           </div>}
         </dl>
-        <p className="mb-2 mt-4 text-[12px] font-medium" style={{ color: "var(--text-secondary)" }}>Available tools</p>
+        <p className="mb-2 mt-4 text-[12px] font-medium" style={{ color: "var(--text-secondary)" }}>{t.backend.tools}</p>
         {backend.capabilities.length > 0 ? <ul className="flex flex-wrap gap-1.5">
           {backend.capabilities.map((capability) => <li key={capability} className="max-w-full break-words rounded-lg px-2 py-1 text-[12px]" style={{ background: "var(--fill-card-button)", color: "var(--text-primary)" }}>{capability}</li>)}
-        </ul> : <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>No tool capabilities reported.</p>}
+        </ul> : <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>{t.backend.noTools}</p>}
       </div>
     </section>
   );

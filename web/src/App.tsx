@@ -11,12 +11,14 @@ import { MAIN, type Method, type Params, type Session } from "@amuse/protocol";
 import { type Connection, connection } from "./connection.ts";
 import { useChats, useConversation } from "./session.ts";
 import { applyTheme, storedTheme } from "./theme.ts";
+import { activeT } from "./i18n/language.ts";
+import { useT } from "./i18n/react.ts";
 import { Files, serverFiles } from "./files.ts";
 import { Unlock } from "./components/Unlock";
 import { type Actions, type Ui, initialUi } from "./ui.ts";
 import { viewerTabs } from "./view.ts";
 import { type Outgoing, outgoingIn } from "./outgoing.ts";
-import { transition } from "./transition.ts";
+import { flyAvatar, transition, travels } from "./transition.ts";
 import { close, useBack } from "./back.ts";
 
 /** the width the user dragged the viewer to (only that is kept; the default follows the window) */
@@ -83,6 +85,7 @@ export default function App() {
 }
 
 function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
+  const t = useT();
   const [link, setLink] = useState(() => openSession(where));
   const { session } = link;
   const chats = useChats(session);
@@ -266,8 +269,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
                 ...u,
                 notice:
                   reason === "disconnected"
-                    ? "Not sent: Amuse could not be reached. Your message is back in the box."
-                    : `Not sent: ${reason}`,
+                    ? activeT().chat.notSentUnreachable
+                    : activeT().chat.notSent(reason),
               }));
               throw error;
             },
@@ -336,6 +339,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         else open();
       },
       closeViewer: () => patch((u) => ({ ...u, viewer: null })),
+      notify: (message) => patch((u) => ({ ...u, notice: message })),
       selectTab: (browserId) =>
         patch((u) =>
           u.viewer ? { ...u, viewer: { ...u.viewer, browserId } } : u,
@@ -415,8 +419,11 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         patch((u) => (u.chat === id ? { ...u, chat: MAIN, viewer: null } : u));
       },
       // the avatar travels between the top and the panel
+      // the avatar travels with the change: a view transition on a phone, a flight of its own on a wider screen
       setMuse: (museOpen) =>
-        transition(() => patch((u) => ({ ...u, museOpen }))),
+        (travels() ? transition : flyAvatar)(() =>
+          patch((u) => ({ ...u, museOpen })),
+        ),
       openSettings: (section) =>
         patch((u) => ({
           ...u,
@@ -443,12 +450,12 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
     layer === "muse" ? actions.setMuse(false) : setUi((u) => close(u, layer)),
   );
 
-  // a notice shows for a few seconds
+  // a notice shows for a few seconds, a longer one a little longer (a tap closes it sooner)
   useEffect(() => {
     if (!ui.notice) return;
     const timer = setTimeout(
       () => setUi((u) => ({ ...u, notice: null })),
-      4000,
+      Math.min(9000, 4000 + ui.notice.length * 40),
     );
     return () => clearTimeout(timer);
   }, [ui.notice]);
@@ -514,7 +521,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           {ui.notice && (
             <p
               role="status"
-              className="anim-fade-in absolute inset-x-0 bottom-[86px] z-30 mx-auto w-fit max-w-[90%] rounded-full px-4 py-2 text-[13px]"
+              onClick={() => setUi((u) => ({ ...u, notice: null }))}
+              className="anim-fade-in absolute inset-x-0 bottom-[86px] z-30 mx-auto w-fit max-w-[90%] rounded-[18px] px-4 py-2 text-[13px]"
               style={{
                 background: "var(--fill-primary)",
                 color: "var(--fill-red)",
@@ -534,7 +542,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
               }}
               onClick={() => actions.openSettings("models")}
             >
-              Choose a model to start chatting
+              {t.chat.chooseModel}
             </button>
           )}
           <Composer
@@ -542,7 +550,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
             place={
               ui.chat === MAIN
                 ? null
-                : chats.find((c) => c.id === ui.chat)?.title || "New chat"
+                : chats.find((c) => c.id === ui.chat)?.title || t.chat.newChat
             }
             actions={actions}
           />

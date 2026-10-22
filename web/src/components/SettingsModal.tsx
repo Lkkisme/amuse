@@ -24,7 +24,8 @@ import {
 } from "lucide-react";
 import type { BackendStatus as Backend, Session } from "@amuse/protocol";
 import type { Actions, SettingsSection, Theme, Ui } from "../ui.ts";
-import { THEMES } from "../theme.ts";
+import type { Choice } from "../i18n/language.ts";
+import { useLanguageChoice, useT } from "../i18n/react.ts";
 import { usePresence } from "./usePresence";
 import { barButton, barButtonLook, barIcon } from "./bar";
 import { AppsKey } from "./AppsKey";
@@ -36,23 +37,17 @@ import { BackendStatus, useBackendStatus } from "./BackendStatus";
 import { Logins } from "./Logins";
 import { Sandbox } from "./Sandbox";
 
-const NAV: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
-  { id: "general", label: "General", icon: <SettingsIcon size={18} /> },
-  { id: "models", label: "Models", icon: <Sparkles size={18} /> },
-  { id: "connectors", label: "Connections", icon: <LayoutGrid size={18} /> },
-  { id: "permissions", label: "Permissions", icon: <Shield size={18} /> },
-  { id: "logins", label: "Saved logins", icon: <KeyRound size={18} /> },
-  { id: "schedules", label: "Schedules", icon: <CalendarClock size={18} /> },
-  { id: "sandbox", label: "Sandbox", icon: <Terminal size={18} /> },
+const NAV: { id: SettingsSection; icon: React.ReactNode }[] = [
+  { id: "general", icon: <SettingsIcon size={18} /> },
+  { id: "models", icon: <Sparkles size={18} /> },
+  { id: "connectors", icon: <LayoutGrid size={18} /> },
+  { id: "permissions", icon: <Shield size={18} /> },
+  { id: "logins", icon: <KeyRound size={18} /> },
+  { id: "schedules", icon: <CalendarClock size={18} /> },
+  { id: "sandbox", icon: <Terminal size={18} /> },
 ];
 
 /* ---------------- General ---------------- */
-
-const themeName: Record<Theme, string> = {
-  system: "Match system",
-  light: "Light",
-  dark: "Dark",
-};
 
 function GeneralSection({
   theme,
@@ -70,6 +65,18 @@ function GeneralSection({
   backendLoading: boolean;
   backendUnavailable: boolean;
 }) {
+  const t = useT();
+  const [language, setLanguage] = useLanguageChoice();
+  const themes: { value: Theme; label: string }[] = [
+    { value: "system", label: t.settings.general.matchSystem },
+    { value: "light", label: t.settings.general.light },
+    { value: "dark", label: t.settings.general.dark },
+  ];
+  const languages = [
+    { value: "system", label: t.settings.general.languageSystem },
+    { value: "en", label: "English" },
+    { value: "zh-CN", label: "简体中文" },
+  ] satisfies { value: Choice; label: string }[];
   return (
     <div className="flex-1 overflow-y-auto p-5">
       <BackendStatus backend={backend} loading={backendLoading} unavailable={backendUnavailable} />
@@ -77,34 +84,57 @@ function GeneralSection({
         className="mb-2 text-[15px] font-semibold"
         style={{ color: "var(--text-primary)" }}
       >
-        Appearance
+        {t.settings.general.appearance}
       </p>
-      <div
-        className="overflow-hidden rounded-xl"
-        style={{ background: "var(--fill-secondary)" }}
+      <OptionList options={themes} value={theme} onPick={actions.setTheme} />
+      <p
+        className="mb-2 mt-6 text-[15px] font-semibold"
+        style={{ color: "var(--text-primary)" }}
       >
-        {THEMES.map((t, i) => (
-          <button
-            key={t}
-            className="flex w-full items-center justify-between px-4 py-3 text-left"
-            style={{
-              borderTop: i === 0 ? undefined : "1px solid var(--fill-divider)",
-            }}
-            onClick={() => actions.setTheme(t)}
-          >
-            <span
-              className="text-[14px]"
-              style={{ color: "var(--text-primary)" }}
-            >
-              {themeName[t]}
-            </span>
-            {theme === t && (
-              <Check size={18} style={{ color: "var(--text-primary)" }} />
-            )}
-          </button>
-        ))}
-      </div>
+        {t.settings.general.language}
+      </p>
+      <OptionList
+        options={languages}
+        value={language}
+        onPick={setLanguage}
+      />
       {server && <PinSecurity />}
+    </div>
+  );
+}
+
+/** A group of rows, one chosen: each row picks its value. */
+function OptionList<T extends string>({
+  options,
+  value,
+  onPick,
+}: {
+  options: { value: T; label: string }[];
+  value: T;
+  onPick: (value: T) => void;
+}) {
+  return (
+    <div
+      className="overflow-hidden rounded-xl"
+      style={{ background: "var(--fill-secondary)" }}
+    >
+      {options.map((option, i) => (
+        <button
+          key={option.value}
+          className="flex w-full items-center justify-between px-4 py-3 text-left"
+          style={{
+            borderTop: i === 0 ? undefined : "1px solid var(--fill-divider)",
+          }}
+          onClick={() => onPick(option.value)}
+        >
+          <span className="text-[14px]" style={{ color: "var(--text-primary)" }}>
+            {option.label}
+          </span>
+          {value === option.value && (
+            <Check size={18} style={{ color: "var(--text-primary)" }} />
+          )}
+        </button>
+      ))}
     </div>
   );
 }
@@ -126,6 +156,7 @@ export function SettingsModal({
   demo: boolean;
   actions: Actions;
 }) {
+  const t = useT();
   const { mounted, closing, onAnimationEnd } = usePresence(ui.open);
   // Adding a website rule starts from the bar's +, and ends with the section.
   const [adding, setAdding] = useState(false);
@@ -137,17 +168,18 @@ export function SettingsModal({
   const shown = section ?? "general";
   const paseo = backend?.kind === "paseo";
   const viewingProvider = ui.provider;
-  const nav = NAV.map((item) => item.id === "models" && paseo ? { ...item, label: "Backend & voice" } : item);
+  const sectionName = (id: SettingsSection) => id === "models" && paseo ? t.backend.voiceTitle : t.settings.sections[id];
+  const nav = NAV.map((item) => ({ ...item, label: sectionName(item.id) }));
   const round = "flex size-8 shrink-0 items-center justify-center rounded-full";
   // the page's bar: what it is, and its one action (adding, where there is something to add)
   const title = !section
-    ? "Settings"
+    ? t.settings.title
     : ui.app
       ? ui.app.name
-      : viewingProvider
-        ? viewingProvider.name
-        : (nav.find((n) => n.id === section)?.label ?? "");
-  const adds = !ui.app && shown === "permissions" ? "Add a website" : null;
+      : ui.provider
+        ? ui.provider.name
+        : sectionName(section);
+  const adds = !ui.app && shown === "permissions" ? t.settings.addWebsite : null;
   // a phone's bar has the chat's round buttons; a desktop's has small labelled ones, the height of its close button
   const add = adds && (
     <button
@@ -189,17 +221,17 @@ export function SettingsModal({
           boxShadow: "var(--shadow-sheet)",
         }}
       >
-        {/* phone: the page's bar, as over the chat — back one level (or out), the page's name, and its action */}
-        <header className="grid shrink-0 grid-cols-[44px_1fr_44px] items-center gap-2 px-3 py-2 sm:hidden">
+        {/* phone: the page's bar, as over the chat (its buttons 12px from the top and sides, where the chat's are) — back one level (or out), the page's name, and its action */}
+        <header className="grid shrink-0 grid-cols-[44px_1fr_44px] items-center gap-2 px-3 pb-2 pt-3 sm:hidden">
           <button
             aria-label={
               !section
-                ? "Close settings"
+                ? t.settings.closeSettings
                 : ui.app
-                  ? "All connections"
-                  : viewingProvider
-                    ? "All providers"
-                    : "All settings"
+                  ? t.settings.allConnections
+                  : ui.provider
+                    ? t.settings.allProviders
+                    : t.settings.allSettings
             }
             className={barButton}
             style={barButtonLook}
@@ -233,7 +265,7 @@ export function SettingsModal({
             className="hidden px-2 pb-2 text-[19px] font-semibold sm:block"
             style={{ color: "var(--text-primary)" }}
           >
-            Settings
+            {t.settings.title}
           </p>
           {nav.filter((n) => !demo || n.id !== "sandbox").map((n) => (
             <button
@@ -263,7 +295,7 @@ export function SettingsModal({
               style={{ color: "var(--text-secondary)" }}
               onClick={() => actions.reset()}
             >
-              Reset demo
+              {t.settings.resetDemo}
             </button>
           )}
         </nav>
@@ -272,18 +304,18 @@ export function SettingsModal({
         <div
           className={`${section ? "flex" : "hidden sm:flex"} relative min-h-0 min-w-0 flex-1 flex-col`}
         >
-          {/* desktop: the section's bar — its name, its action, and close */}
-          <header className="hidden h-16 shrink-0 items-center gap-2 pl-6 pr-4 sm:flex">
+          {/* desktop: the section's bar — its name, its action, and close, 10px in from the card's top and right edges alike */}
+          <header className="hidden h-16 shrink-0 items-center gap-2 pl-6 pr-2.5 sm:flex">
             <p
               className="flex-1 truncate text-[20px] font-semibold"
               style={{ color: "var(--text-primary)" }}
             >
-              {/* General is shown before a section is chosen on desktop. */}
-              {ui.app || viewingProvider ? "" : (nav.find((n) => n.id === shown)?.label ?? "")}
+              {/* the section shown (General before one is chosen), not the phone's list title */}
+              {ui.app || ui.provider ? "" : sectionName(shown)}
             </p>
             {addLabelled}
             <button
-              aria-label="Close settings"
+              aria-label={t.settings.closeSettings}
               className={barButton}
               style={barButtonLook}
               onClick={() => actions.closeSettings()}
@@ -295,7 +327,7 @@ export function SettingsModal({
             <>
               {paseo && <p className="mx-5 mb-4 shrink-0 rounded-xl px-4 py-3 text-[13px] leading-relaxed sm:mx-6"
                 style={{ background: "var(--fill-secondary)", color: "var(--text-secondary)" }}>
-                此处管理 Amuse 独立的应用连接，不会自动导入 Codex 工具。
+                {t.backend.connectionsHelp}
               </p>}
               <AppsKey
                 session={session}
@@ -309,7 +341,7 @@ export function SettingsModal({
             <>
               {paseo && <p className="mx-5 mb-4 rounded-xl px-4 py-3 text-[13px] leading-relaxed sm:mx-6"
                 style={{ background: "var(--fill-secondary)", color: "var(--text-secondary)" }}>
-                These rules apply to Amuse's shared browser and app connections. Other Codex tools follow your computer's Paseo configuration.
+                {t.backend.permissionsHelp}
               </p>}
               <SitePermissions session={session} adding={adding} onAdded={() => setAdding(false)} />
             </>
@@ -327,7 +359,7 @@ export function SettingsModal({
               header={paseo ? <>
                 <BackendStatus backend={backend} unavailable={backendUnavailable} />
                 <p className="mb-4 text-[13px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-                  Chats and background work use your computer's Paseo / Codex model and context settings. Speech to text is configured separately below.
+                  {t.backend.executionHelp}
                 </p>
               </> : null}
               viewing={viewingProvider}

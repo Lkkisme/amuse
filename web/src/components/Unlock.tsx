@@ -3,8 +3,10 @@ import { useRef, useState } from "react";
 import { LockKeyhole } from "lucide-react";
 import { enter } from "../connection.ts";
 import { PinPad } from "./PinPad";
+import { useT } from "../i18n/react.ts";
 
 export function Unlock({ ready }: { ready: boolean }) {
+  const t = useT();
   const [pin, setPin] = useState("");
   const [again, setAgain] = useState("");
   const [confirming, setConfirming] = useState(false);
@@ -51,7 +53,7 @@ export function Unlock({ ready }: { ready: boolean }) {
         }
         if (!ready && pin !== again) {
           setAgain("");
-          setProblem("PINs don’t match. Enter the same four digits again.");
+          setProblem(t.pinUnlock.mismatch);
           return;
         }
         unlock(legacy ? password : pin);
@@ -59,27 +61,27 @@ export function Unlock({ ready }: { ready: boolean }) {
         <span className="unlock-mark" aria-hidden="true"><LockKeyhole size={25} strokeWidth={1.7} /></span>
         <div className="unlock-heading">
           <p className="unlock-eyebrow">AMUSE</p>
-          <h1>{ready ? "Welcome back" : confirming ? "Confirm your PIN" : "Choose your PIN"}</h1>
+          <h1>{ready ? t.unlock.welcome : confirming ? t.pinUnlock.confirmTitle : t.pinUnlock.chooseTitle}</h1>
           <p>{ready
-            ? legacy ? "Enter your existing password to unlock this device." : "Tap your four-digit PIN to unlock this device."
-            : confirming ? "Enter those four digits once more." : "Four digits to open Amuse on your devices."}</p>
+            ? legacy ? t.pinUnlock.existingHelp : t.pinUnlock.enterHelp
+            : confirming ? t.pinUnlock.confirmHelp : t.pinUnlock.chooseHelp}</p>
         </div>
         {legacy ? (
-          <input autoFocus type="password" autoComplete="current-password" aria-label="Existing password" placeholder="Existing password" className="credential-password" disabled={busy} value={password} onChange={(event) => { setPassword(event.target.value); setProblem(null); }} />
+          <input autoFocus type="password" autoComplete="current-password" aria-label={t.pinUnlock.existingPassword} placeholder={t.pinUnlock.existingPassword} className="credential-password" disabled={busy} value={password} onChange={(event) => { setPassword(event.target.value); setProblem(null); }} />
         ) : (
-          <PinPad key={confirming ? "confirm" : "pin"} value={value} onChange={change} label={confirming ? "Confirm four-digit PIN" : ready ? "Four-digit PIN" : "New four-digit PIN"} autoFocus disabled={busy} newPin={!ready} />
+          <PinPad key={confirming ? "confirm" : "pin"} value={value} onChange={change} label={confirming ? t.pinUnlock.confirmLabel : ready ? t.pinUnlock.pinLabel : t.pinUnlock.newLabel} autoFocus disabled={busy} newPin={!ready} />
         )}
         {problem && <p className="credential-message is-error" role="alert">{problem}</p>}
         <button type="submit" className="credential-primary" disabled={busy || (legacy ? !password : value.length !== 4)}>
-          {busy ? "Please wait…" : ready ? "Unlock Amuse" : confirming ? "Set PIN" : "Continue"}
+          {busy ? t.pinUnlock.waiting : ready ? t.pinUnlock.unlock : confirming ? t.pinUnlock.set : t.common.continue}
         </button>
         {ready ? (
           <button type="button" className="credential-link" disabled={busy} onClick={() => { setLegacy(!legacy); setProblem(null); setPin(""); setPassword(""); }}>
-            {legacy ? "Use four-digit PIN" : "Use existing password"}
+            {legacy ? t.pinUnlock.usePin : t.pinUnlock.useExisting}
           </button>
         ) : confirming ? (
-          <button type="button" className="credential-link" disabled={busy} onClick={() => { setConfirming(false); setPin(""); setAgain(""); setProblem(null); }}>Choose a different PIN</button>
-        ) : <p className="unlock-footnote">Your PIN stays private. Your chats stay here.</p>}
+          <button type="button" className="credential-link" disabled={busy} onClick={() => { setConfirming(false); setPin(""); setAgain(""); setProblem(null); }}>{t.pinUnlock.chooseDifferent}</button>
+        ) : <p className="unlock-footnote">{t.pinUnlock.privateHelp}</p>}
       </form>
     </main>
   );

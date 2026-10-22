@@ -8,9 +8,11 @@ import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { BookOpen, ChevronLeft, FileText, Plus, Trash2 } from "lucide-react";
 import type { Session, SkillInfo, SkillOrigin } from "@amuse/protocol";
 import type { Actions } from "../ui.ts";
+import { activeT } from "../i18n/language.ts";
 import { reason } from "./Goals";
 import { RichText } from "./markdown";
 import { Sheet } from "./Sheet";
+import { useT } from "../i18n/react.ts";
 
 export function Skills({
   session,
@@ -21,6 +23,7 @@ export function Skills({
   actions: Actions;
   onOpen: (name: string, origin: SkillOrigin) => void;
 }) {
+  const t = useT();
   const [skills, setSkills] = useState<SkillInfo[] | null>(null);
   const [adding, setAdding] = useState(false);
 
@@ -41,10 +44,10 @@ export function Skills({
           className="flex-1 text-[17px] font-semibold"
           style={{ color: "var(--text-primary)" }}
         >
-          Skills
+          {t.skills.title}
         </p>
         <button
-          aria-label="Add a skill"
+          aria-label={t.skills.add}
           className="hover-fade -mr-1 flex size-8 items-center justify-center rounded-full"
           style={{ color: "var(--icon-primary)" }}
           onClick={() => setAdding(true)}
@@ -56,14 +59,13 @@ export function Skills({
         <div className="skeleton mt-3 h-12 rounded-[10px]" />
       ) : (
         <>
-          <Group title="Yours">
+          <Group title={t.skills.yours}>
             {yours.length === 0 ? (
               <p
                 className="text-[14px]"
                 style={{ color: "var(--text-secondary)" }}
               >
-                Ways of working Amuse keeps for you: ones you install, and ones
-                it writes from what you ask it to do again and again.
+                {t.skills.yoursNone}
               </p>
             ) : (
               yours.map((s) => (
@@ -75,7 +77,7 @@ export function Skills({
               ))
             )}
           </Group>
-          <Group title="Built in">
+          <Group title={t.skills.builtIn}>
             {builtIn.map((s) => (
               <Row
                 key={s.name}
@@ -92,7 +94,7 @@ export function Skills({
         onClose={() => setAdding(false)}
         onAsk={(what) => {
           setAdding(false);
-          void actions.send(`Install a skill: ${what}`, []).catch(() => {});
+          void actions.send(activeT().skills.installMessage(what), []).catch(() => {});
         }}
       />
     </div>
@@ -114,6 +116,7 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
 }
 
 function Row({ skill, onOpen }: { skill: SkillInfo; onOpen: () => void }) {
+  const t = useT();
   return (
     <li className={skill.replaced ? "opacity-50" : undefined}>
       <button
@@ -140,7 +143,7 @@ function Row({ skill, onOpen }: { skill: SkillInfo; onOpen: () => void }) {
             className="line-clamp-2 block text-[14px]"
             style={{ color: "var(--text-secondary)" }}
           >
-            {skill.replaced ? "Replaced by your own" : skill.description}
+            {skill.replaced ? t.skills.replaced : skill.description}
           </span>
         </span>
       </button>
@@ -157,6 +160,7 @@ function AddSkill({
   onClose: () => void;
   onAsk: (what: string) => void;
 }) {
+  const t = useT();
   const [what, setWhat] = useState("");
   useEffect(() => {
     if (open) setWhat("");
@@ -174,13 +178,13 @@ function AddSkill({
           className="mt-4 text-[20px] font-semibold"
           style={{ color: "var(--text-primary)" }}
         >
-          Add a skill
+          {t.skills.add}
         </p>
         <p
           className="mt-1 text-[14px]"
           style={{ color: "var(--text-secondary)" }}
         >
-          Amuse finds it and installs it, and tells you what it does
+          {t.skills.addHelp}
         </p>
         <div
           className="mt-5 w-full overflow-hidden rounded-[18px] text-left"
@@ -188,10 +192,10 @@ function AddSkill({
         >
           <input
             autoFocus
-            aria-label="Skill"
+            aria-label={t.skills.skill}
             className="w-full bg-transparent px-4 py-3.5 text-[16px] outline-none"
             style={{ color: "var(--text-primary)" }}
-            placeholder="owner/repo, a link, or what it should do"
+            placeholder={t.skills.placeholder}
             maxLength={500}
             value={what}
             onChange={(e) => setWhat(e.target.value)}
@@ -206,14 +210,14 @@ function AddSkill({
           style={{ background: "var(--fill-blue)" }}
           onClick={() => onAsk(what.trim())}
         >
-          Ask Amuse
+          {t.skills.askAmuse}
         </button>
         <button
           className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
           style={{ color: "var(--text-primary)" }}
           onClick={onClose}
         >
-          Cancel
+          {t.common.cancel}
         </button>
       </div>
     </Sheet>
@@ -232,6 +236,7 @@ export function SkillPage({
   origin: SkillOrigin;
   onBack: () => void;
 }) {
+  const t = useT();
   const [shown, setShown] = useState<{
     skill: SkillInfo;
     body: string;
@@ -271,13 +276,13 @@ export function SkillPage({
     >
       <div className="mt-2 flex h-12 shrink-0 items-center px-3 pt-1 md:mt-0">
         <button
-          aria-label="Back to Skills"
+          aria-label={t.skills.backTo}
           className="hover-fade flex h-9 items-center gap-0.5 rounded-full pl-1 pr-3 text-[15px] font-medium"
           style={{ color: "var(--text-secondary)" }}
           onClick={onBack}
         >
           <ChevronLeft size={20} />
-          Skills
+          {t.skills.title}
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-8">
@@ -304,8 +309,8 @@ export function SkillPage({
               {/* removing one of the user's own, at hand however long the skill */}
               {skill.origin === "yours" && (
                 <button
-                  aria-label="Remove"
-                  title="Remove"
+                  aria-label={t.common.remove}
+                  title={t.common.remove}
                   className="hover-fade -mr-2 -mt-1 flex size-10 shrink-0 items-center justify-center rounded-full"
                   style={{ color: "var(--fill-red)" }}
                   onClick={() => setRemoving(true)}
@@ -320,9 +325,9 @@ export function SkillPage({
             >
               {skill.origin === "built-in"
                 ? skill.replaced
-                  ? "Built in · replaced by your own"
-                  : "Built in"
-                : "Yours"}
+                  ? t.skills.builtInReplaced
+                  : t.skills.builtIn
+                : t.skills.yours}
             </p>
             <p
               className="mt-4 text-[15px] leading-[22px]"
@@ -337,7 +342,7 @@ export function SkillPage({
                   className="mb-2 text-[13px] font-semibold"
                   style={{ color: "var(--text-secondary)" }}
                 >
-                  Files
+                  {t.skills.files}
                 </p>
                 <ul className="space-y-1.5">
                   {shown.files.map((f) => (
@@ -358,8 +363,7 @@ export function SkillPage({
                 className="mt-7 text-[13px]"
                 style={{ color: "var(--text-tertiary)" }}
               >
-                It ships with Amuse. To change how it works, ask Amuse to write
-                your own version of it.
+                {t.skills.shipped}
               </p>
             )}
           </>
@@ -372,14 +376,13 @@ export function SkillPage({
             className="mt-2 text-[20px] font-semibold"
             style={{ color: "var(--text-primary)" }}
           >
-            Remove {name}?
+            {t.skills.removeTitle(name)}
           </p>
           <p
             className="mt-1 text-[14px]"
             style={{ color: "var(--text-secondary)" }}
           >
-            Amuse stops using it, and its folder in skills/ goes, with its
-            files.
+            {t.skills.removeHelp}
           </p>
           <button
             disabled={busy}
@@ -387,14 +390,14 @@ export function SkillPage({
             style={{ background: "var(--fill-red)" }}
             onClick={remove}
           >
-            Remove
+            {t.common.remove}
           </button>
           <button
             className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
             style={{ color: "var(--text-primary)" }}
             onClick={() => setRemoving(false)}
           >
-            Cancel
+            {t.common.cancel}
           </button>
         </div>
       </Sheet>
@@ -404,6 +407,7 @@ export function SkillPage({
 
 /** A skill's text, folded to its start when it is long: the rest is a tap away. */
 function Folded({ text }: { text: string }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const long = text.split("\n").length > 14 || text.length > 900;
   return (
@@ -428,7 +432,7 @@ function Folded({ text }: { text: string }) {
           style={{ color: "var(--fill-blue)" }}
           onClick={() => setOpen((o) => !o)}
         >
-          {open ? "Show less" : "Show all"}
+          {open ? t.skills.showLess : t.skills.showAll}
         </button>
       )}
     </div>

@@ -39,7 +39,7 @@ export const ModelOption = z.object({
 });
 export type ModelOption = z.infer<typeof ModelOption>;
 
-/** chat: Amuse in the chat; browser: its browser agent; background: scheduled work (the chat's model when none is chosen) */
+/** chat: Amuse in the chat; browser: its browser agent; background: scheduled work (both on the chat's model when none is chosen) */
 export const ModelRole = z.enum(["chat", "browser", "background"]);
 export type ModelRole = z.infer<typeof ModelRole>;
 
@@ -80,6 +80,7 @@ export const KeysState = z.object({
   /** the models the providers set up offer */
   models: z.array(ModelOption),
   chat: ModelRef.nullable(),
+  /** null: the browser runs on the chat's model (when that one sees pictures) */
   browser: ModelRef.nullable(),
   /** null: scheduled work runs on the chat's model */
   background: ModelRef.nullable(),

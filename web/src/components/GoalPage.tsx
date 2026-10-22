@@ -11,6 +11,7 @@ import type { Goal, GoalNote, Schedule, Session } from "@amuse/protocol";
 import { repeats, scheduleState } from "../schedules.ts";
 import { RichText } from "./markdown";
 import { day, reason } from "./Goals";
+import { useT } from "../i18n/react.ts";
 
 export function GoalPage({
   session,
@@ -21,6 +22,7 @@ export function GoalPage({
   id: string;
   onBack: () => void;
 }) {
+  const t = useT();
   const [shown, setShown] = useState<{ goal: Goal; log: GoalNote[] } | null>(
     null,
   );
@@ -64,13 +66,13 @@ export function GoalPage({
     >
       <div className="mt-2 flex h-12 shrink-0 items-center px-3 pt-1 md:mt-0">
         <button
-          aria-label="Back to Goals"
+          aria-label={t.goals.backToGoals}
           className="hover-fade flex h-9 items-center gap-0.5 rounded-full pl-1 pr-3 text-[15px] font-medium"
           style={{ color: "var(--text-secondary)" }}
           onClick={onBack}
         >
           <ChevronLeft size={20} />
-          Goals
+          {t.goals.title}
         </button>
       </div>
 
@@ -96,8 +98,8 @@ export function GoalPage({
                 {goal.title}
               </p>
               <button
-                aria-label={goal.muted ? "Unmute" : "Mute"}
-                title={goal.muted ? "Unmute" : "Mute"}
+                aria-label={goal.muted ? t.goals.unmute : t.goals.mute}
+                title={goal.muted ? t.goals.unmute : t.goals.mute}
                 disabled={busy}
                 className="hover-fade -mr-2 -mt-1 flex size-10 shrink-0 items-center justify-center rounded-full disabled:opacity-40"
                 style={{ color: "var(--icon-primary)" }}
@@ -110,9 +112,9 @@ export function GoalPage({
               className="mt-1 text-[14px]"
               style={{ color: "var(--text-secondary)" }}
             >
-              {goal.status === "done" ? "Done" : "Working on it"}
+              {goal.status === "done" ? t.goals.done : t.goals.working}
               {goal.added
-                ? ` · ${goal.status === "done" ? "started" : "since"} ${day(goal.added)}`
+                ? ` · ${goal.status === "done" ? t.goals.startedOn(day(goal.added)) : t.goals.sinceDay(day(goal.added))}`
                 : ""}
             </p>
             {goal.muted && (
@@ -121,7 +123,7 @@ export function GoalPage({
                 style={{ color: "var(--text-tertiary)" }}
               >
                 <BellOff size={14} />
-                Muted: Amuse keeps at it, but does not bring it up.
+                {t.goals.mutedHelp}
               </p>
             )}
 
@@ -134,7 +136,7 @@ export function GoalPage({
               </div>
             )}
 
-            <Section title="Scheduled for it">
+            <Section title={t.goals.scheduled}>
               {schedules === null ? (
                 <div className="skeleton h-10 rounded-[10px]" />
               ) : schedules.length === 0 ? (
@@ -142,9 +144,7 @@ export function GoalPage({
                   className="text-[14px]"
                   style={{ color: "var(--text-secondary)" }}
                 >
-                  {goal.status === "done"
-                    ? "Nothing is scheduled for it."
-                    : "Nothing is scheduled for it yet. Ask Amuse, for example for a reminder that helps."}
+                  {goal.status === "done" ? t.goals.nothingScheduledDone : t.goals.nothingScheduled}
                 </p>
               ) : (
                 <ul className="space-y-3">
@@ -171,9 +171,7 @@ export function GoalPage({
                           style={{ color: "var(--text-secondary)" }}
                         >
                           {repeats(s.when)} ·{" "}
-                          {goal.status === "done"
-                            ? "resting while the goal is done"
-                            : scheduleState(s)}
+                          {goal.status === "done" ? t.goals.resting : scheduleState(s)}
                         </span>
                       </span>
                     </li>
@@ -183,7 +181,7 @@ export function GoalPage({
             </Section>
 
             {shown.log.length > 0 && (
-              <Section title="Timeline">
+              <Section title={t.goals.timeline}>
                 <ul className="space-y-5">
                   {shown.log.map((note, i) => (
                     <li key={i}>
@@ -217,7 +215,7 @@ export function GoalPage({
                 update({ status: goal.status === "done" ? "active" : "done" })
               }
             >
-              {goal.status === "done" ? "Take it up again" : "Mark as done"}
+              {goal.status === "done" ? t.goals.reopen : t.goals.markDone}
             </button>
           </>
         )}

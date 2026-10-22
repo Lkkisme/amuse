@@ -9,6 +9,7 @@ import { BarChart3, Eye, ToggleLeft } from "lucide-react";
 import type { Connection, State } from "@amuse/protocol";
 import type { Actions } from "../ui.ts";
 import { byId, providerLogo } from "../view.ts";
+import { useT } from "../i18n/react.ts";
 import { Sheet } from "./Sheet";
 import { AppLogo } from "./AppLogo";
 import { useLastValue } from "./usePresence";
@@ -21,22 +22,23 @@ export function ExplainerModal({ conversation, open, actions }: { conversation: 
 }
 
 function ExplainerBody({ req, open, actions }: { req: Connection; open: boolean; actions: Actions }) {
+  const t = useT();
   const close = () => actions.openExplainer(null);
   const features = [
     {
       icon: BarChart3,
-      title: `Level up with ${req.title}`,
-      body: `Amuse will access your ${req.title} data and its metadata.`,
+      title: t.explainer.dataTitle(req.title),
+      body: t.explainer.dataBody(req.title),
     },
     {
       icon: ToggleLeft,
-      title: "You choose what Amuse can do",
-      body: "By default, Amuse will ask before taking actions it thinks need review. Disconnect at any time in Settings.",
+      title: t.explainer.chooseTitle,
+      body: t.explainer.chooseBody,
     },
     {
       icon: Eye,
-      title: "Keep an eye on things",
-      body: "Amuse may take unexpected actions. Monitor it carefully.",
+      title: t.explainer.watchTitle,
+      body: t.explainer.watchBody,
     },
   ];
 
@@ -51,7 +53,7 @@ function ExplainerBody({ req, open, actions }: { req: Connection; open: boolean;
             {req.title}
           </p>
           <p className="mt-1 text-[16px]" style={{ color: "var(--text-secondary)" }}>
-            Connection
+            {t.explainer.kind}
           </p>
 
           {/* feature rows */}
@@ -82,14 +84,14 @@ function ExplainerBody({ req, open, actions }: { req: Connection; open: boolean;
             style={{ background: "var(--fill-blue)" }}
             onClick={() => actions.connect(req.id)}
           >
-            Connect
+            {t.explainer.connect}
           </button>
           <button
             className="mx-auto mt-2 block py-2 text-[16px] font-semibold"
             style={{ color: "var(--text-primary)" }}
             onClick={close}
           >
-            Cancel
+            {t.common.cancel}
           </button>
         </div>
     </Sheet>

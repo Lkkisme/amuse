@@ -18,6 +18,8 @@ import type RFB from "@novnc/novnc";
 import { FILLER, edit, keys, runs } from "../remote-keys.ts";
 import { TouchSurface } from "./TouchSurface";
 import { NativeLiveView } from "./NativeLiveView";
+import { useT } from "../i18n/react.ts";
+import { activeT } from "../i18n/language.ts";
 
 const touchScreen = () => window.matchMedia("(pointer: coarse)").matches;
 
@@ -29,6 +31,7 @@ type LiveViewProps = { url: string; interactive: boolean; onFit: (view: { width:
 
 /** Older servers expose RFB; native browser sessions advertise their image transport. */
 export function LiveView(props: LiveViewProps) {
+  const t = useT();
   const [transport, setTransport] = useState<{ url: string; native: { width: number; height: number } | null } | null>(null);
   useEffect(() => {
     let active = true;
@@ -65,7 +68,7 @@ export function LiveView(props: LiveViewProps) {
     return () => { active = false; clearTimeout(timeout); abort.abort(); };
   }, [props.url]);
   if (!transport || transport.url !== props.url)
-    return <div className="skeleton min-h-0 flex-1" aria-label="Connecting to the browser" />;
+    return <div className="skeleton min-h-0 flex-1" aria-label={t.viewer.keyConnecting} />;
   return transport.native ? (
     <NativeLiveView {...props} initialSize={transport.native}
       renderControls={(send, modes) => <TouchControls keys={send} {...modes} />} />
@@ -73,6 +76,7 @@ export function LiveView(props: LiveViewProps) {
 }
 
 function RfbLiveView({ url, interactive, onFit }: LiveViewProps) {
+  const t = useT();
   const box = useRef<HTMLDivElement>(null);
   const client = useRef<RFB | null>(null);
   /** the viewer shows only runs whose browser is there, so a dropped or refused connection is tried again */
@@ -100,7 +104,7 @@ function RfbLiveView({ url, interactive, onFit }: LiveViewProps) {
     const loading = setTimeout(() => {
       if (left || rfb) return;
       expired = true;
-      setProblem("The live viewer took too long to load. You can retry or continue chatting.");
+      setProblem(activeT().localBrowser.loadTimeout);
       setState("failed");
     }, 12_000);
     // noVNC probes browser codecs at module startup. Keep that work out of the app's entry module.
@@ -135,7 +139,7 @@ function RfbLiveView({ url, interactive, onFit }: LiveViewProps) {
     }).catch(() => {
       if (left || expired) return;
       clearTimeout(loading);
-      setProblem("The live viewer could not load. Please try again.");
+      setProblem(activeT().localBrowser.loadFailed);
       setState("failed");
       if (client.current === rfb) client.current = null;
       rfb?.disconnect();
@@ -246,11 +250,11 @@ function RfbLiveView({ url, interactive, onFit }: LiveViewProps) {
     >
       <div className="relative flex min-h-0 flex-1 items-center justify-center" style={{ touchAction: "none" }}>
         <div ref={box} className="absolute inset-0" data-watching={interactive ? undefined : ""} />
-        {state === "connecting" && <div aria-label="Connecting to the browser" className="skeleton absolute inset-0" />}
+        {state === "connecting" && <div aria-label={t.viewer.keyConnecting} className="skeleton absolute inset-0" />}
         {state === "failed" && (
           <div role="alert" className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center" style={{ background: "var(--bg-secondary)" }}>
             <p className="max-w-xs text-[14px]" style={{ color: "var(--text-secondary)" }}>{problem}</p>
-            <button type="button" className="h-10 rounded-full px-5 text-[14px] font-semibold text-white" style={{ background: "var(--fill-blue)" }} onClick={() => setAttempt((a) => a + 1)}>Retry live view</button>
+            <button type="button" className="h-10 rounded-full px-5 text-[14px] font-semibold text-white" style={{ background: "var(--fill-blue)" }} onClick={() => setAttempt((a) => a + 1)}>{t.localBrowser.retry}</button>
           </div>
         )}
         {controls && <TouchSurface screen={box} mode={trackpad ? "trackpad" : zoom ? "pan" : "touch"} />}
@@ -298,6 +302,7 @@ interface Modes {
  * stays up while they are used.
  */
 function TouchControls({ keys: send, trackpad, onTrackpad, zoom, onZoom }: { keys: Sender } & Modes) {
+  const t = useT();
   const field = useRef<HTMLTextAreaElement>(null);
   const [typing, setTyping] = useState(false);
   const [ctrl, setCtrl] = useState(false);
@@ -343,7 +348,7 @@ function TouchControls({ keys: send, trackpad, onTrackpad, zoom, onZoom }: { key
     >
       <textarea
         ref={field}
-        aria-label="Type into the page"
+        aria-label={t.viewer.typeIntoPage}
         autoCapitalize="off"
         autoComplete="off"
         autoCorrect="off"
@@ -377,18 +382,18 @@ function TouchControls({ keys: send, trackpad, onTrackpad, zoom, onZoom }: { key
           send.paste(e.clipboardData.getData("text/plain"));
         }}
       />
-      <Tool label={typing ? "Hide keyboard" : "Show keyboard"} active={typing} onClick={() => (typing ? field.current?.blur() : field.current?.focus())}>
+      <Tool label={typing ? t.viewer.hideKeyboard : t.viewer.showKeyboard} active={typing} onClick={() => (typing ? field.current?.blur() : field.current?.focus())}>
         {typing ? <KeyboardOff size={18} /> : <Keyboard size={18} />}
       </Tool>
-      <Tool label="Paste" onClick={() => void pasteClipboard()}>
+      <Tool label={t.viewer.paste} onClick={() => void pasteClipboard()}>
         <ClipboardPaste size={17} />
       </Tool>
       {!typing && (
         <>
-          <Tool label="Trackpad" active={trackpad} onClick={onTrackpad}>
+          <Tool label={t.viewer.trackpad} active={trackpad} onClick={onTrackpad}>
             <MousePointer2 size={17} />
           </Tool>
-          <Tool label="Actual size" active={zoom} onClick={onZoom}>
+          <Tool label={t.viewer.actualSize} active={zoom} onClick={onZoom}>
             <ZoomIn size={17} />
           </Tool>
         </>
@@ -402,27 +407,27 @@ function TouchControls({ keys: send, trackpad, onTrackpad, zoom, onZoom }: { key
         <>
           {typing && (
             <>
-              <Tool label="Escape" text onClick={() => key(keys.Escape)}>
+              <Tool label={t.viewer.keyEscape} text onClick={() => key(keys.Escape)}>
                 Esc
               </Tool>
               <Tool label="Tab" text onClick={() => key(keys.Tab)}>
                 Tab
               </Tool>
-              <Tool label="Control" text active={ctrl} onClick={() => setCtrl((v) => !v)}>
+              <Tool label={t.viewer.keyControlName} text active={ctrl} onClick={() => setCtrl((v) => !v)}>
                 Ctrl
               </Tool>
             </>
           )}
-          <Tool label="Left" onClick={() => key(keys.Left)}>
+          <Tool label={t.viewer.keyLeft} onClick={() => key(keys.Left)}>
             <ArrowLeft size={16} />
           </Tool>
-          <Tool label="Up" onClick={() => key(keys.Up)}>
+          <Tool label={t.viewer.keyUp} onClick={() => key(keys.Up)}>
             <ArrowUp size={16} />
           </Tool>
-          <Tool label="Down" onClick={() => key(keys.Down)}>
+          <Tool label={t.viewer.keyDown} onClick={() => key(keys.Down)}>
             <ArrowDown size={16} />
           </Tool>
-          <Tool label="Right" onClick={() => key(keys.Right)}>
+          <Tool label={t.viewer.keyRight} onClick={() => key(keys.Right)}>
             <ArrowRight size={16} />
           </Tool>
         </>

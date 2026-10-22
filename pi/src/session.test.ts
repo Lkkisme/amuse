@@ -10,7 +10,7 @@ import { Type } from "typebox";
 import { piAgent } from "./agent.ts";
 import { fileCredentials } from "./credentials.ts";
 import { piKeys } from "./keys.ts";
-import { openSession } from "./session.ts";
+import { NoModel, openSession } from "./session.ts";
 
 type RequestMessage = { role: string; content: string | { type: string; text: string }[] };
 
@@ -27,7 +27,7 @@ function systemOf(request: Record<string, unknown>): string {
   return (message.content as string).replace(/\n\n<cwd>\n[^\n]*\n<\/cwd>$/, "");
 }
 
-async function endpoint(t: TestContext) {
+async function endpoint(t: TestContext, input: ("text" | "image")[] = ["text"]) {
   const requests: Record<string, unknown>[] = [];
   const server = createServer(async (request, response) => {
     let body = "";
@@ -58,6 +58,7 @@ async function endpoint(t: TestContext) {
         apiKey: "local-placeholder",
         models: [{
           id: "local-model",
+          input,
           reasoning: true,
           maxTokens: 512,
           contextWindow: 8192,
@@ -93,6 +94,28 @@ test("a local session can omit output limits while retaining thinking, sampling 
   assert.equal(request["temperature"], 0.42);
   assert.equal(request["top_p"], 0.9);
   assert.equal(request["reasoning_effort"], "medium");
+});
+
+test("browser image sessions reject a text-only model before inference, while a vision session keeps owner and local settings", async (t) => {
+  const blind = await endpoint(t);
+  await assert.rejects(openSession(blind, "Browser role.", [], { images: true }), (error) => {
+    assert.ok(error instanceof NoModel);
+    assert.match(error.message, /does not see pictures/);
+    return true;
+  });
+  assert.equal(blind.requests.length, 0);
+
+  const seeing = await endpoint(t, ["text", "image"]);
+  const ownerSystem = "OWNER VISION SENTINEL: use Chinese.";
+  const opened = await openSession({ ...seeing, ownerSystem, thinkingLevel: "medium", omitOutputLimit: true }, "Browser role.", [], { images: true });
+  t.after(opened.close);
+  assert.equal(opened.session.thinkingLevel, "medium");
+  await opened.session.prompt("Reply OK.");
+  assert.equal(seeing.requests.length, 1);
+  const request = seeing.requests[0]!;
+  assert.match(systemOf(request), /Browser role\./);
+  assert.ok(systemOf(request).includes(ownerSystem));
+  for (const field of ["max_tokens", "max_completion_tokens", "max_output_tokens"]) assert.equal(field in request, false);
 });
 
 test("sessions keep their existing thinking and output defaults unless explicitly configured", async (t) => {

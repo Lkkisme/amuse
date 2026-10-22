@@ -1,6 +1,6 @@
 /**
- * Settings › Models: the model Muse chats with and the one that works in the
- * browser (it must see pictures), among those of the providers set up with
+ * Settings › Models: the model Muse chats with, the one that works in the
+ * browser (it must see pictures; the chat's unless chosen), among those of the providers set up with
  * the user's own API keys; the providers set up (only the end of a key
  * shows), each with a page of its own to test, replace or remove its key; and
  * every other one to add.
@@ -16,6 +16,7 @@ import type {
 } from "@amuse/protocol";
 import { KeyLine, KeyLogin, type TestState, useKeyTests } from "./KeyLogin";
 import { Sheet } from "./Sheet";
+import { useT } from "../i18n/react.ts";
 
 const label = "mb-2 mt-6 px-1 text-[13px] font-medium";
 const group = "divide-y divide-[var(--fill-divider)] rounded-[18px] px-4";
@@ -35,6 +36,7 @@ export function Models({
   viewing: KeyProvider | null;
   onView: (provider: KeyProvider | null) => void;
 }) {
+  const t = useT();
   const [state, setState] = useState<KeysState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [setting, setSetting] = useState<KeyProvider | null>(null);
@@ -81,6 +83,8 @@ export function Models({
       (!words || p.name.toLowerCase().includes(words) || p.id.includes(words)),
   );
   const models = state?.models ?? [];
+  /** a provider's name by its id, for the pickers */
+  const names = new Map(providers.map((p) => [p.id, p.name]));
   // the page shows the provider as it is now (its key may have been replaced)
   const open =
     viewing && (providers.find((p) => p.id === viewing.id) ?? viewing);
@@ -122,7 +126,7 @@ export function Models({
         className="text-[13px] leading-snug"
         style={{ color: "var(--text-secondary)" }}
       >
-        {executionManaged ? "Configure speech to text with a provider key or your own server." : "Amuse runs on a model you choose, with your own API key."}
+        {executionManaged ? t.backend.voiceIntro : t.models.intro}
       </p>
       {error && (
         <p
@@ -136,53 +140,81 @@ export function Models({
 
       {state && (
         <>
-          {!executionManaged && mine.length > 0 && <>
+          {/* each role a group of its own, a row for each thing chosen and what it is: provider, model, thinking */}
+          {!executionManaged && <>
           <p className={label} style={{ color: "var(--text-secondary)" }}>
-            Models
+            {t.models.chat}
           </p>
           <div
             className={group}
             style={{ background: "var(--fill-secondary)" }}
           >
             <ModelPicker
-              title="Chat"
+              title={t.models.chat}
               value={state.chat}
               options={models}
+              names={names}
               onChange={(m) => choose("chat", m)}
             />
             <ThinkingPicker
-              title="Chat"
-              levels={models.find((m) => m.id === state.chat)?.thinking ?? []}
+              title={t.models.chat}
+              levels={models.find((m) => m.id === state.chat)?.thinking}
               value={state.thinking.chat}
               onChange={(level) => think("chat", level)}
             />
+          </div>
+          <p className={label} style={{ color: "var(--text-secondary)" }}>
+            {t.models.browser}
+          </p>
+          <div
+            className={group}
+            style={{ background: "var(--fill-secondary)" }}
+          >
             <ModelPicker
-              title="Browser"
+              title={t.models.browser}
               value={state.browser}
               options={models.filter((m) => m.images)}
+              names={names}
+              unset={t.models.sameAsChat}
               onChange={(m) => choose("browser", m)}
             />
             <ThinkingPicker
-              title="Browser"
+              title={t.models.browser}
               levels={
-                models.find((m) => m.id === state.browser)?.thinking ?? []
+                models.find((m) => m.id === (state.browser ?? state.chat))
+                  ?.thinking
               }
               value={state.thinking.browser}
               onChange={(level) => think("browser", level)}
             />
-            {/* scheduled work: memory upkeep, reflection, the user's schedules */}
+          </div>
+          {/* the browser on the chat's model, which cannot do its work */}
+          {state.browser === null && state.chat !== null && models.find((m) => m.id === state.chat)?.images === false && (
+            <p className="mt-2 px-1 text-[13px] leading-snug" style={{ color: "var(--fill-red)" }}>
+              {t.models.browserBlind}
+            </p>
+          )}
+          {/* scheduled work: memory upkeep, reflection, the user's schedules */}
+          <p className={label} style={{ color: "var(--text-secondary)" }}>
+            {t.models.background}
+          </p>
+          <div
+            className={group}
+            style={{ background: "var(--fill-secondary)" }}
+          >
             <ModelPicker
-              title="Background"
+              title={t.models.background}
               value={state.background}
               options={models}
-              unset="Same as chat"
+              names={names}
+              unset={t.models.sameAsChat}
               onChange={(m) => choose("background", m)}
             />
             <ThinkingPicker
-              title="Background"
+              title={t.models.background}
               levels={
                 models.find((m) => m.id === (state.background ?? state.chat))
-                  ?.thinking ?? []
+                  ?.thinking
               }
               value={state.thinking.background}
               onChange={(level) => think("background", level)}
@@ -192,12 +224,11 @@ export function Models({
             className="mt-2 px-1 text-[13px] leading-snug"
             style={{ color: "var(--text-secondary)" }}
           >
-            Background runs your schedules, and keeps memory between
-            conversations every hour; a cheaper model does well there.
+            {t.models.backgroundHelp}
           </p>
           </>}
           <p className={label} style={{ color: "var(--text-secondary)" }}>
-            Voice
+            {t.models.voice}
           </p>
           <div
             className={group}
@@ -208,10 +239,10 @@ export function Models({
                 className="text-[16px]"
                 style={{ color: "var(--text-primary)" }}
               >
-                Speech to text
+                {t.models.speechToText}
               </span>
               <select
-                aria-label="Speech to text"
+                aria-label={t.models.speechToText}
                 className="min-w-0 flex-1 truncate bg-transparent text-right text-[15px] outline-none"
                 style={{ color: "var(--text-secondary)" }}
                 value={state.voice.chosen ?? ""}
@@ -219,8 +250,8 @@ export function Models({
               >
                 <option value="">
                   {state.voice.services.length > 0
-                    ? "Automatic"
-                    : "Needs a key, or your own server"}
+                    ? t.models.automatic
+                    : t.models.needsKey}
                 </option>
                 {state.voice.services.map((s) => (
                   <option key={s.provider} value={s.provider}>
@@ -238,7 +269,7 @@ export function Models({
                   className="block text-[16px]"
                   style={{ color: "var(--text-primary)" }}
                 >
-                  Your own server
+                  {t.models.ownServer}
                 </span>
                 <span
                   className="block truncate text-[13px]"
@@ -246,7 +277,7 @@ export function Models({
                 >
                   {state.voice.local
                     ? `${state.voice.local.model} · ${state.voice.local.url}`
-                    : "Not set up"}
+                    : t.models.notSet}
                 </span>
               </span>
               <ChevronRight
@@ -277,12 +308,10 @@ export function Models({
             className="mt-2 px-1 text-[13px] leading-snug"
             style={{ color: "var(--text-secondary)" }}
           >
-            Turns what you say into the mic into text. Automatic uses the first
-            of OpenAI, Groq and Fireworks you have a key for, then your own
-            server; with your own server, recordings stay on your machines.
+            {t.models.voiceHelp}
           </p>
           <p className={label} style={{ color: "var(--text-secondary)" }}>
-            Your providers
+            {t.models.yourProviders}
           </p>
           <ul className={group} style={{ background: "var(--fill-secondary)" }}>
             {mine.map((p) => (
@@ -314,10 +343,10 @@ export function Models({
       <p className={label} style={{ color: "var(--text-secondary)" }}>
         {/* until the list is in, nothing is said about what is set up */}
         {state === null
-          ? "Providers"
+          ? t.models.providers
           : mine.length > 0
-            ? "Add a provider"
-            : "Choose a provider to start"}
+            ? t.models.addProvider
+            : t.models.chooseToStart}
       </p>
       <label
         className="mb-2 flex items-center gap-2 rounded-full px-4 py-2.5"
@@ -325,10 +354,10 @@ export function Models({
       >
         <Search size={16} style={{ color: "var(--icon-secondary)" }} />
         <input
-          aria-label="Search providers"
+          aria-label={t.models.searchProviders}
           className="min-w-0 flex-1 bg-transparent text-[15px] outline-none"
           style={{ color: "var(--text-primary)" }}
-          placeholder="Search providers"
+          placeholder={t.models.searchProviders}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -345,7 +374,7 @@ export function Models({
             className="py-3.5 text-[15px]"
             style={{ color: "var(--text-secondary)" }}
           >
-            No provider by that name.
+            {t.models.noProvider}
           </li>
         )}
         {others.map((p) => (
@@ -393,12 +422,13 @@ function ProviderPage({
   onRemove: () => void;
   children: React.ReactNode;
 }) {
+  const t = useT();
   const row =
     "hover-fade w-full py-3.5 text-left text-[15px] disabled:opacity-50";
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6 pt-3 sm:px-6">
       <button
-        aria-label="Back"
+        aria-label={t.common.back}
         // a desktop's way back to the providers (a phone's is in the settings' own bar)
         className="hover-fade hidden size-8 shrink-0 items-center justify-center rounded-full sm:flex"
         style={{
@@ -428,8 +458,8 @@ function ProviderPage({
           style={{ color: "var(--text-secondary)" }}
         >
           {uses.length === 0
-            ? "Not used for a model now"
-            : `Used for ${uses.map((u) => (u === "chat" ? "chat" : "the browser")).join(" and ")}`}
+            ? t.models.notUsed
+            : t.models.usedFor(uses.map((u) => (u === "chat" ? t.models.useChat : t.models.useBrowser)))}
         </p>
       </div>
       <div
@@ -449,7 +479,7 @@ function ProviderPage({
             style={{ color: "var(--fill-blue)" }}
             onClick={onTest}
           >
-            Test key
+            {t.keys.testKey}
           </button>
         </li>
         <li>
@@ -458,7 +488,7 @@ function ProviderPage({
             style={{ color: "var(--fill-blue)" }}
             onClick={onReplace}
           >
-            Replace key
+            {t.keys.replaceKey}
           </button>
         </li>
         <li>
@@ -467,7 +497,7 @@ function ProviderPage({
             style={{ color: "var(--fill-red)" }}
             onClick={onRemove}
           >
-            Remove key
+            {t.keys.removeKey}
           </button>
         </li>
       </ul>
@@ -476,17 +506,10 @@ function ProviderPage({
   );
 }
 
-const levelName: Record<ThinkingLevel, string> = {
-  off: "Off",
-  minimal: "Minimal",
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  xhigh: "Extra high",
-  max: "Max",
-};
-
-/** How much a role's model thinks; only for a model that can (it takes more than "off"). */
+/**
+ * How much a role's model thinks. The row is always there, so it is plain where it is; it can be changed only for a
+ * model that thinks (it takes more than "off"), and says why not otherwise.
+ */
 function ThinkingPicker({
   title,
   levels,
@@ -494,19 +517,25 @@ function ThinkingPicker({
   onChange,
 }: {
   title: string;
-  levels: ThinkingLevel[];
+  /** the levels the role's model takes; undefined: no model yet */
+  levels: ThinkingLevel[] | undefined;
   value: ThinkingLevel;
   onChange: (level: ThinkingLevel) => void;
 }) {
-  if (levels.length < 2) return null;
+  const t = useT();
+  if (!levels || levels.length < 2)
+    return (
+      <Row name={t.models.thinking}>
+        <span className="min-w-0 flex-1 truncate text-right text-[15px]" style={{ color: "var(--text-tertiary)" }}>
+          {levels ? t.models.thinkingNone : t.models.thinkingNoModel}
+        </span>
+      </Row>
+    );
   return (
-    <label className="flex items-center gap-3 py-2.5 pl-4">
-      <span className="text-[15px]" style={{ color: "var(--text-secondary)" }}>
-        Thinking
-      </span>
+    <Row name={t.models.thinking}>
       <select
-        aria-label={`${title} thinking`}
-        className="min-w-0 flex-1 bg-transparent text-right text-[15px] outline-none"
+        aria-label={t.models.thinkingFor(title)}
+        className={pick}
         style={{ color: "var(--text-secondary)" }}
         value={value}
         onChange={(e) => {
@@ -516,11 +545,11 @@ function ThinkingPicker({
       >
         {levels.map((level) => (
           <option key={level} value={level}>
-            {levelName[level]}
+            {t.models.levels[level]}
           </option>
         ))}
       </select>
-    </label>
+    </Row>
   );
 }
 
@@ -543,6 +572,7 @@ function LocalVoiceSheet({
     service: { url: string; model: string; key: string | null } | null,
   ) => Promise<void>;
 }) {
+  const t = useT();
   const [url, setUrl] = useState("");
   const [model, setModel] = useState("");
   const [key, setKey] = useState("");
@@ -568,24 +598,20 @@ function LocalVoiceSheet({
           className="text-[20px] font-semibold"
           style={{ color: "var(--text-primary)" }}
         >
-          Your own speech server
+          {t.models.localTitle}
         </p>
         <p
           className="mt-1 text-[14px]"
           style={{ color: "var(--text-secondary)" }}
         >
-          Any server that turns speech into text the way OpenAI's does, like
-          faster-whisper-server or whisper.cpp. Use an address reachable from
-          the computer running Amuse. With Amuse running directly on that
-          computer, a local service can use 127.0.0.1; from Docker, use its
-          service name or host.docker.internal.
+          {t.models.localHelp}
         </p>
         <div
           className="mt-5 w-full divide-y divide-[var(--fill-divider)] overflow-hidden rounded-[18px] text-left"
           style={{ background: "var(--field)" }}
         >
           <input
-            aria-label="Address"
+            aria-label={t.models.address}
             className={field}
             style={{ color: "var(--text-primary)" }}
             placeholder={defaultUrl}
@@ -593,24 +619,20 @@ function LocalVoiceSheet({
             onChange={(e) => setUrl(e.target.value)}
           />
           <input
-            aria-label="Model"
+            aria-label={t.models.modelName}
             className={field}
             style={{ color: "var(--text-primary)" }}
-            placeholder="Model, e.g. Systran/faster-whisper-small"
+            placeholder={t.models.modelPlaceholder}
             value={model}
             onChange={(e) => setModel(e.target.value)}
           />
           <input
-            aria-label="Key (if it needs one)"
+            aria-label={t.models.keyLabel}
             type="password"
             autoComplete="off"
             className={field}
             style={{ color: "var(--text-primary)" }}
-            placeholder={
-              current
-                ? "Key (leave empty to keep none)"
-                : "Key, if it needs one"
-            }
+            placeholder={current ? t.models.keyKeepNone : t.models.keyIfNeeded}
             value={key}
             onChange={(e) => setKey(e.target.value)}
           />
@@ -636,7 +658,7 @@ function LocalVoiceSheet({
             })
           }
         >
-          Save
+          {t.models.save}
         </button>
         {current && (
           <button
@@ -644,7 +666,7 @@ function LocalVoiceSheet({
             style={{ color: "var(--fill-red)" }}
             onClick={() => void save(null)}
           >
-            Remove
+            {t.common.remove}
           </button>
         )}
         <button
@@ -652,58 +674,104 @@ function LocalVoiceSheet({
           style={{ color: "var(--text-primary)" }}
           onClick={onClose}
         >
-          Cancel
+          {t.common.cancel}
         </button>
       </div>
     </Sheet>
   );
 }
 
-/** One role's model: the providers' models to choose from (none chosen yet: said so). */
+/**
+ * One role's model, as rows of its group: its provider (when more than one has models: the same model can be at two),
+ * then one of that provider's models. None chosen yet: said so. A provider picked shows its models; the role's model
+ * changes only once one of them is picked. A role that can follow the chat's model (`unset`) offers that first in both.
+ */
 function ModelPicker({
   title,
   value,
   options,
+  names,
   unset,
   onChange,
 }: {
   title: string;
   value: string | null;
   options: KeysState["models"];
+  /** a provider's name by its id */
+  names: ReadonlyMap<string, string>;
   /** what no choice means, where it means something ("Same as chat"); else one must be chosen */
   unset?: string;
   onChange: (model: string | null) => void;
 }) {
+  const t = useT();
+  const providers = [...new Set(options.map((o) => o.provider))];
+  const current = options.find((o) => o.id === value)?.provider ?? null;
+  const [picked, setPicked] = useState<string | null>(null);
+  // a role on the chat's model has no provider of its own: the provider row says so too, until one is picked
+  const following = unset !== undefined && value === null && picked === null && providers.length > 1;
+  const provider = following ? null : (picked ?? current ?? providers[0] ?? null);
+  const shown = options.filter((o) => o.provider === provider);
+  // the role's model is this provider's: it is the one shown chosen; else, until one is picked, nothing is
+  const chosen = value !== null && shown.some((o) => o.id === value) ? value : "";
+  return (
+    <>
+      {providers.length > 1 && (
+        <Row name={t.models.provider}>
+          <select
+            aria-label={t.models.providerFor(title)}
+            className={pick}
+            style={{ color: "var(--text-secondary)" }}
+            value={provider ?? ""}
+            onChange={(e) => {
+              setPicked(e.target.value || null);
+              if (!e.target.value && value !== null) onChange(null);
+            }}
+          >
+            {unset && <option value="">{unset}</option>}
+            {providers.map((id) => (
+              <option key={id} value={id}>
+                {names.get(id) ?? id}
+              </option>
+            ))}
+          </select>
+        </Row>
+      )}
+      <Row name={t.models.model}>
+        <select
+          aria-label={t.models.modelFor(title)}
+          className={pick}
+          style={{
+            color: chosen || (unset && value === null) ? "var(--text-secondary)" : "var(--fill-blue)",
+          }}
+          value={chosen}
+          onChange={(e) => {
+            if (e.target.value) onChange(e.target.value);
+            else if (unset) onChange(null);
+          }}
+        >
+          {unset ? <option value="">{unset}</option> : !chosen && <option value="">{t.models.chooseModel}</option>}
+          {value && !options.some((o) => o.id === value) && <option value={value}>{value}</option>}
+          {shown.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name}
+            </option>
+          ))}
+        </select>
+      </Row>
+    </>
+  );
+}
+
+/** A picker as a role's row: what it is, then the choice at the end. */
+const pick = "min-w-0 flex-1 truncate bg-transparent text-right text-[15px] outline-none [text-align-last:right]";
+
+function Row({ name, children }: { name: string; children: ReactNode }) {
   return (
     <label className="flex items-center gap-3 py-2.5">
-      <span className="text-[16px]" style={{ color: "var(--text-primary)" }}>
-        {title}
+      <span className="shrink-0 text-[16px]" style={{ color: "var(--text-primary)" }}>
+        {name}
       </span>
-      <select
-        aria-label={`${title} model`}
-        className="min-w-0 flex-1 truncate bg-transparent text-right text-[15px] outline-none"
-        style={{
-          color: value || unset ? "var(--text-secondary)" : "var(--fill-blue)",
-        }}
-        value={value ?? ""}
-        onChange={(e) =>
-          e.target.value ? onChange(e.target.value) : unset && onChange(null)
-        }
-      >
-        {unset ? (
-          <option value="">{unset}</option>
-        ) : (
-          !value && <option value="">Choose a model</option>
-        )}
-        {value && !options.some((o) => o.id === value) && (
-          <option value={value}>{value}</option>
-        )}
-        {options.map((o) => (
-          <option key={o.id} value={o.id}>
-            {o.name}
-          </option>
-        ))}
-      </select>
+      {children}
     </label>
   );
 }

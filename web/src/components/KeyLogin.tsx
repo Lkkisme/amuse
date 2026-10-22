@@ -13,6 +13,7 @@ import type {
   Session,
 } from "@amuse/protocol";
 import { Sheet } from "./Sheet";
+import { useT } from "../i18n/react.ts";
 
 export function KeyLogin({
   session,
@@ -25,6 +26,7 @@ export function KeyLogin({
   /** `done`: a key was set up */
   onClose: (done: boolean) => void;
 }) {
+  const t = useT();
   const [step, setStep] = useState<LoginStep | null>(null);
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
@@ -90,7 +92,7 @@ export function KeyLogin({
           className="mt-1 text-[14px]"
           style={{ color: "var(--text-secondary)" }}
         >
-          {shown?.connected ? "Replace your API key" : "Add your API key"}
+          {shown?.connected ? t.keys.replace : t.keys.add}
         </p>
 
         {step?.kind === "prompt" &&
@@ -151,7 +153,7 @@ export function KeyLogin({
               className="mt-6 h-12 w-full rounded-full text-[16px] font-semibold text-white disabled:opacity-40"
               style={{ background: "var(--fill-blue)" }}
             >
-              Continue
+              {t.common.continue}
             </button>
           </form>
         )}
@@ -214,7 +216,7 @@ export function KeyLogin({
               style={{ background: "var(--fill-blue)" }}
               onClick={() => shown && start(shown.id)}
             >
-              Try again
+              {t.keys.tryAgain}
             </button>
           </>
         )}
@@ -224,7 +226,7 @@ export function KeyLogin({
           style={{ color: "var(--text-primary)" }}
           onClick={cancel}
         >
-          Cancel
+          {t.common.cancel}
         </button>
       </div>
     </Sheet>
@@ -267,17 +269,18 @@ export function KeyLine({
   test: TestState;
   brief?: boolean;
 }) {
+  const t = useT();
   const failed = test !== undefined && test !== "testing" && !test.ok;
   return (
     <span
       className="block text-[13px] [overflow-wrap:anywhere]"
       style={{ color: failed ? "var(--fill-red)" : "var(--text-secondary)" }}
     >
-      {hint ? `Key ${hint}` : "Key set"}
-      {test === "testing" && " · Testing…"}
+      {hint ? t.keys.keyHint(hint) : t.keys.keySet}
+      {test === "testing" && ` · ${t.keys.testing}`}
       {test !== undefined &&
         test !== "testing" &&
-        ` · ${test.ok ? "Works" : brief ? "Not working" : test.detail}`}
+        ` · ${test.ok ? t.keys.works : brief ? t.keys.notWorking : test.detail}`}
     </span>
   );
 }

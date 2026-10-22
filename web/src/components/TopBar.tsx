@@ -8,6 +8,7 @@ import type { State } from "@amuse/protocol";
 import type { Actions } from "../ui.ts";
 import { type AgentLine, agentLine } from "../view.ts";
 import { museAvatar } from "../transition.ts";
+import { useT } from "../i18n/react.ts";
 
 const LINE_ICONS = { list: List, tool: Wrench, approval: ShieldAlert } as const;
 
@@ -24,7 +25,7 @@ export function TopBar({ conversation, museOpen, actions }: { conversation: Stat
           Amuse avatar bubble, drawn over the top of its name badge (Amuse: 52px avatar, badge tucked 4px under).
           Its shadow is a layer of its own under the badge, so it falls on the chat, not on the badge. */}
       {!museOpen && (
-        <div className="pointer-events-none absolute left-1/2 top-3 z-10 flex -translate-x-1/2 flex-col items-center">
+        <div data-muse-avatar-group="" className="pointer-events-none absolute left-1/2 top-3 z-10 flex -translate-x-1/2 flex-col items-center">
           <span
             aria-hidden
             className="absolute top-0 size-[52px] rounded-full"
@@ -33,6 +34,7 @@ export function TopBar({ conversation, museOpen, actions }: { conversation: Stat
           <button
             aria-label="Amuse"
             className="pointer-events-auto relative z-[2] flex size-[52px] items-center justify-center rounded-full text-[20px] font-semibold"
+            data-muse-avatar=""
             style={{ ...museAvatar, background: "var(--avatar-fill)", color: "var(--avatar-text)" }}
             onClick={() => actions.setMuse(true)}
           >
@@ -81,11 +83,12 @@ function AvatarBadge({ line }: { line: AgentLine | null }) {
  * same curve the sidebar moves on.
  */
 export function MenuButton({ open, left, onClick }: { open: boolean; left: number; onClick: () => void }) {
+  const t = useT();
   const icon = "absolute transition-all duration-200 ease-out";
   const ease = "0.24s cubic-bezier(0.2, 0, 0, 1)";
   return (
     <button
-      aria-label={open ? "Close sidebar" : "Open menu"}
+      aria-label={open ? t.chat.closeSidebar : t.chat.openMenu}
       aria-expanded={open}
       className="hover-fade fixed top-3 z-[45] flex size-11 items-center justify-center rounded-full"
       style={{

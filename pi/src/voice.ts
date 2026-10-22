@@ -13,11 +13,22 @@ import { redact } from "./redact.ts";
 export const voiceServices = [
   { provider: "openai", name: "OpenAI (GPT-4o mini Transcribe)", url: "https://api.openai.com/v1/audio/transcriptions", model: "gpt-4o-mini-transcribe" },
   { provider: "groq", name: "Groq (Whisper large v3 turbo)", url: "https://api.groq.com/openai/v1/audio/transcriptions", model: "whisper-large-v3-turbo" },
-  { provider: "fireworks", name: "Fireworks (Whisper v3 turbo)", url: "https://api.fireworks.ai/inference/v1/audio/transcriptions", model: "whisper-v3-turbo" },
+  // Fireworks serves speech from a host of its own, not its API's (which answers 401 there)
+  { provider: "fireworks", name: "Fireworks (Whisper v3 turbo)", url: "https://audio-turbo.us-virginia-1.direct.fireworks.ai/v1/audio/transcriptions", model: "whisper-v3-turbo" },
 ];
 
 /** Speech cannot be turned into text: why, in words for the user. */
 export class VoiceUnavailable extends Error {}
+
+/** Why a speech service said no, in words: what it means, and what the user can do; `detail`: what it said, made plain. */
+export function refusal(service: string, status: number, detail: string): string {
+  const who = service.replace(/ \(.*\)$/, "");
+  const elsewhere = "or choose another service in Settings › Models › Voice";
+  if (status === 401 || status === 403) return `${who} did not accept your key for speech (${status}). Check that the key may use speech, ${elsewhere}.`;
+  if (status === 429) return `${who} is turning requests away just now (429). Try again in a moment.`;
+  if (status >= 500) return `${who}'s speech service is not working just now (${status}). Try again later, ${elsewhere}.`;
+  return `${who} could not turn that into text (${status}${detail ? `: ${detail}` : ""}).`;
+}
 
 /** The audio a recording gives (webm or ogg with opus, mp4 on Safari), as a file name a service takes. */
 const fileName = (type: string) => `speech.${type.includes("ogg") ? "ogg" : type.includes("mp4") || type.includes("aac") ? "m4a" : type.includes("wav") ? "wav" : "webm"}`;
@@ -56,7 +67,7 @@ export function transcriber(
         },
       );
       const said: unknown = await response.json().catch(() => null);
-      if (!response.ok) throw new VoiceUnavailable(redact(plainly(`${response.status} ${JSON.stringify(said)}`), keys.secrets()));
+      if (!response.ok) throw new VoiceUnavailable(refusal(service.name, response.status, redact(plainly(JSON.stringify(said ?? "")), keys.secrets()).slice(0, 200)));
       const text = typeof said === "object" && said !== null && "text" in said && typeof said.text === "string" ? said.text : "";
       return text.trim();
     }

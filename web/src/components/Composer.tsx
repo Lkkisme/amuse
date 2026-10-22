@@ -19,6 +19,7 @@ import { size } from "@amuse/core";
 import type { Actions } from "../ui.ts";
 import { busy } from "../view.ts";
 import { useFiles } from "../files.ts";
+import { useT } from "../i18n/react.ts";
 
 /** A file on its way: uploading, up (its attachment), or failed (why). */
 interface Pending {
@@ -35,6 +36,7 @@ const LINE = 36;
 const MAX_HEIGHT = 166;
 
 export function Composer({ conversation, place, actions }: { conversation: State; place: string | null; actions: Actions }) {
+  const t = useT();
   const working = busy(conversation);
   const files = useFiles();
   const [draft, setDraft] = useState("");
@@ -68,7 +70,6 @@ export function Composer({ conversation, place, actions }: { conversation: State
 
   // the mic: recorded here, turned into text on the server (with the user's own key), put in the draft to edit
   const [voice, setVoice] = useState<"idle" | "recording" | "transcribing">("idle");
-  const [voiceProblem, setVoiceProblem] = useState<string | null>(null);
   const recorder = useRef<MediaRecorder | null>(null);
   useEffect(() => () => {
     const recording = recorder.current;
@@ -83,21 +84,20 @@ export function Composer({ conversation, place, actions }: { conversation: State
   const secure = window.isSecureContext && !!navigator.mediaDevices?.getUserMedia;
   const canRecord = typeof MediaRecorder !== "undefined";
   const listen = async () => {
-    setVoiceProblem(null);
-    if (!secure) return setVoiceProblem("Voice needs Amuse on https (see the README: Other devices).");
-    if (!canRecord) return setVoiceProblem("This browser cannot record audio. Try updating the app or Android System WebView.");
+    if (!secure) return actions.notify(t.chat.voiceNeedsHttpsHelp);
+    if (!canRecord) return actions.notify(t.localVoice.unsupported);
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
-      return setVoiceProblem("The microphone was not allowed.");
+      return actions.notify(t.chat.micNotAllowed);
     }
     let recording: MediaRecorder;
     try {
       recording = new MediaRecorder(stream);
     } catch {
       stream.getTracks().forEach((track) => track.stop());
-      return setVoiceProblem("Audio recording could not start on this device.");
+      return actions.notify(t.localVoice.cannotStart);
     }
     const chunks: Blob[] = [];
     recording.ondataavailable = (e) => chunks.push(e.data);
@@ -111,9 +111,9 @@ export function Composer({ conversation, place, actions }: { conversation: State
           const said: unknown = await response.json().catch(() => null);
           const field = (key: string) => (typeof said === "object" && said !== null && key in said ? String(Reflect.get(said, key)) : "");
           if (response.ok && field("text")) setDraft((d) => (d.trim() ? `${d.trim()} ${field("text")}` : field("text")));
-          else setVoiceProblem(field("reason") || (response.ok ? "Nothing was heard." : "That could not be turned into text."));
+          else actions.notify(field("reason") || (response.ok ? t.chat.nothingHeard : t.chat.notTranscribed));
         })
-        .catch(() => setVoiceProblem("The server cannot be reached."))
+        .catch(() => actions.notify(t.common.serverUnreachable))
         .finally(() => setVoice("idle"));
     };
     recorder.current = recording;
@@ -180,16 +180,11 @@ export function Composer({ conversation, place, actions }: { conversation: State
       />
       <div className="relative mx-auto max-w-3xl px-4 pb-5 pt-1">
         <div
-          className={`pointer-events-auto flex flex-col px-2 py-2 ${pending.length > 0 || voiceProblem || lines ? "rounded-[26px]" : "rounded-full"}`}
+          className={`pointer-events-auto flex flex-col px-2 py-2 ${pending.length > 0 || lines ? "rounded-[26px]" : "rounded-full"}`}
           style={{ background: "var(--fill-primary)", boxShadow: "var(--shadow-float)" }}
         >
-          {voiceProblem && (
-            <p role="alert" className="px-3 pb-1 pt-1 text-[13px]" style={{ color: "var(--fill-red)" }}>
-              {voiceProblem}
-            </p>
-          )}
           {pending.length > 0 && (
-            <div className="flex gap-2 overflow-x-auto px-1 pb-2 pt-1.5" aria-label="Files to send">
+            <div className="flex gap-2 overflow-x-auto px-1 pb-2 pt-1.5" aria-label={t.chat.filesToSend}>
               {pending.map((p) => (
                 <Chip key={p.key} pending={p} onRemove={() => remove(p.key)} />
               ))}
@@ -200,7 +195,7 @@ export function Composer({ conversation, place, actions }: { conversation: State
             {files && (
               <>
                 <button
-                  aria-label="Add files"
+                  aria-label={t.chat.addFiles}
                   className="hover-fade flex size-9 shrink-0 items-center justify-center rounded-full"
                   style={{ color: "var(--icon-primary)" }}
                   onClick={() => picker.current?.click()}
@@ -225,7 +220,7 @@ export function Composer({ conversation, place, actions }: { conversation: State
               className={`min-w-0 flex-1 resize-none bg-transparent py-[7px] text-[15px] leading-[22px] outline-none ${files ? "" : "pl-3"}`}
               style={{ color: "var(--text-primary)", maxHeight: MAX_HEIGHT, maskImage: fade, WebkitMaskImage: fade }}
               onScroll={look}
-              placeholder={place ? `Message in ${place}` : "Message"}
+              placeholder={place ? t.chat.messageIn(place) : t.chat.message}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onPaste={(e) => {
@@ -243,10 +238,10 @@ export function Composer({ conversation, place, actions }: { conversation: State
             />
             {files && (
               <button
-                aria-label={voice === "recording" ? "Stop dictating" : voice === "transcribing" ? "Turning speech into text" : "Dictate"}
+                aria-label={voice === "recording" ? t.chat.stopDictating : voice === "transcribing" ? t.chat.turningIntoText : t.chat.dictate}
                 disabled={voice === "transcribing"}
                 aria-disabled={!secure}
-                title={secure ? undefined : "Voice needs https"}
+                title={secure ? undefined : t.chat.voiceNeedsHttps}
                 className={`flex size-9 shrink-0 items-center justify-center rounded-full ${voice === "idle" && secure ? "hover-fade" : ""} ${secure ? "" : "opacity-40"}`}
                 style={voice === "recording" ? { background: "var(--fill-red)", color: "#fff" } : { color: "var(--icon-secondary)" }}
                 onClick={() => (voice === "recording" ? stopListening() : void listen())}
@@ -263,7 +258,7 @@ export function Composer({ conversation, place, actions }: { conversation: State
             {trailing && (
               <button
                 key={trailing}
-                aria-label={trailing === "stop" ? "Stop" : "Send"}
+                aria-label={trailing === "stop" ? t.chat.stop : t.chat.send}
                 className="anim-popover-in flex size-9 shrink-0 items-center justify-center rounded-full"
                 style={{
                   background: "var(--fill-blue)",
@@ -284,13 +279,14 @@ export function Composer({ conversation, place, actions }: { conversation: State
 
 /** A file waiting to go: a thumbnail for an image, else its name and size; dimmed while uploading, red if it failed. */
 function Chip({ pending, onRemove }: { pending: Pending; onRemove: () => void }) {
+  const t = useT();
   const { file, preview, state } = pending;
   const failed = state.kind === "failed";
   return (
     <div
       className={`relative shrink-0 ${state.kind === "uploading" ? "opacity-60" : ""}`}
       title={failed ? state.reason : file.name}
-      aria-label={`${file.name}${state.kind === "uploading" ? ", uploading" : failed ? `, ${state.reason}` : ""}`}
+      aria-label={`${file.name}${state.kind === "uploading" ? t.chat.uploadingSuffix : failed ? `, ${state.reason}` : ""}`}
     >
       {preview ? (
         <img src={preview} alt="" className="size-14 rounded-[14px] object-cover" style={failed ? { outline: "2px solid var(--fill-red)" } : undefined} />
@@ -305,14 +301,14 @@ function Chip({ pending, onRemove }: { pending: Pending; onRemove: () => void })
               {file.name}
             </span>
             <span className="block text-[12px]" style={{ color: failed ? "var(--fill-red)" : "var(--text-secondary)" }}>
-              {failed ? "Not uploaded" : size(file.size)}
+              {failed ? t.chat.notUploaded : size(file.size)}
             </span>
           </span>
         </div>
       )}
       {state.kind === "uploading" && <span className="skeleton absolute inset-0 rounded-[14px]" />}
       <button
-        aria-label={`Remove ${file.name}`}
+        aria-label={t.chat.removeFile(file.name)}
         className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full"
         style={{ background: "var(--text-primary)", color: "var(--chat-background)" }}
         onClick={onRemove}

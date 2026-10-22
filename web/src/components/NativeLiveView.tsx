@@ -3,6 +3,8 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, RotateCw } from "lucide-react";
 import { keys } from "../remote-keys.ts";
 import { TouchSurface } from "./TouchSurface";
+import { useT } from "../i18n/react.ts";
+import { activeT } from "../i18n/language.ts";
 
 type Generation = string | number;
 type Size = { width: number; height: number };
@@ -72,6 +74,7 @@ export function NativeLiveView({ url, interactive, onFit, initialSize, renderCon
   initialSize: Size;
   renderControls(send: Sender, modes: Modes): ReactNode;
 }) {
+  const t = useT();
   const box = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const keyboard = useRef<HTMLTextAreaElement>(null);
@@ -155,7 +158,7 @@ export function NativeLiveView({ url, interactive, onFit, initialSize, renderCon
       setState("failed");
       client.close();
     };
-    const timeout = setTimeout(() => fail("The live browser did not become ready. Retry to reconnect."), 12_000);
+    const timeout = setTimeout(() => fail(activeT().localBrowser.readyTimeout), 12_000);
     const draw = async () => {
       if (decoding || !pending || left || failed) return;
       const frame = pending;
@@ -174,7 +177,7 @@ export function NativeLiveView({ url, interactive, onFit, initialSize, renderCon
           context.drawImage(decoded.image, 0, 0, target.width, target.height);
         }
       } catch {
-        if (ready.current?.generation === frame.generation) fail("The browser image could not be decoded. Retry live view.");
+        if (ready.current?.generation === frame.generation) fail(activeT().localBrowser.imageFailed);
       } finally {
         decoded?.close();
         decoding = false;
@@ -185,7 +188,7 @@ export function NativeLiveView({ url, interactive, onFit, initialSize, renderCon
       if (left || failed) return;
       if (typeof data === "string") {
         let value: unknown;
-        try { value = JSON.parse(data); } catch { return fail("The browser sent an invalid live-view message."); }
+        try { value = JSON.parse(data); } catch { return fail(activeT().localBrowser.invalidMessage); }
         const next = readyOf(value);
         if (next) {
           if (ready.current?.generation !== next.generation) {
@@ -202,15 +205,15 @@ export function NativeLiveView({ url, interactive, onFit, initialSize, renderCon
           setState("live");
         } else if (typeof value === "object" && value !== null && "type" in value && value.type === "error") {
           const reason = "message" in value ? value.message : "error" in value ? value.error : "reason" in value ? value.reason : null;
-          fail(typeof reason === "string" ? reason : "The live browser reported an error. Retry to reconnect.");
+          fail(typeof reason === "string" ? reason : activeT().localBrowser.reportedError);
         }
       } else if (ready.current && (data instanceof ArrayBuffer || data instanceof Blob)) {
         pending = { blob: data instanceof Blob ? data : new Blob([data], { type: "image/jpeg" }), generation: ready.current.generation };
         void draw();
       }
     };
-    client.onerror = () => fail("The live browser connection failed. Check the connection and retry.");
-    client.onclose = () => fail("The live browser connection closed. Retry to reconnect.");
+    client.onerror = () => fail(activeT().localBrowser.connectionFailed);
+    client.onclose = () => fail(activeT().localBrowser.connectionClosed);
     return () => {
       currentRelease.current();
       left = true;
@@ -313,7 +316,7 @@ export function NativeLiveView({ url, interactive, onFit, initialSize, renderCon
       send({ type: "navigate", url: target.href });
       setAddressProblem(null);
       editingAddress.current = false;
-    } catch { setAddressProblem("Enter an http:// or https:// address."); }
+    } catch { setAddressProblem(t.localBrowser.addressInvalid); }
   };
   const size = metadata ?? initialSize;
   const scale = zoom ? 1 : viewport.width && viewport.height ? Math.min(viewport.width / size.width, viewport.height / size.height) : 1;
@@ -326,12 +329,12 @@ export function NativeLiveView({ url, interactive, onFit, initialSize, renderCon
     <div className="remote-surface flex min-h-0 flex-1 flex-col" style={{ background: "var(--bg-secondary)" }} onContextMenu={(event) => event.preventDefault()}>
       <form className="flex min-h-11 shrink-0 items-center gap-1 px-1.5 py-1" style={{ background: "var(--fill-primary)", borderBottom: "1px solid var(--fill-divider)" }}
         onSubmit={(event) => { event.preventDefault(); navigate(); }}>
-        {([{ action: "back", label: "Back", icon: <ArrowLeft size={17} /> }, { action: "forward", label: "Forward", icon: <ArrowRight size={17} /> }, { action: "reload", label: "Reload", icon: <RotateCw size={16} /> }] as const).map(({ action, label, icon }) => (
+        {([{ action: "back", label: t.common.back, icon: <ArrowLeft size={17} /> }, { action: "forward", label: t.localBrowser.forward, icon: <ArrowRight size={17} /> }, { action: "reload", label: t.localBrowser.reload, icon: <RotateCw size={16} /> }] as const).map(({ action, label, icon }) => (
           <button key={action} type="button" aria-label={label} disabled={!canNavigate} className="flex size-8 shrink-0 items-center justify-center rounded-full disabled:opacity-35"
             style={{ color: "var(--icon-primary)", background: "var(--fill-secondary)" }} onClick={() => send({ type: "history", action })}>{icon}</button>
         ))}
-        <input aria-label="Browser address" type="text" inputMode="url" autoCapitalize="off" autoComplete="off" autoCorrect="off" spellCheck={false}
-          readOnly={!canNavigate} value={address} placeholder="Enter a website address" title={metadata?.title || "Browser address"}
+        <input aria-label={t.localBrowser.address} type="text" inputMode="url" autoCapitalize="off" autoComplete="off" autoCorrect="off" spellCheck={false}
+          readOnly={!canNavigate} value={address} placeholder={t.localBrowser.addressPlaceholder} title={metadata?.title || t.localBrowser.address}
           className="min-w-0 flex-1 rounded-full px-3 py-1.5 text-[16px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--fill-outline)]"
           style={{ color: "var(--text-primary)", background: "var(--fill-secondary)", userSelect: "text" }}
           onChange={(event) => { setAddress(event.target.value); setAddressProblem(null); }}
@@ -343,7 +346,7 @@ export function NativeLiveView({ url, interactive, onFit, initialSize, renderCon
           <div className="absolute inset-0 overflow-auto" style={{ scrollbarWidth: "none" }}>
             <div style={{ display: "grid", placeItems: "center", width: Math.max(viewport.width, width), height: Math.max(viewport.height, height) }}>
               <div className="relative" style={{ width, height }}>
-              <canvas ref={canvas} tabIndex={interactive && !touch ? 0 : -1} aria-label={metadata?.title || "Live browser page"}
+              <canvas ref={canvas} tabIndex={interactive && !touch ? 0 : -1} aria-label={metadata?.title || t.localBrowser.page}
                 style={{ display: "block", width, height, flexShrink: 0, outline: "none", cursor: interactive ? "default" : undefined }}
                 onFocus={() => { if (interactive && !touch) keyboard.current?.focus({ preventScroll: true }); }}
                 onPointerDown={(event) => {
@@ -363,7 +366,7 @@ export function NativeLiveView({ url, interactive, onFit, initialSize, renderCon
               </div>
             </div>
           </div>
-          <textarea ref={keyboard} aria-label="Type into the browser" tabIndex={-1} autoCapitalize="off" autoComplete="off" autoCorrect="off" spellCheck={false}
+          <textarea ref={keyboard} aria-label={t.viewer.typeIntoPage} tabIndex={-1} autoCapitalize="off" autoComplete="off" autoCorrect="off" spellCheck={false}
             className="pointer-events-none absolute bottom-0 left-0 size-px opacity-0" style={{ fontSize: 16 }}
             onBlur={releaseInput}
             onCompositionStart={() => { composing.current = true; }}
@@ -395,10 +398,10 @@ export function NativeLiveView({ url, interactive, onFit, initialSize, renderCon
               sendKey("up", key, modifiersOf(event));
             }} />
         </div>
-        {state === "connecting" && <div className="skeleton absolute inset-0" aria-label="Connecting to the browser" />}
+        {state === "connecting" && <div className="skeleton absolute inset-0" aria-label={t.viewer.keyConnecting} />}
         {state === "failed" && <div role="alert" className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center" style={{ background: "var(--bg-secondary)" }}>
           <p className="max-w-xs text-[14px]" style={{ color: "var(--text-secondary)" }}>{problem}</p>
-          <button type="button" className="h-10 rounded-full px-5 text-[14px] font-semibold text-white" style={{ background: "var(--fill-blue)" }} onClick={() => setAttempt((value) => value + 1)}>Retry live view</button>
+          <button type="button" className="h-10 rounded-full px-5 text-[14px] font-semibold text-white" style={{ background: "var(--fill-blue)" }} onClick={() => setAttempt((value) => value + 1)}>{t.localBrowser.retry}</button>
         </div>}
         {controls && <TouchSurface screen={box} mode={trackpad ? "trackpad" : zoom ? "pan" : "touch"} />}
       </div>
