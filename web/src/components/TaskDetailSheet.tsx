@@ -33,7 +33,7 @@ export function TaskDetailSheet({
     task.status === "waiting";
 
   return (
-    <Sheet open={open !== null} onClose={close}>
+    <Sheet open={open !== null} onClose={close} wide>
       <div className="overflow-y-auto px-6 pb-6 pt-4">
         <p
           className="pr-8 text-[20px] font-semibold leading-tight"
