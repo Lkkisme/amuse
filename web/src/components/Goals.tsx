@@ -7,6 +7,8 @@ import { useCallback, useEffect, useState } from "react";
 import { BellOff, CircleCheck, Plus, Target } from "lucide-react";
 import type { Goal, Session } from "@amuse/protocol";
 import { Sheet } from "./Sheet";
+import { useT } from "../i18n/react.ts";
+import { activeLocale } from "../i18n/language.ts";
 
 export const reason = (e: unknown) =>
   e instanceof Error ? e.message : String(e);
@@ -18,6 +20,7 @@ export function Goals({
   session: Session;
   onOpen: (id: string) => void;
 }) {
+  const t = useT();
   const [goals, setGoals] = useState<Goal[] | null>(null);
   const [adding, setAdding] = useState(false);
 
@@ -41,10 +44,10 @@ export function Goals({
           className="flex-1 text-[17px] font-semibold"
           style={{ color: "var(--text-primary)" }}
         >
-          Goals
+          {t.goals.title}
         </p>
         <button
-          aria-label="Add a goal"
+          aria-label={t.goals.add}
           className="hover-fade -mr-1 flex size-8 items-center justify-center rounded-full"
           style={{ color: "var(--icon-primary)" }}
           onClick={() => setAdding(true)}
@@ -59,8 +62,7 @@ export function Goals({
           className="mt-3 text-[14px]"
           style={{ color: "var(--text-secondary)" }}
         >
-          What you are working toward. Amuse looks into each one at night and
-          keeps track of how it goes.
+          {t.goals.none}
         </p>
       ) : (
         <ul className="mt-3 space-y-4">
@@ -75,7 +77,7 @@ export function Goals({
             className="mt-6 text-[13px] font-semibold"
             style={{ color: "var(--text-secondary)" }}
           >
-            Done
+            {t.goals.done}
           </p>
           <ul className="mt-3 space-y-4 opacity-60">
             {closed.map((g) => (
@@ -99,14 +101,17 @@ export function Goals({
 }
 
 function GoalRow({ goal, onOpen }: { goal: Goal; onOpen: () => void }) {
+  const t = useT();
   const Icon = goal.status === "done" ? CircleCheck : Target;
   const latest =
     goal.status === "done"
-      ? `Done${goal.latest ? ` · ${day(goal.latest.day)}` : ""}`
+      ? goal.latest
+        ? t.goals.doneOn(day(goal.latest.day))
+        : t.goals.done
       : goal.latest
-        ? `${day(goal.latest.day)} · ${firstLine(goal.latest.text)}`
+        ? t.goals.latestNote(day(goal.latest.day), firstLine(goal.latest.text))
         : goal.added
-          ? `Added ${day(goal.added)}`
+          ? t.goals.added(day(goal.added))
           : "";
   return (
     <li>
@@ -131,7 +136,7 @@ function GoalRow({ goal, onOpen }: { goal: Goal; onOpen: () => void }) {
             <span className="min-w-0 truncate">{goal.title}</span>
             {goal.muted && (
               <BellOff
-                aria-label="Muted"
+                aria-label={t.goals.muted}
                 size={14}
                 className="shrink-0"
                 style={{ color: "var(--icon-secondary)" }}
@@ -171,7 +176,7 @@ export function day(value: string): string {
   const date = new Date(`${value}T12:00:00`);
   if (Number.isNaN(date.getTime())) return value;
   const thisYear = date.getFullYear() === new Date().getFullYear();
-  return date.toLocaleDateString(undefined, {
+  return date.toLocaleDateString(activeLocale(), {
     month: "short",
     day: "numeric",
     ...(thisYear ? {} : { year: "numeric" }),
@@ -189,6 +194,7 @@ function AddGoal({
   onClose: () => void;
   onAdded: () => void;
 }) {
+  const t = useT();
   const [title, setTitle] = useState("");
   const [about, setAbout] = useState("");
   const [busy, setBusy] = useState(false);
@@ -224,13 +230,13 @@ function AddGoal({
           className="mt-4 text-[20px] font-semibold"
           style={{ color: "var(--text-primary)" }}
         >
-          Add a goal
+          {t.goals.addTitle}
         </p>
         <p
           className="mt-1 text-[14px]"
           style={{ color: "var(--text-secondary)" }}
         >
-          Something you are working toward, over weeks or months
+          {t.goals.addHelp}
         </p>
         <div
           className="mt-5 w-full overflow-hidden rounded-[18px] text-left"
@@ -238,10 +244,10 @@ function AddGoal({
         >
           <input
             autoFocus
-            aria-label="Goal"
+            aria-label={t.goals.goal}
             className="w-full bg-transparent px-4 py-3.5 text-[16px] outline-none"
             style={{ color: "var(--text-primary)" }}
-            placeholder="Like: run a half marathon"
+            placeholder={t.goals.example}
             maxLength={200}
             value={title}
             onChange={(e) => setTitle(e.target.value)}
@@ -251,11 +257,11 @@ function AddGoal({
             style={{ borderColor: "var(--fill-divider)" }}
           />
           <textarea
-            aria-label="More about it"
+            aria-label={t.goals.more}
             rows={3}
             className="w-full resize-none bg-transparent px-4 py-3 text-[16px] outline-none"
             style={{ color: "var(--text-primary)" }}
-            placeholder="Why, by when, where you are now (optional)"
+            placeholder={t.goals.aboutPlaceholder}
             maxLength={4000}
             value={about}
             onChange={(e) => setAbout(e.target.value)}
@@ -276,14 +282,14 @@ function AddGoal({
           style={{ background: "var(--fill-blue)" }}
           onClick={add}
         >
-          Add
+          {t.common.add}
         </button>
         <button
           className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
           style={{ color: "var(--text-primary)" }}
           onClick={onClose}
         >
-          Cancel
+          {t.common.cancel}
         </button>
       </div>
     </Sheet>

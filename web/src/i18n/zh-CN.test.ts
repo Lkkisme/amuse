@@ -48,6 +48,18 @@ const samples: Record<string, unknown[]> = {
   "cards.destinationFile": [".config/tool/token"],
   "cards.destinationPane": ["1"],
   "cards.scheduleLabel": ["Sample schedule"],
+  "sidebar.noMatch": ["Sample"],
+  "sidebar.optionsFor": ["Sample chat"],
+  "sidebar.ago.minutes": [5],
+  "sidebar.ago.hours": [3],
+  "sidebar.ago.days": [2],
+  "goals.doneOn": ["Oct 21"],
+  "goals.latestNote": ["Oct 21", "A note"],
+  "goals.added": ["Oct 21"],
+  "goals.startedOn": ["Oct 21"],
+  "goals.sinceDay": ["Oct 21"],
+  "skills.removeTitle": ["Sample skill"],
+  "skills.installMessage": ["a sample"],
 };
 
 test("the Chinese catalog has every message the English one has", () => {
@@ -58,13 +70,15 @@ test("the Chinese catalog has every message the English one has", () => {
 });
 
 test("every Chinese message is said: text is not empty, and a message that takes values says something for it", () => {
+  const unsampled = messages(zhCN)
+    .filter(([key, value]) => typeof value === "function" && !samples[key])
+    .map(([key]) => key);
+  assert.deepEqual(unsampled, [], "these take values: add sample values for them to this test");
   for (const [key, value] of messages(zhCN)) {
     if (typeof value === "string") {
       assert.notEqual(value.trim(), "", key);
     } else if (typeof value === "function") {
-      const args = samples[key];
-      if (!args) assert.fail(`${key} takes values: add sample values for it to this test`);
-      const said: unknown = Reflect.apply(value, undefined, args);
+      const said: unknown = Reflect.apply(value, undefined, samples[key] ?? []);
       assert.equal(typeof said, "string", key);
       assert.notEqual(String(said).trim(), "", key);
     } else {

@@ -19,18 +19,22 @@ import { usePresence } from "./usePresence";
 import { Goals } from "./Goals";
 import { GoalPage } from "./GoalPage";
 import { SkillPage, Skills } from "./Skills";
+import { useT } from "../i18n/react.ts";
+import { type Language, activeLanguage, activeLocale, catalogOf } from "../i18n/language.ts";
+import type { Messages } from "../i18n/en.ts";
 
 /** How long ago, in a few characters: now, 5m, 3h, 2d, then the date. */
-function ago(iso: string, now = Date.now()): string {
+function ago(iso: string, now = Date.now(), language: Language = activeLanguage()): string {
+  const t = catalogOf(language).sidebar.ago;
   const minutes = Math.floor((now - Date.parse(iso)) / 60_000);
-  if (minutes < 1) return "now";
-  if (minutes < 60) return `${minutes}m`;
-  if (minutes < 24 * 60) return `${Math.floor(minutes / 60)}h`;
-  if (minutes < 7 * 24 * 60) return `${Math.floor(minutes / (24 * 60))}d`;
-  return new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" });
+  if (minutes < 1) return t.now;
+  if (minutes < 60) return t.minutes(minutes);
+  if (minutes < 24 * 60) return t.hours(Math.floor(minutes / 60));
+  if (minutes < 7 * 24 * 60) return t.days(Math.floor(minutes / (24 * 60)));
+  return new Date(iso).toLocaleDateString(activeLocale(), { month: "short", day: "numeric" });
 }
 
-const named = (chat: Chat) => (chat.id === MAIN ? "Main chat" : chat.title || "New chat");
+const named = (chat: Chat, t: Messages) => (chat.id === MAIN ? t.sidebar.mainChat : chat.title || t.chat.newChat);
 
 /** The sidebar's width, the same whatever page it shows. */
 export const SIDEBAR_WIDTH = 320;
@@ -115,12 +119,13 @@ export function DrawerSidebar({ open, ...props }: SidebarProps & { open: boolean
 }
 
 function SidebarContent({ chats, current, left, goal, skill, session, actions }: SidebarProps) {
+  const t = useT();
   return (
     <>
-      <nav className="mt-3 grid shrink-0 grid-cols-3 gap-1" aria-label="Pages">
+      <nav className="mt-3 grid shrink-0 grid-cols-3 gap-1" aria-label={t.sidebar.pagesLabel}>
         {NAV_PAGES.map(({ icon: Icon, label, shown, open }) => (
           <button
-            key={label}
+            key={label(t)}
             aria-current={shown(left) ? "page" : undefined}
             className="hover-fade flex flex-col items-center gap-1 rounded-xl py-2.5 text-[12px] font-medium"
             style={{
@@ -130,7 +135,7 @@ function SidebarContent({ chats, current, left, goal, skill, session, actions }:
             onClick={() => open(actions)}
           >
             <Icon size={20} />
-            {label}
+            {label(t)}
           </button>
         ))}
       </nav>
@@ -169,17 +174,18 @@ function SidebarContent({ chats, current, left, goal, skill, session, actions }:
         }}
       >
         <Settings size={18} style={{ color: "var(--icon-secondary)" }} />
-        Settings
+        {t.settings.title}
       </button>
     </>
   );
 }
 
 function ChatList({ chats, current, actions }: { chats: Chat[]; current: string; actions: Actions }) {
+  const t = useT();
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
   const main = chats.find((c) => c.id === MAIN);
-  const sides = chats.filter((c) => c.id !== MAIN && (!q || named(c).toLowerCase().includes(q)));
+  const sides = chats.filter((c) => c.id !== MAIN && (!q || named(c, t).toLowerCase().includes(q)));
   return (
     <>
       {/* search sits on the list it filters */}
@@ -188,7 +194,7 @@ function ChatList({ chats, current, actions }: { chats: Chat[]; current: string;
         <input
           className="w-full bg-transparent text-[14px] outline-none"
           style={{ color: "var(--text-primary)" }}
-          placeholder="Search chats"
+          placeholder={t.sidebar.searchChats}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -202,10 +208,10 @@ function ChatList({ chats, current, actions }: { chats: Chat[]; current: string;
         {/* Side chats + add */}
         <div className="mt-4 flex items-center justify-between px-3">
           <span className="text-[13px] font-semibold" style={{ color: "var(--text-secondary)" }}>
-            Side chats
+            {t.sidebar.sideChats}
           </span>
           <button
-            aria-label="New side chat"
+            aria-label={t.sidebar.newSideChat}
             className="hover-fade flex size-6 items-center justify-center rounded-full"
             style={{ background: "var(--fill-secondary)", color: "var(--icon-primary)" }}
             onClick={actions.newChat}
@@ -216,7 +222,7 @@ function ChatList({ chats, current, actions }: { chats: Chat[]; current: string;
         <div className="mt-2 space-y-0.5">
           {sides.length === 0 && (
             <p className="px-3 py-2 text-[14px]" style={{ color: "var(--text-secondary)" }}>
-              {q ? `No chats match "${query}"` : "None yet. A side chat keeps a topic apart from the main chat."}
+              {q ? t.sidebar.noMatch(query) : t.sidebar.noSideChats}
             </p>
           )}
           {sides.map((c) => (
@@ -230,6 +236,7 @@ function ChatList({ chats, current, actions }: { chats: Chat[]; current: string;
 
 /** One chat in the list: opens it; a side chat's row also renames or deletes it (from its … menu). */
 function Row({ chat, current, actions, main = false }: { chat: Chat; current: boolean; actions: Actions; main?: boolean }) {
+  const t = useT();
   const [mode, setMode] = useState<"idle" | "menu" | "rename" | "delete">("idle");
   const [title, setTitle] = useState(chat.title);
   const input = useRef<HTMLInputElement>(null);
@@ -248,7 +255,7 @@ function Row({ chat, current, actions, main = false }: { chat: Chat; current: bo
         <MessageCircle size={17} style={{ color: "var(--icon-secondary)" }} />
         <input
           ref={input}
-          aria-label="Chat name"
+          aria-label={t.sidebar.chatName}
           className="min-w-0 flex-1 bg-transparent py-1 text-[14px] outline-none"
           style={{ color: "var(--text-primary)" }}
           value={title}
@@ -273,7 +280,7 @@ function Row({ chat, current, actions, main = false }: { chat: Chat; current: bo
       >
         <MessageCircle size={main ? 18 : 17} style={{ color: main ? "var(--icon-primary)" : "var(--icon-secondary)" }} />
         <span className={`min-w-0 flex-1 truncate ${main ? "text-[15px] font-medium" : "text-[14px]"}`} style={{ color: "var(--text-primary)" }}>
-          {named(chat)}
+          {named(chat, t)}
         </span>
         <span className={`shrink-0 text-[12px] ${main ? "" : "group-hover:invisible max-sm:invisible"}`} style={{ color: "var(--text-secondary)" }}>
           {ago(chat.updated)}
@@ -281,7 +288,7 @@ function Row({ chat, current, actions, main = false }: { chat: Chat; current: bo
       </button>
       {!main && (
         <button
-          aria-label={`Options for ${named(chat)}`}
+          aria-label={t.sidebar.optionsFor(named(chat, t))}
           className="hover-fade absolute right-2 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-full opacity-0 focus:opacity-100 group-hover:opacity-100 max-sm:opacity-100"
           style={{ color: "var(--icon-secondary)", background: "var(--chat-background)" }}
           onClick={() => setMode(mode === "menu" ? "idle" : "menu")}
@@ -303,16 +310,16 @@ function Row({ chat, current, actions, main = false }: { chat: Chat; current: bo
                   setMode("rename");
                 }}
               >
-                Rename
+                {t.sidebar.rename}
               </MenuItem>
               <MenuItem danger onClick={() => setMode("delete")}>
-                Delete
+                {t.common.remove}
               </MenuItem>
             </>
           ) : (
             <>
               <p className="px-3 pb-1 pt-2 text-[13px]" style={{ color: "var(--text-secondary)" }}>
-                Delete this chat for good? Anything still running in it stops.
+                {t.sidebar.deleteHelp}
               </p>
               <MenuItem
                 danger
@@ -321,9 +328,9 @@ function Row({ chat, current, actions, main = false }: { chat: Chat; current: bo
                   actions.deleteChat(chat.id);
                 }}
               >
-                Delete
+                {t.sidebar.delete}
               </MenuItem>
-              <MenuItem onClick={() => setMode("idle")}>Cancel</MenuItem>
+              <MenuItem onClick={() => setMode("idle")}>{t.common.cancel}</MenuItem>
             </>
           )}
         </div>
