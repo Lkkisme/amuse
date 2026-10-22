@@ -41,6 +41,10 @@ however Amuse is published.
 
 Then `docker compose up -d`.
 
+An [Android client](android/README.md) connects to the same HTTPS server and web
+interface, with document uploads, downloads, voice permissions and an optional
+device lock. It does not require a separate model API or chat database.
+
 ## Voice
 
 The mic turns what you say into text with OpenAI, Groq or Fireworks (your key), or a speech
