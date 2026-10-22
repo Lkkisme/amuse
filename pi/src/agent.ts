@@ -43,7 +43,7 @@ export interface PiConfig extends PiModelConfig {
   /** Its own machine to run commands in (the chat agent and its helpers; not the browser agent); without one, no such tools. */
   sandbox?: SandboxClient;
   /** While apps are not set up: how the user sets them up (null once they are). */
-  appsSetup?: () => string | null;
+  appsSetup?: (provider: string) => string | null;
   /** The skills that ship with Amuse (the user's own are read from skills/ in the workspace). */
   /** How this instance is set up right now (models, apps, browsers, sandbox), for `amuse_status`. */
   about?: () => Promise<string>;

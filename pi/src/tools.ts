@@ -29,7 +29,7 @@ export function timeNow(io: Pick<AgentIO, "time">): string {
 export function tools(
   io: () => AgentIO,
   rules: Rules,
-  { files, hold, appsSetup }: { files?: Workspace | undefined; hold?: Hold; appsSetup?: (() => string | null) | undefined } = {},
+  { files, hold, appsSetup }: { files?: Workspace | undefined; hold?: Hold; appsSetup?: ((provider: string) => string | null) | undefined } = {},
 ): ToolDefinition[] {
   return [
     defineTool({
@@ -134,7 +134,7 @@ export function tools(
       async execute(_, { provider, title }) {
         const result = io().act({ kind: "connect", provider, title });
         // before connections are set up, the card leads to the settings where their key goes
-        const setup = appsSetup?.();
+        const setup = appsSetup?.(provider);
         if (result.ok && setup)
           return text(`Showed a Connect card for ${title}. Connections are not set up yet, so tapping it opens the settings where the Composio key goes; once the key is in, the same card connects ${title}. ${setup}`);
         return text(result.ok ? `Asked the user to connect ${title}. Continue once they have.` : `Could not ask: ${describe(result.rejection)}.`);
@@ -207,7 +207,7 @@ export function pick(app: string, accounts: AppAccount[], asked: string | undefi
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
 /** GMAIL_SEND_EMAIL → gmail, the app an action belongs to. */
-const appOf = (slug: string) => slug.split("_")[0]?.toLowerCase() ?? "";
+const appOf = (slug: string) => slug.startsWith("LOCAL_GITHUB_") ? "local-github" : slug.split("_")[0]?.toLowerCase() ?? "";
 
 /** Find and use actions of the user's connections; consequential ones need approval. */
 export function appTools(io: () => AgentIO, apps: Apps, hold?: Hold): ToolDefinition[] {
