@@ -78,9 +78,12 @@ export function TerminalView({
     if (!el) return;
     setPhase("opening");
     const term = new Terminal({
+      // CJK falls back to a monospaced font that has it; lines a little taller than the type, as Chinese characters are
+      // taller than Latin ones and were cut off at the top
       fontFamily:
-        'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+        'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", "Noto Sans Mono CJK SC", "Sarasa Mono SC", "PingFang SC", "Microsoft YaHei", monospace',
       fontSize: 13,
+      lineHeight: 1.2,
       cursorBlink: true,
       macOptionIsMeta: true,
       // herdr keeps each pane's history
