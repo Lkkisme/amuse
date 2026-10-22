@@ -164,3 +164,25 @@ test("a credential file goes in the home folder, never the workspace or out of h
   await sandbox.forget({ file: ".config/tool/key" });
   assert.equal(existsSync(written), false);
 });
+
+test("nothing a browser sends is taken: a page's POST or websocket says where it comes from, and is refused", async () => {
+  const file = join(root, "from-a-page");
+  const page = await fetch(`http://127.0.0.1:${daemon.port}/run`, {
+    method: "POST",
+    headers: { "content-type": "text/plain", origin: "http://evil.example" },
+    body: JSON.stringify({ command: `touch ${file}` }),
+  });
+  assert.equal(page.status, 403);
+  const fetched = await fetch(`http://127.0.0.1:${daemon.port}/run`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "sec-fetch-site": "cross-site" },
+    body: JSON.stringify({ command: `touch ${file}` }),
+  });
+  assert.equal(fetched.status, 403);
+  const { WebSocket } = await import("ws");
+  const socket = new WebSocket(`ws://127.0.0.1:${daemon.port}/terminal`, { headers: { origin: "http://evil.example" } });
+  await new Promise((done) => socket.once("error", done));
+  assert.equal(existsSync(file), false);
+  // the server's own requests carry no Origin, and go through
+  assert.equal((await sandbox.run({ command: "echo ok" })).output.trim(), "ok");
+});

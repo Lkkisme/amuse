@@ -89,6 +89,11 @@ leaves it, and deleting or overwriting the files you sent, still needs your word
   pick a workspace or pane with the mouse or its keys (`ctrl+b`), and type there too. On a phone a row
   of keys (Esc, Ctrl, Alt, Tab, arrows) sits under it. Closing the view, or herdr's detach
   (`ctrl+b q`), only leaves: what runs there goes on.
+- Web apps: Amuse's browsers reach the sandbox as `http://sandbox:<port>`, so a web app Amuse runs there
+  opens in its browser, which you watch and take over in the viewer. The browsers share the sandbox's
+  network for that; the sandbox cannot connect back to them (its rules let out only replies there), and
+  its control daemon takes nothing a browser sends. Your own phone or computer cannot open these
+  addresses yet (#13).
 - Two folders of the workspace are read-only there: `memory/`, which Amuse reads as its own context, and
   `user/`, what you sent. Amuse edits its memory with its own tools, not from a shell; to work on a file
   you sent, it makes a copy elsewhere. `skills/` is writable and is also `~/.agents/skills`, so

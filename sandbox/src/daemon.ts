@@ -1,8 +1,11 @@
 /**
  * The sandbox's control daemon: Amuse's way to work inside its own machine.
- * It listens on the sandbox network only; the one other thing on that network
- * is the Amuse server, and whatever runs here can already do all it can ask
- * (the user has sudo), so it asks for no token. It runs as root, so that it
+ * It listens on the sandbox network only, which it shares with the Amuse server
+ * and Amuse's browsers (so they can open what runs here). Whatever runs here can
+ * already do all it can ask (the user has sudo), so it asks for no token; but
+ * nothing a browser sends is taken, so a page open in one of those browsers
+ * cannot drive it (a browser always says where a POST or a websocket comes
+ * from, in `Origin`; the server's own requests never do). It runs as root, so that it
  * can always stop what it started and clean up after it, but every command it
  * starts runs as the normal user (`user`), never as root unless it says sudo.
  *
@@ -103,6 +106,9 @@ const Listed = z.object({ workspaces: z.array(z.unknown()) });
 const Running = z.object({
   process_info: z.object({ shell_pid: z.int().nullable().default(null), foreground_process_group_id: z.int().nullable().default(null) }),
 });
+
+/** A request a browser made (a page's form, script or websocket): it says where it comes from; the server's never do. */
+const fromBrowser = (req: IncomingMessage) => req.headers.origin !== undefined || req.headers["sec-fetch-site"] !== undefined;
 
 /** `text` as one word for bash. */
 const quoted = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
@@ -490,6 +496,7 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
   };
 
   const http = createServer((req, res) => {
+    if (fromBrowser(req)) return json(res, 403, { error: "Requests from a browser are not taken here." });
     handle(req, res).catch((error: unknown) => {
       const refused = error instanceof Refused;
       if (res.headersSent) return void res.end();
@@ -500,6 +507,7 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
   const sockets = new WebSocketServer({ noServer: true });
   http.on("upgrade", (req, socket, head) => {
     const url = new URL(req.url ?? "/", "http://local");
+    if (fromBrowser(req)) return void socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
     if (url.pathname !== TERMINAL_PATH) return void socket.end("HTTP/1.1 404 Not Found\r\n\r\n");
     sockets.handleUpgrade(req, socket, head, (ws) => {
       openTerminal(ws, url).catch(() => ws.close(1011, "The terminal could not be opened."));

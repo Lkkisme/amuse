@@ -62,12 +62,18 @@ export function siteOf(url: string): string | null {
  *   deny      never go there, and do not ask
  *   unlisted  no rule: not visited until the user allows it (asked each time,
  *             or for good: "always" makes it `ask`)
+ * Amuse's own sandbox (`http://sandbox:<port>`, what it serves there) is its
+ * own: always allowed.
  */
 export type SiteAccess = Permission | "unlisted";
+
+/** The sandbox's name on the network its browsers share with it (compose.yaml). */
+export const SANDBOX_SITE = "sandbox";
 
 export function siteAccess(rules: Readonly<Record<string, Permission>>, url: string): SiteAccess {
   const site = siteOf(url);
   if (!site) return "deny"; // not a web page: nothing to do there
+  if (site === SANDBOX_SITE) return "allow";
   const labels = site.split(".");
   for (let i = 0; i < labels.length; i++) {
     const rule = rules[labels.slice(i).join(".")];

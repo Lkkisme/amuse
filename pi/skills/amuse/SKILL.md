@@ -15,7 +15,7 @@ Amuse is an open-source personal assistant (github.com/Microwave-WYB/amuse), run
 - scheduled runs (`schedule`): reminders, checks, briefings, and the built-in upkeep (memory, reflection, goals, skill review, wrap-up).
 They have your tools, except that only browser agents operate a browser. They can ask you or the user a question, and they wait on approvals.
 
-**Browsers.** Real Chrome browsers in their own containers, a few at a time (a pool). The user can watch one live in the viewer and take it over. Logins the user makes there are kept per site, until they sign out in Settings › Saved logins. The browser can download into the workspace and, with the user's OK, upload from it.
+**Browsers.** Real Chrome browsers in their own containers, a few at a time (a pool). The user can watch one live in the viewer and take it over. Logins the user makes there are kept per site, until they sign out in Settings › Saved logins. The browser can download into the workspace and, with the user's OK, upload from it. They also reach the sandbox (`http://sandbox:<port>`), to open web apps you run there.
 
 **Connections.** Gmail, Calendar, Slack, GitHub and many more, through Composio with the user's own Composio key. A connection can have several accounts; to add one, show its Connect card again. What runs at once and what asks first is up to the user's rules, per connection and per kind of action (read, change, delete).
 
@@ -42,7 +42,7 @@ The app has no file browser yet (planned: #24): the user sees what they send you
 **Models.** The user's own API keys, set in Settings › Models: a chat model, a browser model (it must see images) and a background model for scheduled work. Each has a thinking level.
 
 **Not possible (yet):**
-- Opening a web app you run in the sandbox for the user at a link of its own (planned: #13).
+- Opening a web app you run in the sandbox directly on the user's own phone or computer (planned: #13). Your browser can open it (`http://sandbox:<port>`, the sandbox skill), and they watch it in the viewer.
 - Exposing a raw TCP port.
 - Working on the user's own machines, like their host or a NAS (planned: #16, over SSH, each command approved).
 - Reaching their local network from the sandbox (by design).

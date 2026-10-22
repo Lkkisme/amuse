@@ -48,3 +48,11 @@ test("site rules are kept apart from app rules", async () => {
   await rules.setSite("bank.com", null);
   assert.deepEqual(await rules.sites(), {});
 });
+
+test("Amuse's own sandbox is always open to its browsers, whatever the rules say of other sites", () => {
+  assert.equal(siteAccess({}, "http://sandbox:5173/"), "allow");
+  assert.equal(siteAccess({ sandbox: "deny" }, "http://sandbox:8000/app/"), "allow");
+  // only that name: a site that merely contains it is a site like any
+  assert.equal(siteAccess({}, "https://sandbox.example.com/"), "unlisted");
+  assert.equal(siteAccess({}, "https://mysandbox/"), "unlisted");
+});
