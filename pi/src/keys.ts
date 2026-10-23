@@ -216,6 +216,8 @@ export function piKeys({ keys, choices, apps = [], modelsPath }: { keys: KeyFile
   const listeners: (() => void)[] = [];
   const changed = () => listeners.forEach((listener) => listener());
   const logins = new Map<string, Flow>();
+  /** The sign-in going on for each provider, by login id: a second one for it resumes that. */
+  const running = new Map<string, string>();
   const appKeys = new Map<string, string>();
   const loadAppKeys = async () => {
     for (const app of apps) {
@@ -260,7 +262,7 @@ export function piKeys({ keys, choices, apps = [], modelsPath }: { keys: KeyFile
   };
 
   /** Run a sign-in to its first step; later steps come with each answer, or with keys.wait. */
-  const begin = (run: (interaction: AuthInteraction) => Promise<unknown>, way: KeyWay): Promise<LoginStep> => {
+  const begin = (who: string, run: (interaction: AuthInteraction) => Promise<unknown>, way: KeyWay): Promise<LoginStep> => {
     const id = newId("l");
     let wake: (step: LoginStep) => void = () => {};
     const next = () => new Promise<LoginStep>((resolve) => (wake = resolve));
@@ -276,6 +278,7 @@ export function piKeys({ keys, choices, apps = [], modelsPath }: { keys: KeyFile
     };
     flow.timer.unref?.();
     logins.set(id, flow);
+    running.set(who, id);
     /** whoever waits now hears `step`; the next one is waited for anew */
     const show = (step: LoginStep) => {
       const now = wake;
@@ -286,6 +289,8 @@ export function piKeys({ keys, choices, apps = [], modelsPath }: { keys: KeyFile
     /** the last step: whoever waits hears it, and so does anyone who asks later */
     const end = (step: LoginStep) => {
       flow.shown = step;
+      // over: the next sign-in for this provider starts anew rather than resuming this one
+      if (running.get(who) === id) running.delete(who);
       wake(step);
     };
     // a page to open or a code to enter is said once the provider has nothing more to ask in the same breath
@@ -430,9 +435,14 @@ export function piKeys({ keys, choices, apps = [], modelsPath }: { keys: KeyFile
     },
 
     async login(provider, way = "key") {
+      // A sign-in for this provider is already going on: the step it is on is this one's answer. Pi holds a second
+      // sign-in for a provider behind the first until that one finishes, so awaiting it blind would never answer.
+      const going = running.get(provider);
+      const live = going === undefined ? undefined : logins.get(going);
+      if (live) return live.shown ?? live.step;
       const app = apps.find((a) => a.id === provider);
       if (app)
-        return begin(async (interaction) => {
+        return begin(app.id, async (interaction) => {
           interaction.notify({
             type: "info",
             message: app.where,
@@ -452,7 +462,7 @@ export function piKeys({ keys, choices, apps = [], modelsPath }: { keys: KeyFile
       if (way === "account" && !found.auth.oauth) return { kind: "failed", reason: `${found.name} offers no sign-in with an account here; use an API key.` };
       const models = await runtime(cfg);
       // Pi keeps what the sign-in gives (a key, or the account's tokens) in `keys`, the one credential store
-      return begin((interaction) => models.login(provider, way === "account" ? "oauth" : "api_key", interaction, { getDeviceId: installation, agentName: AGENT_NAME }), way);
+      return begin(provider, (interaction) => models.login(provider, way === "account" ? "oauth" : "api_key", interaction, { getDeviceId: installation, agentName: AGENT_NAME }), way);
     },
 
     async answer(login, value) {

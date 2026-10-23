@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
 import { test } from "node:test";
 import { type OAuthAuth, type OAuthCredential, type Provider, envApiKeyAuth } from "@earendil-works/pi-ai";
 import type { ServiceKey, ServiceStore, ServiceWrite } from "@amuse/core";
@@ -274,4 +275,84 @@ test("expired tokens are refreshed once, in the Vault entry they are kept in, an
   const reopened = storeCredentials(store);
   const credential = await reopened.read("fake-refresh");
   assert.equal(credential?.type === "oauth" ? credential.access : undefined, "access_secret_2");
+});
+
+/** A port nothing holds: the stand-in for OpenAI's 127.0.0.1:1455, which its own sign-in holds while it waits. */
+async function freePort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address !== null ? address.port : 0;
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return port;
+}
+
+/** Whether that port can be taken again: what a sign-in that let it go leaves behind. */
+async function free(port: number): Promise<boolean> {
+  const server = createServer();
+  const taken = await new Promise<boolean>((resolve) => {
+    server.once("error", () => resolve(false));
+    server.listen(port, "127.0.0.1", () => resolve(true));
+  });
+  if (taken) await new Promise<void>((resolve) => server.close(() => resolve()));
+  return taken;
+}
+
+/** A call that must answer: what Pi's sign-in queue does to a second one is never answer at all. */
+function answered<T>(call: Promise<T>): Promise<T | "no answer"> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<"no answer">((resolve) => (timer = setTimeout(() => resolve("no answer"), 2000)));
+  return Promise.race([call, late]).finally(() => clearTimeout(timer));
+}
+
+test("a second sign-in for a provider hears the step the first is on, and stopping it lets the port go", async () => {
+  // the port a provider's own sign-in holds while it waits
+  const port = await freePort();
+  let held = 0;
+  const twice = fake("fake-twice", {
+    name: "Fake twice",
+    async login(interaction) {
+      const server = createServer();
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(port, "127.0.0.1", resolve);
+      });
+      held++;
+      interaction.notify({ type: "auth_url", url: "https://auth.example.com/authorize?state=s" });
+      try {
+        await new Promise<void>((_resolve, reject) => interaction.signal.addEventListener("abort", () => reject(new Error("Login cancelled")), { once: true }));
+      } finally {
+        // what a provider's own sign-in does when it is stopped
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+      return tokens(1);
+    },
+    refresh: async () => tokens(2),
+    toAuth: async (credential) => ({ apiKey: credential.access }),
+  });
+  const { keys } = await setup([twice]);
+
+  const first = await keys.login("fake-twice", "account");
+  if (first.kind !== "wait") return assert.fail(`expected a wait, got ${first.kind}`);
+
+  // a second sheet for the same provider: it hears where the sign-in stands instead of waiting on Pi's queue
+  const second = await answered(keys.login("fake-twice", "account"));
+  if (second === "no answer") return assert.fail("the second sign-in never answered");
+  assert.equal(second.kind, "wait");
+  assert.equal(second.kind === "wait" ? second.login : null, first.login, "the second sheet resumes the sign-in that is going on");
+  assert.equal(held, 1, "the provider's own sign-in ran once, not twice");
+
+  // stopping it from either sheet stops the one sign-in there is, and the port it held is free again
+  const stopped = keys.wait(first.login);
+  await keys.cancel(second.kind === "wait" ? second.login : "");
+  assert.deepEqual(await stopped, { kind: "failed", reason: "The sign-in was stopped." });
+  assert.equal(await free(port), true, "the port the sign-in held is free again");
+
+  // and a sign-in started after that is a new one, not the one that ended
+  const again = await answered(keys.login("fake-twice", "account"));
+  if (again === "no answer") return assert.fail("the sign-in after that never answered");
+  assert.equal(again.kind, "wait");
+  assert.notEqual(again.kind === "wait" ? again.login : null, first.login);
+  assert.equal(held, 2);
+  await keys.cancel(again.kind === "wait" ? again.login : "");
 });
