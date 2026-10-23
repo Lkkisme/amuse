@@ -30,8 +30,9 @@ an unlock lasts 5 minutes after the last such action (1, 15 or 30 in Settings â€
 ends when the app goes to the background. Five wrong tries lock it for 15 minutes, then twice as long each time.
 
 Signing in on another device takes the password, then approval on a device already signed in: a card there shows the
-new one, and approving takes the PIN. Amuse's own browsers cannot open Amuse's address (a Chrome policy blocks it),
-and even with the password they would only wait for an approval they cannot give.
+new one, and approving takes the PIN. A Chrome policy blocks Amuse's own address in its own browsers, as one extra
+layer: they do not send the `X-Amuse-Agent` mark yet (their pages run in Playwright contexts, where an extension
+cannot add it), so a browser that reaches Amuse anyway meets only the password and the device approval.
 
 ## Other devices
 
