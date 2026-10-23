@@ -18,14 +18,14 @@ function encodingFor(req: IncomingMessage): "br" | "gzip" | null {
   return /\bbr\b/.test(accepted) ? "br" : /\bgzip\b/.test(accepted) ? "gzip" : null;
 }
 
-/** A file compressed once and kept (the files do not change while the server runs: a new build is a new server). */
+/** Immutable hashed assets are compressed once; mutable files always use current bytes. */
 const compressed = new Map<string, Buffer>();
-function squeezed(key: string, body: Buffer, encoding: "br" | "gzip"): Buffer {
+function squeezed(key: string, body: Buffer, encoding: "br" | "gzip", immutable: boolean): Buffer {
   const id = `${encoding}:${key}`;
-  let out = compressed.get(id);
+  let out = immutable ? compressed.get(id) : undefined;
   if (!out) {
     out = encoding === "br" ? brotliCompressSync(body, { params: { [constants.BROTLI_PARAM_QUALITY]: 9 } }) : gzipSync(body, { level: 9 });
-    compressed.set(id, out);
+    if (immutable) compressed.set(id, out);
   }
   return out;
 }
@@ -54,9 +54,10 @@ export function staticFiles(root: string) {
     if (!found && path.startsWith("/assets/")) return void res.writeHead(404, { "cache-control": "no-cache" }).end();
     const { file: served, body, type } = found ?? (await read(join(base, "index.html")));
     // hashed assets never change; the shell must always be fresh
-    const cache = found && path.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "no-cache";
+    const immutable = !!found && path.startsWith("/assets/");
+    const cache = immutable ? "public, max-age=31536000, immutable" : "no-cache";
     const encoding = compressible.has(extname(served)) && body.length > 1024 ? encodingFor(req) : null;
-    const sent = encoding ? squeezed(served, body, encoding) : body;
+    const sent = encoding ? squeezed(served, body, encoding, immutable) : body;
     res.writeHead(200, {
       "content-type": type,
       "cache-control": cache,
