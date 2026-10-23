@@ -4,7 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type AgentIO, type Say, type Timers, createHost } from "@amuse/core";
-import { type Db, migratedDatabase, openDatabase, query } from "@amuse/db";
+import { type Db, migratedDatabase, openDatabase, query, tempFolder } from "@amuse/db";
 import { demoPorts } from "@amuse/demo";
 import { MAIN } from "@amuse/protocol";
 import { z } from "zod";
@@ -38,7 +38,7 @@ test("what a deleted chat's agent still says goes nowhere: it does not throw, an
 });
 
 test("an event the journal cannot take is not recorded, so the next one is numbered the same and the journal has no gap; a restart replays", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "amuse-emit-"));
+  const dir = tempFolder("amuse-emit-");
   const db = await migratedDatabase(dir);
   const { ports, held } = agents();
   const host = createHost(ports, { store: sqliteChats(db), timers: idle });

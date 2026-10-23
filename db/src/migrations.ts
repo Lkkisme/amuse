@@ -21,6 +21,11 @@ export interface Context {
   journal: string;
   /** Said in the server's log. */
   log(message: string): void;
+  /**
+   * Whether the running version can read an event (the live schema, which a frozen migration must not import): given by the server,
+   * so an import refuses, before it changes anything, an event that would only fail at replay. Without it, the import checks shape only.
+   */
+  readable?: (envelope: unknown) => boolean;
 }
 
 /** Work to do once the migration has committed (renaming the files it imported, say); a failure there is said, not undone. */

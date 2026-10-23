@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { migratedDatabase } from "@amuse/db";
+import { migratedDatabase, tempFolder } from "@amuse/db";
 import { locate, openData } from "./data.ts";
 import { defaultSchedules, sqliteDefaults } from "./defaults.ts";
 
@@ -17,7 +17,7 @@ test("each default is set up once, and one added later still is", async () => {
 });
 
 test("set up before defaults were kept one by one: the first four were", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "amuse-defaults-"));
+  const dir = tempFolder("amuse-defaults-");
   writeFileSync(join(dir, "defaults.json"), JSON.stringify({ done: true }));
   const set = sqliteDefaults(await openData(locate({ AMUSE_DATA: dir }), () => {})).setUp();
   assert.deepEqual(

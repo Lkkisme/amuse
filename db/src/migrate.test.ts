@@ -9,8 +9,9 @@ import { type Context, loadMigrations, parseSql, touchedBy } from "./migrations.
 import { applied, describePending, migrate, plan, prune, revert, snapshot } from "./migrate.ts";
 import { MEMORY, openDatabase, query, transaction } from "./open.ts";
 import { StartupError } from "./problem.ts";
+import { tempFolder } from "./testing.ts";
 
-const folder = () => mkdtempSync(join(tmpdir(), "amuse-runner-"));
+const folder = () => tempFolder("amuse-runner-");
 const context = (dir: string): Omit<Context, "db"> => ({ dataDir: dir, journal: join(dir, "events.jsonl"), log: () => {} });
 const tables = (db: DatabaseSync) => query(db, z.object({ name: z.string() }), "select name from sqlite_master where type = 'table' and name not like 'sqlite_%' order by name").map((r) => r.name);
 
@@ -252,4 +253,23 @@ test("a migration that fails after SQLite has rolled itself back still says what
     return true;
   });
   assert.deepEqual(applied(db), []);
+});
+
+test("an old copy that cannot be removed is said, and the update goes on", async () => {
+  const dir = migrationsIn({ "20260101000000_a.sql": sql("create table a (x);"), "20260101000100_b.sql": sql("create table b (x);") });
+  const [first, second] = await loadMigrations(dir);
+  assert.ok(first && second);
+  const db = openDatabase(join(dir, "amuse.db"));
+  const backups = join(dir, "backups");
+  await migrate(db, [first], { backups, context: context(dir) });
+  mkdirSync(backups);
+  // the oldest of the copies is a folder, which rmSync of a file refuses: pruning fails after the new copy is made
+  mkdirSync(join(backups, "2000-01-01T00-00-00-000Z-pre-migrate.db"));
+  for (let i = 1; i <= 5; i++) writeFileSync(join(backups, `2001-01-0${i}T00-00-00-000Z-pre-migrate.db`), "");
+  const said: string[] = [];
+  const report = await migrate(db, [first, second], { backups, context: { ...context(dir), log: (m) => void said.push(m) } });
+  assert.equal(report.ran.length, 1, "the migration ran");
+  assert.ok(report.backup && existsSync(report.backup), "and its copy was made");
+  assert.ok(said.some((m) => /older copies in the backups folder could not be removed/.test(m)));
+  assert.deepEqual(applied(db), ["20260101000000", "20260101000100"]);
 });

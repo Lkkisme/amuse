@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { applied, dataMigrations, loadMigrations, migrate, openDatabase } from "@amuse/db";
+import { applied, dataMigrations, loadMigrations, migrate, openDatabase, tempFolder } from "@amuse/db";
 import { sqliteAccess } from "./access.ts";
 import { locate, openData } from "./data.ts";
 
@@ -13,7 +13,7 @@ const cli = fileURLToPath(new URL("./admin.ts", import.meta.url));
 const fixture = fileURLToPath(new URL("../../db/fixtures/0.1.0/data", import.meta.url));
 const run = (...args: string[]) => execFileSync("node", [cli, ...args], { encoding: "utf8" });
 const copy = () => {
-  const dir = mkdtempSync(join(tmpdir(), "amuse-cli-"));
+  const dir = tempFolder("amuse-cli-");
   cpSync(fixture, dir, { recursive: true });
   return dir;
 };
@@ -84,7 +84,7 @@ test("the dry run, export and chats leave an existing database exactly as it is:
 });
 
 test("export, chats and reset-password refuse when migrations are pending, and do not run them", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "amuse-pending-"));
+  const dir = tempFolder("amuse-pending-");
   const db = openDatabase(join(dir, "amuse.db"));
   const known = await loadMigrations(dataMigrations);
   await migrate(db, known.slice(0, 1), { backups: join(dir, "backups"), context: { dataDir: dir, journal: join(dir, "events.jsonl"), log: () => {} } });
@@ -101,7 +101,7 @@ test("export, chats and reset-password refuse when migrations are pending, and d
 });
 
 test("rollback asks for --yes, copies the database first, and never applies what is pending", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "amuse-rollback-"));
+  const dir = tempFolder("amuse-rollback-");
   const db = openDatabase(join(dir, "amuse.db"));
   const known = await loadMigrations(dataMigrations);
   await migrate(db, known.slice(0, 1), { backups: join(dir, "backups"), context: { dataDir: dir, journal: join(dir, "events.jsonl"), log: () => {} } });
@@ -143,6 +143,17 @@ test("retire-old-files finishes an interrupted rename, once what is there is exa
   const kept = fails("--data", dir, "retire-old-files");
   assert.equal(kept.status, 1);
   assert.match(kept.stderr, /kept access\.json/);
+  assert.match(kept.stderr, /move them into a folder of their own/);
+  assert.doesNotMatch(kept.stderr, /backups folder/);
   assert.equal(readFileSync(join(dir, "access.json"), "utf8"), "{}");
   assert.equal(fails("--data", dir, "migrate").status, 1);
+});
+
+test("retire-old-files says the name it really gave the file, when .bak was taken", () => {
+  const dir = copy();
+  run("--data", dir, "migrate");
+  renameSync(join(dir, "events.jsonl.bak"), join(dir, "events.jsonl"));
+  writeFileSync(join(dir, "events.jsonl.bak"), "an earlier import's file");
+  assert.match(run("--data", dir, "retire-old-files"), /renamed events\.jsonl to events\.jsonl\.bak\.2/);
+  assert.equal(readFileSync(join(dir, "events.jsonl.bak"), "utf8"), "an earlier import's file");
 });

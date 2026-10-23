@@ -97,11 +97,11 @@ async function main(argv: string[]): Promise<void> {
       }
       case "retire-old-files": {
         const { renamed, kept } = retireOldFiles(db, context);
-        for (const name of renamed) console.log(`renamed ${name} to ${name}.bak`);
+        for (const { name, to } of renamed) console.log(`renamed ${name} to ${to}`);
         for (const name of kept) console.error(`kept ${name}: it is not what was imported (it differs, or was never imported); an older version may have written it`);
         if (renamed.length === 0 && kept.length === 0) console.log("There are no old files.");
         if (kept.length > 0) {
-          console.error("Nothing in the kept files has been taken in. Restore a copy from the backups folder, or ask for help, before starting Amuse.");
+          console.error("What the kept files hold has not been taken in, and Amuse will not start beside them. To set them aside, move them into a folder of their own (for example `mkdir ../newer-files && mv <the files> ../newer-files/` from the data folder), then start Amuse; what they hold stays there, untaken.");
           return process.exit(1);
         }
         return;

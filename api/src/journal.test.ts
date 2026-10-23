@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { type ChatStore, type Journal, createHost, memoryChats, type Timers } from "@amuse/core";
-import { migratedDatabase, query, readJournalFile } from "@amuse/db";
+import { migratedDatabase, query, readJournalFile, tempFolder } from "@amuse/db";
 import { demoPorts, seed } from "@amuse/demo";
 import { Envelope, MAIN, apply, empty } from "@amuse/protocol";
 import { z } from "zod";
@@ -18,7 +18,7 @@ const snapshot = async (host: ReturnType<typeof createHost>, chat = MAIN) => {
   assert.ok(r.kind === "snapshot");
   return r.state;
 };
-const dataFolder = () => mkdtempSync(join(tmpdir(), "amuse-journal-"));
+const dataFolder = () => tempFolder("amuse-journal-");
 
 test("a restarted host comes back with the same state and keeps counting", async () => {
   const dir = dataFolder();

@@ -13,9 +13,9 @@ import { oldFilesBeside, retireOldFiles } from "./legacy/old-files.ts";
 import { preflight } from "./preflight.ts";
 import { StartupError } from "./problem.ts";
 import { dumpSchema } from "./schema.ts";
-import { migratedDatabase } from "./testing.ts";
+import { migratedDatabase, tempFolder } from "./testing.ts";
 
-const folder = () => mkdtempSync(join(tmpdir(), "amuse-state-"));
+const folder = () => tempFolder("amuse-state-");
 const count = z.object({ n: z.number() });
 const context = (dir: string, said: string[] = []): Omit<Context, "db"> => ({ dataDir: dir, journal: join(dir, "events.jsonl"), log: (m) => void said.push(m) });
 const event = (seq: number) => JSON.stringify({ seq, event: { kind: "activity", activity: null } });
@@ -244,7 +244,8 @@ test("old files beside a database that has taken them in are found; they are ren
   writeFileSync(join(dir, "access.json"), JSON.stringify({ password: { salt: "11", hash: "11" }, sessions: [] }));
   writeFileSync(join(dir, "rules.json"), JSON.stringify({ apps: {}, browser: {}, sites: {} }));
   const result = retireOldFiles(db, ctx);
-  assert.deepEqual(result.renamed.sort(), ["chats.json", "chats/c-1.jsonl", "events.jsonl"]);
+  assert.deepEqual(result.renamed.map((r) => r.name).sort(), ["chats.json", "chats/c-1.jsonl", "events.jsonl"]);
+  assert.ok(result.renamed.every((r) => r.to.startsWith(r.name) && r.to.includes(".bak")));
   assert.deepEqual(result.kept.sort(), ["access.json", "rules.json"], "what differs, or was never imported, is not touched");
   assert.equal(readFileSync(join(dir, "access.json"), "utf8"), JSON.stringify({ password: { salt: "11", hash: "11" }, sessions: [] }));
   assert.ok(existsSync(join(dir, "events.jsonl.bak.2")) || existsSync(join(dir, "events.jsonl.bak")));

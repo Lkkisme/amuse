@@ -35,16 +35,17 @@ export function retired(path: string): string {
 }
 
 /** Rename each old file that is, byte for byte, what imported_files says was imported; say which were, and which were not (they differ, or were never imported). */
-export function retireOldFiles(db: Db, context: Omit<Context, "db">): { renamed: string[]; kept: string[] } {
+export function retireOldFiles(db: Db, context: Omit<Context, "db">): { renamed: { name: string; to: string }[]; kept: string[] } {
   const imported = new Map(query(db, z.object({ name: z.string(), sha256: z.string() }), "select name, sha256 from imported_files").map((row) => [row.name, row.sha256]));
-  const renamed: string[] = [];
+  const renamed: { name: string; to: string }[] = [];
   const kept: string[] = [];
   for (const name of oldFilesBeside(db, context)) {
     const path = join(context.dataDir, name);
     const same = imported.get(name) === createHash("sha256").update(readFileSync(path)).digest("hex");
     if (same) {
-      renameSync(path, retired(path));
-      renamed.push(name);
+      const to = retired(path);
+      renameSync(path, to);
+      renamed.push({ name, to: relative(context.dataDir, to) });
     } else kept.push(name);
   }
   return { renamed, kept };

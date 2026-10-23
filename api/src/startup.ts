@@ -57,11 +57,11 @@ export const en: Words = {
   }),
   "journal-unreadable": () => ({
     what: "The history of one of your chats could not be read: an event saved in it is not in a form this version understands.",
-    todo: "If Amuse was just downgraded, update it again. Otherwise restore a copy from the backups folder, or ask for help; the server's log names the chat and the event. Nothing was changed.",
+    todo: "Nothing was deleted. If this came right after an update, your old files (events.jsonl and the others) are kept beside the database as .bak files, and the CHANGELOG's Upgrade notes say how to go back to the previous version. If Amuse was just downgraded, update it again. Otherwise restore a copy from the backups folder, or ask for help; the server's log names the chat and the event.",
   }),
   "old-files": () => ({
     what: "Amuse found its old data files (events.jsonl, access.json and others) beside a database that has already taken them in.",
-    todo: "Either an update was cut short before it renamed them, or an older version of Amuse was run on this data and wrote them. Never run an older version on this data: it would start with no password and no history. If an update was cut short, run `amuse-admin retire-old-files`: it renames them only if they are exactly what was taken in. If it says some differ, restore a copy from the backups folder or ask for help. Nothing was changed.",
+    todo: "Either an update was cut short before it renamed them, or an older version of Amuse was run on this data and wrote them. Never run an older version on this data: it would start with no password and no history. If an update was cut short, run `amuse-admin retire-old-files`: it renames them only if they are exactly what was taken in. If it says some differ, move those files into a folder of their own and start again: what they hold is not taken in. Nothing was changed.",
   }),
 };
 
@@ -97,11 +97,11 @@ export const zhCN: Words = {
   }),
   "journal-unreadable": () => ({
     what: "无法读取你的某个聊天的历史：其中保存的一个事件，当前版本无法理解。",
-    todo: "若 Amuse 刚被降级，请重新更新它。否则请从 backups 文件夹恢复一份备份，或寻求帮助；服务器日志里写明了是哪个聊天、哪个事件。数据没有被改动。",
+    todo: "没有任何数据被删除。若这发生在刚更新之后，你的旧文件（events.jsonl 等）仍以 .bak 文件的形式保存在数据库旁边，CHANGELOG 的升级说明里写了如何退回到之前的版本。若 Amuse 刚被降级，请重新更新它。否则请从 backups 文件夹恢复一份备份，或寻求帮助；服务器日志里写明了是哪个聊天、哪个事件。",
   }),
   "old-files": () => ({
     what: "Amuse 发现旧的数据文件（events.jsonl、access.json 等）与一个已经导入过它们的数据库放在一起。",
-    todo: "可能是更新在重命名它们之前中断了，也可能是在这份数据上运行过旧版本的 Amuse 并写入了它们。千万不要在这份数据上运行旧版本：它会在没有密码、没有历史的状态下启动。若是更新被中断，请运行 `amuse-admin retire-old-files`：只有与导入内容完全一致的文件才会被重命名。若它说有文件不一致，请从 backups 文件夹恢复备份，或寻求帮助。数据没有被改动。",
+    todo: "可能是更新在重命名它们之前中断了，也可能是在这份数据上运行过旧版本的 Amuse 并写入了它们。千万不要在这份数据上运行旧版本：它会在没有密码、没有历史的状态下启动。若是更新被中断，请运行 `amuse-admin retire-old-files`：只有与导入内容完全一致的文件才会被重命名。若它说有文件不一致，请把这些文件移到它们自己的文件夹里再启动：其中的内容不会被导入。数据没有被改动。",
   }),
 };
 

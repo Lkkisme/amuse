@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { browserRulesOf, decideBrowser } from "@amuse/core";
-import { StartupError, openDatabase } from "@amuse/db";
+import { StartupError, openDatabase, tempFolder } from "@amuse/db";
 import { type Location, locate, openData } from "./data.ts";
 import { sqliteRules } from "./rules.ts";
 
-const folder = () => mkdtempSync(join(tmpdir(), "amuse-rules-"));
+const folder = () => tempFolder("amuse-rules-");
 
 /** The data folder with a rules.json of the given shape in it, started the way the server starts: imported, then read from the database. */
 async function startedWith(content: unknown) {

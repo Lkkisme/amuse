@@ -55,6 +55,8 @@ has to be thrown away whenever the reducer (`protocol/src/events.ts`) changes, s
 Full-text search (FTS5) is not used: `recall` searches the chats' state in memory, and `memory_search` searches
 Markdown files that Amuse and the user edit as files, so an index would have to follow every such edit.
 
+Tests that need a folder take it from `tempFolder()` in `@amuse/db` (db/src/testing.ts), which removes it when the process ends; `migratedDatabase()` does the same.
+
 Commands, beside the server: `amuse-admin <command>`, run as the container's default user, not as root (on the image's PATH, so `docker compose exec amuse amuse-admin …`; in development `node api/src/admin.ts --data <folder> …`). The name `amuse` is kept for a client on the user's own computer (#39):
 
 ```

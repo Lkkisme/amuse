@@ -11,7 +11,7 @@ import { join, relative } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { createHost, type Timers } from "@amuse/core";
-import { type Db, dataMigrations, dumpSchema, loadMigrations, applied, query } from "@amuse/db";
+import { type Db, dataMigrations, dumpSchema, loadMigrations, applied, query, tempFolder } from "@amuse/db";
 import { demoPorts } from "@amuse/demo";
 import { Chat } from "@amuse/protocol";
 import { z } from "zod";
@@ -95,7 +95,7 @@ test("there is a fixture for 0.1.0, and facts for every fixture", () => {
 
 for (const version of versions) {
   test(`an instance of ${version} upgrades through every migration, and a second start changes nothing`, async () => {
-    const dir = mkdtempSync(join(tmpdir(), `amuse-upgrade-${version}-`));
+    const dir = tempFolder(`amuse-upgrade-${version}-`);
     cpSync(join(fixtures, version, "data"), dir, { recursive: true });
     const before = tree(dir);
     const said: string[] = [];

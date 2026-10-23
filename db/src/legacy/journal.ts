@@ -33,13 +33,15 @@ export function eventText(line: string, seq: number, event: unknown): string {
 }
 
 /** Each event of the old file, with its text as it was written. */
-export function readJournalFile(path: string, each: (seq: number, event: string) => void): { bytes: number; sha256: string; events: number; torn: number } {
+export function readJournalFile(path: string, each: (seq: number, event: string) => void, readable?: (envelope: unknown) => boolean): { bytes: number; sha256: string; events: number; torn: number } {
   let events = 0;
   const file = forEachLine(path, (line) => {
     const raw = parseLine(line);
     const parsed = Envelope.safeParse(raw);
     if (!parsed.success || parsed.data.seq !== events + 1)
       throw new Error(`${path}: line ${events + 1} is not the next event this version can read; move the file aside to start over`);
+    if (readable && !readable(parsed.data))
+      throw new Error(`${path}: line ${events + 1} is an event this version of Amuse cannot read; nothing was imported or renamed, and the file is as it was. Move it aside to start over, or run the version that wrote it`);
     events += 1;
     each(parsed.data.seq, eventText(line, parsed.data.seq, parsed.data.event));
   });

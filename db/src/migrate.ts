@@ -123,9 +123,14 @@ export async function migrate(db: Db, known: readonly Migration[], options: Opti
   if (found.applied.length > 0) {
     try {
       kept = await snapshot(db, options.backups, "pre-migrate", options.now);
-      prune(options.backups, "pre-migrate");
     } catch (error) {
       throw new StartupError({ kind: "backup-failed", message: message(error) }, `could not back up the database: ${message(error)}`);
+    }
+    // the copy is made; an old one that cannot be removed is no reason not to start
+    try {
+      prune(options.backups, "pre-migrate");
+    } catch (error) {
+      options.context.log(`database: the older copies in the backups folder could not be removed (${message(error)}); the update goes on.`);
     }
   }
   db.exec(create);

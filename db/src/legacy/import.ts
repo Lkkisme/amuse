@@ -184,7 +184,7 @@ export function importLegacy(context: Context): Finish {
     const result = readJournalFile(path, (seq, event) => {
       insertEvent.run(chat, seq, event);
       hash.update(eventsLine(seq, event));
-    });
+    }, context.readable);
     seen({ path, bytes: result.bytes, sha256: result.sha256 });
     logs.set(chat, { events: result.events, sha256: hash.digest("hex") });
     if (result.torn > 0) log(`${basename(path)}: the last ${result.torn} bytes were a write cut short, and were left out.`);

@@ -52,6 +52,15 @@ test("the page is seen before anyone signs in: no path of this machine, and noth
   assert.match(explain(samples["old-files"], "en").todo, /amuse-admin retire-old-files/);
   assert.match(explain(samples["old-files"], "en").todo, /Never run an older version on this data/);
   assert.match(explain(samples["old-files"], "zh-CN").todo, /千万不要在这份数据上运行旧版本/);
+  // what to do with files that differ: set them aside, not "restore a backup" that may not exist
+  assert.match(explain(samples["old-files"], "en").todo, /move those files into a folder of their own.*what they hold is not taken in/);
+  assert.doesNotMatch(explain(samples["old-files"], "en").todo, /backups folder/);
+  assert.match(explain(samples["old-files"], "zh-CN").todo, /移到它们自己的文件夹/);
+  // an event that cannot be replayed, right after a first update: the old files are there, as .bak
+  for (const language of languages) {
+    assert.match(explain(samples["journal-unreadable"], language).todo, /\.bak/, language);
+    assert.doesNotMatch(explain(samples["journal-unreadable"], language).todo, /Nothing was changed|数据没有被改动/, language);
+  }
   assert.match(explain({ kind: "folder", folder: "backups", path: "/data/backups", trouble: "missing", hint: "data-volume" }, "en").what, /^The backups folder is not there/);
 });
 

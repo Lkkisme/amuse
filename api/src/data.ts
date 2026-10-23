@@ -5,6 +5,7 @@
  */
 import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { Envelope } from "@amuse/protocol";
 import { dirname, join, resolve } from "node:path";
 import { type Db, StartupError, applied, dataMigrations, loadMigrations, migrate, openDatabase, oldFilesBeside, plan, preflight, refuseNewer } from "@amuse/db";
 
@@ -51,7 +52,7 @@ export async function openData(location: Location, log: (message: string) => voi
     throw new StartupError({ kind: "database-unreadable", path: location.database, message: said(error) }, said(error));
   }
   try {
-    const context = { dataDir: location.dir, journal: location.journal, log };
+    const context = { dataDir: location.dir, journal: location.journal, log, readable: (envelope: unknown) => Envelope.safeParse(envelope).success };
     const report = await migrate(db, await loadMigrations(dataMigrations), { backups: location.backups, context });
     if (report.backup) log(`database: a copy from before the update is ${report.backup}`);
     for (const m of report.ran) log(`database: migration ${m.version}_${m.name} done`);
