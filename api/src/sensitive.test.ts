@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { memoryRules } from "@amuse/core";
-import type { Call } from "@amuse/protocol";
+import type { Call, FieldValue } from "@amuse/protocol";
 import { sensitive } from "./sensitive.ts";
 
 test("loosening a permission needs the PIN; tightening it, or setting what it already is, does not", async () => {
@@ -52,4 +52,27 @@ test("Always allow on a card needs the PIN, Allow once does not; keys and a spee
     [{ method: "chats.list", params: {} }, false],
   ];
   for (const [call, expected] of cases) assert.equal(await sensitive(call, rules), expected, call.method);
+});
+
+test("the Vault: storing, replacing or destroying a secret needs the PIN, and pointing one somewhere new; listing it, its name and note, and taking a use away do not", async () => {
+  const rules = memoryRules();
+  const text: FieldValue = { kind: "text", text: "a made-up value" };
+  const cases: [Call, boolean][] = [
+    // a secret is stored: adding an entry, and replacing or adding a field on one
+    [{ method: "secrets.add", params: { name: "Mail", note: "", plain: [], secret: [{ name: "token", role: null, value: text }], uses: [] } }, true],
+    [{ method: "secrets.add", params: { name: "Mail", note: "", plain: [{ name: "account", role: null, value: text }], secret: [{ name: "token", role: null, value: text }], uses: [{ kind: "env", field: "token", name: "MAIL_TOKEN" }] } }, true],
+    [{ method: "secrets.setSecret", params: { id: "s", field: { name: "token", role: null, value: text } } }, true],
+    // a secret is destroyed, like the entry itself
+    [{ method: "secrets.removeSecret", params: { id: "s", name: "token" } }, true],
+    [{ method: "secrets.remove", params: { id: "s" } }, true],
+    // where a secret goes: into the sandbox, or to a service of the server's own
+    [{ method: "secrets.use", params: { id: "s", use: { kind: "env", field: "token", name: "MAIL_TOKEN" } } }, true],
+    [{ method: "secrets.use", params: { id: "s", use: { kind: "file", field: "key.json", path: ".config/mail/key.json", env: null } } }, true],
+    [{ method: "secrets.use", params: { id: "s", use: { kind: "server", field: "token", service: "apps", target: "composio" } } }, true],
+    // reading the Vault, what is there to see, and a use taken away (tightening)
+    [{ method: "secrets.list", params: {} }, false],
+    [{ method: "secrets.edit", params: { id: "s", name: "Mail", note: "", plain: [{ name: "account", role: null, value: text }] } }, false],
+    [{ method: "secrets.unuse", params: { id: "s", use: "u-1" } }, false],
+  ];
+  for (const [call, expected] of cases) assert.equal(await sensitive(call, rules), expected, JSON.stringify(call));
 });

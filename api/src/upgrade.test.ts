@@ -227,7 +227,8 @@ test("an instance upgraded from before the PIN asks for one, and keeps everythin
     // the first page load: set a PIN
     assert.deepEqual(await get(), { set: false, reminder: "set" });
     // every sensitive action asks for one to be set first: loosening a permission (gmail's changes were "ask"),
-    // allowing every site, "Always allow", a model key, a speech server, a credential taken off the sandbox
+    // allowing every site, "Always allow", a model key, a speech server, a credential taken off the sandbox,
+    // and a secret the Vault would store, destroy or point somewhere new
     const loosening: [string, unknown][] = [
       ["apps.permit", { app: "gmail", kind: "write", permission: "allow" }],
       ["browser.permit", { action: "visit", permission: "allow" }],
@@ -236,6 +237,10 @@ test("an instance upgraded from before the PIN asks for one, and keeps everythin
       ["keys.login", { provider: "openai" }],
       ["models.localVoice", { service: { url: "http://speech:8000", model: "whisper", key: null } }],
       ["secrets.remove", { id: "s-1" }],
+      ["secrets.add", { name: "Mail", note: "", plain: [], secret: [{ name: "token", role: null, value: { kind: "text", text: "a made-up value" } }], uses: [] }],
+      ["secrets.setSecret", { id: "s-1", field: { name: "token", role: null, value: { kind: "text", text: "a made-up value" } } }],
+      ["secrets.removeSecret", { id: "s-1", name: "token" }],
+      ["secrets.use", { id: "s-1", use: { kind: "env", field: "token", name: "MAIL_TOKEN" } }],
     ];
     for (const [method, params] of loosening) assert.equal((await call(method, params)).error?.code, errors.pinUnset.code, method);
     // and on the account: the password, devices, a longer unlock
