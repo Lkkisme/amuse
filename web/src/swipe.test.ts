@@ -34,10 +34,10 @@ test("a slow drag to the right opens the sidebar once it is clearly horizontal, 
   assert.deepEqual(out[1], { kind: "drag", panel: "sidebar", progress: 80 / W });
 });
 
-test("a swipe to the left opens the Amuse panel, which comes from the right", () => {
+test("a swipe to the left opens the viewer, which comes from the right", () => {
   const { out } = run([down(300), move(280, 301, 16), move(200, 301, 32)]);
-  assert.deepEqual(out[0], { kind: "begin", panel: "muse", progress: 20 / W });
-  assert.deepEqual(out[1], { kind: "drag", panel: "muse", progress: 100 / W });
+  assert.deepEqual(out[0], { kind: "begin", panel: "viewer", progress: 20 / W });
+  assert.deepEqual(out[1], { kind: "drag", panel: "viewer", progress: 100 / W });
 });
 
 test("a vertical scroll is never claimed, and turning sideways later does not claim it", () => {
@@ -62,7 +62,7 @@ test("a swipe that starts at the edge the page comes from is readier: less trave
   assert.deepEqual(run([down(100), move(100 + EDGE_INTENT, 300, 16)]).out, []); // not at the edge
   assert.deepEqual(kinds(run([down(30), move(46, 312, 16)]).out), ["begin"]); // 16 across, 12 down
   assert.deepEqual(run([down(100), move(116, 312, 16)]).out, []);
-  // the other edge is the Amuse panel's
+  // the other edge is the viewer's
   assert.deepEqual(kinds(run([down(W - 30), move(W - 30 - EDGE_INTENT, 300, 16)]).out), ["begin"]);
   // and the edge a page does not come from is no help
   assert.deepEqual(run([down(30), move(30 - EDGE_INTENT, 300, 16)]).out, []); // leftward from the left edge: not the sidebar's
@@ -90,11 +90,11 @@ test("the open sidebar closes by swiping left, and does nothing for a swipe to t
   assert.deepEqual(run([down(100, 300, "sidebar"), move(150, 300, 16)]).out, []);
 });
 
-test("the open Amuse panel closes by swiping right, and does nothing for a swipe to the left", () => {
-  const closing = run([down(100, 300, "muse"), move(120, 300, 16), move(300, 300, 32)]);
-  assert.deepEqual(closing.out[0], { kind: "begin", panel: "muse", progress: 1 - 20 / W });
-  assert.deepEqual(closing.out[1], { kind: "drag", panel: "muse", progress: 1 - 200 / W });
-  assert.deepEqual(run([down(300, 300, "muse"), move(250, 300, 16)]).out, []);
+test("the open viewer closes by swiping right, and does nothing for a swipe to the left", () => {
+  const closing = run([down(100, 300, "viewer"), move(120, 300, 16), move(300, 300, 32)]);
+  assert.deepEqual(closing.out[0], { kind: "begin", panel: "viewer", progress: 1 - 20 / W });
+  assert.deepEqual(closing.out[1], { kind: "drag", panel: "viewer", progress: 1 - 200 / W });
+  assert.deepEqual(run([down(300, 300, "viewer"), move(250, 300, 16)]).out, []);
 });
 
 test("the page stays between closed and open, however far the finger goes", () => {
@@ -124,11 +124,11 @@ test("the finger's speed is read only over its last moments: a pause before lift
   assert.deepEqual(settled(out), { kind: "settle", panel: "sidebar", open: false }); // fast at first, then still: by distance
 });
 
-test("the Amuse panel settles by the finger going left, and closing it by the finger going right", () => {
-  assert.deepEqual(settled(run([down(300), move(285, 300, 20), move(255, 300, 40), up(45)]).out), { kind: "settle", panel: "muse", open: true });
-  assert.deepEqual(settled(run([down(100, 300, "muse"), move(115, 300, 20), move(135, 300, 40), up(45)]).out), { kind: "settle", panel: "muse", open: false });
+test("the viewer settles by the finger going left, and closing it by the finger going right", () => {
+  assert.deepEqual(settled(run([down(300), move(285, 300, 20), move(255, 300, 40), up(45)]).out), { kind: "settle", panel: "viewer", open: true });
+  assert.deepEqual(settled(run([down(100, 300, "viewer"), move(115, 300, 20), move(135, 300, 40), up(45)]).out), { kind: "settle", panel: "viewer", open: false });
   // slow, over half the way: it closes
-  assert.deepEqual(settled(run([down(100, 300, "muse"), move(130, 300, 16), move(320, 300, 800), up(1500)]).out), { kind: "settle", panel: "muse", open: false });
+  assert.deepEqual(settled(run([down(100, 300, "viewer"), move(130, 300, 16), move(320, 300, 800), up(1500)]).out), { kind: "settle", panel: "viewer", open: false });
 });
 
 test("closing the sidebar slowly needs more than half the way", () => {

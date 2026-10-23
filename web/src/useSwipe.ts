@@ -1,13 +1,15 @@
 /**
- * Fingers on the phone's chat, read as swipes that open and close the sidebar and the Amuse panel (swipe.ts has the
+ * Fingers on the phone's chat, read as swipes that open and close the sidebar and the viewer (swipe.ts has the
  * rules). Touch events on the document: a finger is watched from its first touch, and only once the movement is
  * clearly sideways is the browser's own handling (scrolling) stopped, never before. The page then follows the
  * finger, by `--swipe` (how open it is, 0 to 1) on its elements, without a render per move; on lifting it settles on
  * the curve of the buttons (index.css), and the change is made to the UI state once it has.
  *
- * Off: where the pointer is not coarse or the window is not a phone's; while something is over the chat (the
- * viewer, a sheet, a menu: `blocked`, `data-no-swipe`); when the touch starts in a text field, or while text is
- * selected; and for sideways content that can still scroll the way the finger goes.
+ * Off: where the pointer is not coarse or the window is not a phone's; while something is over the chat (a sheet,
+ * a menu: `blocked`, `data-no-swipe`); when the touch starts in a text field, or while text is selected; and for
+ * sideways content that can still scroll the way the finger goes. With the viewer open, whose live desktop and
+ * terminal read touch for themselves, only a touch that starts on its edge strip, header or switch (`data-swipe-close`)
+ * can close it.
  */
 import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
@@ -90,7 +92,7 @@ export function useSwipe({ open, blocked, commit }: Options): Swipe | null {
     const onStart = (event: TouchEvent) => {
       const touch = event.changedTouches[0];
       if (finger !== null || settling !== undefined || event.touches.length !== 1 || !touch) return;
-      if (latest.current.blocked || !eligible(event.target)) return;
+      if (latest.current.blocked || !eligible(event.target, latest.current.open)) return;
       finger = touch.identifier;
       feed(
         {
@@ -132,9 +134,10 @@ export function useSwipe({ open, blocked, commit }: Options): Swipe | null {
 }
 
 /** Whether a touch that starts on `target` may be a swipe, as far as the page can tell before it moves. */
-function eligible(target: EventTarget | null): boolean {
+function eligible(target: EventTarget | null, open: Panel | null): boolean {
   if (!matchMedia(PHONE).matches || !(target instanceof Element)) return false;
-  // the viewer's desktop and terminal and the sheets have gestures of their own; a text field's fingers are for its text
+  if (open === "viewer" && !target.closest("[data-swipe-close]")) return false;
+  // the sheets have gestures of their own; a text field's fingers are for its text
   const own = "[data-no-swipe], input, textarea, select, [contenteditable]:not([contenteditable=false])";
   if (target.closest(own) || document.querySelector("[role=menu]")) return false;
   return !selecting();

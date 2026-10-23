@@ -16,7 +16,7 @@ import { useT } from "./i18n/react.ts";
 import { Files, serverFiles } from "./files.ts";
 import { Unlock } from "./components/Unlock";
 import { type Actions, type Ui, initialUi } from "./ui.ts";
-import { viewerTabs } from "./view.ts";
+import { pillBrowser, viewerTabs } from "./view.ts";
 import { type Outgoing, outgoingIn } from "./outgoing.ts";
 import { flyAvatar, transition, travels } from "./transition.ts";
 import { close, useBack } from "./back.ts";
@@ -441,13 +441,15 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
     layer === "muse" ? actions.setMuse(false) : setUi((u) => close(u, layer)),
   );
 
-  // on a phone, swipes open and close the sidebar and the Amuse panel; the viewer, sheets and the like keep their own
+  // on a phone, swipes open and close the sidebar and the viewer (the browser button's: the run that needs you); the Amuse
+  // panel's page, sheets and the like keep to themselves
   const swipe = useSwipe({
-    open: ui.museOpen ? "muse" : ui.chatsOpen ? "sidebar" : null,
-    blocked: ui.viewer !== null || ui.settings.open || ui.explainer !== null || ui.taskDetail !== null,
-    commit: (panel, open) => setUi((u) => (panel === "sidebar" ? { ...u, chatsOpen: open } : { ...u, museOpen: open })),
+    open: ui.viewer ? "viewer" : ui.chatsOpen ? "sidebar" : null,
+    blocked: ui.museOpen || ui.settings.open || ui.explainer !== null || ui.taskDetail !== null,
+    commit: (panel, open) =>
+      panel === "sidebar" ? actions.setChats(open) : open ? actions.openViewer(pillBrowser(conversation)?.id ?? null) : actions.closeViewer(),
   });
-  const swiping = (panel: "sidebar" | "muse") => (swipe?.panel === panel ? swipe : null);
+  const swiping = (panel: "sidebar" | "viewer") => (swipe?.panel === panel ? swipe : null);
 
   // a notice shows for a few seconds, a longer one a little longer (a tap closes it sooner)
   useEffect(() => {
@@ -517,6 +519,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           <BrowserButton
             conversation={conversation}
             open={ui.viewer !== null}
+            swipe={swiping("viewer")}
             actions={actions}
           />
           {ui.notice && (
@@ -559,7 +562,6 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
 
         <MusePanel
           open={ui.museOpen}
-          swipe={swiping("muse")}
           conversation={conversation}
           session={session}
           mode={ui.viewer ? "floating" : "docked"}
@@ -596,6 +598,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         <Viewer
           conversation={conversation}
           viewer={ui.viewer}
+          swipe={swiping("viewer")}
           live={where.kind === "server" ? where.live : null}
           thumb={where.kind === "server" ? where.thumb : null}
           terminal={where.kind === "server" ? where.terminal : null}

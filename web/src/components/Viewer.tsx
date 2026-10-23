@@ -33,12 +33,14 @@ import {
 import { useState } from "react";
 import type { Browser, State } from "@amuse/protocol";
 import type { Actions, Shown, Ui } from "../ui.ts";
+import type { Swipe } from "../useSwipe.ts";
 import { useT } from "../i18n/react.ts";
 import {
   browserLook,
   host,
   hue,
   path,
+  pillBrowser,
   stoppable,
   viewerRun,
   viewerTabs,
@@ -52,6 +54,7 @@ import { useLastValue, usePresence } from "./usePresence";
 export function Viewer({
   conversation,
   viewer: open,
+  swipe,
   live,
   thumb,
   terminal,
@@ -60,6 +63,8 @@ export function Viewer({
 }: {
   conversation: State;
   viewer: Ui["viewer"];
+  /** on a phone, a swipe moves the viewer with the finger (useSwipe.ts), with no animation of its own */
+  swipe: Swipe | null;
   /** live view URL for a run, when a server with real browsers is attached */
   live: ((id: string) => string) | null;
   /** a screenshot URL for a run, likewise */
@@ -70,13 +75,17 @@ export function Viewer({
   onResize: (edge: number) => void;
   actions: Actions;
 }) {
-  const { mounted, closing, onAnimationEnd } = usePresence(open !== null);
-  const viewer = useLastValue(open);
+  const { mounted, closing, onAnimationEnd } = usePresence(open !== null, swipe?.phase === "closed");
+  const moving = swipe?.phase === "drag" || swipe?.phase === "settle";
+  // a swipe opening it (not yet open) opens what the browser button would: the run that needs the user
+  const opening = moving && open === null;
+  const last = useLastValue(open);
+  const viewer: Ui["viewer"] = open ?? (opening ? { browserId: pillBrowser(conversation)?.id ?? null, shown: "browser" } : last);
   // phone: every browser open, as cards over the viewer
   const [overview, setOverview] = useState(false);
   // closing the viewer puts the cards away too
   if (open === null && overview) setOverview(false);
-  if (!mounted || !viewer) return null;
+  if ((!mounted && !moving) || !viewer) return null;
   const browser = viewerRun(conversation, viewer);
   const tabs = viewerTabs(conversation);
   const shown: Shown = terminal ? viewer.shown : "browser";
@@ -85,14 +94,18 @@ export function Viewer({
 
   return (
     <div
-      data-no-swipe=""
+      data-swipe="viewer"
       onAnimationEnd={onAnimationEnd}
       // a page of its own on a phone; from lg, a rounded panel 8px in from the window's edges, like the sidebar
-      className={`${closing ? "anim-panel-out-right pointer-events-none" : "anim-panel-in-right"} fixed inset-0 z-50 flex flex-col bg-[var(--bg-primary)] lg:inset-y-2 lg:left-auto lg:right-2 lg:w-[var(--viewer-width)] lg:overflow-hidden lg:rounded-[24px] lg:bg-[var(--panel)] lg:shadow-[var(--shadow-panel)]`}
+      // (a page a swipe opened stays as it is until it closes, then leaves as ever)
+      className={`${closing ? "anim-panel-out-right pointer-events-none" : moving || swipe ? "" : "anim-panel-in-right"} ${swipe?.phase === "settle" ? "swipe-settle" : ""} fixed inset-0 z-50 flex flex-col bg-[var(--bg-primary)] lg:inset-y-2 lg:left-auto lg:right-2 lg:w-[var(--viewer-width)] lg:overflow-hidden lg:rounded-[24px] lg:bg-[var(--panel)] lg:shadow-[var(--shadow-panel)]`}
+      style={moving ? { transform: "translateX(calc((1 - var(--swipe)) * 100%))" } : undefined}
     >
       <ResizeEdge onResize={onResize} />
+      {/* phone: the one place on its live desktop where a swipe closes it, over the desktop's own touch (useSwipe.ts) */}
+      <div data-swipe-close="" className="absolute inset-y-0 left-0 z-[5] w-10 md:hidden" />
       {terminal && <Switch shown={shown} actions={actions} />}
-      {terminal && (
+      {terminal && !opening && (
         <TerminalView url={terminal} visible={shown === "terminal"} />
       )}
       {shown === "terminal" ? null : browser ? (
@@ -114,7 +127,10 @@ export function Viewer({
               actions={actions}
             />
           )}
-          {live ? (
+          {opening ? (
+            // the desktop is connected once the viewer has settled open, not for a swipe that may let go
+            <div className="min-h-0 flex-1" style={{ background: "var(--fill-primary)" }} />
+          ) : live ? (
             <LivePage
               key={browser.id}
               browser={browser}
@@ -142,7 +158,7 @@ function Switch({ shown, actions }: { shown: Shown; actions: Actions }) {
   return (
     // 44px and centred on the browser button, 12px from the window's top; from lg (the viewer 8px in) it sits in the
     // panel's corner as that button does in the other, 4px in from both edges, so its round end follows the 24px corner
-    <div className="flex items-center gap-2 pb-2 pl-3 pr-3 pt-3 lg:pl-1 lg:pt-1">
+    <div data-swipe-close="" className="flex items-center gap-2 pb-2 pl-3 pr-3 pt-3 lg:pl-1 lg:pt-1">
       <div
         role="tablist"
         className="flex rounded-full p-1"
@@ -180,7 +196,7 @@ function NoBrowser({ corner, actions }: { corner: boolean; actions: Actions }) {
   return (
     <>
       {corner && (
-        <header className="flex justify-end pr-3 pt-2">
+        <header data-swipe-close="" className="flex justify-end pr-3 pt-2">
           <span className="size-11" />
         </header>
       )}
@@ -256,7 +272,7 @@ function ViewerHeader({
     browser.live && (stoppable(browser) || browser.status === "completed");
 
   return (
-    <header className="flex items-center gap-2 py-2 pl-3 pr-3 sm:gap-3">
+    <header data-swipe-close="" className="flex items-center gap-2 py-2 pl-3 pr-3 sm:gap-3">
       <div className="min-w-0 flex-1">
         {/* two 20px lines: as tall as the corner button, which then sits where it sits over the chat */}
         <p

@@ -1,11 +1,11 @@
 /**
- * Swiping the phone's two pages (the sidebar, from the left; the Amuse panel, from the right) as a pure step
+ * Swiping the phone's two pages (the sidebar, from the left; the viewer, the work computer, from the right) as a pure step
  * function: finger events in, what the page does out. A page follows the finger as it is dragged, and on lifting
  * settles open or closed by how far it came and how fast the finger was going.
  *
- *   nothing open     swipe right: the sidebar opens; swipe left: the Amuse panel opens
+ *   nothing open     swipe right: the sidebar opens; swipe left: the viewer opens
  *   sidebar open     swipe left closes it
- *   panel open       swipe right closes it
+ *   viewer open      swipe right closes it
  *
  * Nothing is claimed until the movement is clearly horizontal: INTENT px of travel, more across than down. A touch
  * that starts near the screen edge the page comes from is readier (it needs less travel, may be more diagonal, and
@@ -16,7 +16,7 @@
  */
 import type { Point } from "./touch-gestures.ts";
 
-export type Panel = "sidebar" | "muse";
+export type Panel = "sidebar" | "viewer";
 
 /** Travel (px) before the direction is read. */
 export const INTENT = 10;
@@ -93,9 +93,9 @@ const atEdge = (x: number, width: number, panel: Panel) => (panel === "sidebar" 
 
 /** Which page a movement to the right (`dx` > 0) or left moves, and how open it is to begin with; null: nothing moves. */
 function target(dx: number, open: Panel | null): { panel: Panel; from: number } | null {
-  if (open === null) return dx > 0 ? { panel: "sidebar", from: 0 } : { panel: "muse", from: 0 };
+  if (open === null) return dx > 0 ? { panel: "sidebar", from: 0 } : { panel: "viewer", from: 0 };
   if (open === "sidebar") return dx < 0 ? { panel: "sidebar", from: 1 } : null;
-  return dx > 0 ? { panel: "muse", from: 1 } : null;
+  return dx > 0 ? { panel: "viewer", from: 1 } : null;
 }
 
 /** How open the page is with the finger `dx` px from where it began: the sidebar goes with the finger, the panel against it. */

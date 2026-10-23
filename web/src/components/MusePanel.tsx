@@ -18,7 +18,6 @@ import { AppLogo } from "./AppLogo";
 import { barButton, barButtonLook, barIcon } from "./bar";
 import { museAvatar, travels } from "../transition.ts";
 import type { Actions } from "../ui.ts";
-import type { Swipe } from "../useSwipe.ts";
 import { browserLook, host, providerLogo, taskStatus, time } from "../view.ts";
 import { moment, repeats, scheduleState } from "../schedules.ts";
 import { useT } from "../i18n/react.ts";
@@ -127,10 +126,8 @@ const TAB_ICONS: { id: Tab; icon: typeof Globe }[] = [
   { id: "upcoming", icon: Clock },
 ];
 
-/** `swipe`: on a phone, a swipe moves the panel with the finger (useSwipe.ts), with no animation of its own, as the sidebar's. */
-export function MusePanel({ open, swipe, conversation, session, mode: asked, actions }: { open: boolean; swipe: Swipe | null; conversation: State; session: Session; mode: MuseMode; actions: Actions }) {
-  const { mounted, closing, onAnimationEnd } = usePresence(open, swipe?.phase === "closed");
-  const moving = swipe?.phase === "drag" || swipe?.phase === "settle";
+export function MusePanel({ open, conversation, session, mode: asked, actions }: { open: boolean; conversation: State; session: Session; mode: MuseMode; actions: Actions }) {
+  const { mounted, closing, onAnimationEnd } = usePresence(open);
   // closing, it leaves the way it was (docked, it slides out right even as the browser takes its place)
   const kept = useRef(asked);
   if (!closing) kept.current = asked;
@@ -141,9 +138,8 @@ export function MusePanel({ open, swipe, conversation, session, mode: asked, act
   const [tab, setTab] = useState<Tab>("activity");
 
   // where it travels (a phone), the transition takes it away at once
-  if ((!mounted && !moving) || (closing && travels())) return null;
-  // (a panel a swipe opened stays as it is until it closes, then leaves as ever)
-  const motion = travels() || (swipe && !closing) ? "" : mode === "docked" ? (closing ? "anim-panel-out-right" : "anim-panel-in-right") : closing ? "anim-popover-out" : "anim-popover-in";
+  if (!mounted || (closing && travels())) return null;
+  const motion = travels() ? "" : mode === "docked" ? (closing ? "anim-panel-out-right" : "anim-panel-in-right") : closing ? "anim-popover-out" : "anim-popover-in";
 
   return (
     <>
@@ -157,14 +153,12 @@ export function MusePanel({ open, swipe, conversation, session, mode: asked, act
       )}
       <aside
         aria-label="Amuse"
-        data-swipe="muse"
         onAnimationEnd={onAnimationEnd}
         // on a phone, where the avatar travels in, the panel comes in with it, in the same transition (index.css); elsewhere
         // it slides in whole, pushing the chat aside as the sidebar and the browser do
-        className={`${frame[mode]} ${motion} ${closing ? "pointer-events-none" : ""} ${swipe?.phase === "settle" ? "swipe-settle" : ""} flex flex-col overflow-hidden`}
+        className={`${frame[mode]} ${motion} ${closing ? "pointer-events-none" : ""} flex flex-col overflow-hidden`}
         style={{
           viewTransitionName: `muse-panel-${mode}`,
-          ...(moving ? { transform: "translateX(calc((1 - var(--swipe)) * 100%))" } : {}),
           ...(mode === "floating" ? { boxShadow: "var(--shadow-sheet)" } : {}),
         }}
       >
