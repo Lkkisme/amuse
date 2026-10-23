@@ -3,10 +3,12 @@
  * Muse avatar with its name badge. While Muse works, the badge grows a status
  * line ("is responding", "Re-observing page", ...).
  */
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { List, Menu, PanelLeftClose, ShieldAlert, Wrench } from "lucide-react";
 import type { State } from "@amuse/protocol";
 import type { Actions } from "../ui.ts";
 import { type AgentLine, agentLine } from "../view.ts";
+import { HOLD_MS, holds, sameLine } from "../badge.ts";
 import { museAvatar } from "../transition.ts";
 import { useT } from "../i18n/react.ts";
 
@@ -48,26 +50,87 @@ export function TopBar({ conversation, museOpen, actions }: { conversation: Stat
   );
 }
 
+/** The line the badge shows (held a moment between two tools), and the lines that are fading out as it changes. */
+function useBadgeLine(line: AgentLine | null) {
+  const [shown, setShown] = useState(line);
+  const [last, setLast] = useState(shown);
+  const [leaving, setLeaving] = useState<{ id: number; line: AgentLine }[]>([]);
+
+  useEffect(() => {
+    if (sameLine(shown, line)) return;
+    if (!holds(shown, line)) {
+      setShown(line);
+      return;
+    }
+    const timer = setTimeout(() => setShown(line), HOLD_MS);
+    return () => clearTimeout(timer);
+  }, [line?.icon, line?.text, shown]);
+
+  // the line that was shown fades out where it was, while the new one fades in
+  if (last !== shown) {
+    setLast(shown);
+    if (last) setLeaving((all) => [...all, { id: (all.at(-1)?.id ?? 0) + 1, line: last }]);
+  }
+  return { shown, leaving, gone: (id: number) => setLeaving((all) => all.filter((l) => l.id !== id)) };
+}
+
+/**
+ * The name badge. Its size is set from what it holds (measured on an inner wrapper) so it can glide to the next one:
+ * a box of auto size cannot be transitioned. What was there fades out over the box as it resizes, and the new line
+ * fades in; the box never stands empty.
+ */
 function AvatarBadge({ line }: { line: AgentLine | null }) {
-  const Icon = line ? LINE_ICONS[line.icon] : null;
+  const { shown, leaving, gone } = useBadgeLine(line);
+  const [size, setSize] = useState<{ width: number; height: number } | null>(null);
+  const content = useRef<HTMLSpanElement>(null);
+
+  useLayoutEffect(() => {
+    const el = content.current;
+    if (!el) return;
+    const measure = () => {
+      const { width, height } = el.getBoundingClientRect();
+      setSize((was) => (was && was.width === width && was.height === height ? was : { width, height }));
+    };
+    measure();
+    const watching = new ResizeObserver(measure);
+    watching.observe(el);
+    return () => watching.disconnect();
+  }, []);
+
   return (
     <span
-      className="pointer-events-auto relative z-[1] -mt-1 flex min-w-[52px] flex-col items-center rounded-[20px] px-3.5 pb-1.5 pt-[5px] transition-all duration-200"
-      style={{ background: "var(--fill-primary)", boxShadow: "var(--shadow-float)" }}
+      className="badge-pill pointer-events-auto relative z-[1] -mt-1 flex items-start justify-center overflow-hidden rounded-[20px]"
+      style={{ background: "var(--fill-primary)", boxShadow: "var(--shadow-float)", ...size }}
     >
-      <span className="text-[14px] font-semibold leading-[18px]" style={{ color: "var(--text-primary)" }}>
-        Amuse
-      </span>
-      {line && Icon && (
-        <span
-          key={line.text}
-          className="anim-fade-in flex items-center gap-1.5 whitespace-nowrap text-[12.5px] leading-[17px]"
-          style={{ color: "var(--text-secondary)" }}
-        >
-          <Icon size={12} />
-          {line.text}
+      <span ref={content} className="relative flex w-max min-w-[52px] shrink-0 flex-col items-center px-3.5 pb-1.5 pt-[5px]">
+        <span className="text-[14px] font-semibold leading-[18px]" style={{ color: "var(--text-primary)" }}>
+          Amuse
         </span>
-      )}
+        {shown && <BadgeLine key={`${shown.icon}:${shown.text}`} line={shown} className="anim-badge-in" />}
+        {leaving.map((l) => (
+          <BadgeLine
+            key={l.id}
+            line={l.line}
+            className="anim-badge-out absolute left-1/2 top-[23px] -translate-x-1/2"
+            onAnimationEnd={() => gone(l.id)}
+          />
+        ))}
+      </span>
+    </span>
+  );
+}
+
+function BadgeLine({ line, className, onAnimationEnd }: { line: AgentLine; className: string; onAnimationEnd?: () => void }) {
+  const Icon = LINE_ICONS[line.icon];
+  return (
+    <span
+      aria-hidden={onAnimationEnd ? true : undefined}
+      className={`${className} flex items-center gap-1.5 whitespace-nowrap text-[12.5px] leading-[17px]`}
+      style={{ color: "var(--text-secondary)" }}
+      onAnimationEnd={onAnimationEnd}
+    >
+      <Icon size={12} />
+      {line.text}
     </span>
   );
 }

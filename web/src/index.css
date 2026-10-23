@@ -81,6 +81,21 @@
   animation: fadeIn 0.3s ease-out both;
 }
 
+/* The name badge: it glides to the size of what it holds (set from its content, TopBar.tsx); the line that
+   leaves fades out while the new one fades in, a little after the box has begun to move. */
+.badge-pill {
+  transition: width 0.24s cubic-bezier(0.2, 0, 0, 1), height 0.24s cubic-bezier(0.2, 0, 0, 1);
+}
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+.anim-badge-in { animation: fadeIn 0.2s ease-out 0.06s both; }
+.anim-badge-out { animation: fadeOut 0.14s ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .badge-pill { transition: none; }
+}
+
 /* Thinking dots: hatch-dot-pulse, 1.2s ease-in-out infinite, staggered ~0.2s */
 @keyframes hatch-dot-pulse {
   0%, 100% { opacity: 1; }
