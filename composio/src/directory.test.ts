@@ -22,6 +22,8 @@ const directory = (accounts: { id: string; toolkit: string; status: string; labe
       accounts: async () => accounts,
       remove: async () => {},
       link: async (app) => ({ url: `https://connect.example/${app}`, account: "ca_new" }),
+      access: async (app) => ({ kind: "managed", name: app }),
+      linkWithKey: async () => {},
     },
     { userId: "owner", rules },
   );

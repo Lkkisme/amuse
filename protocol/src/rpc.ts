@@ -5,7 +5,7 @@
  * Live browser pixels are not JSON-RPC; they stream on their own channel.
  */
 import { z } from "zod";
-import { Account, App, BrowserAction, BrowserRule, KindRule, Permission, Site, SiteEntry, SiteRule, ToolKind } from "./apps.ts";
+import { Account, App, AppAccess, BrowserAction, BrowserRule, KindRule, Permission, Site, SiteEntry, SiteRule, ToolKind } from "./apps.ts";
 import { Approval, Attachment, Id, Resolution, Schedule, SecretDestination, TimeZone } from "./entities.ts";
 import { Envelope, Index, Page, Seq, State } from "./events.ts";
 import { Chat, Push } from "./chats.ts";
@@ -67,6 +67,10 @@ export const Call = z.discriminatedUnion("method", [
   call("apps.accounts", z.object({})),
   /** Start connecting `app`: returns the provider's hosted auth link. */
   call("apps.connect", z.object({ app: Id })),
+  /** How `app` is connected: a hosted link, or the user's own key. */
+  call("apps.access", z.object({ app: Id })),
+  /** Connect `app` with the user's own key, typed in the app; Composio holds it, Amuse keeps it nowhere. */
+  call("apps.connectKey", z.object({ app: Id, key: z.string().min(1).max(4096) })),
   call("apps.disconnect", z.object({ account: Id })),
   /** What the agent may do with an app: reading, changing, destroying (its tools sorted by their own hints). */
   call("apps.permissions", z.object({ app: Id })),
@@ -164,6 +168,8 @@ export const results = {
   "apps.search": z.object({ apps: z.array(App), cursor: z.string().nullable() }),
   "apps.accounts": z.object({ accounts: z.array(Account) }),
   "apps.connect": z.object({ url: z.url() }),
+  "apps.access": z.object({ access: AppAccess }),
+  "apps.connectKey": done,
   "apps.disconnect": done,
   "apps.permissions": z.object({ rules: z.array(KindRule) }),
   "apps.permit": done,
@@ -226,6 +232,8 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "apps.search": (raw) => results["apps.search"].parse(raw),
   "apps.accounts": (raw) => results["apps.accounts"].parse(raw),
   "apps.connect": (raw) => results["apps.connect"].parse(raw),
+  "apps.access": (raw) => results["apps.access"].parse(raw),
+  "apps.connectKey": (raw) => results["apps.connectKey"].parse(raw),
   "apps.disconnect": (raw) => results["apps.disconnect"].parse(raw),
   "apps.permissions": (raw) => results["apps.permissions"].parse(raw),
   "apps.permit": (raw) => results["apps.permit"].parse(raw),

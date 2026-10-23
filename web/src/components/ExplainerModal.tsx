@@ -5,14 +5,16 @@
  * full-width Connect button and a Cancel text button. Connect asks the server
  * to begin connecting; Cancel only closes the sheet.
  */
+import { useEffect, useState } from "react";
 import { BarChart3, Eye, ToggleLeft } from "lucide-react";
-import type { Connection, State } from "@amuse/protocol";
+import type { AppAccess, Connection, State } from "@amuse/protocol";
 import type { Actions } from "../ui.ts";
 import { byId, providerLogo } from "../view.ts";
 import { useT } from "../i18n/react.ts";
 import { Button } from "./Button";
 import { Sheet } from "./Sheet";
 import { AppLogo } from "./AppLogo";
+import { KeyConnect } from "./KeyConnect";
 import { useLastValue } from "./usePresence";
 
 export function ExplainerModal({ conversation, open, actions }: { conversation: State; open: string | null; actions: Actions }) {
@@ -25,6 +27,22 @@ export function ExplainerModal({ conversation, open, actions }: { conversation: 
 function ExplainerBody({ req, open, actions }: { req: Connection; open: boolean; actions: Actions }) {
   const t = useT();
   const close = () => actions.openExplainer(null);
+  // an app that takes the user's own key asks for it here instead of opening a link
+  const [access, setAccess] = useState<AppAccess | null>(null);
+  const [unfit, setUnfit] = useState<string | null>(null);
+  const { provider } = req;
+  useEffect(() => {
+    let current = true;
+    setAccess(null);
+    setUnfit(null);
+    actions.appAccess(provider).then(
+      (found) => current && setAccess(found),
+      (e: unknown) => current && setUnfit(e instanceof Error ? e.message : String(e)),
+    );
+    return () => {
+      current = false;
+    };
+  }, [actions, provider]);
   const features = [
     {
       icon: BarChart3,
@@ -80,14 +98,34 @@ function ExplainerBody({ req, open, actions }: { req: Connection; open: boolean;
           className="shrink-0 border-t px-6 pb-4 pt-3 text-left"
           style={{ borderColor: "var(--fill-divider)" }}
         >
-          <Button
-            variant="primary"
-            size="lg"
-            className="mt-3.5"
-            onClick={() => actions.connect(req.id)}
-          >
-            {t.explainer.connect}
-          </Button>
+          {unfit && (
+            <p role="alert" className="mt-3 text-[13px]" style={{ color: "var(--fill-red)" }}>
+              {unfit}
+            </p>
+          )}
+          {access?.kind === "key" ? (
+            <div className="mt-3.5">
+              <KeyConnect
+                app={req.title}
+                label={access.label}
+                size="lg"
+                connect={async (key) => {
+                  await actions.connectKey(provider, key);
+                  close();
+                }}
+              />
+            </div>
+          ) : (
+            <Button
+              variant="primary"
+              size="lg"
+              className="mt-3.5"
+              disabled={access === null && unfit === null}
+              onClick={() => actions.connect(req.id)}
+            >
+              {t.explainer.connect}
+            </Button>
+          )}
           <Button variant="plain" size="lg" className="mt-2" onClick={close}>
             {t.common.cancel}
           </Button>

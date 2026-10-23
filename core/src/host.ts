@@ -20,6 +20,7 @@ import {
   type ToolKind,
   type Browser,
   type Chat,
+  type AppAccess,
   type Connection,
   type Entity,
   type Envelope,
@@ -294,6 +295,10 @@ export interface AppDirectory {
   accounts(): Promise<Account[]>;
   /** The provider's hosted auth link for `app`. */
   connect(app: string): Promise<string>;
+  /** How `app` is connected: a hosted link, or the user's own key. */
+  access(app: string): Promise<AppAccess>;
+  /** Connect `app` with the user's own key; the connector passes it on and keeps nothing. */
+  connectKey(app: string, key: string): Promise<void>;
   disconnect(account: string): Promise<void>;
   /** What the agent may do with the app, by kind of tool. */
   permissions(app: string): Promise<KindRule[]>;
@@ -921,6 +926,13 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
       return { accounts };
     },
     "apps.connect": async ({ app }) => ({ url: await ports.apps.connect(app) }),
+    "apps.access": async ({ app }) => ({ access: await ports.apps.access(app) }),
+    "apps.connectKey": async ({ app, key }) => {
+      await ports.apps.connectKey(app, key);
+      // a Connect card waiting for this app is settled now, and the agent told
+      settleConnections(await ports.apps.accounts());
+      return null;
+    },
     "apps.disconnect": async ({ account }) => {
       await ports.apps.disconnect(account);
       return null;

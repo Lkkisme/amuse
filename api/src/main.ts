@@ -24,7 +24,7 @@
 import { join } from "node:path";
 import { readFileSync } from "node:fs";
 import { SandboxError, masking, sandboxClient, terminalAt } from "@amuse/sandbox";
-import { ComposioError, NoComposioKey, composio, composioApps, composioGuide, composioConnector, composioDirectory, keyedComposio } from "@amuse/composio";
+import { NoComposioKey, composio, composioSaid, composioApps, composioGuide, composioConnector, composioDirectory, keyedComposio } from "@amuse/composio";
 import { StartupError } from "@amuse/db";
 import { JournalError, sqliteChats } from "./journal.ts";
 import { locate, openData } from "./data.ts";
@@ -187,14 +187,6 @@ const directory = composioDirectory(composioClient, {
   rules,
   ...(publicUrl ? { callbackUrl: new URL("/connected", publicUrl).href } : {}),
 });
-/** What went wrong with Composio, as the user is told it (the app shows a rejection's words; anything else is an internal error). */
-const composioSaid = (error: unknown): unknown => {
-  if (error instanceof NoComposioKey) return new Rejected({ kind: "unsound", reason: "Connections are not set up yet: add a Composio key in Settings › Connections." });
-  if (!(error instanceof ComposioError)) return error;
-  if (error.status === 401 || error.status === 403)
-    return new Rejected({ kind: "unsound", reason: "Composio did not accept the key: test or replace it in Settings › Connections." });
-  return new Rejected({ kind: "unsound", reason: `Composio could not be reached just now${error.status ? ` (${error.status})` : ""}. Try again in a moment.` });
-};
 const said =
   <A extends unknown[], R>(call: (...args: A) => Promise<R>) =>
   async (...args: A): Promise<R> => {
@@ -330,6 +322,8 @@ const ports: Ports = {
   apps: {
     search: said(directory.search),
     connect: said(directory.connect),
+    access: said(directory.access),
+    connectKey: said(directory.connectKey),
     disconnect: said(directory.disconnect),
     permit: said(directory.permit),
     accounts: () => none(directory.accounts),

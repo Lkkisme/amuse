@@ -27,6 +27,8 @@ function capture() {
       search: async () => ({ apps: [], cursor: null }),
       accounts: async () => [],
       connect: async () => "https://connect.example/",
+      access: async () => ({ kind: "managed" }),
+      connectKey: async () => {},
       disconnect: async () => {},
       permissions: async () => [],
       permit: async () => {},
@@ -436,6 +438,44 @@ test("a Connect card still waiting is connected once its app has an account conn
   assert.deepEqual(notes, ["[connection] Gmail is connected now. Tell the user so in a short line; if something was waiting on it, carry on with it."]);
   await host.call("apps.accounts", {});
   assert.equal(notes.length, 1, "once");
+});
+
+test("an app that takes the user's key connects with it, and the Connect card waiting for it settles; the key reaches only the connector", async () => {
+  const notes: string[] = [];
+  const keys: string[] = [];
+  const { ports, io } = capture();
+  const cloudflare = { id: "cloudflare", name: "Cloudflare", description: "", logo: null };
+  const accounts: Account[] = [];
+  const host = createHost(
+    {
+      ...ports,
+      prompt: (turn, agent) => (turn.kind === "note" ? void notes.push(turn.text) : ports.prompt(turn, agent)),
+      apps: {
+        ...ports.apps,
+        accounts: async () => accounts,
+        access: async () => ({ kind: "key", label: "API Token" }),
+        connectKey: async (_app, key) => {
+          keys.push(key);
+          accounts.push({ id: "ca_1", app: cloudflare, label: null, status: "active", since: new Date().toISOString() });
+        },
+      },
+    },
+    { timers: manualTime("2026-10-20T08:00:00Z").timers },
+  );
+  await host.call("chat.send", { chat: "main", text: "check my DNS", timezone: "UTC", attachments: [] });
+  const agent = io();
+  assert.ok(agent);
+  const card = agent.act({ kind: "connect", provider: "cloudflare", title: "Cloudflare" });
+  assert.ok(card.ok);
+  assert.deepEqual(await host.call("apps.access", { app: "cloudflare" }), { access: { kind: "key", label: "API Token" } });
+  await host.call("apps.connectKey", { app: "cloudflare", key: "token-123" });
+  assert.deepEqual(keys, ["token-123"]);
+  const { entities } = await host.call("session.history", { chat: "main", before: 100, limit: 100 });
+  const settled = entities.find((e) => e.id === card.id);
+  assert.equal(settled?.kind === "connection" ? settled.status : null, "connected");
+  assert.equal(notes.length, 1);
+  // not in the conversation the agent reads
+  assert.equal(JSON.stringify(entities).includes("token-123") || notes.join().includes("token-123"), false);
 });
 
 test("every approval asked, in any chat, is listed newest first with its chat, and an answer for good says so", async () => {

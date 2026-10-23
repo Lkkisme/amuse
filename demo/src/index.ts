@@ -77,6 +77,11 @@ function demoApps(rules: Rules): AppDirectory {
       });
       return "https://example.com/";
     },
+    // every demo app is connected with a click: there is no key to bring
+    access: async () => ({ kind: "managed" }),
+    connectKey: async () => {
+      throw new Error("The demo's apps need no key");
+    },
     async disconnect(account) {
       accounts.delete(account);
     },

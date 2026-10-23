@@ -316,6 +316,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           },
         );
       },
+      appAccess: async (app) => (await session.call("apps.access", { app })).access,
+      connectKey: async (app, key) => void (await session.call("apps.connectKey", { app, key })),
       // the browser takes the right: a docked Muse panel gives it up, and its avatar goes back to the top
       openViewer: (browserId) => {
         const open = () =>

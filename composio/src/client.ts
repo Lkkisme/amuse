@@ -6,17 +6,58 @@
 import { z } from "zod";
 
 export const composioBase = "https://backend.composio.dev/api/v3";
+/** Composio's docs give the toolkit, auth config and connected account endpoints used for keys under v3.1. */
+const keyBase = "https://backend.composio.dev/api/v3.1";
 
 export class ComposioError extends Error {
   readonly status: number | null;
-  constructor(message: string, status: number | null = null) {
+  /** the request never got an answer (offline, DNS, timeout) */
+  readonly network: boolean;
+  /** Composio answered that the provider turned a key down (its ConnectedAccount_CredentialValidationRejected) */
+  readonly rejected: boolean;
+  constructor(message: string, status: number | null = null, how: { network?: boolean; rejected?: boolean } = {}) {
     super(message);
     this.status = status;
+    this.network = how.network ?? false;
+    this.rejected = how.rejected ?? false;
+  }
+}
+
+/**
+ * Why a toolkit cannot be connected the usual way: it needs the user's own key (`key`, `label` is what the provider
+ * calls it), it needs credentials Amuse cannot set up (`unsupported`), it takes no key (`managed`), or the provider
+ * turned the key down (`rejected`).
+ */
+export class CannotLink extends Error {
+  readonly why: "key" | "unsupported" | "managed" | "rejected";
+  readonly app: string;
+  readonly label: string | null;
+  constructor(why: CannotLink["why"], app: string, label: string | null = null) {
+    super(`${app} cannot be connected that way (${why})`);
+    this.why = why;
+    this.app = app;
+    this.label = label;
   }
 }
 
 const AuthConfigs = z.object({ items: z.array(z.object({ id: z.string() })) });
 const CreatedAuthConfig = z.object({ auth_config: z.object({ id: z.string() }) });
+/** An auth scheme's fields; Composio's docs do not spell an item out, so both spellings of the label are read. */
+const AuthField = z.looseObject({ name: z.string(), displayName: z.string().optional(), display_name: z.string().optional() });
+const Fields = z.object({ required: z.array(AuthField).default([]) }).default({ required: [] });
+const ToolkitAuth = z.object({
+  name: z.string(),
+  composio_managed_auth_schemes: z.array(z.string()).default([]),
+  auth_config_details: z
+    .array(
+      z.object({
+        mode: z.string(),
+        fields: z.object({ auth_config_creation: Fields, connected_account_initiation: Fields }).default({ auth_config_creation: { required: [] }, connected_account_initiation: { required: [] } }),
+      }),
+    )
+    .default([]),
+});
+const KeyedAuthConfigs = z.object({ items: z.array(z.object({ id: z.string(), auth_scheme: z.string().optional() })) });
 const Link = z.object({ redirect_url: z.url(), connected_account_id: z.string() });
 const Account = z.object({ id: z.string(), status: z.string() });
 const Accounts = z.object({ items: z.array(Account) });
@@ -117,7 +158,34 @@ export interface Toolkit {
   categories: string[];
 }
 
+/** How a toolkit is connected: Composio hosts the login (`managed`), the user brings one key (`key`), or neither works. */
+export type Access =
+  | { kind: "managed"; name: string }
+  | { kind: "key"; name: string; mode: string; field: string; label: string }
+  | { kind: "unsupported"; name: string };
+
+/** Read a toolkit's auth schemes: Composio's own login wins; else an API key that is the only thing asked for. */
+export function accessOf(toolkit: unknown): Access {
+  const parsed = ToolkitAuth.parse(toolkit);
+  const { name } = parsed;
+  if (parsed.composio_managed_auth_schemes.length > 0) return { kind: "managed", name };
+  for (const scheme of parsed.auth_config_details) {
+    if (scheme.mode.toUpperCase() !== "API_KEY") continue;
+    const [field, ...more] = scheme.fields.connected_account_initiation.required;
+    if (field && more.length === 0 && scheme.fields.auth_config_creation.required.length === 0)
+      return { kind: "key", name, mode: "API_KEY", field: field.name, label: field.displayName || field.display_name || field.name };
+  }
+  return { kind: "unsupported", name };
+}
+
 export interface Composio {
+  /** How `toolkit` is connected. */
+  access(toolkit: string): Promise<Access>;
+  /**
+   * Connect `toolkit` with the user's own `key`. Composio holds it from here (Amuse keeps it nowhere) and checks it
+   * with the provider where it can; throws CannotLink("rejected") when the provider turns it down.
+   */
+  linkWithKey(toolkit: string, userId: string, key: string): Promise<void>;
   /** A hosted link where the user authorizes `toolkit`; the account it will create. */
   link(toolkit: string, userId: string, callbackUrl?: string): Promise<{ url: string; account: string }>;
   status(account: string): Promise<AccountStatus>;
@@ -149,16 +217,22 @@ const appTool = (t: z.infer<typeof Tool>): AppTool => ({
 });
 
 export function composio(apiKey: string, http: typeof fetch = fetch): Composio {
-  async function call<T>(schema: z.ZodType<T>, path: string, init: { method?: string; query?: Record<string, string>; body?: unknown } = {}): Promise<T> {
-    const url = new URL(composioBase + path);
+  async function call<T>(schema: z.ZodType<T>, path: string, init: { method?: string; query?: Record<string, string>; body?: unknown; base?: string } = {}): Promise<T> {
+    const url = new URL((init.base ?? composioBase) + path);
     for (const [k, v] of Object.entries(init.query ?? {})) url.searchParams.set(k, v);
     const response = await http(url, {
       method: init.method ?? "GET",
       headers: { "x-api-key": apiKey, ...(init.body === undefined ? {} : { "content-type": "application/json" }) },
       ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
       signal: AbortSignal.timeout(15_000),
+    }).catch(() => {
+      throw new ComposioError(`Composio ${init.method ?? "GET"} ${path} got no answer`, null, { network: true });
     });
-    if (!response.ok) throw new ComposioError(`Composio ${init.method ?? "GET"} ${path} failed (${response.status})`, response.status);
+    if (!response.ok) {
+      // the body is read for one documented code only, never kept or shown
+      const rejected = (await response.text().catch(() => "")).includes("CredentialValidationRejected");
+      throw new ComposioError(`Composio ${init.method ?? "GET"} ${path} failed (${response.status})`, response.status, { rejected });
+    }
     const parsed = schema.safeParse(await response.json());
     if (!parsed.success) throw new ComposioError(`Composio ${path} returned an unexpected shape`);
     return parsed.data;
@@ -176,8 +250,42 @@ export function composio(apiKey: string, http: typeof fetch = fetch): Composio {
     return created.auth_config.id;
   }
 
+  const readAccess = async (toolkit: string) => accessOf(await call(z.unknown(), `/toolkits/${encodeURIComponent(toolkit)}`, { base: keyBase }));
+
+  /** A custom auth config for a toolkit's API key, reused or created. Its credentials stay empty: the key goes with each account. */
+  async function keyAuthConfig(toolkit: string, name: string, mode: string): Promise<string> {
+    const query = { toolkit_slug: toolkit, is_composio_managed: "false", limit: "10" };
+    const listed = await call(KeyedAuthConfigs, "/auth_configs", { base: keyBase, query });
+    const existing = listed.items.find((c) => c.auth_scheme?.toUpperCase() === mode);
+    if (existing) return existing.id;
+    const created = await call(CreatedAuthConfig, "/auth_configs", {
+      base: keyBase,
+      method: "POST",
+      body: { toolkit: { slug: toolkit }, auth_config: { type: "use_custom_auth", auth_scheme: mode, name, credentials: {} } },
+    });
+    return created.auth_config.id;
+  }
+
   return {
+    access: readAccess,
+    async linkWithKey(toolkit, userId, key) {
+      const access = await readAccess(toolkit);
+      if (access.kind === "managed") throw new CannotLink("managed", access.name);
+      if (access.kind === "unsupported") throw new CannotLink("unsupported", access.name);
+      const config = await keyAuthConfig(toolkit, access.name, access.mode);
+      // Composio holds the key from here: Amuse does not store it (no file, no database, no log), it only passes it on
+      const state = { authScheme: access.mode, val: { [access.field]: key } };
+      try {
+        await call(z.unknown(), "/connected_accounts", { base: keyBase, method: "POST", body: { auth_config: { id: config }, connection: { user_id: userId, state } } });
+      } catch (error) {
+        if (error instanceof ComposioError && error.rejected) throw new CannotLink("rejected", access.name, access.label);
+        throw error;
+      }
+    },
     async link(toolkit, userId, callbackUrl) {
+      const access = await readAccess(toolkit);
+      if (access.kind === "key") throw new CannotLink("key", access.name, access.label);
+      if (access.kind === "unsupported") throw new CannotLink("unsupported", access.name);
       const body = { auth_config_id: await authConfig(toolkit), user_id: userId, ...(callbackUrl ? { callback_url: callbackUrl } : {}) };
       const created = await call(Link, "/connected_accounts/link", { method: "POST", body });
       return { url: created.redirect_url, account: created.connected_account_id };
@@ -281,6 +389,8 @@ export function keyedComposio(key: () => string | null, http: typeof fetch = fet
     return current.client;
   };
   return {
+    access: async (toolkit) => (await client()).access(toolkit),
+    linkWithKey: async (toolkit, userId, key) => (await client()).linkWithKey(toolkit, userId, key),
     link: async (toolkit, userId, callbackUrl) => (await client()).link(toolkit, userId, callbackUrl),
     status: async (account) => (await client()).status(account),
     connected: async (toolkit, userId) => (await client()).connected(toolkit, userId),

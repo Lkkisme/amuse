@@ -267,6 +267,9 @@ export const en = {
       copyKey: "Under API Keys, copy the key (it starts with ak_)",
     },
     addKey: "Add Composio key",
+    keyIntro: (app: string, label: string) => `${app} needs your own ${label}. Paste it to connect.`,
+    keyNote: "It goes to Composio, which holds it. Amuse does not keep it, and Muse never sees it.",
+    keyChecking: "Checking…",
   },
   models: {
     intro: "Amuse runs on a model you choose, with your own API key.",

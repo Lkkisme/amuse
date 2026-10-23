@@ -6,7 +6,7 @@
  */
 import { type AppDirectory, type Rules, kinds, permissionOf } from "@amuse/core";
 import type { Account, AccountStatus, App } from "@amuse/protocol";
-import type { Composio, Toolkit } from "./client.ts";
+import { CannotLink, type Composio, type Toolkit } from "./client.ts";
 
 /** How long the fetched list is good for. */
 const FRESH_MS = 12 * 60 * 60_000;
@@ -44,7 +44,7 @@ export function score(t: Toolkit, words: string[]): number {
 }
 
 export function composioDirectory(
-  client: Pick<Composio, "toolkits" | "accounts" | "remove" | "link">,
+  client: Pick<Composio, "toolkits" | "accounts" | "remove" | "link" | "access" | "linkWithKey">,
   options: { userId: string; rules: Rules; callbackUrl?: string },
 ): AppDirectory {
   let list: { at: number; toolkits: Promise<Toolkit[]> } | null = null;
@@ -80,6 +80,12 @@ export function composioDirectory(
     async connect(appId) {
       return (await client.link(appId, options.userId, options.callbackUrl)).url;
     },
+    async access(appId) {
+      const access = await client.access(appId);
+      if (access.kind === "unsupported") throw new CannotLink("unsupported", access.name);
+      return access.kind === "key" ? { kind: "key", label: access.label } : { kind: "managed" };
+    },
+    connectKey: (appId, key) => client.linkWithKey(appId, options.userId, key),
     disconnect: (account) => client.remove(account),
     async permissions(app) {
       const rules = await options.rules.of(app);

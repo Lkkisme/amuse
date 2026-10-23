@@ -14,6 +14,12 @@ export const App = z.object({
   logo: z.url().nullable(),
 });
 
+/**
+ * How an app is connected: Composio's own login (a link), or one key the user brings, which the provider calls `label`
+ * ("API Token"). The key is typed only by the user, in the app; it is never part of the conversation.
+ */
+export const AppAccess = z.discriminatedUnion("kind", [z.object({ kind: z.literal("managed") }), z.object({ kind: z.literal("key"), label: z.string() })]);
+
 /** expired: it worked, and needs authorizing again */
 export const AccountStatus = z.enum(["active", "expired", "failed"]);
 
@@ -63,6 +69,7 @@ export const SiteEntry = z.object({ never: z.boolean(), actions: SiteActions });
 export const SiteRule = z.object({ site: Site, never: z.boolean(), actions: SiteActions });
 
 export type App = z.infer<typeof App>;
+export type AppAccess = z.infer<typeof AppAccess>;
 export type BrowserAction = z.infer<typeof BrowserAction>;
 export type BrowserRule = z.infer<typeof BrowserRule>;
 export type SiteActions = z.infer<typeof SiteActions>;

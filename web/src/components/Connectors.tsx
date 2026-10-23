@@ -11,6 +11,7 @@ import { ChevronLeft, MoreHorizontal, Search } from "lucide-react";
 import type {
   Account,
   App,
+  AppAccess,
   KindRule,
   Permission,
   Session,
@@ -18,6 +19,7 @@ import type {
 } from "@amuse/protocol";
 import { Button } from "./Button";
 import { AppLogo } from "./AppLogo";
+import { KeyConnect } from "./KeyConnect";
 import { PermissionSelect } from "./PermissionSelect";
 import { useT } from "../i18n/react.ts";
 
@@ -117,6 +119,26 @@ export function Connectors({
       })
       .finally(() => setBusy(null));
   };
+  // how the open app is connected: a link, or the user's own key
+  const [access, setAccess] = useState<AppAccess | null>(null);
+  const viewingId = viewing?.id;
+  useEffect(() => {
+    setAccess(null);
+    if (!viewingId) return;
+    let current = true;
+    session.call("apps.access", { app: viewingId }).then(
+      ({ access }) => current && setAccess(access),
+      (e: unknown) => current && fail(e),
+    );
+    return () => {
+      current = false;
+    };
+  }, [session, viewingId]);
+  /** the key goes to the server and on to Composio, nowhere else; then the accounts are read again */
+  const connectKey = async (app: string, key: string) => {
+    await session.call("apps.connectKey", { app, key });
+    await loadAccounts();
+  };
   const disconnect = (ids: string[]) => {
     setBusy(ids.join());
     setError(null);
@@ -152,7 +174,9 @@ export function Connectors({
         app={viewing}
         accounts={accountsOf(viewing.id)}
         busy={busy}
+        access={access}
         error={errorLine}
+        onConnectKey={(key) => connectKey(viewing.id, key)}
         onBack={() => onView(null)}
         onConnect={() => connect(viewing.id)}
         onDisconnect={disconnect}
@@ -251,7 +275,9 @@ function AppPage({
   app,
   accounts,
   busy,
+  access,
   error,
+  onConnectKey,
   onBack,
   onConnect,
   onDisconnect,
@@ -260,7 +286,9 @@ function AppPage({
   app: App;
   accounts: Account[];
   busy: string | null;
+  access: AppAccess | null;
   error: React.ReactNode;
+  onConnectKey: (key: string) => Promise<void>;
   onBack: () => void;
   onConnect: () => void;
   onDisconnect: (accounts: string[]) => void;
@@ -329,16 +357,22 @@ function AppPage({
         </Group>
       )}
       {accounts.length === 0 ? (
-        <div className="mt-5 flex justify-center">
-          <Button
-            variant="primary"
-            className="w-full max-w-[280px]"
-            disabled={busy === app.id}
-            onClick={onConnect}
-          >
-            {t.connections.connect}
-          </Button>
-        </div>
+        access?.kind === "key" ? (
+          <div className="mt-5">
+            <KeyConnect app={app.name} label={access.label} connect={onConnectKey} />
+          </div>
+        ) : (
+          <div className="mt-5 flex justify-center">
+            <Button
+              variant="primary"
+              className="w-full max-w-[280px]"
+              disabled={busy === app.id || access === null}
+              onClick={onConnect}
+            >
+              {t.connections.connect}
+            </Button>
+          </div>
+        )
       ) : (
         <Group className="mt-3">
           {accounts.map((account) => (
@@ -395,7 +429,7 @@ function AppPage({
                     boxShadow: "var(--shadow-raised)",
                   }}
                 >
-                  {account.status !== "active" && (
+                  {account.status !== "active" && access?.kind !== "key" && (
                     <MenuItem
                       onClick={() => {
                         setOptions(null);
@@ -418,16 +452,23 @@ function AppPage({
               )}
             </li>
           ))}
-          <li>
-            <button
-              className="hover-fade w-full py-3 text-left text-[15px]"
-              style={{ color: "var(--fill-blue)" }}
-              onClick={onConnect}
-            >
-              {t.connections.addAccount}
-            </button>
-          </li>
+          {access?.kind !== "key" && (
+            <li>
+              <button
+                className="hover-fade w-full py-3 text-left text-[15px]"
+                style={{ color: "var(--fill-blue)" }}
+                onClick={onConnect}
+              >
+                {t.connections.addAccount}
+              </button>
+            </li>
+          )}
         </Group>
+      )}
+      {accounts.length > 0 && access?.kind === "key" && (
+        <div className="mt-4">
+          <KeyConnect app={app.name} label={access.label} connect={onConnectKey} />
+        </div>
       )}
       {rules && rules.length > 0 && (
         <>
