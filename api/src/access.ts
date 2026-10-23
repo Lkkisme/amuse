@@ -3,7 +3,7 @@
  * visitor sets it (the instance holds nothing of theirs before: no keys, no
  * chats); from then on the password opens a session, kept as an HttpOnly
  * cookie. The database keeps the password's scrypt hash and the hashes of the
- * sessions open (a session id is never stored as it is). `amuse reset-password`
+ * sessions open (a session id is never stored as it is). `amuse-admin reset-password`
  * lets the password be set again.
  */
 import { createHash, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
@@ -99,7 +99,7 @@ export function sqliteAccess(db: Db): Access {
   };
 }
 
-/** Forget the password and every session: the next visit sets a new one (`amuse reset-password`). */
+/** Forget the password and every session: the next visit sets a new one (`amuse-admin reset-password`). */
 export function resetPassword(db: Db): void {
   transaction(db, () => db.exec("delete from access; delete from sessions"));
 }

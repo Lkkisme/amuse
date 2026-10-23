@@ -55,7 +55,7 @@ has to be thrown away whenever the reducer (`protocol/src/events.ts`) changes, s
 Full-text search (FTS5) is not used: `recall` searches the chats' state in memory, and `memory_search` searches
 Markdown files that Amuse and the user edit as files, so an index would have to follow every such edit.
 
-Commands, beside the server (in Docker: `docker compose exec amuse node api/src/cli.ts …`; elsewhere `--data <folder>`):
+Commands, beside the server: `amuse-admin <command>` (on the image's PATH, so `docker compose exec amuse amuse-admin …`; in development `node api/src/admin.ts --data <folder> …`). The name `amuse` is kept for a client on the user's own computer (#39):
 
 ```
 migrate [--dry-run]   run the pending migrations now, or list them and what each touches
@@ -88,7 +88,7 @@ At every start, before anything opens the data, `api/src/data.ts` checks the fol
 
 To add a migration, give it a timestamp later than the newest (`date -u +%Y%m%d%H%M%S`) and write one of:
 
-- SQL: `-- migrate:up` and `-- migrate:down` sections. Tables are `strict`. Then `node api/src/cli.ts schema` rewrites
+- SQL: `-- migrate:up` and `-- migrate:down` sections. Tables are `strict`. Then `amuse-admin schema` (`node api/src/admin.ts schema` in development) rewrites
   `db/schema.sql`; a test checks that it matches what the migrations leave.
 - TypeScript: export `up(context)`, `describe(context)` (what it would touch, in words, without changing anything: the dry
   run prints it) and, if it can be undone, `down(context)`. `context.db` is inside the migration's transaction, so all

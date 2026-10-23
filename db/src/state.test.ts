@@ -74,7 +74,7 @@ test("db/schema.sql is what the migrations leave, in dbmate's shape, and loads o
   const file = fileURLToPath(new URL("../schema.sql", import.meta.url));
   const written = readFileSync(file, "utf8");
   const migrated = await migratedDatabase();
-  assert.equal(dumpSchema(migrated), written, "run `node api/src/cli.ts schema` to write it again");
+  assert.equal(dumpSchema(migrated), written, "run `amuse-admin schema` (in development: `node api/src/admin.ts schema`) to write it again");
   const loaded = openDatabase(MEMORY);
   loaded.exec(written);
   assert.equal(dumpSchema(loaded), written);

@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { sqliteAccess } from "./access.ts";
 import { locate, openData } from "./data.ts";
 
-const cli = fileURLToPath(new URL("./cli.ts", import.meta.url));
+const cli = fileURLToPath(new URL("./admin.ts", import.meta.url));
 const fixture = fileURLToPath(new URL("../../db/fixtures/0.1.0/data", import.meta.url));
 const run = (...args: string[]) => execFileSync("node", [cli, ...args], { encoding: "utf8" });
 const copy = () => {

@@ -131,9 +131,9 @@ leaves it, and deleting or overwriting the files you sent, still needs your word
 - Your conversation, the password, your keys, saved browser logins and the sandbox's home folder live in Docker volumes;
   they survive restarts and updates. `docker compose down -v` deletes them.
 - Update: `git pull && docker compose up -d --build`. Before an update that changes the stored data, Amuse copies its database to `backups/` in the data volume;
-  `docker compose exec amuse node api/src/cli.ts migrate --dry-run` shows beforehand what would change.
+  `docker compose exec amuse amuse-admin migrate --dry-run` shows beforehand what would change.
 - Change the password, or lock a device: Settings › General. Changing it signs every other device out.
-- Forgot the password: `docker compose exec amuse node api/src/cli.ts reset-password`,
+- Forgot the password: `docker compose exec amuse amuse-admin reset-password`,
   then set a new one on the next visit. Your chats and keys stay.
 - Use another port: `AMUSE_PUBLISH_PORT=9000` in `.env` (and `AMUSE_PUBLIC_URL=http://localhost:9000`).
 

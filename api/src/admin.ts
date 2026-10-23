@@ -1,5 +1,5 @@
 /**
- * The data commands, run beside the server (in Docker: `docker compose exec amuse node api/src/cli.ts <command>`), on the
+ * The data commands, run beside the server (in Docker: `docker compose exec amuse amuse-admin <command>`; in development: `node api/src/admin.ts <command>`), on the
  * data folder named by AMUSE_DATA (or AMUSE_JOURNAL's folder), or `--data <folder>`:
  *   migrate [--dry-run]   run the pending migrations now (as the server does at start), or say what they would do
  *   rollback              undo the newest migration (it must have a way back)
@@ -22,7 +22,7 @@ import { exported } from "./journal.ts";
 const schemaFile = fileURLToPath(new URL("../../db/schema.sql", import.meta.url));
 
 function usage(): never {
-  console.error("usage: node api/src/cli.ts [--data <folder>] migrate [--dry-run] | rollback | export [chat] | chats | reset-password | schema");
+  console.error("usage: amuse-admin [--data <folder>] migrate [--dry-run] | rollback | export [chat] | chats | reset-password | schema");
   return process.exit(2);
 }
 
