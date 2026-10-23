@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { fileCredentials } from "./credentials.ts";
 import { guideNotes, guides } from "./guides.ts";
+import { piKeys } from "./keys.ts";
 import { voiceServices } from "./voice.ts";
 
 const urlsOf = (id: string): string[] => {
@@ -42,4 +44,19 @@ test("every note is from the closed set", () => {
   for (const [id, guide] of Object.entries(guides)) {
     if (guide.note !== undefined) assert.ok(guideNotes.includes(guide.note), id);
   }
+});
+
+test("the key sheet is given a guide for every provider and the apps' key", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "amuse-guides-"));
+  const keys = piKeys({
+    keys: fileCredentials(join(dir, "keys.json")),
+    choicePath: join(dir, "models.json"),
+    apps: [{ id: "composio", name: "Composio", message: "Your key", where: "On composio.dev.", link: { url: "https://composio.dev/", label: "composio.dev" } }],
+  });
+  const { providers } = await keys.list();
+  assert.deepEqual(
+    providers.filter((p) => p.guide === null).map((p) => p.id),
+    [],
+  );
+  assert.deepEqual(providers.find((p) => p.id === "deepseek")?.guide, { home: "https://platform.deepseek.com/", keys: "https://platform.deepseek.com/api_keys", docs: null, note: "prepaid" });
 });

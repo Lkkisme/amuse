@@ -12,7 +12,7 @@ import { Envelope, Index, Page, Seq, State } from "./events.ts";
 import { Chat, Push } from "./chats.ts";
 import { Goal, GoalNote, GoalStatus } from "./goals.ts";
 import { SkillInfo, SkillOrigin } from "./skills.ts";
-import { KeyTest, KeysState, LocalVoice, LoginStep, ModelRef, ModelRole, ThinkingLevel } from "./keys.ts";
+import { KeyTest, KeyWay, KeysState, LocalVoice, LoginStep, ModelRef, ModelRole, ThinkingLevel } from "./keys.ts";
 
 const call = <M extends string, P extends z.ZodObject>(method: M, params: P) =>
   z.object({ method: z.literal(method), params });
@@ -124,10 +124,12 @@ export const Call = z.discriminatedUnion("method", [
   call("goals.update", z.object({ id: z.string().min(1).max(100), status: GoalStatus.optional(), muted: z.boolean().optional() })),
   /** The providers there are for keys, which are set up, the models they offer and the ones chosen. */
   call("keys.list", z.object({})),
-  /** Start setting up a provider's key: its first prompt (or done/failed). */
-  call("keys.login", z.object({ provider: z.string().min(1).max(100) })),
-  /** Answer a sign-in's prompt: the next one (or done/failed). */
+  /** Start setting up a provider: with its key (the default), or by signing in with the user's account there. Its first step. */
+  call("keys.login", z.object({ provider: z.string().min(1).max(100), way: KeyWay.optional() })),
+  /** Answer a sign-in's prompt: the next step. */
   call("keys.answer", z.object({ login: z.string().min(1).max(100), value: z.string().max(8192) })),
+  /** A sign-in's next step once the user has finished on the provider's page; after about 20 seconds without one, the step as it stands. */
+  call("keys.wait", z.object({ login: z.string().min(1).max(100) })),
   call("keys.cancel", z.object({ login: z.string().min(1).max(100) })),
   /** Try a provider's key: one short request with it (a model of theirs; the apps' directory for Composio). */
   call("keys.test", z.object({ provider: z.string().min(1).max(100) })),
@@ -208,6 +210,7 @@ export const results = {
   "keys.list": KeysState,
   "keys.login": LoginStep,
   "keys.answer": LoginStep,
+  "keys.wait": LoginStep,
   "keys.cancel": done,
   "keys.test": KeyTest,
   "keys.logout": done,
@@ -278,6 +281,7 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "keys.list": (raw) => results["keys.list"].parse(raw),
   "keys.login": (raw) => results["keys.login"].parse(raw),
   "keys.answer": (raw) => results["keys.answer"].parse(raw),
+  "keys.wait": (raw) => results["keys.wait"].parse(raw),
   "keys.cancel": (raw) => results["keys.cancel"].parse(raw),
   "keys.test": (raw) => results["keys.test"].parse(raw),
   "keys.logout": (raw) => results["keys.logout"].parse(raw),

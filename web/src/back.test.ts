@@ -35,7 +35,10 @@ test("a key provider's page is a layer over its section, and Back leaves it firs
     name: "Fireworks",
     use: "models",
     connected: true,
+    way: "key",
     hint: "…1234",
+    account: null,
+    guide: null,
   };
   const page: Ui = {
     ...initialUi,

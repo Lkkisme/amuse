@@ -13,6 +13,7 @@ import {
   type Permission,
   type KindRule,
   type KeyTest,
+  type KeyWay,
   type LoginStep,
   type ModelRole,
   type LocalVoice,
@@ -355,11 +356,13 @@ export interface AppDirectory {
   permit(app: string, kind: ToolKind, permission: Permission | null): Promise<void>;
 }
 
-/** Where the user's keys are set up and the models chosen: a sign-in goes prompt by prompt. */
+/** Where the user's keys are set up and the models chosen: a sign-in goes step by step. */
 export interface Keys {
   list(): Promise<Results["keys.list"]>;
-  login(provider: string): Promise<LoginStep>;
+  login(provider: string, way?: KeyWay): Promise<LoginStep>;
   answer(login: string, value: string): Promise<LoginStep>;
+  /** The sign-in's next step, or after a while the step as it stands. */
+  wait(login: string): Promise<LoginStep>;
   cancel(login: string): Promise<void>;
   /** Try a provider's key with one short request. */
   test(provider: string): Promise<KeyTest>;
@@ -380,6 +383,7 @@ export const noKeys: Keys = {
   list: async () => ({ providers: [], models: [], chat: null, browser: null, background: null, thinking: { chat: "off", browser: "off", background: "off" }, voice: { services: [], chosen: null, local: null } }),
   login: async () => ({ kind: "failed", reason: "No keys are kept here." }),
   answer: async () => ({ kind: "failed", reason: "No keys are kept here." }),
+  wait: async () => ({ kind: "failed", reason: "No keys are kept here." }),
   cancel: async () => {},
   test: async () => ({ ok: false, detail: "No keys are kept here." }),
   logout: async () => {},
@@ -1048,8 +1052,9 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
       return null;
     },
     "keys.list": () => ports.keys.list(),
-    "keys.login": ({ provider }) => ports.keys.login(provider),
+    "keys.login": ({ provider, way }) => ports.keys.login(provider, way),
     "keys.answer": ({ login, value }) => ports.keys.answer(login, value),
+    "keys.wait": ({ login }) => ports.keys.wait(login),
     "keys.cancel": async ({ login }) => {
       await ports.keys.cancel(login);
       return null;

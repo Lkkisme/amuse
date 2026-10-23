@@ -1,8 +1,8 @@
 /**
  * Settings › Models: the model Muse chats with, the one that works in the
  * browser (it must see pictures; the chat's unless chosen), among those of the providers set up with
- * the user's own API keys; the providers set up (only the end of a key
- * shows), each with a page of its own to test, replace or remove its key; and
+ * the user's own API keys or account sign-ins; the providers set up (only the end of a key
+ * shows), each with a page of its own to test, replace or remove its key (or sign in again, or out); and
  * every other one to add.
  */
 import { type ReactNode, useCallback, useEffect, useState } from "react";
@@ -319,7 +319,12 @@ export function Models({
                     >
                       {p.name}
                     </span>
-                    <KeyLine hint={p.hint} test={tests[p.id]} brief />
+                    <KeyLine
+                      hint={p.hint}
+                      way={p.way}
+                      test={tests[p.id]}
+                      brief
+                    />
                   </span>
                   <ChevronRight
                     size={16}
@@ -415,6 +420,8 @@ function ProviderPage({
   children: React.ReactNode;
 }) {
   const t = useT();
+  // signed in with the user's account: there is no key, and removing it signs out
+  const signedIn = provider.way === "account";
   const row =
     "hover-fade w-full py-3.5 text-left text-[15px] disabled:opacity-50";
   return (
@@ -458,7 +465,7 @@ function ProviderPage({
         className="mt-5 rounded-[18px] px-4 py-3"
         style={{ background: "var(--fill-secondary)" }}
       >
-        <KeyLine hint={provider.hint} test={test} />
+        <KeyLine hint={provider.hint} way={provider.way} test={test} />
       </div>
       <ul
         className={`${group} mt-3`}
@@ -471,7 +478,7 @@ function ProviderPage({
             style={{ color: "var(--fill-blue)" }}
             onClick={onTest}
           >
-            {t.keys.testKey}
+            {signedIn ? t.keys.testSignIn : t.keys.testKey}
           </button>
         </li>
         <li>
@@ -480,7 +487,7 @@ function ProviderPage({
             style={{ color: "var(--fill-blue)" }}
             onClick={onReplace}
           >
-            {t.keys.replaceKey}
+            {signedIn ? t.keys.signInAgain : t.keys.replaceKey}
           </button>
         </li>
         <li>
@@ -489,7 +496,7 @@ function ProviderPage({
             style={{ color: "var(--fill-red)" }}
             onClick={onRemove}
           >
-            {t.keys.removeKey}
+            {signedIn ? t.keys.signOut : t.keys.removeKey}
           </button>
         </li>
       </ul>

@@ -49,7 +49,10 @@ test("a provider's key is set up through its own prompts, kept owner-only, and s
     name: fireworks?.name,
     use: "models",
     connected: true,
+    way: "key",
     hint: "…1234",
+    account: null,
+    guide: { home: "https://fireworks.ai/", keys: "https://app.fireworks.ai/settings/users/api-keys", docs: null, note: null },
   });
   assert.ok(!JSON.stringify(listed).includes("fw_secret_key_fake_value_1234"), "the key never comes back");
   assert.ok(listed.models.length > 0 && listed.models.every((m) => m.provider === "fireworks"));

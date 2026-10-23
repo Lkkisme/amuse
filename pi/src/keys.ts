@@ -4,15 +4,22 @@
  * the models they offer, and the ones chosen for the chat and the browser.
  *
  * Setting a key up is the provider's own sign-in, run here and relayed to the
- * app a prompt at a time (its key, sometimes an account id or a region): no
- * form is kept per provider. Only API keys: the subscription sign-ins Pi knows
- * go through other apps' client ids, so they are left out.
+ * app a step at a time (its key, sometimes an account id or a region): no
+ * form is kept per provider. Where a provider offers it, the user can instead
+ * sign in with their account there (Pi's OAuth flows): the app opens the
+ * provider's page, and the code comes back pasted (the page the sign-in ends
+ * on is this server's, which the user's browser cannot reach) or by the
+ * provider's own confirmation of a device code. The tokens are kept with the
+ * keys, in the same credential store, and Pi refreshes them there; they never
+ * leave the server.
  */
+import { randomUUID } from "node:crypto";
 import { type AuthEvent, type AuthInteraction, type AuthPrompt, clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { type Keys, Rejected, hintOf, newId } from "@amuse/core";
-import { type KeyProvider, type LoginNote, type LoginPrompt, type LoginStep, type ModelOption, type ModelRole, ThinkingLevel } from "@amuse/protocol";
+import { type DeviceCode, type KeyGuide, type KeyProvider, type KeyWay, type LoginNote, type LoginPrompt, type LoginStep, type ModelOption, type ModelRole, ThinkingLevel } from "@amuse/protocol";
 import { z } from "zod";
 import { type KeyFile, LOCAL_VOICE, readOnlyCredentials } from "./credentials.ts";
+import { guides } from "./guides.ts";
 import { redact } from "./redact.ts";
 import { type PiModelConfig, parseModel, runtime } from "./session.ts";
 import { voiceServices } from "./voice.ts";
@@ -56,6 +63,8 @@ export const Choice = z.object({
   voice: z.string().nullable().default(null),
   /** a speech server the user runs themselves (its key, if any, is kept with the keys as LOCAL_VOICE) */
   localVoice: z.object({ url: z.string(), model: z.string() }).nullable().default(null),
+  /** this instance's own id, made on first need: Sign in with ChatGPT registers each installation by one */
+  installation: z.uuid().nullable().default(null),
   thinking: z
     .object({ chat: ThinkingLevel, browser: ThinkingLevel, background: ThinkingLevel.default("off") })
     .default({ chat: "off", browser: "off", background: "off" }),
@@ -77,11 +86,28 @@ export function memoryChoices(initial: Choice | null = null): Choices {
 
 /** How long a sign-in may wait for its next answer. */
 const LOGIN_TIMEOUT_MS = 10 * 60_000;
+/** How long keys.wait holds on before it says the step as it stands (a connection may drop while the user is on the provider's page). */
+const WAIT_MS = 20_000;
+/** How long a sign-in that is over still tells keys.wait how it ended. */
+const ENDED_KEPT_MS = 60_000;
+/** What the app introduces itself as to a provider's sign-in. */
+const AGENT_NAME = "Amuse";
+/**
+ * Ways of signing in that the provider says suit a browser on another
+ * machine: a code to copy (Anthropic) or a device code (Radius, the legacy
+ * Codex). The user's browser never is on this server, so these are chosen
+ * for them.
+ */
+const ELSEWHERE = ["copy_code", "device_code"];
+
+const OVER: LoginStep = { kind: "failed", reason: "This sign-in is over; start it again." };
 
 const hint = (key: string | undefined) => (key ? hintOf(key) : null);
 
-function promptOf(prompt: AuthPrompt): LoginPrompt | null {
-  if (prompt.type !== "text" && prompt.type !== "secret" && prompt.type !== "select") return null;
+function promptOf(prompt: AuthPrompt): LoginPrompt {
+  if (prompt.type === "manual_code")
+    // the address of the page the sign-in ends on (it starts like the placeholder Pi gives), or a code the provider's page shows
+    return { type: /^https?:\/\//.test(prompt.placeholder ?? "") ? "address" : "code", message: prompt.message, placeholder: prompt.placeholder ?? null, options: [] };
   return {
     type: prompt.type,
     message: prompt.message,
@@ -97,7 +123,8 @@ function promptOf(prompt: AuthPrompt): LoginPrompt | null {
   };
 }
 
-function noteOf(event: AuthEvent): LoginNote | null {
+/** What the provider says along the way. A sign-in with an account says its steps in the app's own words, so Pi's progress ("Listening for OAuth callback on …") is left out there. */
+function noteOf(event: AuthEvent, way: KeyWay): LoginNote | null {
   if (event.type === "info")
     return {
       message: event.message,
@@ -106,8 +133,13 @@ function noteOf(event: AuthEvent): LoginNote | null {
         label: l.label ?? null,
       })),
     };
-  if (event.type === "progress") return { message: event.message, links: [] };
-  return null; // auth_url and device_code belong to OAuth, which is not offered
+  if (event.type === "progress" && way === "key") return { message: event.message, links: [] };
+  return null;
+}
+
+function guideOf(id: string): KeyGuide | null {
+  const guide = guides[id];
+  return guide ? { home: guide.home, keys: guide.keys, docs: guide.docs ?? null, note: guide.note ?? null } : null;
 }
 
 /** The providers Pi can take a key for, by id, with the names the user knows them by ("openai" → "OpenAI"). */
@@ -153,7 +185,14 @@ export function bare(value: string): string {
 interface Flow {
   abort: AbortController;
   notes: LoginNote[];
+  /** the provider's sign-in page, once it has one */
+  page: string | null;
+  /** the code to enter on that page, once given */
+  device: DeviceCode | null;
   pending: { resolve(value: string): void; reject(error: Error): void } | null;
+  /** the step said last, for keys.wait to say again while nothing new comes */
+  shown: LoginStep | null;
+  /** the next step (the last one, once the sign-in is over) */
   step: Promise<LoginStep>;
   timer: ReturnType<typeof setTimeout>;
 }
@@ -167,7 +206,7 @@ export function piKeys({ keys, choices, apps = [], modelsPath }: { keys: KeyFile
     auth: { kind: "keys", keys },
     ...(modelsPath ? { modelsPath } : {}),
   };
-  let choice: Choice = choices.load() ?? { chat: null, browser: null, background: null, voice: null, localVoice: null, thinking: { chat: "off", browser: "off", background: "off" } };
+  let choice: Choice = choices.load() ?? { chat: null, browser: null, background: null, voice: null, localVoice: null, installation: null, thinking: { chat: "off", browser: "off", background: "off" } };
   const choose = (next: Choice) => {
     choices.save(next);
     choice = next;
@@ -185,7 +224,14 @@ export function piKeys({ keys, choices, apps = [], modelsPath }: { keys: KeyFile
   };
   const loaded = loadAppKeys();
 
-  /** Providers Pi can take an API key for. */
+  /** This instance's id, the same on every call (made and kept on the first). */
+  const installation = () => {
+    const id = choice.installation ?? randomUUID();
+    if (choice.installation === null) choose({ ...choice, installation: id });
+    return id;
+  };
+
+  /** Providers Pi can take an API key for (some also take a sign-in with the user's account). */
   const providers = async () => (await runtime(cfg)).getProviders().filter((p) => p.auth.apiKey?.login !== undefined);
 
   /** The models of the providers set up here (not ones whose key happens to be in the environment). */
@@ -211,39 +257,90 @@ export function piKeys({ keys, choices, apps = [], modelsPath }: { keys: KeyFile
     return model ? clampThinkingLevel(model, choice.thinking[role]) : choice.thinking[role];
   };
 
-  /** Run a sign-in to its first step; later steps come with each answer. */
-  const begin = (run: (interaction: AuthInteraction) => Promise<unknown>): Promise<LoginStep> => {
+  /** Run a sign-in to its first step; later steps come with each answer, or with keys.wait. */
+  const begin = (run: (interaction: AuthInteraction) => Promise<unknown>, way: KeyWay): Promise<LoginStep> => {
     const id = newId("l");
     let wake: (step: LoginStep) => void = () => {};
     const next = () => new Promise<LoginStep>((resolve) => (wake = resolve));
     const flow: Flow = {
       abort: new AbortController(),
       notes: [],
+      page: null,
+      device: null,
       pending: null,
+      shown: null,
       step: next(),
       timer: setTimeout(() => flow.abort.abort(), LOGIN_TIMEOUT_MS),
     };
     flow.timer.unref?.();
     logins.set(id, flow);
+    /** whoever waits now hears `step`; the next one is waited for anew */
+    const show = (step: LoginStep) => {
+      const now = wake;
+      flow.step = next();
+      flow.shown = step;
+      now(step);
+    };
+    /** the last step: whoever waits hears it, and so does anyone who asks later */
+    const end = (step: LoginStep) => {
+      flow.shown = step;
+      wake(step);
+    };
+    // a page to open or a code to enter is said once the provider has nothing more to ask in the same breath
+    let due = false;
+    const waitSoon = () => {
+      due = true;
+      setTimeout(() => {
+        if (!due || !logins.has(id)) return;
+        due = false;
+        show({ kind: "wait", login: id, notes: flow.notes.splice(0), page: flow.page, device: flow.device });
+      }, 0);
+    };
     const interaction: AuthInteraction = {
       signal: flow.abort.signal,
-      prompt: (prompt) =>
-        new Promise<string>((resolve, reject) => {
-          const shown = promptOf(prompt);
-          if (!shown) return reject(new Error("This provider asks for a kind of sign-in the app does not offer."));
-          flow.pending = { resolve, reject };
-          // whoever waits now hears this prompt; the next step is waited for anew
-          const now = wake;
-          flow.step = next();
-          now({
+      prompt: (prompt) => {
+        if (way === "account" && prompt.type === "select") {
+          const elsewhere = prompt.options.find((o) => ELSEWHERE.includes(o.id));
+          if (elsewhere) return Promise.resolve(elsewhere.id);
+        }
+        return new Promise<string>((resolve, reject) => {
+          due = false;
+          const pending = { resolve, reject };
+          flow.pending = pending;
+          // the provider may stop asking (its own page reached this server first)
+          prompt.signal?.addEventListener(
+            "abort",
+            () => {
+              if (flow.pending !== pending) return;
+              flow.pending = null;
+              reject(new Error("The sign-in went on without this answer."));
+            },
+            { once: true },
+          );
+          show({
             kind: "prompt",
             login: id,
-            prompt: shown,
+            prompt: promptOf(prompt),
             notes: flow.notes.splice(0),
+            page: flow.page,
+            device: flow.device,
           });
-        }),
+        });
+      },
       notify: (event) => {
-        const note = noteOf(event);
+        if (event.type === "auth_url") {
+          flow.page = event.url;
+          return waitSoon();
+        }
+        if (event.type === "device_code") {
+          flow.device = {
+            code: event.userCode,
+            url: event.verificationUri,
+            expires: event.expiresInSeconds ? new Date(Date.now() + event.expiresInSeconds * 1000).toISOString() : null,
+          };
+          return waitSoon();
+        }
+        const note = noteOf(event, way);
         if (note) flow.notes.push(note);
       },
     };
@@ -252,17 +349,19 @@ export function piKeys({ keys, choices, apps = [], modelsPath }: { keys: KeyFile
       .then(
         () => {
           changed();
-          wake({ kind: "done" });
+          end({ kind: "done" });
         },
         (error: unknown) =>
-          wake({
+          end({
             kind: "failed",
             reason: flow.abort.signal.aborted ? "The sign-in was stopped." : redact(error instanceof Error ? error.message : String(error), keys.secrets()),
           }),
       )
       .finally(() => {
+        due = false;
+        flow.pending = null;
         clearTimeout(flow.timer);
-        logins.delete(id);
+        setTimeout(() => logins.delete(id), ENDED_KEPT_MS).unref?.();
       });
     return first;
   };
@@ -288,17 +387,26 @@ export function piKeys({ keys, choices, apps = [], modelsPath }: { keys: KeyFile
           name: app.name,
           use: "apps",
           connected: stored.has(app.id),
+          way: stored.has(app.id) ? "key" : null,
           hint: hint(await keyOf(app.id)),
+          account: null,
+          guide: guideOf(app.id),
         })),
       );
       const modelList: KeyProvider[] = await Promise.all(
-        (await providers()).map(async (p): Promise<KeyProvider> => ({
-          id: p.id,
-          name: p.name,
-          use: "models",
-          connected: stored.has(p.id),
-          hint: hint(await keyOf(p.id)),
-        })),
+        (await providers()).map(async (p): Promise<KeyProvider> => {
+          const type = stored.get(p.id)?.type;
+          return {
+            id: p.id,
+            name: p.name,
+            use: "models",
+            connected: type !== undefined,
+            way: type === undefined ? null : type === "oauth" ? "account" : "key",
+            hint: hint(await keyOf(p.id)),
+            account: p.auth.oauth ? { name: p.auth.oauth.name, subscription: p.auth.oauth.isSubscription === true } : null,
+            guide: guideOf(p.id),
+          };
+        }),
       );
       modelList.sort((a, b) => a.name.localeCompare(b.name));
       return {
@@ -319,7 +427,7 @@ export function piKeys({ keys, choices, apps = [], modelsPath }: { keys: KeyFile
       };
     },
 
-    async login(provider) {
+    async login(provider, way = "key") {
       const app = apps.find((a) => a.id === provider);
       if (app)
         return begin(async (interaction) => {
@@ -332,27 +440,41 @@ export function piKeys({ keys, choices, apps = [], modelsPath }: { keys: KeyFile
           if (!key) throw new Error("No key was given.");
           await keys.modify(app.id, async () => ({ type: "api_key", key }));
           await loadAppKeys();
-        });
-      if (!(await providers()).some((p) => p.id === provider))
+        }, "key");
+      const found = (await providers()).find((p) => p.id === provider);
+      if (!found)
         return {
           kind: "failed",
           reason: `There is no provider "${provider}" to set up with a key.`,
         };
+      if (way === "account" && !found.auth.oauth) return { kind: "failed", reason: `${found.name} offers no sign-in with an account here; use an API key.` };
       const models = await runtime(cfg);
-      return begin((interaction) => models.login(provider, "api_key", interaction));
+      // Pi keeps what the sign-in gives (a key, or the account's tokens) in `keys`, the one credential store
+      return begin((interaction) => models.login(provider, way === "account" ? "oauth" : "api_key", interaction, { getDeviceId: installation, agentName: AGENT_NAME }), way);
     },
 
     async answer(login, value) {
       const flow = logins.get(login);
-      if (!flow?.pending)
-        return {
-          kind: "failed",
-          reason: "This sign-in is over; start it again.",
-        };
+      if (!flow?.pending) return OVER;
       const step = flow.step;
       flow.pending.resolve(bare(value));
       flow.pending = null;
       return step;
+    },
+
+    async wait(login) {
+      const flow = logins.get(login);
+      if (!flow) return OVER;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const later = new Promise<LoginStep>((resolve) => {
+        timer = setTimeout(() => resolve(flow.shown ?? OVER), WAIT_MS);
+        timer.unref?.();
+      });
+      try {
+        return await Promise.race([flow.step, later]);
+      } finally {
+        clearTimeout(timer);
+      }
     },
 
     async cancel(login) {
@@ -504,6 +626,7 @@ export async function adoptEnvironment({
       background: null,
       voice: null,
       localVoice: null,
+      installation: null,
       thinking: { chat: "off", browser: "off", background: "off" },
     };
     choices.save(choice);
