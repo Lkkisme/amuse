@@ -61,8 +61,9 @@ const cookieName = "amuse";
 /** the device's own cookie: it stays when the session ends, so a trusted device signs in again without approval */
 const deviceCookie = "amuse-device";
 /**
- * The header Amuse's own browsers put on every request (compose.browsers.yaml): a request that carries it is turned away, on
- * every route, the way in included, so Amuse never signs in to its own app, and never even asks to.
+ * The header Amuse's own browsers are to put on every request: a request that carries it is turned away, on every route,
+ * the way in included, so Amuse never signs in to its own app, and never even asks to. The browsers do not send it yet
+ * (compose.browsers.yaml says why); their Chrome policy blocks Amuse's address meanwhile.
  */
 export const AGENT_MARK = "x-amuse-agent";
 /** how often the open sockets are checked against their sessions (a session ended by `amuse-admin`, in another process) */
