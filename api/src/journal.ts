@@ -11,6 +11,17 @@ import { z } from "zod";
 
 const Row = z.object({ seq: z.number(), event: z.string() });
 
+/** A chat's journal in the database is not a run of valid events from 1: `event` is the first that is not. */
+export class JournalError extends Error {
+  readonly chat: string;
+  readonly event: number;
+  constructor(chat: string, event: number) {
+    super(`the journal of the chat ${chat}: event ${event} is not the next event this version can read; restore a backup, or export the journal and start over`);
+    this.chat = chat;
+    this.event = event;
+  }
+}
+
 function parseEvent(event: string): unknown {
   try {
     return JSON.parse(event);
@@ -25,7 +36,7 @@ export function* eventsOf(db: Db, chat: string, after = 0): Generator<Envelope> 
   for (const row of db.prepare("select seq, event from events where chat = ? and seq > ? order by seq").iterate(chat, after)) {
     const { seq: stored, event } = Row.parse(row);
     const parsed = Envelope.safeParse({ seq: stored, event: parseEvent(event) });
-    if (!parsed.success || stored !== seq + 1) throw new Error(`the journal of the chat ${chat}: event ${seq + 1} is not the next event this version can read; restore a backup or export the journal and start over`);
+    if (!parsed.success || stored !== seq + 1) throw new JournalError(chat, seq + 1);
     seq = stored;
     yield parsed.data;
   }
@@ -50,7 +61,13 @@ export function sqliteChats(db: Db): ChatStore {
   };
 }
 
-/** The journal of a chat as the old file kept it, one JSON line per event (`amuse export`); what `fileJournal` read, so it can be read back. */
+/**
+ * The journal of a chat as the old file kept it, one JSON line per event (`amuse-admin export`): each event's text as it was
+ * stored, which is the text of the line the old file held, so nothing in it is dropped or reordered.
+ */
 export function* exported(db: Db, chat: string): Generator<string> {
-  for (const envelope of eventsOf(db, chat)) yield `${JSON.stringify(envelope)}\n`;
+  for (const row of db.prepare("select seq, event from events where chat = ? order by seq").iterate(chat)) {
+    const { seq, event } = Row.parse(row);
+    yield `{"seq":${seq},"event":${event}}\n`;
+  }
 }

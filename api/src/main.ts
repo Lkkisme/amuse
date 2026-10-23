@@ -26,7 +26,7 @@ import { readFileSync } from "node:fs";
 import { SandboxError, masking, sandboxClient, terminalAt } from "@amuse/sandbox";
 import { ComposioError, NoComposioKey, composio, composioApps, composioGuide, composioConnector, composioDirectory, keyedComposio } from "@amuse/composio";
 import { StartupError } from "@amuse/db";
-import { sqliteChats } from "./journal.ts";
+import { JournalError, sqliteChats } from "./journal.ts";
 import { locate, openData } from "./data.ts";
 import { serveProblem } from "./startup.ts";
 import { sqliteSent } from "./sent.ts";
@@ -50,19 +50,23 @@ const host = process.env["AMUSE_HOST"] ?? "127.0.0.1";
  * be done, this server still answers, with a page that says why and what to do, and nothing else starts.
  */
 const signals: NodeJS.Signals[] = ["SIGINT", "SIGTERM"];
-const where = locate(process.env);
-const dataDir = where.dir;
-const db = await (async () => {
+/** Start-up stops here for a reason it can name: the log has the details, and the address answers with the page (startup.ts). */
+const stopped = async (error: unknown): Promise<never> => {
+  if (!(error instanceof StartupError)) throw error;
+  console.error(`amuse could not start: ${error.message}`);
+  for (const signal of signals) process.once(signal, () => process.exit(1));
+  await serveProblem(error.problem, { port, host });
+  return await new Promise<never>(() => {});
+};
+const where = await (async () => {
   try {
-    return await openData(where);
+    return locate(process.env);
   } catch (error) {
-    if (!(error instanceof StartupError)) throw error;
-    console.error(`amuse could not start: ${error.message}`);
-    for (const signal of signals) process.once(signal, () => process.exit(1));
-    await serveProblem(error.problem, { port, host });
-    return await new Promise<never>(() => {});
+    return await stopped(error);
   }
 })();
+const dataDir = where.dir;
+const db = await openData(where).catch(stopped);
 const access = sqliteAccess(db);
 
 /** The user's keys and models, set up in the app; what the environment held before is taken over once. */
@@ -333,7 +337,15 @@ const ports: Ports = {
   },
 };
 
-const session = createHost(ports, { store: sqliteChats(db) });
+// a journal that cannot be replayed stops the start with a page, not a crash loop
+const session = await (async () => {
+  try {
+    return createHost(ports, { store: sqliteChats(db) });
+  } catch (error) {
+    if (!(error instanceof JournalError)) throw error;
+    return await stopped(new StartupError({ kind: "journal-unreadable", chat: error.chat, event: error.event }, error.message));
+  }
+})();
 
 // the live channel asks which runs the user holds, in any chat: followed here from the events like any client
 const held = new Set<string>();

@@ -6,10 +6,10 @@ import { test } from "node:test";
 import { type ChatStore, type Journal, createHost, memoryChats, type Timers } from "@amuse/core";
 import { migratedDatabase, query, readJournalFile } from "@amuse/db";
 import { demoPorts, seed } from "@amuse/demo";
-import { type Envelope, MAIN, apply, empty } from "@amuse/protocol";
+import { Envelope, MAIN, apply, empty } from "@amuse/protocol";
 import { z } from "zod";
 import { locate, openData } from "./data.ts";
-import { eventsOf, exported, sqliteChats } from "./journal.ts";
+import { JournalError, eventsOf, exported, sqliteChats } from "./journal.ts";
 
 const idle: Timers<number> = { set: () => 0, clear: () => {} };
 const clock = { now: () => "2026-10-23T00:00:00.000Z" };
@@ -51,7 +51,7 @@ test("a row it cannot read stops the load, and the data is left as it was", asyn
   const rows = () => query(db, z.object({ n: z.number() }), "select count(*) as n from events")[0]?.n;
   const count = rows();
   db.prepare("insert into events (chat, seq, event) values (?, ?, ?)").run(MAIN, (count ?? 0) + 2, '{"kind":"renamed"}'); // a gap, and not an event
-  assert.throws(() => createHost(demoPorts(idle), { store: sqliteChats(db), timers: idle }), /is not the next event/);
+  assert.throws(() => createHost(demoPorts(idle), { store: sqliteChats(db), timers: idle }), (error) => error instanceof JournalError && error.chat === MAIN && error.event === (count ?? 0) + 1 && /is not the next event/.test(error.message));
   assert.equal(rows(), (count ?? 0) + 1);
 });
 
@@ -99,7 +99,7 @@ function jsonlChats(dir: string): ChatStore {
   const read = (chat: string): Envelope[] => {
     const log: Envelope[] = [];
     try {
-      readJournalFile(path(chat), (e) => void log.push(e));
+      readJournalFile(path(chat), (seq, event) => void log.push(Envelope.parse({ seq, event: JSON.parse(event) })));
     } catch (error) {
       if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
     }
@@ -134,7 +134,7 @@ test("replay equivalence: the state from the JSONL files is the state from SQLit
   // the state as folding the files' events gives it (the restart wrote its recovery into them, as it does)
   const folded = (chat: string) => {
     let state = empty;
-    readJournalFile(chat === MAIN ? join(dir, "events.jsonl") : join(dir, "chats", `${chat}.jsonl`), (e) => void (state = apply(state, e)));
+    readJournalFile(chat === MAIN ? join(dir, "events.jsonl") : join(dir, "chats", `${chat}.jsonl`), (seq, event) => void (state = apply(state, Envelope.parse({ seq, event: JSON.parse(event) }))));
     return state;
   };
   const fromFiles = { main: folded(MAIN), side: folded(side.id) };
@@ -147,8 +147,6 @@ test("replay equivalence: the state from the JSONL files is the state from SQLit
   assert.deepEqual(await snapshot(restartedFromSql), files.main);
   assert.deepEqual(await snapshot(restartedFromSql, side.id), files.side);
   assert.deepEqual(await restartedFromSql.call("chats.list", {}), files.chats);
-  // and exported again, the journal is the same events the old file held (keys in the schema's order; the restart added its recovery after them)
-  const lines = (text: string) => text.split("\n").filter(Boolean).map((line): unknown => JSON.parse(line));
-  const was = lines(readFileSync(join(dir, "events.jsonl.bak"), "utf8"));
-  assert.deepEqual(lines([...exported(db, MAIN)].join("")).slice(0, was.length), was);
+  // and exported again, the journal is the lines the old file held, byte for byte (the restart added its recovery after them)
+  assert.ok([...exported(db, MAIN)].join("").startsWith(readFileSync(join(dir, "events.jsonl.bak"), "utf8")));
 });

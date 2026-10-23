@@ -8,13 +8,15 @@ What changed in each release of Amuse, for the people who run it. The format fol
 
 ### Upgrade notes
 - **Your data moves into one database on first start.** The conversation history, chats, permissions, password, defaults and the index of sent files are imported from the old files into `amuse.db` in the data folder, which is checked against the old files before they are renamed to `<name>.bak` (`events.jsonl.bak`, `chats.json.bak`, …) and kept, never deleted. Nothing to do; delete the `.bak` files once you are happy. The keys, the model choice and the sandbox's secrets stay as the files they were.
-- If the move cannot finish, Amuse does not start, and its address shows a page that says which step failed and what to do; your data is as it was. Downgrading is not possible once it has run (an older version would start empty): to go back, rename the `.bak` files to their old names and delete `amuse.db`.
-- **Forgot the password** is now `docker compose exec amuse amuse-admin reset-password` (deleting `access.json` no longer does anything).
-- Before an update that changes the database, Amuse copies it to `backups/` in the data folder.
+- **Never run an older version of Amuse on this data.** It does not know the database: it would start with no history and no password, and the next visitor could set one. Amuse refuses to start if the old files turn up beside the database again (an interrupted update, or an older version that was run), and its address says what to do; `amuse-admin retire-old-files` finishes an interrupted rename, once the files are exactly what was imported.
+- If the move cannot finish, Amuse does not start, and its address shows a page that says which step failed and what to do (the server's log has the details); your data is as it was.
+- To go back to the version before this one anyway, after stopping Amuse: delete `amuse.db`, `amuse.db-wal` and `amuse.db-shm`, rename every `*.bak` back to its name (`events.jsonl.bak` → `events.jsonl`, `chats/<id>.jsonl.bak` → `chats/<id>.jsonl`, …), and start the older version. What was said since the update is lost; export it first with `amuse-admin export`.
+- **Forgot the password** is now `docker compose exec amuse amuse-admin reset-password` (deleting `access.json` no longer does anything). Run `amuse-admin` as the container's default user.
+- Before an update that changes the database, Amuse copies it to `backups/` in the data folder, and keeps the last five such copies.
 
 ### Added
-- Everything Amuse remembers about the server side is kept in one database file: a crash can no longer leave the files half written, starting no longer slows down as the history grows, and the file can be copied while Amuse runs.
-- `amuse-admin`, a command on the server: list what an update will change before it runs (`migrate --dry-run`), export a chat's history as JSONL (`export`), and reset the password.
+- What the server keeps (the history, chats, permissions, password and the rest) is in one database file: a crash can no longer leave several files half written, Amuse's memory use grows with what your chats hold, not with every event ever recorded (the history is read as it is replayed, not held as a file), and the file can be copied while Amuse runs.
+- `amuse-admin`, a command on the server: list what an update will change before it runs (`migrate --dry-run`), export a chat's history as JSONL (`export`), and reset the password. A chat deleted while Amuse is still working in it no longer stops the server.
 - Amuse can write to you in the middle of long work: it answers a message you send while it is busy, and says what it is starting before something that takes a while, instead of going quiet until it is done.
 - The browser can run on the chat's model ("Same as chat", now the default), as background work already could; Settings says so when the chat's model cannot see pictures.
 

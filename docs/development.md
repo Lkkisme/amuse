@@ -55,12 +55,13 @@ has to be thrown away whenever the reducer (`protocol/src/events.ts`) changes, s
 Full-text search (FTS5) is not used: `recall` searches the chats' state in memory, and `memory_search` searches
 Markdown files that Amuse and the user edit as files, so an index would have to follow every such edit.
 
-Commands, beside the server: `amuse-admin <command>` (on the image's PATH, so `docker compose exec amuse amuse-admin …`; in development `node api/src/admin.ts --data <folder> …`). The name `amuse` is kept for a client on the user's own computer (#39):
+Commands, beside the server: `amuse-admin <command>`, run as the container's default user, not as root (on the image's PATH, so `docker compose exec amuse amuse-admin …`; in development `node api/src/admin.ts --data <folder> …`). The name `amuse` is kept for a client on the user's own computer (#39):
 
 ```
 migrate [--dry-run]   run the pending migrations now, or list them and what each touches
-rollback              undo the newest migration (it needs a migrate:down)
-export [chat]         the chat's journal as JSONL (the main chat by default)
+rollback --yes        undo the newest migration (it needs a migrate:down), after a copy; never applies pending ones
+retire-old-files      rename old files left beside a database that imported them, if they are exactly what was imported
+export [chat]         the chat's journal as JSONL (the main chat by default), each event as it was stored
 chats                 the chats and how many events each has
 reset-password        forget the master password; the next visit sets one
 schema                write db/schema.sql
@@ -77,12 +78,20 @@ At every start, before anything opens the data, `api/src/data.ts` checks the fol
 `backups/`, `workspace/`; each with the hint to show if it is wrong), opens the database and runs `migrate`:
 
 - a database with a migration this code does not have is refused, naming the version it needs;
+- the old files (`events.jsonl`, `access.json` …) beside a database that has already imported them are refused too, since
+  an older version run on this data starts empty with no password: the page says so, and `amuse-admin retire-old-files`
+  finishes an interrupted rename for files that are exactly what was imported;
+- `AMUSE_DATA` empty, or naming another folder than `AMUSE_JOURNAL`'s, is refused: the old files are read from where
+  the journal is, and never imported into another folder's database;
 - if the database already has migrations applied and some are pending, it is copied first, online, to
-  `backups/<time>-pre-migrate.db` (mode 600; a new database has nothing to copy);
+  `backups/<time>-pre-migrate.db` (mode 600; a new database has nothing to copy; a copy that fails is removed, and the
+  newest five are kept);
 - each migration runs in a transaction of its own with its row in `schema_migrations`; a failure rolls that one back
   and stops the start;
 - when the start stops for a reason it can name, the server still listens and answers every request with a plain page
-  (`api/src/startup.ts`, English and Chinese) that says which step failed and what to do. The reasons are values
+  (`api/src/startup.ts`, English and Chinese) that says which step failed and what to do, and nothing else: it is seen
+  before anyone has signed in, so no path and none of what SQLite, zod or `JSON.parse` said is on it. The details go to
+  the server's log. The reasons are values
   (`Problem` in `db/src/problem.ts`), and their words are a typed catalog in `startup.ts`: add the words for a new
   kind there, or it does not compile.
 
@@ -95,7 +104,10 @@ To add a migration, give it a timestamp later than the newest (`date -u +%Y%m%d%
   or nothing. `up` may return a function that runs after the commit, for what a transaction cannot cover (renaming
   files); if that fails it is logged and the migration stands, so keep it to steps that can be repeated. Read old
   files without editing them, check what you wrote by reading it back, and throw to roll back. A migration is a
-  frozen snapshot of what it knew: read old shapes with code of its own (`db/src/legacy/`), not the live stores.
+  frozen snapshot of what it knew: read old shapes with schemas of its own (`db/src/legacy/frozen.ts`, which imports
+  nothing from core or the protocol; a test checks), not the live stores. Migration 1 validates an event line by its shape
+  only and stores the event's text exactly as written, so a field this version does not know is never dropped; the live schema reads it at
+  replay.
 
 The Secret store adds its tables and its move of `keys.json`, the model choice and `sandbox-secrets.json` this way:
 a SQL migration for the tables, and a TypeScript one (`<timestamp>_import_secrets.ts`) for the move, using `Context`
