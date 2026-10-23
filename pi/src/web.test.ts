@@ -71,6 +71,8 @@ function agentIO(answer: Answer) {
     act: (action) => (asked.push(action), { ok: true, id: "a1" }),
     decision: async () => answer,
     report: (note) => void reports.push(note),
+    mention: (note) => void reports.push(note),
+    running: () => "",
     context: () => "",
     recall: () => "",
     time: () => ({ now: "2026-10-20T08:00:00Z", timezone: "UTC" }),

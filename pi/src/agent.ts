@@ -19,6 +19,7 @@ import type { AgentSession, ToolDefinition } from "@earendil-works/pi-coding-age
 import { type Caching, type PiModelConfig, type PiSession, openSession, secretsOf } from "./session.ts";
 import { statusOf } from "./status.ts";
 import { relayTools } from "./runs.ts";
+import { type BrowserLook, browserReadTools } from "./browser-read.ts";
 import { taskTools } from "./tasks.ts";
 import { scheduleTools } from "./schedules.ts";
 import { CHAT_LIMITS, sandboxTools } from "./sandbox.ts";
@@ -39,6 +40,8 @@ export interface PiConfig extends PiModelConfig {
   files?: Workspace;
   /** Its own machine to run commands in (the chat agent and its helpers; not the browser agent); without one, no such tools. */
   sandbox?: SandboxClient;
+  /** The browsers, to look at a page a task is on (read_browser); acting in one stays with the browser agent. */
+  browsers?: BrowserLook;
   /** The Vault, and the keys (to ask for one of Amuse's own): the agent's tools for secrets. */
   secrets?: Omit<SecretAccess, "sandbox">;
   /** While apps are not set up: how the user sets them up (null once they are). */
@@ -110,6 +113,7 @@ const debugTools = process.env["AMUSE_DEBUG_TOOLS"] === "1";
 
 const toolLabels: Record<string, string> = {
   browse: "Starting a browser task",
+  read_browser: "Looking at the browser",
   request_connection: "Preparing a connection",
   app_tools: "Looking up your connections",
   app_call: "Using your connections",
@@ -168,6 +172,8 @@ interface Lane {
    * as it stands; a turn queued for one of them that finds none left has nothing to do.
    */
   owed: Message[];
+  /** What it must read with its next turn, never a turn of its own: a browser taken over, or handed back. */
+  kept: string[];
   /** Bumped by interrupt: the run in progress says nothing more. Queued prompts and reports still run. */
   epoch: number;
 }
@@ -186,7 +192,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
     return news;
   };
   const laneOf = (chat: string): Lane => {
-    const lane = lanes.get(chat) ?? { queue: Promise.resolve(), session: undefined, steering: undefined, owed: [], epoch: 0 };
+    const lane = lanes.get(chat) ?? { queue: Promise.resolve(), session: undefined, steering: undefined, owed: [], kept: [], epoch: 0 };
     lanes.set(chat, lane);
     return lane;
   };
@@ -298,7 +304,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
           if (cfg.files) shown.push(...(await images(cfg.files, more.flatMap((m) => m.attachments))));
         }
         heard = taken.length > 0;
-        const told = brief(agent, turn, remembered, heard, language);
+        const told = brief(agent, turn, remembered, heard, language, lane.kept.splice(0).join("\n\n"));
         stable = told.stable;
         // from here the model has the conversation as it stands: what the user adds goes to it as it works
         lane.steering = { session: pi, unread: [], sending: Promise.resolve() };
@@ -352,6 +358,8 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
       };
       // a message from the user while the model is working on a turn of this chat goes to it as it works; otherwise it is the next turn
       if (turn.kind === "message" && lane.steering) steer(lane.steering, turn, cfg.files, queued);
+      // a note that must not wake the agent: with the turn under way, or kept for the next one
+      else if (turn.kind === "aside") aside(lane, turn.text);
       else queued();
     },
     interrupt: (agent) => {
@@ -371,6 +379,7 @@ export function agentTools(cfg: PiConfig, io: () => AgentIO, heard: () => boolea
   return [
     // with memory, memory_search looks in the chats as recall did, and in memory/ too
     ...tools(io, cfg.rules, { files: cfg.files, appsSetup: cfg.appsSetup }).filter((t) => !(cfg.files && t.name === "recall")),
+    ...(cfg.browsers ? browserReadTools(cfg, cfg.browsers) : []),
     ...(cfg.files ? [...memoryReadTools(io, cfg.files), ...memoryWriteTools(io, cfg.files)] : []),
     ...skillTools(cfg.skills ?? [], cfg.files),
     ...(cfg.about ? aboutTools(cfg.about) : []),
@@ -415,6 +424,27 @@ function steer(steering: Steering, turn: Message, files: Workspace | undefined, 
       if (at < 0) return;
       steering.unread.splice(at, 1);
       otherwise();
+    }
+  });
+}
+
+/**
+ * A note that must not wake the agent (a browser taken over, or handed back): it reaches the turn under way as
+ * it works, and is kept for the next one when there is none. It is never a turn of its own: the work it tells
+ * about carries on by itself.
+ */
+function aside(lane: Lane, text: string): void {
+  const steering = lane.steering;
+  if (!steering) {
+    lane.kept.push(text);
+    return;
+  }
+  steering.sending = steering.sending.then(async () => {
+    try {
+      await steering.session.steer(`While you were working, from your background work (not the user):\n${text}`);
+    } catch {
+      // the turn ended meanwhile: the next one reads it
+      lane.kept.push(text);
     }
   });
 }
@@ -467,9 +497,10 @@ export interface Brief {
 /**
  * The turn as the model gets it, by how much each part changes. First what holds still: the heading, then the conversation, which only
  * grows at its end (context.ts) and is cached by the provider up to where it last agreed. Last what is new every turn: where this
- * is, what is remembered, the language, the time, and what to do.
+ * is, what is running now (live.ts) and what happened while it was not looking, what is remembered, the language, the time, and what
+ * to do.
  */
-export function brief(agent: Pick<AgentIO, "chat" | "chats" | "context" | "time">, turn: Turn, remembered: string, written: boolean, language: string | null): Brief {
+export function brief(agent: Pick<AgentIO, "chat" | "chats" | "context" | "time" | "running">, turn: Turn, remembered: string, written: boolean, language: string | null, kept: string): Brief {
   const { now, timezone } = agent.time();
   const here = agent.chats().find((c) => c.id === agent.chat);
   const where = here?.main
@@ -480,7 +511,8 @@ export function brief(agent: Pick<AgentIO, "chat" | "chats" | "context" | "time"
       ? "Reply to the user's newest message (the last lines above)."
       : `A note from your background work (not from the user). Tell the user only what they need to hear, in your own words, never that a note came. If nothing needs them (all is well, nothing was waiting, you already told them), call no_reply and write nothing: never explain why you are staying silent.${written ? " The user has also written since (their newest message is in the last lines above): reply to them too." : ""}\n${turn.text}`;
   const speaks = language ? `The user writes in ${language}: reply in ${language}.` : "";
+  const since = kept ? `Since your last turn:\n${kept}` : "";
   const prefix = `The conversation so far, oldest first (times are the user's, ${timezone}):\n\n${agent.context()}\n`;
-  const tail = `\n---\n${[where, remembered, speaks].filter(Boolean).join("\n\n")}\n\nNow: ${nowIn(now, timezone)}.\n${task}`;
+  const tail = `\n---\n${[where, agent.running(), since, remembered, speaks].filter(Boolean).join("\n\n")}\n\nNow: ${nowIn(now, timezone)}.\n${task}`;
   return { text: prefix + tail, stable: closedParts(prefix) };
 }

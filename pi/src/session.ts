@@ -175,6 +175,22 @@ export async function openSession(
   return sessionOn(models, model, system, tools, { codemode, caching, thinkingLevel: clampThinkingLevel(model, cfg.thinking?.() ?? "off") });
 }
 
+/**
+ * Whether the model chosen now sees pictures: what `openSession` insists on for the browser, asked ahead of it by a
+ * tool that may hand the model a picture of its own (the page a browser task is on). Nothing set up, or a model that
+ * cannot be looked up, is no pictures.
+ */
+export async function seesImages(cfg: PiModelConfig): Promise<boolean> {
+  const chosen = cfg.model();
+  const spec = chosen === null ? undefined : parseModel(chosen);
+  if (!spec) return false;
+  try {
+    return (await runtime(cfg)).getModel(spec.provider, spec.id)?.input.includes("image") === true;
+  } catch {
+    return false;
+  }
+}
+
 /** A session with `model` from `models` (openSession's own part, apart so a test can give it a model of its own). */
 export async function sessionOn(
   models: ModelRuntime,

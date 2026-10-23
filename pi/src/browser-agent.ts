@@ -7,7 +7,7 @@
  */
 import { type AgentSession, type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
 import type { Browsers, PageView, Step } from "@amuse/browser";
-import { type AgentIO, type BrowserProgress, type Ports, type Rules, type Workspace, browserRulesOf, decideBrowser, hostOf, siteOf, siteRuleFor, size } from "@amuse/core";
+import { type AgentIO, type BrowserProgress, type Ports, type Rules, type Workspace, browserRulesOf, decideBrowser, hostOf, onJob, siteOf, siteRuleFor, size } from "@amuse/core";
 import type { BrowserAction } from "@amuse/protocol";
 import { basename, extname } from "node:path";
 import type { Browser } from "@amuse/protocol";
@@ -33,6 +33,7 @@ Going to a site the user has not allowed yet asks them first and waits for their
 The user's rules can say no (Deny) to visiting a site, to a step that submits or commits them, to keeping a download, or to an upload: then nothing is asked, the step is refused, and the answer names the rule. Do not work around it (another route to the same thing, another site for it); say in your result which rule stopped you, and do not retry.
 To put a file into a file input, use upload_file with one of the files you were given (the user is asked each time). Files the pages download are kept for the user, as their rules allow; mention them in your result.
 When the task is done, or cannot be done, call finish with a short result in the user's language.
+Tell Amuse about a real milestone with tell_main (you are signed in, a module is done, something blocks you): one short line, sparingly, not for every step; it reaches the user's assistant, which passes on what the user needs.
 Give every tool call a short \`status\` in the user's language (e.g. "Opening the login page", "Filling in the search box"); the user sees it while the step runs.`;
 
 const maxSteps = 40;
@@ -402,6 +403,17 @@ function runTools(run: Run): ToolDefinition[] {
     }),
     askTool(handle(run), { waiting: () => set("waiting"), working: () => set("working") }),
     defineTool({
+      name: "tell_main",
+      label: "Tell the main agent",
+      description: "Tell Amuse, in one short note, something worth passing on to the user: you are signed in, a module is done, a problem found. Sparingly, at real milestones; never for every step, and never instead of finish.",
+      parameters: Type.Object({ status, note: Type.String({ description: "One short line, in the user's language" }) }),
+      async execute(_, { note }) {
+        // what a page led to may be in it: the chat agent reads it as data, and is not woken by it
+        run.io.mention(milestone(run.browser, note));
+        return text("Amuse has it; go on.");
+      },
+    }),
+    defineTool({
       name: "upload_file",
       label: "Upload a file",
       description: "Put one of the files you were given into a file input (the ref of the input, or of the button that opens it). The user is asked every time, unless their rules say no to uploading there (then it is refused without asking).",
@@ -455,6 +467,7 @@ const browserLabels: Record<string, string> = {
   scroll: "Scrolling",
   need_user: "Waiting for you",
   upload_file: "Uploading a file",
+  tell_main: "Telling Amuse",
   ask_user: "Asking you",
 };
 
@@ -607,13 +620,17 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers, rules: Ru
     browser({ browser, action }, io) {
       const run = runs.get(browser.id);
       switch (action) {
-        case "take":
+        case "take": {
           if (run) {
             run.taken = true;
             run.held ??= hold();
             clearTimeout(run.idle ?? undefined);
           }
+          // the chat agent is told the user has it; not woken for it: the run carries on by itself
+          const took = tookOver(browser);
+          if (took) io.mention(took);
           return;
+        }
         case "handBack":
           void browsers.remember(browser.id).catch(() => {}); // the user may have just logged in
           if (!run) return close(browser.id, io);
@@ -625,6 +642,10 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers, rules: Ru
             standIdle(run);
             const note = handedBack(browser);
             if (note) io.report(note);
+          } else {
+            // its job goes on by itself: the chat agent is told, and not woken for it
+            const carried = carriedOn(browser);
+            if (carried) io.mention(carried);
           }
           return;
         case "stop":
@@ -644,6 +665,27 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers, rules: Ru
 export function handedBack(browser: Browser): string | null {
   if (browser.outcome === null) return null;
   return `[browser task "${browser.title}" (${browser.id})] The user took over this browser after its task was over, and has handed it back (they may have logged in, or done the step it stopped at). If what they asked needs more, go on in it: browse with browser ${browser.id}. If not, call no_reply.`;
+}
+
+/**
+ * What the chat hears when the user takes a browser a task is using: nothing for one that is the user's own, or whose task is over
+ * (handedBack says what to do with that one when they give it back). The note is not a wake-up: the run carries on without it.
+ */
+export function tookOver(browser: Browser): string | null {
+  return onJob(browser) ? `[browser task "${browser.title}" (${browser.id}): the user took control]` : null;
+}
+
+/** The same, when they hand it back: its agent goes on where it was. */
+export function carriedOn(browser: Browser): string | null {
+  return onJob(browser) ? `[browser task "${browser.title}" (${browser.id}): the user handed it back; it is carrying on]` : null;
+}
+
+/**
+ * What the chat hears of a browser run's own milestone note (tell_main): the page it read may be in it, so it comes as data,
+ * and it is not a wake-up: the run goes on by itself.
+ */
+export function milestone(browser: Browser, note: string): string {
+  return `[browser task "${browser.title}" (${browser.id})] ${untrusted(note)}`;
 }
 
 /**

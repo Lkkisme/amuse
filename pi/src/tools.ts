@@ -5,7 +5,7 @@
  * background while the chat goes on.
  */
 import { type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
-import { type AgentIO, type Rules, type Workspace, browserRulesOf, decideBrowser, describe, nowIn, hostOf } from "@amuse/core";
+import { type Acted, type AgentIO, type Rules, type Workspace, browserRulesOf, decideBrowser, describe, nowIn, hostOf } from "@amuse/core";
 import type { Permission, ToolKind } from "@amuse/protocol";
 import { untrusted } from "./untrusted.ts";
 import { Type } from "typebox";
@@ -19,6 +19,18 @@ const text = (value: string) => ({ content: [{ type: "text" as const, text: valu
 export function timeNow(io: Pick<AgentIO, "time">): string {
   const { now, timezone } = io.time();
   return `Now: ${nowIn(now, timezone)}.`;
+}
+
+/**
+ * What the agent is told when it gives an open browser its next job (`given`: the core's answer). A browser that is not idle
+ * is in the middle of another task: nothing was asked of it, and it is said plainly so the agent cannot tell the user it was.
+ */
+export function jobGiven(browser: string, given: Acted): string {
+  if (given.ok) return `Given to browser ${browser}; it goes on there in the background.`;
+  const busy = given.rejection.kind === "invalid" && given.rejection.action === "browserJob";
+  return busy
+    ? `NOT given: browser ${browser} is in the middle of another task and cannot take a new instruction now. \`read_browser\` shows what it is doing. Wait for it to finish, or start another browser with \`url\`. Do not tell the user the browser was asked anything.`
+    : `Not given: ${describe(given.rejection)}.`;
 }
 
 /**
@@ -84,10 +96,7 @@ export function tools(
         if (granted.length > 0 && !files) return text("Not started: no files are kept here to give it.");
         for (const path of granted) if (!(await files?.exists(path))) return text(`Not started: there is no ${path} in the workspace.`);
         // a next job for a browser that is open: the same browser, the same agent
-        if (browser) {
-          const given = io().act({ kind: "browserJob", id: browser, title, instructions, files: granted });
-          return text(given.ok ? `Given to browser ${browser}; it goes on there in the background.` : `Not given: ${describe(given.rejection)}.`);
-        }
+        if (browser) return text(jobGiven(browser, io().act({ kind: "browserJob", id: browser, title, instructions, files: granted })));
         if (!url || !URL.canParse(url) || !/^https?:$/.test(new URL(url).protocol)) return text(`Not started: "${url ?? ""}" is not an http(s) URL.`);
         const agent = io();
         const { permission, source } = decideBrowser(await browserRulesOf(rules), url, "visit");

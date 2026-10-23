@@ -70,18 +70,19 @@ test("new and changed skills of the user's are told once; the first look and the
 });
 
 const noon = "2026-10-21T12:00:00Z";
-/** The part of a chat a brief is built from. */
-const room = (context: string, now = noon, main = true) => ({
+/** The part of a chat a brief is built from; `live`: what is running now, as the host gives it (live.ts). */
+const room = (context: string, now = noon, main = true, live = "") => ({
   chat: "c-1",
   chats: () => [{ id: "c-1", title: "Trip", main, updated: noon }],
   context: () => context,
   time: () => ({ now, timezone: "UTC" }),
+  running: () => live,
 });
 
 test("a turn's message tells what holds still first and what is new last: the conversation, then where, memory, language, now and the task", async () => {
   const { brief } = await import("./agent.ts");
   const conversation = Array.from({ length: 80 }, (_, i) => `[2026-10-21 08:00] User: line ${i} ${"x".repeat(200)}`).join("\n");
-  const told = brief(room(conversation, noon, false), { kind: "message", text: "hi", attachments: [] }, "Your memory of the user: likes tea", false, "Chinese");
+  const told = brief(room(conversation, noon, false), { kind: "message", text: "hi", attachments: [] }, "Your memory of the user: likes tea", false, "Chinese", "");
   const at = (part: string) => told.text.indexOf(part);
   const volatile = ["You are in a side chat", "Your memory of the user: likes tea", "The user writes in Chinese: reply in Chinese.", "Now: ", "Reply to the user's newest message"];
   assert.ok(at(conversation) > 0 && at("The conversation so far") === 0, "the heading, then the conversation");
@@ -97,8 +98,8 @@ test("the message of the next turn begins with the message of this one up to whe
   const { brief } = await import("./agent.ts");
   const lines = Array.from({ length: 80 }, (_, i) => `[2026-10-21 08:00] User: line ${i} ${"x".repeat(200)}`);
   const message: Turn = { kind: "message", text: "hi", attachments: [] };
-  const first = brief(room(lines.slice(0, 60).join("\n")), message, "memory one", false, null);
-  const second = brief(room(lines.join("\n"), "2026-10-21T13:00:00Z"), message, "memory two, rewritten", false, "Japanese");
+  const first = brief(room(lines.slice(0, 60).join("\n")), message, "memory one", false, null, "");
+  const second = brief(room(lines.join("\n"), "2026-10-21T13:00:00Z"), message, "memory two, rewritten", false, "Japanese", "");
   assert.ok(first.stable.length > 0);
   assert.deepEqual(second.stable.slice(0, first.stable.length), first.stable, "the parts that were closed are the same, the next turn too");
   assert.ok(second.text.startsWith(first.stable.join("")), "what the provider cached is what this one begins with");
@@ -106,7 +107,7 @@ test("the message of the next turn begins with the message of this one up to whe
 
 test("a note turn is briefed the same way, and says a user's newer message is above", async () => {
   const { brief } = await import("./agent.ts");
-  const told = brief(room("[2026-10-21 08:00] User: hi"), { kind: "note", text: "[task t-1 done] ok" }, "", true, null);
+  const told = brief(room("[2026-10-21 08:00] User: hi"), { kind: "note", text: "[task t-1 done] ok" }, "", true, null, "");
   assert.match(told.text, /\n---\nYou are in the main chat\.\n\nNow: .*\.\nA note from your background work.*reply to them too\.\n\[task t-1 done\] ok$/s);
 });
 
@@ -114,6 +115,26 @@ test("a helper is briefed with the conversation first and the work last", async 
   const { briefed } = await import("./worker.ts");
   const text = briefed({ context: () => "[2026-10-21 08:00] User: hi" }, "Wednesday noon", 'Task "x". Instructions:\nDo it.');
   assert.ok(text.indexOf("User: hi") < text.indexOf("Now: Wednesday noon") && text.indexOf("Now: ") < text.indexOf("Instructions:"));
+});
+
+test("what is running now is in every turn, after the part the provider caches, and nothing is said when nothing runs", async () => {
+  const { brief } = await import("./agent.ts");
+  const conversation = Array.from({ length: 80 }, (_, i) => `[2026-10-21 08:00] User: line ${i} ${"x".repeat(200)}`).join("\n");
+  const live = 'What is running now:\n- browser task "SHAPE training" (b-1): running, now "进入下一节（2.02）" (2 minutes ago)';
+  const message: Turn = { kind: "message", text: "在做了吗", attachments: [] };
+  const told = brief(room(conversation, noon, true, live), message, "Your memory of the user: likes tea", false, null, '[browser task "SHAPE training" (b-1): the user handed it back; it is carrying on]');
+  const stable = told.stable.join("");
+  assert.ok(stable.length > 0 && told.text.startsWith(stable), "the heading and the conversation hold still");
+  assert.ok(told.text.indexOf("What is running now") > stable.length, "the live state sits after the cached prefix, so it never breaks the cache");
+  assert.doesNotMatch(stable, /What is running now|the user handed it back/, "and is none of what is kept from turn to turn");
+  assert.match(
+    told.text,
+    /\n---\nYou are in the main chat\.\n\nWhat is running now:\n- browser task "SHAPE training" \(b-1\): running, now "进入下一节（2\.02）" \(2 minutes ago\)\n\nSince your last turn:\n\[browser task "SHAPE training" \(b-1\): the user handed it back; it is carrying on\]\n\nYour memory of the user: likes tea\n\nNow: /,
+  );
+  // a turn with nothing running and nothing kept reads as it did before
+  const quiet = brief(room(conversation), message, "", false, null, "");
+  assert.doesNotMatch(quiet.text, /What is running now|Since your last turn/);
+  assert.match(quiet.text, /\n---\nYou are in the main chat\.\n\nNow: /);
 });
 
 test("the chat's tools come in the same order with the same schemas however often, and whatever the skills' order", async () => {

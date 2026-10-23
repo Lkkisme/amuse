@@ -18,6 +18,8 @@ function recording(onAct: (action: AgentAction) => void = () => {}, onReport: (n
     act: (action) => (onAct(action), { ok: true, id: "x" }),
     decision: async () => ({ verdict: "denied", remember: false }),
     report: onReport,
+    mention: onReport,
+    running: () => "",
     context: () => "",
     recall: () => "",
     time: () => ({ now: "2026-10-20T08:00:00Z", timezone: "UTC" }),

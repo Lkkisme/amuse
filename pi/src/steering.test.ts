@@ -155,6 +155,81 @@ test("a note from background work is not steered: it waits for the turn", async 
   assert.deepEqual(replies(), ["First answer."]);
 });
 
+test("a takeover note does not wake an idle agent: no turn, no session, and the next turn reads it", async () => {
+  const seen: string[][] = [];
+  const { agent, io, faux, conversation, replies, until } = await chat([
+    (context) => {
+      seen.push(userTexts(context));
+      return fauxAssistantMessage("It is on the second module.");
+    },
+  ]);
+  agent.prompt({ kind: "aside", text: '[browser task "SHAPE training" (b-1): the user took control]' }, io);
+  agent.prompt({ kind: "aside", text: '[browser task "SHAPE training" (b-1): the user handed it back; it is carrying on]' }, io);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(replies(), [], "no turn of its own");
+  assert.equal(faux.state.callCount, 0, "and no session opened for it");
+  // the user asks how it is going
+  conversation.push("[08:01] User: 在做了吗");
+  agent.prompt(message("在做了吗"), io);
+  await until(1);
+  assert.deepEqual(replies(), ["It is on the second module."]);
+  const brief = seen[0]?.[0] ?? "";
+  assert.match(brief, /Since your last turn:\n\[browser task "SHAPE training" \(b-1\): the user took control\]\n\n\[browser task "SHAPE training" \(b-1\): the user handed it back; it is carrying on\]/, "both, in the order they happened");
+});
+
+test("a takeover note reaches a turn under way as it works: one run, no turn of its own", async () => {
+  const { tool, running, release } = slow();
+  const seen: string[][] = [];
+  const { agent, io, faux, until } = await chat(
+    [
+      fauxAssistantMessage(fauxToolCall("wait", {}), { stopReason: "toolUse" }),
+      (context) => {
+        seen.push(userTexts(context));
+        return fauxAssistantMessage("Right, it is running.");
+      },
+    ],
+    { tools: [tool] },
+  );
+  agent.prompt(message("check today"), io);
+  await running;
+  agent.prompt({ kind: "aside", text: '[browser task "SHAPE training" (b-1): the user handed it back; it is carrying on]' }, io);
+  release();
+  await until(1);
+  assert.equal(faux.state.callCount, 2, "the turn under way, and no second turn");
+  assert.match(seen[0]?.at(-1) ?? "", /^While you were working, from your background work \(not the user\):\n\[browser task "SHAPE training" \(b-1\): the user handed it back; it is carrying on\]$/);
+});
+
+test("a takeover note that cannot be given to a turn under way is kept for the next one", async () => {
+  const { tool, running, release } = slow();
+  const seen: string[][] = [];
+  const { agent, io, replies, conversation, until } = await chat(
+    [
+      fauxAssistantMessage(fauxToolCall("wait", {}), { stopReason: "toolUse" }),
+      fauxAssistantMessage("First answer."),
+      (context) => {
+        seen.push(userTexts(context));
+        return fauxAssistantMessage("Second answer.");
+      },
+    ],
+    {
+      tools: [tool],
+      opened: (session: AgentSession) => {
+        session.steer = () => Promise.reject(new Error("the session is closed"));
+      },
+    },
+  );
+  agent.prompt(message("check today"), io);
+  await running;
+  agent.prompt({ kind: "aside", text: '[browser task "SHAPE training" (b-1): the user took control]' }, io);
+  release();
+  await until(1);
+  conversation.push("[08:01] User: how is it going?");
+  agent.prompt(message("how is it going?"), io);
+  await until(2);
+  assert.deepEqual(replies(), ["First answer.", "Second answer."]);
+  assert.match(seen[0]?.[0] ?? "", /Since your last turn:\n\[browser task "SHAPE training" \(b-1\): the user took control\]/, "the next turn reads it");
+});
+
 const png = { id: "f1", name: "a.png", type: "image/png", size: 3, path: "user/a.png" };
 /** A workspace whose pictures take a moment to load, so a message with one is slower to reach the model than one without. */
 const slowFiles: Workspace = {

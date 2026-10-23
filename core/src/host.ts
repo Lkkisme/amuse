@@ -68,6 +68,7 @@ import {
 import { deadline, localTime, userZone } from "./schedule.ts";
 import { addGoal, goalLog, listGoals, readGoal, updateGoal } from "./goals.ts";
 import { BEAT_MS, beatNote, inFlight } from "./heartbeat.ts";
+import { live, liveState } from "./live.ts";
 import { type Timers, realTimers } from "./timers.ts";
 import { type Rules, browserActions, defaultBrowser } from "./policy.ts";
 import { type Budget, type Where, agentContext, budget, mentions, recall } from "./context.ts";
@@ -97,8 +98,9 @@ export interface ChatInfo {
 
 /**
  * What ports and agents can do in one chat: say things, act through the
- * rules, wait for an approval, and wake the chat's agent with a note (not
- * shown as a user message), e.g. a finished run's result.
+ * rules, wait for an approval, wake the chat's agent with a note (not shown as
+ * a user message), e.g. a finished run's result, or tell it something it reads
+ * with its next turn.
  */
 export interface AgentIO {
   /** the chat this is for (MAIN or a side chat's id) */
@@ -119,6 +121,10 @@ export interface AgentIO {
   decision(id: string): Promise<Answer>;
   /** Wake the chat agent with a note from background work. */
   report(note: string): void;
+  /** Tell the chat agent something, without waking it: it reads it with its next turn (a browser taken over, or handed back). */
+  mention(note: string): void;
+  /** What is running now in this chat, a line each (live.ts), as the agent reads it every turn; "" when nothing is. */
+  running(): string;
   /** Now, and the user's time zone (their device's when they last wrote). */
   time(): { now: string; timezone: string };
   /** What the user last said in this chat (or, before they have, in the main chat); "" before they ever have. */
@@ -343,7 +349,11 @@ export const noWorkspace: Workspace = {
 };
 
 /** What wakes the agent: the user's message (with any files), or a note from its background work (not shown as a message). */
-export type Turn = { kind: "message"; text: string; attachments: Attachment[] } | { kind: "note"; text: string };
+export type Turn =
+  | { kind: "message"; text: string; attachments: Attachment[] }
+  | { kind: "note"; text: string }
+  /** Not a turn of its own: what the agent reads with its next one, or mid-turn as it works (a browser taken over, or handed back). */
+  | { kind: "aside"; text: string };
 
 /** Where apps are found, connected and let go of: the connector's directory. */
 export interface AppDirectory {
@@ -596,6 +606,9 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     if (inFlight(moved)) {
       if (!beats.has(moved.id)) beats.set(moved.id, { room, since: clock.now(), last: clock.now() });
     } else beats.delete(moved.id);
+    // what the chat agent reads every turn (live.ts): when each run in play last changed
+    if (live(moved)) changed.set(moved.id, clock.now());
+    else changed.delete(moved.id);
     arm(); // only an entity can move a deadline
     // something said moves the chat up the list
     const { entity } = change;
@@ -610,6 +623,8 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
   let armed: { at: string; handle: unknown } | null = null;
   /** Runs in flight, by id: their chat, since when, and when the chat agent last heard how they go. */
   const beats = new Map<string, { room: Room; since: string; last: string }>();
+  /** When each run in play last changed, by id: what the chat agent reads every turn (live.ts) says how long ago. */
+  const changed = new Map<string, string>();
   const nextBeat = (): string | null =>
     [...beats.values()].map((b) => new Date(Date.parse(b.last) + BEAT_MS).toISOString()).reduce<string | null>((a, b) => (a === null || Date.parse(b) < Date.parse(a) ? b : a), null);
   /** Tell the chat agent how each run that is due goes. */
@@ -686,6 +701,11 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
         // a chat deleted meanwhile has no one to tell
         if (rooms.get(chat) === at()) ports.prompt({ kind: "note", text: note }, io);
       },
+      mention: (note) => {
+        // the same, but it must not wake the agent: it is read with the next turn, or mid-turn as it works
+        if (rooms.get(chat) === at()) ports.prompt({ kind: "aside", text: note }, io);
+      },
+      running: () => liveState(at().state, changed, clock.now()),
       context: () => agentContext(at().state, budget, where),
       recall(query, everywhere = false) {
         const room = at();

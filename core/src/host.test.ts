@@ -405,6 +405,55 @@ test("work handed off is looked in on: the chat agent hears how a task goes ever
   assert.equal(notes.length, 2, "an ended task is not looked in on");
 });
 
+test("what is running comes with every turn: a browser task that needs the user, is taken over and handed back, then a task with a plan", async () => {
+  const time = manualTime("2026-10-20T08:00:00Z");
+  const { ports, io } = capture();
+  const host = createHost(ports, { clock: time.clock, timers: time.timers });
+  await host.call("chat.send", { chat: "main", text: "sign me in to the training site", timezone: "UTC", attachments: [] });
+  const agent = io();
+  assert.ok(agent);
+  assert.equal(agent.running(), "", "nothing is running yet");
+  const made = agent.act({ kind: "browse", title: "SHAPE training", url: "https://sso.example/login", instructions: "Sign in and open the next module", files: [] });
+  assert.ok(made.ok);
+  assert.ok(agent.act({ kind: "browserStep", id: made.id, step: "Opening the login page" }).ok);
+  assert.match(agent.running(), /^What is running now:\n- browser task "SHAPE training" \(b-[\w-]+\): running, now "Opening the login page" \(just now\)$/);
+  // it stops at the sign-in and asks the user
+  assert.ok(agent.act({ kind: "browserStatus", id: made.id, status: "needs_you" }).ok);
+  assert.ok(agent.act({ kind: "browserStep", id: made.id, step: "Waiting for you to sign in" }).ok);
+  time.advance(60_000);
+  assert.match(agent.running(), /: waiting for the user, now "Waiting for you to sign in" \(1 minute ago\)$/);
+  // the user takes it
+  await host.call("browser.control", { id: made.id, action: "take" });
+  time.advance(2 * 60_000);
+  assert.match(agent.running(), /: under the user's control \(2 minutes ago\)$/);
+  // and hands it back: its agent carries on from where it was
+  await host.call("browser.control", { id: made.id, action: "handBack" });
+  assert.ok(agent.act({ kind: "browserStep", id: made.id, step: "进入下一节（2.02）" }).ok);
+  assert.match(agent.running(), /: running, now "进入下一节（2.02）" \(just now\)$/);
+  // a task's plan reads as its progress, and both stand together
+  const task = agent.act({ kind: "task", title: "Compare offers", instructions: "Compare them" });
+  assert.ok(task.ok);
+  assert.ok(agent.act({ kind: "taskSteps", id: task.id, steps: [{ label: "Read", done: true }, { label: "Compare", done: false }] }).ok);
+  assert.match(agent.running(), /^- task "Compare offers" \(t-[\w-]+\): running, 1 of 2 steps done \(just now\)$/m);
+  assert.match(agent.running(), /SHAPE training/);
+  // once a run is over it is not running any more
+  assert.ok(agent.act({ kind: "released", id: made.id }).ok);
+  assert.doesNotMatch(agent.running(), /SHAPE training/);
+  assert.ok(agent.act({ kind: "taskEnded", id: task.id, status: "completed", result: "B" }).ok);
+  assert.equal(agent.running(), "");
+});
+
+test("a note that must not wake the agent is kept for its next turn: a browser taken over, or handed back", async () => {
+  const turns: Turn[] = [];
+  const { ports, io } = capture();
+  const host = createHost({ ...ports, prompt: (turn, agent) => void (turns.push(turn), ports.prompt(turn, agent)) });
+  await host.call("chat.send", { chat: "main", text: "sign me in", timezone: "UTC", attachments: [] });
+  const agent = io();
+  assert.ok(agent);
+  agent.mention('[browser task "SHAPE training" (b-1): the user took control]');
+  assert.deepEqual(turns.at(-1), { kind: "aside", text: '[browser task "SHAPE training" (b-1): the user took control]' }, "not a note: a note would wake the agent");
+});
+
 test("a Connect card still waiting is connected once its app has an account connected since, however it got one; the agent hears", async () => {
   const notes: string[] = [];
   const { ports, io } = capture();

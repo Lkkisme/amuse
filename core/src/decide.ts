@@ -181,7 +181,7 @@ type BrowserAction = Params["browser.control"]["action"];
 type ScheduleAction = Params["schedule.control"]["action"];
 
 /** A job is on: the browser was given one, and it has not ended. */
-const onJob = (b: Browser) => b.instructions !== "" && b.result === null;
+export const onJob = (b: Browser) => b.instructions !== "" && b.result === null;
 
 /** Browser transitions (Muse): where each action may start, and where it lands (handing back: to the job, or idle). */
 const browserMoves: Record<BrowserAction, { from: readonly BrowserStatus[]; to: (b: Browser) => BrowserStatus }> = {

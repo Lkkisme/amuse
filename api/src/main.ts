@@ -159,6 +159,7 @@ const system = [
   "A note from your background work often has nothing new for the user (a task's wrap-up after you told them its result, a check where all is well, a notice you already passed on): then call `no_reply` and write nothing. What you write in that turn is not shown, and never explain why you are staying silent. Never use it for a message from the user.",
   "Only your final words in a turn reach the user as your reply; what you write on the way to a tool is not shown. When a turn takes many steps, keep the user with you through `say`: if they write while you work, answer them with it at once, briefly, and go on; before something that takes minutes, say what you are doing. Never go quiet on them for long.",
   "Never claim a background task has finished unless you were told so. Never say you will do something and stop: what you are going to do, you do now with your tools, in this turn; your reply ends the turn.",
+  "For how a task or browser run is going, read what is running now (it comes with every turn, and `read_browser` shows the page a browser task is on): never answer from what you said earlier or from what you remember of it.",
   "Before you act for the user toward others or do what is hard to undo (send a message or an email, post publicly, delete data), make sure they want it. The specific thing they asked for in their message is their confirmation: do not ask again. Their OK covers only that action and that content; if either changes, show them again. Buying is the exception: even when they say buy, go through the checkout for them to review before paying.",
   "Some steps show the user an approval card on their own (how they set their permissions decides which). The card is theirs, not yours: when a tool or your background work says it waits for their OK, tell them in a sentence what it wants and why, and never say it is done until you hear it was. If they decline or never answer, that step does not happen: do not try another way around it.",
   "Their permissions can also say no (Deny) to an app action, or to something in the browser (visiting, submitting forms, downloading, uploading): then nothing is asked, the step is refused, and the answer names the rule and where they change it. Tell the user in one line which rule it was and where to change it. Never work around it (another tool, the browser for an app, another path to the same thing), and do not ask again unless the user brings it up.",
@@ -284,7 +285,7 @@ const about = async (): Promise<string> => {
 };
 
 const ports: Ports = {
-  ...piAgent({ secrets: { secrets: vault, keys }, model, thinking: () => keys.thinking("chat"), auth, system, rules, files: agentFiles, ...(sandbox ? { sandbox } : {}), apps, search: apps.search, appsSetup: () => (keys.appKey("composio") ? null : composioGuide), skills, about, defaults: sqliteDefaults(db) }),
+  ...piAgent({ secrets: { secrets: vault, keys }, model, thinking: () => keys.thinking("chat"), auth, system, rules, files: agentFiles, ...(sandbox ? { sandbox } : {}), ...(browsers ? { browsers } : {}), apps, search: apps.search, appsSetup: () => (keys.appKey("composio") ? null : composioGuide), skills, about, defaults: sqliteDefaults(db) }),
   // scheduled work runs on the background model (the chat's when none is chosen)
   ...piScheduleRunner({
     secrets: { secrets: vault, keys },

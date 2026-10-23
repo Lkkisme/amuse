@@ -43,6 +43,8 @@ function setup(entries: SecretEntry[] = [], answer: Answer | Promise<Answer> = {
     act: (action) => (acted.push(action), { ok: true, id: "k-1" }),
     decision: async () => answer,
     report: (note) => void reports.push(note),
+    mention: (note) => void reports.push(note),
+    running: () => "",
     context: () => "",
     recall: () => "",
     time: () => ({ now: "2026-10-23T08:00:00Z", timezone: "UTC" }),
