@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { Turn } from "@amuse/core";
+import type { AgentSession } from "@earendil-works/pi-coding-agent";
+import type { PiConfig } from "./agent.ts";
+import type { Apps } from "./tools.ts";
 import { parseModel, pick, redact } from "./index.ts";
 
 test("model specs split at the first slash; ids may contain more", () => {
@@ -63,4 +67,123 @@ test("new and changed skills of the user's are told once; the first look and the
   assert.match(later.news, /^- pdf \(new\): PDF tools$/m);
   assert.doesNotMatch(later.news, /memory/);
   assert.equal(skillsSince(later.seen, [skill("trips", "Planning trips, the way I like"), skill("pdf", "PDF tools")]).news, "", "told once");
+});
+
+const noon = "2026-10-21T12:00:00Z";
+/** The part of a chat a brief is built from. */
+const room = (context: string, now = noon, main = true) => ({
+  chat: "c-1",
+  chats: () => [{ id: "c-1", title: "Trip", main, updated: noon }],
+  context: () => context,
+  time: () => ({ now, timezone: "UTC" }),
+});
+
+test("a turn's message tells what holds still first and what is new last: the conversation, then where, memory, language, now and the task", async () => {
+  const { brief } = await import("./agent.ts");
+  const conversation = Array.from({ length: 80 }, (_, i) => `[2026-10-21 08:00] User: line ${i} ${"x".repeat(200)}`).join("\n");
+  const told = brief(room(conversation, noon, false), { kind: "message", text: "hi", attachments: [] }, "Your memory of the user: likes tea", false, "Chinese");
+  const at = (part: string) => told.text.indexOf(part);
+  const volatile = ["You are in a side chat", "Your memory of the user: likes tea", "The user writes in Chinese: reply in Chinese.", "Now: ", "Reply to the user's newest message"];
+  assert.ok(at(conversation) > 0 && at("The conversation so far") === 0, "the heading, then the conversation");
+  for (const part of volatile) assert.ok(at(part) > at(conversation) + conversation.length, `${part} comes after the conversation`);
+  assert.deepEqual(volatile.map(at), volatile.map(at).toSorted((a, b) => a - b), "and in that order, the task last");
+  assert.ok(told.text.endsWith("(the last lines above)."));
+  // what is kept from turn to turn is the heading and the conversation, whole parts of it, and none of the volatile
+  assert.ok(told.stable.length > 0 && told.text.startsWith(told.stable.join("")));
+  for (const part of volatile) assert.ok(!told.stable.join("").includes(part));
+});
+
+test("the message of the next turn begins with the message of this one up to where the chat grew; the volatile parts alone never move it", async () => {
+  const { brief } = await import("./agent.ts");
+  const lines = Array.from({ length: 80 }, (_, i) => `[2026-10-21 08:00] User: line ${i} ${"x".repeat(200)}`);
+  const message: Turn = { kind: "message", text: "hi", attachments: [] };
+  const first = brief(room(lines.slice(0, 60).join("\n")), message, "memory one", false, null);
+  const second = brief(room(lines.join("\n"), "2026-10-21T13:00:00Z"), message, "memory two, rewritten", false, "Japanese");
+  assert.ok(first.stable.length > 0);
+  assert.deepEqual(second.stable.slice(0, first.stable.length), first.stable, "the parts that were closed are the same, the next turn too");
+  assert.ok(second.text.startsWith(first.stable.join("")), "what the provider cached is what this one begins with");
+});
+
+test("a note turn is briefed the same way, and says a user's newer message is above", async () => {
+  const { brief } = await import("./agent.ts");
+  const told = brief(room("[2026-10-21 08:00] User: hi"), { kind: "note", text: "[task t-1 done] ok" }, "", true, null);
+  assert.match(told.text, /\n---\nYou are in the main chat\.\n\nNow: .*\.\nA note from your background work.*reply to them too\.\n\[task t-1 done\] ok$/s);
+});
+
+test("a helper is briefed with the conversation first and the work last", async () => {
+  const { briefed } = await import("./worker.ts");
+  const text = briefed({ context: () => "[2026-10-21 08:00] User: hi" }, "Wednesday noon", 'Task "x". Instructions:\nDo it.');
+  assert.ok(text.indexOf("User: hi") < text.indexOf("Now: Wednesday noon") && text.indexOf("Now: ") < text.indexOf("Instructions:"));
+});
+
+test("the chat's tools come in the same order with the same schemas however often, and whatever the skills' order", async () => {
+  const { agentTools } = await import("./agent.ts");
+  const { memoryRules, noWorkspace } = await import("@amuse/core");
+  const { allSkills } = await import("./skills.ts");
+  const apps: Apps = { accounts: async () => [], tools: async () => [], permission: async () => "ask", kind: async () => "read", remember: async () => {}, call: async () => ({ ok: true, data: null }) };
+  const skill = (name: string) => ({ name, description: `About ${name}`, body: "Do it.", from: "built in" });
+  const build = (skills: ReturnType<typeof skill>[]) => {
+    const io = () => {
+      throw new Error("not used to build tools");
+    };
+    const cfg: PiConfig = { model: () => null, auth: { kind: "environment" }, system: "s", rules: memoryRules(), files: noWorkspace, apps, skills, about: async () => "", search: async () => [] };
+    return agentTools(cfg, io, () => false, () => {}).map((t) => JSON.stringify([t.name, t.description, t.parameters]));
+  };
+  const one = build([skill("a"), skill("b")]);
+  assert.ok(one.length > 20);
+  assert.deepEqual(build([skill("b"), skill("a")]), one);
+  assert.deepEqual(build([skill("a"), skill("b")]), one);
+  assert.equal(new Set(one.map((t) => JSON.parse(t)[0])).size, one.length, "no tool twice");
+  const names = (await allSkills([skill("b"), skill("c"), skill("a")], undefined)).map((s) => s.name);
+  assert.deepEqual(names, ["a", "b", "c"], "the catalog is by name");
+});
+
+test("each turn of a chat opens a session of the chat's own name, and its system prompt is the same whatever language the user writes in", async () => {
+  const { fauxAssistantMessage } = await import("@earendil-works/pi-ai");
+  const { chat } = await import("./scripted-chat.ts");
+  const systems: string[] = [];
+  const users: string[] = [];
+  const ids: string[] = [];
+  const seen = (context: { messages: { role: string; content: unknown }[] }) => {
+    const text = (content: unknown) => (typeof content === "string" ? content : Array.isArray(content) ? content.map((c) => (typeof c?.text === "string" ? c.text : "")).join("") : "");
+    systems.push(text(context.messages.find((m) => m.role === "system")?.content));
+    users.push(text(context.messages.find((m) => m.role === "user")?.content));
+    return fauxAssistantMessage("ok");
+  };
+  const { agent, io, until } = await chat([seen, seen], { opened: (session) => ids.push(session.sessionId) });
+  const message: Turn = { kind: "message", text: "hello", attachments: [] };
+  agent.prompt(message, io);
+  await until(1);
+  agent.prompt(message, { ...io, lastWords: () => "你好，帮我看看" });
+  await until(2);
+  assert.deepEqual(ids, ["amuse-main", "amuse-main"]);
+  assert.equal(systems[0], systems[1]);
+  assert.doesNotMatch(systems[1] ?? "", /writes in/);
+  assert.doesNotMatch(users[0] ?? "", /writes in/);
+  assert.match(users[1] ?? "", /\nThe user writes in Chinese: reply in Chinese\.\n\nNow: /);
+});
+
+test("the session marks the request's cache where the turn's message holds still, reading it as each request is made", async () => {
+  const { fauxAssistantMessage } = await import("@earendil-works/pi-ai");
+  const { chat } = await import("./scripted-chat.ts");
+  const hooks: NonNullable<AgentSession["agent"]["onPayload"]>[] = [];
+  const { agent, io, faux, conversation, until } = await chat([fauxAssistantMessage("ok")], {
+    opened: (session) => {
+      const hook = session.agent.onPayload;
+      if (hook) hooks.push(hook);
+    },
+  });
+  for (let i = 0; i < 40; i++) conversation.push(`[2026-10-21 08:00] User: line ${i} ${"x".repeat(200)}`);
+  agent.prompt({ kind: "message", text: "hello", attachments: [] }, io);
+  await until(1);
+  assert.equal(hooks.length, 1, "set where the session opens");
+  const mark = { type: "ephemeral" };
+  const request = (text: string) => ({ system: [{ type: "text", text: "rules", cache_control: mark }], messages: [{ role: "user", content: [{ type: "text", text, cache_control: mark }] }] });
+  const text = `The conversation so far, oldest first (times are the user's, UTC):\n\n${conversation.join("\n")}\n\n---\nYou are in the main chat.\n\nNow: x.\nReply.`;
+  const marked = await hooks[0]?.(request(text), faux.getModel());
+  assert.ok(marked !== null && typeof marked === "object" && "messages" in marked && Array.isArray(marked.messages));
+  const content = marked.messages[0].content;
+  assert.ok(content.length >= 2 && content[0].cache_control !== undefined, "a mark inside the message, apart from its end");
+  assert.deepEqual(content.at(-1).cache_control, mark, "and the one at its end stays");
+  assert.equal(content.map((b: { text: string }) => b.text).join(""), text);
 });

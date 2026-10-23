@@ -89,16 +89,20 @@ export function nowIn(instant: string, timezone: string): string {
   return `${weekday} ${localTime(instant, zone)} (${zone})`;
 }
 
+/** A formatter is costly to make, and the whole conversation is told in times each turn (context.ts): one per zone, UTC for one unknown. */
+const clocks = new Map<string, Intl.DateTimeFormat>();
+const clockIn = (zone: string): Intl.DateTimeFormat => {
+  const kept = clocks.get(zone);
+  if (kept) return kept;
+  const make = (timeZone: string) =>
+    new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  const made = knownZone(zone) ? make(zone) : make("UTC");
+  clocks.set(zone, made);
+  return made;
+};
+
 export function localTime(instant: string, timezone: string): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: knownZone(timezone) ? timezone : "UTC",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(new Date(instant));
+  const parts = clockIn(timezone).formatToParts(new Date(instant));
   const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? "";
   return `${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")}`;
 }

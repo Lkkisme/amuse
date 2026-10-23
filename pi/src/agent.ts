@@ -7,7 +7,7 @@
  * (the status line says what it is doing). Pi's coding tools, extensions,
  * skills and context files are all off: the model sees only amuse's tools (tools.ts).
  */
-import { type AgentIO, type Ports, type Rules, type Turn, type Workspace, attached, blank, newId, nowIn } from "@amuse/core";
+import { type AgentIO, type Ports, type Rules, type Turn, type Workspace, attached, blank, closedParts, newId, nowIn } from "@amuse/core";
 import { images, workspaceTools } from "./attachments.ts";
 import { memoryBrief, memoryReadTools, memoryWriteTools } from "./memory.ts";
 import { aboutTools } from "./about.ts";
@@ -16,7 +16,7 @@ import type { Needs } from "@amuse/protocol";
 import type { SandboxClient } from "@amuse/sandbox";
 import { redact } from "./redact.ts";
 import type { AgentSession, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { type PiModelConfig, type PiSession, openSession, secretsOf } from "./session.ts";
+import { type Caching, type PiModelConfig, type PiSession, openSession, secretsOf } from "./session.ts";
 import { statusOf } from "./status.ts";
 import { relayTools } from "./runs.ts";
 import { taskTools } from "./tasks.ts";
@@ -47,7 +47,7 @@ export interface PiConfig extends PiModelConfig {
   /** Schedules every instance starts with (memory upkeep, reflection), each set up once, on the user's clock, when they write. */
   defaults?: Defaults;
   /** Where a turn's Pi session comes from (tests give one with a scripted model); the configured model's by default. */
-  open?: (system: string, tools: ToolDefinition[]) => Promise<PiSession>;
+  open?: (system: string, tools: ToolDefinition[], caching: Caching) => Promise<PiSession>;
 }
 
 /** A schedule every instance starts with; after that it is the user's like any other. */
@@ -213,33 +213,21 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
     /** the model chose to say nothing this turn: whatever it writes is dropped */
     let silent = false;
     try {
-      // the user's language, said where the model weighs it most: the system prompt of this turn
+      // the user's language, said where the model weighs it most: the end of the turn's message, beside what to do
       const language = scriptOf(agent.lastWords());
       // the skills there are now (the user may have added one), a line each
       const every = await allSkills(cfg.skills ?? [], cfg.files);
       const skills = catalog(every);
       const news = turn.kind === "message" ? skillNews(every) : "";
-      const system = [cfg.system, skills, language ? `The user writes in ${language}: reply in ${language}.` : ""].filter(Boolean).join("\n\n");
+      // what is the same from turn to turn comes first, so the provider can reuse it: the rules, then the skills
+      const system = [cfg.system, skills].filter(Boolean).join("\n\n");
       if (turn.kind === "message") setUpDefaults(cfg.defaults, agent);
-      const toolset = [
-        // with memory, memory_search looks in the chats as recall did, and in memory/ too
-        ...tools(io, cfg.rules, { files: cfg.files, appsSetup: cfg.appsSetup }).filter((t) => !(cfg.files && t.name === "recall")),
-        ...(cfg.files ? [...memoryReadTools(io, cfg.files), ...memoryWriteTools(io, cfg.files)] : []),
-        ...skillTools(cfg.skills ?? [], cfg.files),
-        ...(cfg.about ? aboutTools(cfg.about) : []),
-        ...chatTools(io),
-        ...scheduleTools(io, cfg.files),
-        ...taskTools(io),
-        ...relayTools(io),
-        ...webTools(io, cfg.rules, cfg.search),
-        ...(cfg.apps ? appTools(io, cfg.apps) : []),
-        ...(cfg.files ? workspaceTools(io, cfg.files) : []),
-        ...(cfg.sandbox ? [...sandboxTools(cfg.sandbox, CHAT_LIMITS), ...secretTools(io)] : []),
-        ...sayTools(io),
-        ...silenceTools(() => heard, () => (silent = true)),
-      ];
+      const toolset = agentTools(cfg, io, () => heard, () => (silent = true));
       // many calls in one turn, only what the script returns in its context
-      const session = await (cfg.open ? cfg.open(system, toolset) : openSession(cfg, system, toolset, { codemode: true }));
+      // the chat has one cache name, and the turn's message begins with what the last one did: both let a provider find its cache again
+      let stable: string[] = [];
+      const caching: Caching = { key: `amuse-${agent.chat}`, stable: () => stable };
+      const session = await (cfg.open ? cfg.open(system, toolset, caching) : openSession(cfg, system, toolset, { codemode: true, caching }));
       lane.session = session;
       const pi = session.session;
       if (!live()) return;
@@ -293,10 +281,11 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
           if (cfg.files) shown.push(...(await images(cfg.files, more.flatMap((m) => m.attachments))));
         }
         heard = taken.length > 0;
-        const told = brief(agent, turn, remembered, heard);
+        const told = brief(agent, turn, remembered, heard, language);
+        stable = told.stable;
         // from here the model has the conversation as it stands: what the user adds goes to it as it works
         lane.steering = { session: pi, unread: [], sending: Promise.resolve() };
-        await pi.prompt(told, { expandPromptTemplates: false, ...(shown.length > 0 ? { images: shown } : {}) });
+        await pi.prompt(told.text, { expandPromptTemplates: false, ...(shown.length > 0 ? { images: shown } : {}) });
       } finally {
         unsubscribe();
       }
@@ -355,6 +344,30 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
     },
     title: (text) => title(cfg, text),
   };
+}
+
+/**
+ * The chat agent's tools, always in this order and with these schemas for the same setup (a provider caches a request by what it
+ * starts with, and the tools come before the conversation): nothing here is sorted, shuffled or made up of the turn.
+ */
+export function agentTools(cfg: PiConfig, io: () => AgentIO, heard: () => boolean, silence: () => void): ToolDefinition[] {
+  return [
+    // with memory, memory_search looks in the chats as recall did, and in memory/ too
+    ...tools(io, cfg.rules, { files: cfg.files, appsSetup: cfg.appsSetup }).filter((t) => !(cfg.files && t.name === "recall")),
+    ...(cfg.files ? [...memoryReadTools(io, cfg.files), ...memoryWriteTools(io, cfg.files)] : []),
+    ...skillTools(cfg.skills ?? [], cfg.files),
+    ...(cfg.about ? aboutTools(cfg.about) : []),
+    ...chatTools(io),
+    ...scheduleTools(io, cfg.files),
+    ...taskTools(io),
+    ...relayTools(io),
+    ...webTools(io, cfg.rules, cfg.search),
+    ...(cfg.apps ? appTools(io, cfg.apps) : []),
+    ...(cfg.files ? workspaceTools(io, cfg.files) : []),
+    ...(cfg.sandbox ? [...sandboxTools(cfg.sandbox, CHAT_LIMITS), ...secretTools(io)] : []),
+    ...sayTools(io),
+    ...silenceTools(heard, silence),
+  ];
 }
 
 /**
@@ -427,16 +440,29 @@ type Language = "Chinese" | "Japanese" | "Korean";
 /** Characters only that language's script has (Japanese kana; Korean hangul; Chinese, then, han). */
 const scripts: Record<Language, RegExp> = { Japanese: /[\u3040-\u30ff]/, Korean: /[\uac00-\ud7af]/, Chinese: /[\u4e00-\u9fff]/ };
 
-/** The turn as the model gets it: the conversation, now on the user's clock, then what to do. */
-function brief(agent: AgentIO, turn: Turn, remembered: string, written: boolean): string {
+/** The turn's message: all of it, and the first part of it that stays as it is from turn to turn (cut at its lines: cache.ts). */
+export interface Brief {
+  text: string;
+  stable: string[];
+}
+
+/**
+ * The turn as the model gets it, by how much each part changes. First what holds still: the heading, then the conversation, which only
+ * grows at its end (context.ts) and is cached by the provider up to where it last agreed. Last what is new every turn: where this
+ * is, what is remembered, the language, the time, and what to do.
+ */
+export function brief(agent: Pick<AgentIO, "chat" | "chats" | "context" | "time">, turn: Turn, remembered: string, written: boolean, language: string | null): Brief {
   const { now, timezone } = agent.time();
   const here = agent.chats().find((c) => c.id === agent.chat);
   const where = here?.main
     ? "You are in the main chat."
-    : `You are in a side chat${here?.title ? ` ("${here.title}")` : ""}: only this chat is shown below. The main chat and other chats are there to look up (list_chats, read_chat, recall with everywhere) when the user refers to them.`;
+    : `You are in a side chat${here?.title ? ` ("${here.title}")` : ""}: only this chat is shown above. The main chat and other chats are there to look up (list_chats, read_chat, recall with everywhere) when the user refers to them.`;
   const task =
     turn.kind === "message"
       ? "Reply to the user's newest message (the last lines above)."
       : `A note from your background work (not from the user). Tell the user only what they need to hear, in your own words, never that a note came. If nothing needs them (all is well, nothing was waiting, you already told them), call no_reply and write nothing: never explain why you are staying silent.${written ? " The user has also written since (their newest message is in the last lines above): reply to them too." : ""}\n${turn.text}`;
-  return `${where}\n\n${remembered ? `${remembered}\n\n---\n` : ""}The conversation so far, oldest first (times are the user's, ${timezone}):\n\n${agent.context()}\n\n---\nNow: ${nowIn(now, timezone)}.\n${task}`;
+  const speaks = language ? `The user writes in ${language}: reply in ${language}.` : "";
+  const prefix = `The conversation so far, oldest first (times are the user's, ${timezone}):\n\n${agent.context()}\n`;
+  const tail = `\n---\n${[where, remembered, speaks].filter(Boolean).join("\n\n")}\n\nNow: ${nowIn(now, timezone)}.\n${task}`;
+  return { text: prefix + tail, stable: closedParts(prefix) };
 }

@@ -54,8 +54,8 @@ export async function chat(
     system: "You are a test.",
     ...(files ? { files } : {}),
     rules: memoryRules(),
-    open: async (system, own) => {
-      const made = await sessionOn(models, faux.getModel(), system, [...own, ...tools]);
+    open: async (system, own, caching) => {
+      const made = await sessionOn(models, faux.getModel(), system, [...own, ...tools], { caching });
       opened?.(made.session);
       return made;
     },

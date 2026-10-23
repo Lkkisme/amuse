@@ -7,6 +7,13 @@
  * oldest left out once a budget is spent (the agent can `recall` them).
  * The same conversation always gives the same context, and a restart loses
  * nothing.
+ *
+ * The text is made to be cached by the model's provider, which reuses a
+ * request only up to where it starts to differ from the last one. So the
+ * conversation is cut into blocks from its start, each closing once it
+ * holds `blockSize` characters; a closed block never changes, and which
+ * blocks are shown, and how, depends on the closed ones alone. Between two
+ * blocks closing, the text only grows at its end.
  */
 import type { Attachment, Entity, State, When } from "@amuse/protocol";
 import { localTime, userZone } from "./schedule.ts";
@@ -19,6 +26,9 @@ export interface Budget {
 }
 
 export const budget: Budget = { full: 24_000, brief: 8_000 };
+
+/** A block of the conversation closes once its entities, told in full, come to this many characters. */
+export const blockSize = 6_000;
 
 type Detail = "full" | "brief";
 
@@ -104,39 +114,88 @@ export function line(entity: Entity, detail: Detail, zone: string, where: Where 
   }
 }
 
+/** Some of the conversation's entities: where they begin in the feed, each as a line in full, and as one in brief (told when asked). */
+interface Block {
+  first: number;
+  full: string[];
+  entities: Entity[];
+}
+
+/** The characters of lines, each with its newline. */
+const length = (lines: string[]) => lines.reduce((sum, l) => sum + l.length + 1, 0);
+
 /**
- * The conversation as the agent sees it: from the newest entity back, in
- * full while `full` lasts, then in brief while `brief` lasts; what is older
- * is only counted. `state` must hold the whole feed (the host's does).
+ * The feed as blocks, from its start: a block closes with the entity that takes it to `size` characters. What is not
+ * told (a line of null) is in no block. The last block is the open one, short of `size`, and may be empty.
  */
-export function agentContext(state: State, limits: Budget = budget, where: Where = asSent): string {
-  const zone = userZone(state);
-  const lines: string[] = [];
-  let full = limits.full;
-  let brief = limits.brief;
-  let left = 0;
-  for (let i = state.entities.length - 1; i >= 0; i--) {
-    const entity = state.entities[i];
-    if (!entity) continue;
+function blocksOf(state: State, zone: string, where: Where, size: number): { closed: Block[]; open: Block } {
+  const closed: Block[] = [];
+  let open: Block = { first: 0, full: [], entities: [] };
+  let told = 0;
+  state.entities.forEach((entity, i) => {
     const whole = line(entity, "full", zone, where);
-    if (whole === null) continue;
-    if (whole.length <= full) {
-      full -= whole.length;
-      lines.push(whole);
-      continue;
+    if (whole === null) return;
+    open.full.push(whole);
+    open.entities.push(entity);
+    told += whole.length + 1;
+    if (told >= size) {
+      closed.push(open);
+      open = { first: i + 1, full: [], entities: [] };
+      told = 0;
     }
-    full = 0; // once something is told in brief, nothing older is told in full
-    const short = line(entity, "brief", zone, where);
-    if (short !== null && short.length <= brief) {
-      brief -= short.length;
-      lines.push(short);
-      continue;
+  });
+  return { closed, open };
+}
+
+/**
+ * The conversation as the agent sees it, whole blocks of it: the open block in full, then the closed blocks
+ * newest first, in full while `full` lasts (less what the open block may come to), then in brief while `brief`
+ * lasts; what is older is only counted. `state` must hold the whole feed (the host's does).
+ */
+export function agentContext(state: State, limits: Budget = budget, where: Where = asSent, size: number = blockSize): string {
+  const zone = userZone(state);
+  const { closed, open } = blocksOf(state, zone, where, size);
+  // the open block is short of `size`, so its room is kept whatever it comes to: the choice moves only as a block closes
+  let full = limits.full - size;
+  let brief = limits.brief;
+  const shown: string[][] = [open.full];
+  let left = closed.length;
+  for (let i = closed.length - 1; i >= 0; i--) {
+    const block = closed[i];
+    if (!block) continue;
+    const whole = length(block.full);
+    if (whole <= full) {
+      full -= whole;
+      shown.push(block.full);
+    } else {
+      full = 0; // once something is told in brief, nothing older is told in full
+      const short = block.entities.flatMap((e) => line(e, "brief", zone, where) ?? []);
+      if (length(short) > brief) break;
+      brief -= length(short);
+      shown.push(short);
     }
-    left = i + 1 + state.earlier;
-    break;
+    left = i;
   }
-  const earlier = left > 0 ? [`(${left} earlier items not shown; use recall to search them)`] : [];
-  return [...earlier, ...lines.reverse()].join("\n");
+  const first = closed[left]?.first ?? open.first;
+  const earlier = first + state.earlier;
+  const note = left > 0 ? [`(${earlier} earlier items not shown; use recall to search them)`] : [];
+  return [...note, ...shown.reverse().flat()].join("\n");
+}
+
+/**
+ * The first parts of `text` that will not change as it grows: cut after the first line that takes a part to `size`
+ * characters, whatever follows. Where a text is cut depends only on what comes before, so what is cut stays cut.
+ * (What is left after the last cut, the part still open, is not given.)
+ */
+export function closedParts(text: string, size: number = blockSize): string[] {
+  const parts: string[] = [];
+  let from = 0;
+  for (let at = text.indexOf("\n"); at >= 0; at = text.indexOf("\n", at + 1)) {
+    if (at + 1 - from < size) continue;
+    parts.push(text.slice(from, at + 1));
+    from = at + 1;
+  }
+  return parts;
 }
 
 /** The lines of the entities that mention `query` (case-insensitive), newest first, in full. */

@@ -24,6 +24,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { type Api, type CredentialStore, type Model, type ModelThinkingLevel, clampThinkingLevel } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "@amuse/protocol";
+import { markPrefix } from "./cache.ts";
 import { type KeyFile, environmentCredentials, readOnlyCredentials } from "./credentials.ts";
 
 /**
@@ -116,6 +117,17 @@ export function runtime(cfg: Pick<PiModelConfig, "auth" | "modelsPath">): Promis
   return made;
 }
 
+/**
+ * What lets a provider reuse a chat's earlier requests: a name for the chat's cache, and what the first message of a turn
+ * begins with that it kept from the turn before (cut at the line, a part at a time: cache.ts).
+ */
+export interface Caching {
+  /** the same for every session of the chat: providers that route by it (OpenAI's prompt_cache_key) find their cache again */
+  key: string;
+  /** read at each request: empty until the turn's message is built */
+  stable(): string[];
+}
+
 /** A Pi session and how to let go of it (its scratch directory is removed). */
 export interface PiSession {
   session: AgentSession;
@@ -149,7 +161,7 @@ export async function openSession(
   cfg: PiModelConfig,
   system: string,
   tools: ToolDefinition[],
-  { codemode = false, images = false }: { codemode?: boolean; images?: boolean } = {},
+  { codemode = false, images = false, caching }: { codemode?: boolean; images?: boolean; caching?: Caching } = {},
 ): Promise<PiSession> {
   const chosen = cfg.model();
   if (chosen === null) throw new NoModel("No model is set up yet: add a provider's key and choose a model in Settings.");
@@ -160,7 +172,7 @@ export async function openSession(
   if (!model) throw new Error(`Model "${chosen}" is not available.`);
   if (images && !model.input.includes("image"))
     throw new NoModel(`${model.name} does not see pictures, which the browser needs: choose a browser model in Settings.`);
-  return sessionOn(models, model, system, tools, { codemode, thinkingLevel: clampThinkingLevel(model, cfg.thinking?.() ?? "off") });
+  return sessionOn(models, model, system, tools, { codemode, caching, thinkingLevel: clampThinkingLevel(model, cfg.thinking?.() ?? "off") });
 }
 
 /** A session with `model` from `models` (openSession's own part, apart so a test can give it a model of its own). */
@@ -169,7 +181,7 @@ export async function sessionOn(
   model: Model<Api>,
   system: string,
   tools: ToolDefinition[],
-  { codemode = false, thinkingLevel = "off" }: { codemode?: boolean; thinkingLevel?: ModelThinkingLevel } = {},
+  { codemode = false, thinkingLevel = "off", caching }: { codemode?: boolean; thinkingLevel?: ModelThinkingLevel; caching?: Caching | undefined } = {},
 ): Promise<PiSession> {
   // Pi wants a working directory; nothing is read from or written to it.
   const cwd = mkdtempSync(join(tmpdir(), "amuse-pi-"));
@@ -179,7 +191,8 @@ export async function sessionOn(
     modelRuntime: models,
     model,
     thinkingLevel,
-    sessionManager: SessionManager.inMemory(cwd),
+    // a session of the chat's own name, not a new one each turn, is what a provider that routes by it knows the chat by
+    sessionManager: SessionManager.inMemory(cwd, caching ? { id: caching.key } : undefined),
     settingsManager: SettingsManager.inMemory({
       compaction: { enabled: true },
       retry: { enabled: true, maxRetries: 2 },
@@ -189,6 +202,11 @@ export async function sessionOn(
     tools: [...tools.map((tool) => tool.name), ...(codemode ? ["codemode"] : [])],
     customTools: tools,
   });
+  if (caching) {
+    const { agent } = session;
+    const before = agent.onPayload;
+    agent.onPayload = async (payload, model) => markPrefix((await before?.(payload, model)) ?? payload, caching.stable());
+  }
   return {
     session,
     close: () => rmSync(cwd, { recursive: true, force: true }),

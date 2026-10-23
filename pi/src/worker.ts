@@ -56,9 +56,12 @@ export function helperTools(cfg: PiConfig, run: RunHandle, hold: Hold): ToolDefi
   ];
 }
 
-/** The work and the conversation as a helper is briefed on them. */
-export function briefed(io: AgentIO, now: string, work: string): string {
-  return [`Now: ${now}.`, work, `---\nThe conversation with the user so far, for background only (do not answer it):\n\n${io.context()}`].join("\n\n");
+/**
+ * The work and the conversation as a helper is briefed on them: the conversation first, which it shares with the chat's other
+ * helpers and the chat itself (the provider reuses what a request begins with, context.ts), then the time and the work.
+ */
+export function briefed(io: Pick<AgentIO, "context">, now: string, work: string): string {
+  return [`The conversation with the user so far, for background only (do not answer it):\n\n${io.context()}`, `---\nNow: ${now}.\n${work}`].join("\n\n");
 }
 
 /** Run one helper to the end of its work: `system` its rules, `tools` everything it may use, `briefing` the work. */
