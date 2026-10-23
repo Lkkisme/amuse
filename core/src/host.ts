@@ -513,11 +513,16 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     // the log is only its tail, trimmed in steps so that most events cost nothing; the state is the whole feed
     if (room.log.length > LOG_KEPT * 2) room.log.splice(0, room.log.length - LOG_KEPT);
   };
-  /** Every change is recorded here; ports only reach the Say subset of them (AgentIO.emit). */
+  /**
+   * Every change is recorded here; ports only reach the Say subset of them (AgentIO.emit). What a deleted chat's agent still says goes
+   * nowhere: the chat and its journal are gone. The journal comes first: if it cannot take the event (the disk, a lock), nothing is
+   * recorded, so the next event is numbered the same and the journal never has a gap.
+   */
   const commit = (room: Room, change: Change) => {
+    if (rooms.get(room.chat.id) !== room) return;
     const envelope = { seq: room.state.seq + 1, event: place(room.state, change) };
-    record(room, envelope);
     room.journal.append(envelope);
+    record(room, envelope);
     push({ kind: "event", chat: room.chat.id, envelope });
     if (change.kind !== "upserted") return;
     // a run that starts is looked in on from now; one that is done is no longer

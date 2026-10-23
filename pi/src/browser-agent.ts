@@ -530,7 +530,9 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers, rules: Ru
     if (!run.stop.signal.aborted && !run.held) standIdle(run);
   };
   const enqueue = (run: Run) => {
-    run.queue = run.queue.then(() => doJob(run));
+    run.queue = run.queue.then(() => doJob(run)).catch((error: unknown) => {
+      console.error(`amuse: a browser job ended with an error and was dropped: ${error instanceof Error ? error.message : String(error)}`);
+    });
   };
 
   return {

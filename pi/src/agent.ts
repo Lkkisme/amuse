@@ -144,6 +144,16 @@ interface Steering {
   sending: Promise<void>;
 }
 
+/**
+ * The next run of a chat's lane, after the ones before it. One that fails does not stop the lane, the other lanes or the server (a
+ * rejection nobody handles ends the process): it is said in the log, in words, and the run after it goes on.
+ */
+export function continued(queue: Promise<void>, chat: string, next: () => Promise<void>, log: (message: string) => void = console.error): Promise<void> {
+  return queue.then(next).catch((error: unknown) => {
+    log(`amuse: a turn in the chat ${chat} ended with an error and was dropped: ${error instanceof Error ? error.message : String(error)}`);
+  });
+}
+
 /** One chat's agent: its runs one after another, the session of the one in progress, and its interrupt count. */
 interface Lane {
   queue: Promise<void>;
@@ -176,6 +186,10 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
     const lane = lanes.get(chat) ?? { queue: Promise.resolve(), session: undefined, steering: undefined, owed: [], epoch: 0 };
     lanes.set(chat, lane);
     return lane;
+  };
+
+  const enqueue = (lane: Lane, chat: string, next: () => Promise<void>) => {
+    lane.queue = continued(lane.queue, chat, next);
   };
 
   const run = async (turn: Turn, agent: AgentIO, lane: Lane): Promise<void> => {
@@ -318,7 +332,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
       const last = owing.at(-1);
       if (last) {
         lane.owed.push(...owing);
-        if (!failed) lane.queue = lane.queue.then(() => run(last, agent, lane));
+        if (!failed) enqueue(lane, agent.chat, () => run(last, agent, lane));
       }
       lane.session?.close();
       lane.session = undefined;
@@ -331,7 +345,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
       const lane = laneOf(agent.chat);
       const queued = () => {
         if (turn.kind === "message") lane.owed.push(turn);
-        lane.queue = lane.queue.then(() => run(turn, agent, lane));
+        enqueue(lane, agent.chat, () => run(turn, agent, lane));
       };
       // a message from the user while the model is working on a turn of this chat goes to it as it works; otherwise it is the next turn
       if (turn.kind === "message" && lane.steering) steer(lane.steering, turn, cfg.files, queued);
