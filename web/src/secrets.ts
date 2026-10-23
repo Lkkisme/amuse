@@ -1,6 +1,6 @@
 /**
- * The Vault as the page works with it: a field's value while it is typed or chosen, files read into base64,
- * the uses of an entry in words, which list an entry is in, and what a new entry can start from. No React here.
+ * The Vault as the page works with it: a value while it is typed or chosen, files read into base64 (what a request
+ * card can ask for, and what old entries hold), the uses of an entry in words, and the clipboard. No React here.
  */
 import {
   EnvName,
@@ -88,30 +88,6 @@ export function tooBig(draft: Draft): boolean {
 
 export const FILE_KB = MAX_FILE / 1024;
 
-/* ---------- a form's problems ---------- */
-
-export type Problem = "name" | "fieldName" | "twice" | "value";
-
-/**
- * What keeps an entry from being saved as filled in, if anything. A secret field's `draft` is null when it keeps its
- * value (an entry being edited), which is not asked for.
- */
-export function problem(entry: {
-  name: string;
-  plain: { name: string; draft: Draft }[];
-  secret: { name: string; draft: Draft | null }[];
-}): Problem | null {
-  if (entry.name.trim() === "") return "name";
-  const names = [...entry.plain, ...entry.secret].map((field) => field.name.trim());
-  if (names.some((name) => name === "")) return "fieldName";
-  if (new Set(names).size !== names.length) return "twice";
-  const values = [
-    ...entry.plain.map((field) => toValue(field.draft, field.name)),
-    ...entry.secret.flatMap((field) => (field.draft ? [toValue(field.draft, field.name)] : [])),
-  ];
-  return values.some((value) => value === null) ? "value" : null;
-}
-
 /* ---------- uses ---------- */
 
 /** A use as it is made in Settings, before it is tied to a field. */
@@ -156,19 +132,40 @@ export function describeUse(use: UseInput, names: ProviderNames, t: Messages): s
   return t.secrets.forApps(provider);
 }
 
-/** All of an entry's uses in one line, or that it has none. */
+/** The assistant's name, for "Amuse's computer" (it follows the assistant's name once that can be changed). */
+const ASSISTANT = "Amuse";
+
+/** Where an entry is used, in one line: "OpenAI models", "Amuse's computer: $GH_TOKEN", or that it is not used yet. */
 export function usesSummary(entry: SecretEntry, names: ProviderNames, t: Messages): string {
   if (entry.uses.length === 0) return t.secrets.notUsed;
-  return entry.uses.map((use) => describeUse(use, names, t)).join(", ");
+  const ofComputer = entry.uses.filter((use) => use.kind !== "server").map((use) => describeUse(use, names, t));
+  const ofServer = entry.uses.filter((use) => use.kind === "server").map((use) => describeUse(use, names, t));
+  const lines = ofComputer.length > 0 ? [t.secrets.onComputer(ofComputer.join(", "), t.computer(ASSISTANT)), ...ofServer] : ofServer;
+  return lines.join(" · ");
 }
 
-export type Group = "sandbox" | "server" | "none";
-
-/** Which list an entry is in: used in the sandbox (even if also by the server), only by the server's own services, or not used. */
-export function groupOf(entry: SecretEntry): Group {
-  if (entry.uses.some((use) => use.kind !== "server")) return "sandbox";
-  return entry.uses.length > 0 ? "server" : "none";
+/** A use as a sentence on the entry's page. */
+export function useSentence(use: SecretEntry["uses"][number], names: ProviderNames, t: Messages): string {
+  const computer = t.computer(ASSISTANT);
+  if (use.kind === "env") return t.secrets.usedEnv(use.name, computer);
+  if (use.kind === "file") {
+    const path = t.secrets.usedFile(homePath(use.path), computer);
+    return use.env ? `${path}, ${t.secrets.usedFileEnv(use.env)}` : path;
+  }
+  return describeUse(use, names, t);
 }
+
+/** What a field is called on a page: its role in words ("Username"), or its name as it was given. */
+export function labelOf(name: string, role: PlainRole | SecretRole | null, t: Messages): string {
+  if (role === "username") return t.secrets.username;
+  if (role === "password") return t.secrets.password;
+  if (name === "key") return t.secrets.apiKey;
+  if (name === "secret") return t.secrets.secret;
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+/** The computer's name as the Vault says it. */
+export const computerName = (t: Messages) => t.computer(ASSISTANT);
 
 /** Does an entry match what was searched for: in its name, its fields' names or its uses. */
 export function matches(entry: SecretEntry, query: string, names: ProviderNames, t: Messages): boolean {
@@ -183,37 +180,41 @@ export function matches(entry: SecretEntry, query: string, names: ProviderNames,
   return haystack.some((text) => text.toLowerCase().includes(words));
 }
 
-/* ---------- presets ---------- */
+/* ---------- new entries ---------- */
 
-export type PresetId = "key" | "login" | "file" | "blank";
+export type Kind = "key" | "login" | "custom";
 
-export interface Preset {
-  id: PresetId;
-  plain: { name: string; role: PlainRole | null; kind: FieldKind }[];
-  secret: { name: string; role: SecretRole | null; kind: FieldKind }[];
-  /** uses suggested, on the field of that name */
-  uses: { field: string; spec: UseSpec }[];
+export const KINDS: Kind[] = ["key", "login", "custom"];
+
+/** A secret as typed: one line is text; several lines (a pasted service account) are kept whole, as a file the page never calls one. */
+export function typedSecret(text: string, name: string): FieldValue | null {
+  return /[\r\n]/.test(text.trim()) ? toValue(pasted(text, name), name) : toValue({ kind: "text", text: text.trim() }, name);
 }
 
-/** What a new entry can start from. The field names are what Amuse reads, so they are not translated. */
-export const PRESETS: Preset[] = [
-  { id: "key", plain: [], secret: [{ name: "key", role: null, kind: "text" }], uses: [] },
-  {
-    id: "login",
-    plain: [{ name: "username", role: "username", kind: "text" }],
-    secret: [{ name: "password", role: "password", kind: "text" }],
-    uses: [],
-  },
-  {
-    id: "file",
-    plain: [],
-    secret: [{ name: "key.json", role: null, kind: "file" }],
-    uses: [
-      {
-        field: "key.json",
-        spec: { kind: "file", path: ".config/gcloud/key.json", env: "GOOGLE_APPLICATION_CREDENTIALS" },
-      },
-    ],
-  },
-  { id: "blank", plain: [], secret: [{ name: "", role: null, kind: "text" }], uses: [] },
-];
+/** The text a stored value stands for (a file's bytes read as text), or null when they are not text. */
+export function valueText(value: FieldValue): string | null {
+  if (value.kind === "text") return value.text;
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(atob(value.content), (c) => c.charCodeAt(0)));
+  } catch {
+    return null;
+  }
+}
+
+/* ---------- reveal and copy ---------- */
+
+/** A revealed secret hides again after this long; a copied one is taken off the clipboard after the next. */
+export const REVEAL_MS = 30_000;
+export const CLIPBOARD_MS = 60_000;
+
+/** Copy a value; with `clearAfter`, empty the clipboard then if it still holds that value (where the browser lets a page look). */
+export async function copy(value: string, clearAfter: number | null): Promise<void> {
+  await navigator.clipboard.writeText(value);
+  if (clearAfter === null) return;
+  setTimeout(() => {
+    navigator.clipboard.readText().then(
+      (now) => (now === value ? navigator.clipboard.writeText("") : undefined),
+      () => undefined,
+    );
+  }, clearAfter);
+}

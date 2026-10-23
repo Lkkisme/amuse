@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { type AgentAction, type AgentIO, type AgentSecrets, type Answer, type Keys, noKeys } from "@amuse/core";
 import type { KeyProvider, SecretEntry, Use, UseInput } from "@amuse/protocol";
 import type { Hold } from "./runs.ts";
-import { listing, secretActions } from "./secrets.ts";
+import { listing, secretActions, secretTools } from "./secrets.ts";
 
 const entry = (over: Partial<SecretEntry> = {}): SecretEntry => ({
   id: "e-1",
@@ -223,4 +223,19 @@ test("the plain fields of a request are the agent's, with their values: a card h
   assert.match(await s.act.request({ name: "Other", why: "x", plain: [{ name: "username", value: "" }], secret: [{ name: "password" }] }), /^Not asked: the value of username is a line of text/);
   assert.match(await s.act.request({ name: "Other", why: "x", plain: [{ name: "note", value: "a\nb" }], secret: [{ name: "password" }] }), /^Not asked: the value of note is a line of text/);
   assert.equal(s.acted.length, 1);
+});
+
+test("the agent's Vault tools can look and put to use, and have no way to show a secret's value", () => {
+  const secrets: AgentSecrets = {
+    list: async () => [],
+    useByAgent: async () => {
+      throw new Error("unused");
+    },
+  };
+  const io = (): AgentIO => {
+    throw new Error("listing the tools needs no chat");
+  };
+  const names = secretTools(io, { secrets, sandbox: true }).map((tool) => tool.name);
+  assert.deepEqual(names.filter((name) => /reveal|show|read|copy/.test(name)), []);
+  assert.ok(names.includes("list_secrets"));
 });

@@ -2,9 +2,10 @@
  * The pieces the Vault's forms and Amuse's card for a secret have in common: a value to type, choose or paste
  * (a line of text, or a file), a field with its name, a note.
  */
-import { type ReactNode, useRef, useState } from "react";
-import { ChevronLeft, KeyRound, Trash2 } from "lucide-react";
-import { type FieldKind, MAX_TEXT, fileSize } from "@amuse/protocol";
+import { type ReactNode, createContext, useContext, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { ChevronLeft, KeyRound } from "lucide-react";
+import { MAX_TEXT, fileSize } from "@amuse/protocol";
 import { useT } from "../i18n/react.ts";
 import { Button } from "./Button";
 import { ConfirmSheet } from "./ConfirmSheet";
@@ -22,25 +23,105 @@ const text = {
 };
 const fill = (look: Look) => (look === "card" ? { background: "var(--field)", color: "var(--text-primary)" } : { color: "var(--text-primary)" });
 
-/** A page of the Vault: scrolls, and on a desktop has its own way back to the list (a phone's is in the settings' bar). */
-export function Page({ onBack, children }: { onBack: () => void; children: ReactNode }) {
+/** Where the settings' bars (a phone's, a desktop's) have room for a page's one button: the Vault puts its ⋯ there. */
+export interface BarSlots {
+  phone: HTMLElement | null;
+  desktop: HTMLElement | null;
+}
+export const BarSlotsContext = createContext<BarSlots>({ phone: null, desktop: null });
+
+/**
+ * A page of the Vault: scrolls, and on a desktop has its own way back to the list (a phone's is in the settings' bar).
+ * `actions`: the page's one button, which goes in the settings' bar, on the same row as the title.
+ */
+export function Page({ onBack, actions, children }: { onBack: () => void; actions?: ReactNode; children: ReactNode }) {
   const t = useT();
+  const slots = useContext(BarSlotsContext);
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6 pt-3 sm:px-6">
-      <button
-        aria-label={t.common.back}
-        className="hover-fade hidden size-8 shrink-0 items-center justify-center rounded-full sm:flex"
-        style={{
-          background: "var(--fill-primary)",
-          color: "var(--icon-primary)",
-          boxShadow: "var(--shadow-float)",
-        }}
-        onClick={onBack}
-      >
-        <ChevronLeft size={18} />
-      </button>
+      {actions && slots.phone && createPortal(actions, slots.phone)}
+      {actions && slots.desktop && createPortal(actions, slots.desktop)}
+      <div className="hidden sm:block">
+        <button
+          aria-label={t.common.back}
+          className="hover-fade flex size-8 shrink-0 items-center justify-center rounded-full"
+          style={{
+            background: "var(--fill-primary)",
+            color: "var(--icon-primary)",
+            boxShadow: "var(--shadow-float)",
+          }}
+          onClick={onBack}
+        >
+          <ChevronLeft size={18} />
+        </button>
+      </div>
       {children}
     </div>
+  );
+}
+
+/** A row of a page's information: a small label, and its value below; `side`: what can be done with the value. */
+export function InfoRow({ label, side, children }: { label: string; side?: ReactNode; children: ReactNode }) {
+  return (
+    <li className="flex items-center gap-2 py-3">
+      <div className="min-w-0 flex-1">
+        <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
+          {label}
+        </p>
+        <div className="mt-0.5 text-[16px] [overflow-wrap:anywhere]" style={{ color: "var(--text-primary)" }}>
+          {children}
+        </div>
+      </div>
+      {side}
+    </li>
+  );
+}
+
+/** A row of a form: a small label, and the box to fill in below it. */
+export function BoxRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <li className="py-3">
+      <label className="block">
+        <span className="block text-[12px]" style={{ color: "var(--text-secondary)" }}>
+          {label}
+        </span>
+        {children}
+      </label>
+    </li>
+  );
+}
+
+/** What goes in a `BoxRow`; `hidden`: shown as dots, over several lines when it is `lines` (a pasted key file). */
+export function Box({
+  value,
+  onChange,
+  hidden = false,
+  lines = false,
+  placeholder,
+  autoFocus = false,
+  max = MAX_TEXT,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  hidden?: boolean;
+  lines?: boolean;
+  placeholder?: string | undefined;
+  autoFocus?: boolean;
+  max?: number;
+}) {
+  const common = {
+    autoFocus,
+    autoComplete: "off",
+    placeholder,
+    maxLength: max,
+    value,
+    className: `mt-0.5 w-full bg-transparent text-[16px] outline-none ${hidden && lines ? "[-webkit-text-security:disc]" : ""}`,
+    style: { color: "var(--text-primary)" },
+  };
+  return lines ? (
+    <textarea {...common} rows={3} spellCheck={false} className={`${common.className} resize-none`} onChange={(e) => onChange(e.target.value)} />
+  ) : (
+    <input {...common} type={hidden ? "password" : "text"} onChange={(e) => onChange(e.target.value)} />
   );
 }
 
@@ -51,22 +132,6 @@ export function Alert({ message }: { message: string | null }) {
     <p role="alert" className="mt-3 px-1 text-[13px]" style={{ color: "var(--fill-red)" }}>
       {message}
     </p>
-  );
-}
-
-/** A heading over a group, with a line of help. */
-export function Heading({ title, help }: { title: string; help?: string }) {
-  return (
-    <div className="mb-2 mt-6 px-1">
-      <p className="text-[13px] font-medium" style={{ color: "var(--text-secondary)" }}>
-        {title}
-      </p>
-      {help && (
-        <p className="text-[12px]" style={{ color: "var(--text-tertiary)" }}>
-          {help}
-        </p>
-      )}
-    </div>
   );
 }
 
@@ -229,104 +294,16 @@ function FileEditor({
   );
 }
 
-/** Text or file. */
-export function KindToggle({ kind, onChange }: { kind: FieldKind; onChange: (kind: FieldKind) => void }) {
-  const t = useT();
-  const kinds: { kind: FieldKind; label: string }[] = [
-    { kind: "text", label: t.secrets.text },
-    { kind: "file", label: t.secrets.file },
-  ];
-  return (
-    <span className="flex shrink-0 rounded-full p-0.5" style={{ background: "var(--field)" }}>
-      {kinds.map((k) => (
-        <button
-          key={k.kind}
-          type="button"
-          aria-pressed={kind === k.kind}
-          className="rounded-full px-2.5 py-0.5 text-[12px] font-medium"
-          style={{
-            background: kind === k.kind ? "var(--fill-primary)" : "transparent",
-            color: "var(--text-primary)",
-          }}
-          onClick={() => kind !== k.kind && onChange(k.kind)}
-        >
-          {k.label}
-        </button>
-      ))}
-    </span>
-  );
-}
-
-/** A field being written in a form: its name, and its value. A new one chooses text or file; every one can be taken away. */
-export function FieldRow({
-  name,
-  onName,
-  draft,
-  onDraft,
-  secret,
-  kindEditable,
-  onRemove,
-}: {
-  name: string;
-  onName: (name: string) => void;
-  draft: Draft;
-  onDraft: (draft: Draft) => void;
-  secret: boolean;
-  kindEditable: boolean;
-  /** none: it cannot be taken away (a secret field, when it is the only one) */
-  onRemove: (() => void) | null;
-}) {
-  const t = useT();
-  return (
-    <li className="py-3">
-      <div className="flex items-center gap-2">
-        <input
-          aria-label={t.secrets.fieldName}
-          placeholder={t.secrets.fieldName}
-          maxLength={60}
-          className="min-w-0 flex-1 bg-transparent text-[14px] font-medium outline-none"
-          style={{ color: "var(--text-primary)" }}
-          value={name}
-          onChange={(e) => onName(e.target.value)}
-        />
-        {kindEditable && <KindToggle kind={draft.kind} onChange={(kind) => onDraft(blank(kind))} />}
-        {onRemove && (
-          <button
-            type="button"
-            aria-label={t.secrets.removeField(name)}
-            className="hover-fade flex size-7 shrink-0 items-center justify-center rounded-full"
-            style={{ color: "var(--icon-secondary)" }}
-            onClick={onRemove}
-          >
-            <Trash2 size={16} />
-          </button>
-        )}
-      </div>
-      <ValueEditor draft={draft} onChange={onDraft} secret={secret} fallbackName={name} look="page" label={name || t.secrets.fieldName} />
-    </li>
-  );
-}
-
 /** The note, with the warning that it is not a place for secrets. */
-export function NoteField({ value, onChange }: { value: string; onChange: (note: string) => void }) {
+export function NoteRow({ value, onChange }: { value: string; onChange: (note: string) => void }) {
   const t = useT();
   return (
-    <>
-      <div className="rounded-[18px] px-4 py-3" style={{ background: "var(--fill-secondary)" }}>
-        <textarea
-          aria-label={t.secrets.noteHeading}
-          rows={3}
-          maxLength={2000}
-          className="w-full resize-none bg-transparent text-[16px] outline-none"
-          style={{ color: "var(--text-primary)" }}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      </div>
-      <p className="mt-1.5 px-1 text-[12px]" style={{ color: "var(--text-tertiary)" }}>
+    <BoxRow label={t.secrets.note}>
+      <Box lines value={value} onChange={onChange} placeholder={t.secrets.optional} max={2000} />
+      <span className="block text-[12px]" style={{ color: "var(--text-tertiary)" }}>
         {t.secrets.noteWarning}
-      </p>
-    </>
+      </span>
+    </BoxRow>
   );
 }
 

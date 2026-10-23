@@ -106,6 +106,8 @@ export const Call = z.discriminatedUnion("method", [
   call("secrets.edit", z.object({ id: Id, name: z.string().trim().min(1).max(100), note: z.string().max(2000), plain: z.array(PlainInput).max(20) })),
   /** Set a secret field: a new one is added, one of that name has its value replaced (never read back). */
   call("secrets.setSecret", z.object({ id: Id, field: SecretInput })),
+  /** One secret field's value, as text, for the user to see or copy (the Vault's only way to read a secret back; a sign-in's tokens are refused). */
+  call("secrets.reveal", z.object({ id: Id, field: FieldName })),
   /** Take a secret field away, with its uses; an entry keeps at least one. */
   call("secrets.removeSecret", z.object({ id: Id, name: FieldName })),
   /** Add a use to an entry. */
@@ -200,6 +202,7 @@ export const results = {
   "secrets.add": z.object({ id: Id }),
   "secrets.edit": done,
   "secrets.setSecret": done,
+  "secrets.reveal": z.object({ value: z.string() }),
   "secrets.removeSecret": done,
   "secrets.use": z.object({ use: Use }),
   "secrets.unuse": done,
@@ -271,6 +274,7 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "secrets.add": (raw) => results["secrets.add"].parse(raw),
   "secrets.edit": (raw) => results["secrets.edit"].parse(raw),
   "secrets.setSecret": (raw) => results["secrets.setSecret"].parse(raw),
+  "secrets.reveal": (raw) => results["secrets.reveal"].parse(raw),
   "secrets.removeSecret": (raw) => results["secrets.removeSecret"].parse(raw),
   "secrets.use": (raw) => results["secrets.use"].parse(raw),
   "secrets.unuse": (raw) => results["secrets.unuse"].parse(raw),

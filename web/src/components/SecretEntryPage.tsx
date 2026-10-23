@@ -1,131 +1,188 @@
 /**
- * One entry of the Vault. Its name, plain fields and note are edited and saved together; a secret field is
- * never shown (its end, or its file's name and size), only replaced, added or taken away, each as it is done; and its
- * uses are listed, added (in the sandbox) and removed.
+ * One entry of the Vault, as a phone's password manager shows one: a plain list of what it holds (a small label, its
+ * value below; a secret as dots, with an eye and a copy button), where it is used, and the note last. The page's one
+ * button, top right, opens Edit and Remove. Edit is the same few boxes as adding; where it is used lives under Advanced.
  */
-import { useRef, useState } from "react";
-import { KeyRound, Plus, Trash2 } from "lucide-react";
-import type { PlainInput, PlainRole, SecretEntry, SecretField, Session } from "@amuse/protocol";
+import { useEffect, useRef, useState } from "react";
+import { Check, ChevronDown, Copy, Eye, EyeOff, KeyRound, MoreHorizontal } from "lucide-react";
+import type { PlainField, PlainInput, SecretEntry, SecretField, Session } from "@amuse/protocol";
 import { useT } from "../i18n/react.ts";
-import type { Messages } from "../i18n/en.ts";
-import { moment } from "../schedules.ts";
 import {
-  type Draft,
   type ProviderNames,
-  blank,
+  CLIPBOARD_MS,
+  REVEAL_MS,
+  computerName,
+  copy,
   describeUse,
-  formatSize,
-  hintText,
-  fromValue,
-  problem,
+  labelOf,
+  pasted,
   toValue,
   useOf,
-  usesSummary,
+  useSentence,
+  valueText,
 } from "../secrets.ts";
+import { Alert, Box, BoxRow, InfoRow, NoteRow, Page, RemoveSheet, TextButton, groupClass } from "./SecretFields";
 import { Button } from "./Button";
-import { Alert, FieldRow, Heading, KindToggle, NoteField, Page, RemoveSheet, TextButton, ValueEditor, groupClass } from "./SecretFields";
+import { barButton, barButtonLook, barIcon } from "./bar";
 import { UseForm } from "./SecretUseForm";
 
-interface PlainRow {
-  key: number;
-  name: string;
-  role: PlainRole | null;
-  draft: Draft;
-  /** added here, not saved yet: it may be text or a file */
-  fresh: boolean;
+const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/** A small round button beside a value. */
+function IconButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      aria-label={label}
+      className="hover-fade flex size-9 shrink-0 items-center justify-center rounded-full"
+      style={{ color: "var(--icon-secondary)" }}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
 }
 
-/** What a secret field is, without its value: the end of a line, or a file's name and size. */
-function held(field: SecretField, t: Messages): string {
-  if (field.kind === "file") return `${field.filename ?? ""} · ${formatSize(field.size)}`;
-  return field.hint ? hintText(field.hint) : t.secrets.isSet;
-}
-
-function lastUsed(field: SecretField, t: Messages): string {
-  if (!field.last) return t.secrets.neverUsed;
-  const when = moment(field.last.at);
-  return field.last.how === "sandbox" ? t.secrets.lastUsedSandbox(when, field.last.what) : t.secrets.lastUsedServer(when, field.last.what);
-}
-
-/** An entry the system keeps (a provider's sign-in): listed as it stands, and taken away, which signs out; not edited. */
-function ManagedPage({
-  session,
-  entry,
-  names,
-  onBack,
-  onChanged,
-}: {
-  session: Session;
-  entry: SecretEntry;
-  names: ProviderNames;
-  onBack: () => void;
-  onChanged: () => Promise<void>;
-}) {
+/** Copy, which says it did for a moment. */
+function CopyButton({ get, clearAfter, onError }: { get: () => Promise<string>; clearAfter: number | null; onError: (e: unknown) => void }) {
   const t = useT();
-  const [removing, setRemoving] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const remove = () => {
-    setBusy(true);
-    setError(null);
-    session
-      .call("secrets.remove", { id: entry.id })
-      .then(() => onChanged())
-      .then(
-        () => setRemoving(false),
-        (e: unknown) => setError(e instanceof Error ? e.message : String(e)),
-      )
-      .finally(() => setBusy(false));
+  const [done, setDone] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const click = () =>
+    get()
+      .then((value) => copy(value, clearAfter))
+      .then(() => {
+        setDone(true);
+        clearTimeout(timer.current);
+        timer.current = setTimeout(() => setDone(false), 1500);
+      }, onError);
+  return (
+    <IconButton label={done ? t.secrets.copied : t.secrets.copy} onClick={click}>
+      {done ? <Check size={17} style={{ color: "var(--fill-green)" }} /> : <Copy size={17} />}
+    </IconButton>
+  );
+}
+
+/** A plain value: it is there to read, and to copy. A file an old entry holds is told by its name. */
+function PlainRow({ field, onError }: { field: PlainField; onError: (e: unknown) => void }) {
+  const t = useT();
+  const text = valueText(field.value);
+  return (
+    <InfoRow
+      label={labelOf(field.name, field.role, t)}
+      side={text !== null && <CopyButton get={async () => text} clearAfter={null} onError={onError} />}
+    >
+      {field.value.kind === "text" ? field.value.text : field.value.filename}
+    </InfoRow>
+  );
+}
+
+/** A secret: dots until the eye is tapped (which asks the server, and hides again after a while); copying it copies the real value. */
+function SecretRow({ session, entry, field, onError }: { session: Session; entry: SecretEntry; field: SecretField; onError: (e: unknown) => void }) {
+  const t = useT();
+  const [value, setValue] = useState<string | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const fetch = () => session.call("secrets.reveal", { id: entry.id, field: field.name }).then(({ value: revealed }) => revealed);
+  const hide = () => {
+    clearTimeout(timer.current);
+    setValue(null);
+  };
+  const toggle = () => {
+    if (value !== null) return hide();
+    fetch().then((revealed) => {
+      setValue(revealed);
+      timer.current = setTimeout(hide, REVEAL_MS);
+    }, onError);
   };
   return (
-    <Page onBack={onBack}>
-      <div className="mt-2 flex flex-col items-center text-center">
-        <span className="flex size-12 items-center justify-center rounded-[14px]" style={{ background: "#ffffff", color: "#111112" }}>
-          <KeyRound size={22} />
-        </span>
-        <p className="mt-2 text-[18px] font-semibold" style={{ color: "var(--text-primary)" }}>
-          {entry.name}
-        </p>
-        <p className="mt-0.5 text-[13px] [overflow-wrap:anywhere]" style={{ color: "var(--text-secondary)" }}>
-          {usesSummary(entry, names, t)}
-        </p>
-      </div>
-      <p className="mt-4 px-1 text-[13px]" style={{ color: "var(--text-secondary)" }}>
-        <span className="mr-1.5 rounded-full px-2 py-0.5 text-[12px] font-medium" style={{ background: "var(--fill-secondary)", color: "var(--text-primary)" }}>
-          {t.secrets.managed}
-        </span>
-        {t.secrets.managedNote}
+    <InfoRow
+      label={labelOf(field.name, field.role, t)}
+      side={
+        <>
+          <IconButton label={value === null ? t.secrets.show : t.secrets.hide} onClick={toggle}>
+            {value === null ? <Eye size={17} /> : <EyeOff size={17} />}
+          </IconButton>
+          <CopyButton get={async () => value ?? (await fetch())} clearAfter={CLIPBOARD_MS} onError={onError} />
+        </>
+      }
+    >
+      {value === null ? (
+        "••••••"
+      ) : (
+        <span className="block max-h-40 overflow-y-auto whitespace-pre-wrap font-mono text-[14px]">{value}</span>
+      )}
+    </InfoRow>
+  );
+}
+
+/** The ⋯ button and the menu it opens. */
+function Actions({ name, items }: { name: string; items: { label: string; danger?: boolean; onClick: () => void }[] }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: PointerEvent) => {
+      if (e.target instanceof Node && !box.current?.contains(e.target)) setOpen(false);
+    };
+    const escape = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("pointerdown", away);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", away);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [open]);
+  return (
+    <div ref={box} className="relative">
+      <button
+        aria-label={t.secrets.options(name)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={barButton}
+        style={barButtonLook}
+        onClick={() => setOpen(!open)}
+      >
+        <MoreHorizontal size={barIcon} />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="anim-popover-in absolute right-0 top-full z-10 mt-1 w-52 overflow-hidden rounded-2xl p-1"
+          style={{ background: "var(--fill-primary)", boxShadow: "var(--shadow-float)" }}
+        >
+          {items.map((item) => (
+            <button
+              key={item.label}
+              role="menuitem"
+              className="hover-fade block w-full rounded-xl px-3 py-2 text-left text-[14px]"
+              style={{ color: item.danger ? "var(--fill-red)" : "var(--text-primary)" }}
+              onClick={() => {
+                setOpen(false);
+                item.onClick();
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The name, over the icon: the entry's face. */
+function Face({ name }: { name: string }) {
+  return (
+    <div className="mt-2 flex flex-col items-center text-center">
+      <span className="flex size-12 items-center justify-center rounded-[14px]" style={{ background: "#ffffff", color: "#111112" }}>
+        <KeyRound size={22} />
+      </span>
+      <p className="mt-2 text-[18px] font-semibold [overflow-wrap:anywhere]" style={{ color: "var(--text-primary)" }}>
+        {name}
       </p>
-      <Alert message={error} />
-      <ul className={`${groupClass} mt-4`} style={{ background: "var(--fill-secondary)" }}>
-        {entry.secret.map((f) => (
-          <li key={f.name} className="py-3">
-            <p className="truncate text-[14px] font-medium" style={{ color: "var(--text-primary)" }}>
-              {f.name}
-            </p>
-            <p className="truncate text-[13px]" style={{ color: "var(--text-secondary)" }}>
-              {held(f, t)}
-            </p>
-            <p className="mt-0.5 text-[12px]" style={{ color: "var(--text-tertiary)" }}>
-              {lastUsed(f, t)}
-            </p>
-          </li>
-        ))}
-      </ul>
-      <Button size="lg" tone="danger" className="mt-8" onClick={() => setRemoving(true)}>
-        {t.secrets.removeManaged}
-      </Button>
-      <RemoveSheet
-        open={removing}
-        onClose={() => setRemoving(false)}
-        title={t.secrets.removeTitle(entry.name)}
-        help={t.secrets.removeManagedHelp}
-        stops={[]}
-        extra={null}
-        busy={busy}
-        onConfirm={remove}
-      />
-    </Page>
+    </div>
   );
 }
 
@@ -145,15 +202,106 @@ export function SecretEntryPage({
   onChanged: () => Promise<void>;
   onRenamed: (name: string) => void;
 }) {
-  if (entry.managed) return <ManagedPage session={session} entry={entry} names={names} onBack={onBack} onChanged={onChanged} />;
-  return <Editable session={session} entry={entry} names={names} onBack={onBack} onChanged={onChanged} onRenamed={onRenamed} />;
+  const t = useT();
+  const [editing, setEditing] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fail = (e: unknown) => setError(message(e));
+
+  const remove = () => {
+    setBusy(true);
+    setError(null);
+    session
+      .call("secrets.remove", { id: entry.id })
+      .then(() => onChanged())
+      .then(() => setRemoving(false), fail)
+      .finally(() => setBusy(false));
+  };
+
+  if (editing && !entry.managed)
+    return <Editing session={session} entry={entry} names={names} onBack={onBack} onDone={() => setEditing(false)} onChanged={onChanged} onRenamed={onRenamed} />;
+
+  const serverUse = entry.uses.some((use) => use.kind === "server");
+  return (
+    <Page
+      onBack={onBack}
+      actions={
+        <Actions
+          name={entry.name}
+          items={
+            entry.managed
+              ? [{ label: t.secrets.removeManaged, danger: true, onClick: () => setRemoving(true) }]
+              : [
+                  { label: t.secrets.edit, onClick: () => setEditing(true) },
+                  { label: t.common.remove, danger: true, onClick: () => setRemoving(true) },
+                ]
+          }
+        />
+      }
+    >
+      <Face name={entry.name} />
+      <Alert message={error} />
+      <ul className={`${groupClass} mt-4`} style={{ background: "var(--fill-secondary)" }}>
+        {entry.managed ? (
+          <InfoRow label={t.secrets.signInLabel}>
+            <span className="block">{t.secrets.signedIn}</span>
+            <span className="block text-[13px]" style={{ color: "var(--text-secondary)" }}>
+              {t.secrets.signedInNote}
+            </span>
+          </InfoRow>
+        ) : (
+          <>
+            {entry.plain.map((field) => (
+              <PlainRow key={field.name} field={field} onError={fail} />
+            ))}
+            {entry.secret.map((field) => (
+              <SecretRow key={field.name} session={session} entry={entry} field={field} onError={fail} />
+            ))}
+          </>
+        )}
+        <InfoRow label={t.secrets.usedHeading}>
+          {entry.uses.length === 0 ? (
+            <span style={{ color: "var(--text-secondary)" }}>{t.secrets.noUses}</span>
+          ) : (
+            entry.uses.map((use) => (
+              <span key={use.id} className="block">
+                {useSentence(use, names, t)}
+              </span>
+            ))
+          )}
+        </InfoRow>
+        {entry.note !== "" && (
+          <InfoRow label={t.secrets.note}>
+            <span className="whitespace-pre-wrap">{entry.note}</span>
+          </InfoRow>
+        )}
+      </ul>
+      <RemoveSheet
+        open={removing}
+        onClose={() => setRemoving(false)}
+        title={t.secrets.removeTitle(entry.name)}
+        help={entry.managed ? t.secrets.removeManagedHelp : t.secrets.removeHelp}
+        stops={entry.managed ? [] : entry.uses.map((use) => describeUse(use, names, t))}
+        extra={serverUse && !entry.managed ? t.secrets.removeServer : null}
+        busy={busy}
+        onConfirm={remove}
+      />
+    </Page>
+  );
 }
 
-function Editable({
+/** What a plain field is edited as: its text, or for an old file a box to paste a replacement (empty keeps it). */
+function plainStart(field: PlainField): string {
+  return field.value.kind === "text" ? field.value.text : "";
+}
+
+function Editing({
   session,
   entry,
   names,
   onBack,
+  onDone,
   onChanged,
   onRenamed,
 }: {
@@ -161,27 +309,21 @@ function Editable({
   entry: SecretEntry;
   names: ProviderNames;
   onBack: () => void;
+  onDone: () => void;
   onChanged: () => Promise<void>;
   onRenamed: (name: string) => void;
 }) {
   const t = useT();
-  const keys = useRef(0);
   const [name, setName] = useState(entry.name);
   const [note, setNote] = useState(entry.note);
-  const [plain, setPlain] = useState<PlainRow[]>(() =>
-    entry.plain.map((f) => ({ key: ++keys.current, name: f.name, role: f.role, draft: fromValue(f.value), fresh: false })),
-  );
+  const [plain, setPlain] = useState(() => new Map(entry.plain.map((f) => [f.name, plainStart(f)])));
+  /** a new value for a secret, by its name; none typed keeps it */
+  const [secret, setSecret] = useState<Map<string, string>>(new Map());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  /** the secret field whose value is being replaced, and the new one */
-  const [replacing, setReplacing] = useState<{ name: string; draft: Draft } | null>(null);
-  const [adding, setAdding] = useState<{ name: string; draft: Draft } | null>(null);
   const [addingUse, setAddingUse] = useState(false);
-  const [removingField, setRemovingField] = useState<SecretField | null>(null);
-  const [removing, setRemoving] = useState(false);
 
-  const fail = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
-  /** do something to the entry, read the entries again, and then `done` */
+  const fail = (e: unknown) => setError(message(e));
   const run = (work: () => Promise<unknown>, done?: () => void) => {
     setBusy(true);
     setError(null);
@@ -191,274 +333,136 @@ function Editable({
       .finally(() => setBusy(false));
   };
 
-  const saved = JSON.stringify(entry.plain.map((f) => [f.name, f.role, fromValue(f.value)]));
+  /** the plain value a field is saved with: what is typed, or the old file kept */
+  const plainValue = (field: PlainField) => {
+    const typed = plain.get(field.name) ?? "";
+    if (field.value.kind === "file") return typed === "" ? field.value : toValue(pasted(typed, field.value.filename), field.name);
+    return toValue({ kind: "text", text: typed }, field.name);
+  };
+  const plainInputs: PlainInput[] = entry.plain.flatMap((field) => {
+    const value = plainValue(field);
+    return value ? [{ name: field.name, role: field.role, value }] : [];
+  });
+  const typedSecrets = entry.secret.flatMap((field) => {
+    const typed = secret.get(field.name) ?? "";
+    if (typed === "") return [];
+    const value = field.kind === "file" ? toValue(pasted(typed, field.filename ?? field.name), field.name) : toValue({ kind: "text", text: typed.trim() }, field.name);
+    return [{ field, value }];
+  });
+  const stuck = name.trim() === "" ? t.secrets.problem.name : plainInputs.length < entry.plain.length || typedSecrets.some((s) => s.value === null) ? t.secrets.problem.value : null;
   const unchanged =
     name === entry.name &&
     note === entry.note &&
-    JSON.stringify(plain.map((f) => [f.name, f.role, f.draft])) === saved;
-  const stuck = problem({
-    name,
-    plain: plain.map((f) => ({ name: f.name, draft: f.draft })),
-    secret: entry.secret.map((f) => ({ name: f.name, draft: null })),
-  });
+    typedSecrets.length === 0 &&
+    entry.plain.every((field) => field.value.kind === "file" ? plain.get(field.name) === "" : plain.get(field.name) === field.value.text);
 
   const save = () => {
-    const inputs: PlainInput[] = plain.flatMap((f) => {
-      const value = toValue(f.draft, f.name);
-      return value ? [{ name: f.name.trim(), role: f.role, value }] : [];
-    });
     const renamed = name.trim();
-    run(() => session.call("secrets.edit", { id: entry.id, name: renamed, note, plain: inputs }), () => onRenamed(renamed));
+    run(
+      async () => {
+        await session.call("secrets.edit", { id: entry.id, name: renamed, note, plain: plainInputs });
+        for (const { field, value } of typedSecrets) if (value) await session.call("secrets.setSecret", { id: entry.id, field: { name: field.name, role: field.role, value } });
+      },
+      () => {
+        onRenamed(renamed);
+        onDone();
+      },
+    );
   };
-  const setPlainRow = (key: number, change: Partial<PlainRow>) =>
-    setPlain((rows) => rows.map((row) => (row.key === key ? { ...row, ...change } : row)));
-
-  const replace = () => {
-    if (!replacing) return;
-    const field = entry.secret.find((f) => f.name === replacing.name);
-    const value = toValue(replacing.draft, replacing.name);
-    if (!field || !value) return;
-    run(() => session.call("secrets.setSecret", { id: entry.id, field: { name: field.name, role: field.role, value } }), () => setReplacing(null));
-  };
-  const addSecret = () => {
-    if (!adding) return;
-    const value = toValue(adding.draft, adding.name);
-    const fieldName = adding.name.trim();
-    if (!value || fieldName === "" || [...entry.plain, ...entry.secret].some((f) => f.name === fieldName)) return;
-    run(() => session.call("secrets.setSecret", { id: entry.id, field: { name: fieldName, role: null, value } }), () => setAdding(null));
-  };
-  const addingOk =
-    adding !== null &&
-    toValue(adding.draft, adding.name) !== null &&
-    adding.name.trim() !== "" &&
-    ![...entry.plain, ...entry.secret].some((f) => f.name === adding.name.trim());
-
-  const usesOf = (field: string) => entry.uses.filter((use) => use.field === field);
-  const describe = (uses: SecretEntry["uses"]) => uses.map((use) => `${describeUse(use, names, t)} (${t.secrets.useFor(use.field)})`);
-  const serverUse = (uses: SecretEntry["uses"]) => uses.some((use) => use.kind === "server");
 
   return (
     <Page onBack={onBack}>
-      <div className="mt-2 flex flex-col items-center text-center">
-        <span className="flex size-12 items-center justify-center rounded-[14px]" style={{ background: "#ffffff", color: "#111112" }}>
-          <KeyRound size={22} />
-        </span>
-        <p className="mt-2 text-[18px] font-semibold" style={{ color: "var(--text-primary)" }}>
-          {entry.name}
-        </p>
-        <p className="mt-0.5 text-[13px] [overflow-wrap:anywhere]" style={{ color: "var(--text-secondary)" }}>
-          {usesSummary(entry, names, t)}
-        </p>
-      </div>
       <Alert message={error} />
-
-      <Heading title={t.secrets.name} />
-      <div className="rounded-[18px] px-4 py-2" style={{ background: "var(--fill-secondary)" }}>
-        <input
-          aria-label={t.secrets.name}
-          maxLength={100}
-          className="w-full bg-transparent py-1.5 text-[16px] outline-none"
-          style={{ color: "var(--text-primary)" }}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-      </div>
-
-      <Heading title={t.secrets.details} help={t.secrets.detailsHelp} />
-      <ul className={groupClass} style={{ background: "var(--fill-secondary)" }}>
-        {plain.map((f) => (
-          <FieldRow
-            key={f.key}
-            name={f.name}
-            onName={(n) => setPlainRow(f.key, { name: n })}
-            draft={f.draft}
-            onDraft={(draft) => setPlainRow(f.key, { draft })}
-            secret={false}
-            kindEditable={f.fresh}
-            onRemove={() => setPlain((rows) => rows.filter((row) => row.key !== f.key))}
-          />
-        ))}
-        <li className="py-1">
-          <TextButton
-            onClick={() => setPlain((rows) => [...rows, { key: ++keys.current, name: "", role: null, draft: blank("text"), fresh: true }])}
-          >
-            <Plus size={14} className="mr-1 inline" />
-            {t.secrets.addDetail}
-          </TextButton>
-        </li>
-      </ul>
-
-      <Heading title={t.secrets.secretHeading} help={t.secrets.secretHelp} />
-      <ul className={groupClass} style={{ background: "var(--fill-secondary)" }}>
-        {entry.secret.map((f) => (
-          <li key={f.name} className="py-3">
-            <div className="flex items-center gap-2">
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[14px] font-medium" style={{ color: "var(--text-primary)" }}>
-                  {f.name}
-                </span>
-                <span className="block truncate text-[13px]" style={{ color: "var(--text-secondary)" }}>
-                  {held(f, t)}
-                </span>
-              </span>
-              <TextButton onClick={() => setReplacing({ name: f.name, draft: blank(f.kind) })}>{t.secrets.replace}</TextButton>
-              {entry.secret.length > 1 && (
-                <button
-                  aria-label={t.secrets.removeField(f.name)}
-                  className="hover-fade flex size-7 shrink-0 items-center justify-center rounded-full"
-                  style={{ color: "var(--icon-secondary)" }}
-                  onClick={() => setRemovingField(f)}
-                >
-                  <Trash2 size={16} />
-                </button>
-              )}
-            </div>
-            <p className="mt-0.5 text-[12px]" style={{ color: "var(--text-tertiary)" }}>
-              {lastUsed(f, t)}
-            </p>
-            {replacing?.name === f.name && (
-              <div className="mt-2">
-                <ValueEditor
-                  draft={replacing.draft}
-                  onChange={(draft) => setReplacing({ name: f.name, draft })}
-                  secret
-                  fallbackName={f.name}
-                  look="page"
-                  label={f.name}
-                />
-                <div className="mt-1 flex justify-end gap-2">
-                  <TextButton tone="neutral" onClick={() => setReplacing(null)}>
-                    {t.common.cancel}
-                  </TextButton>
-                  <TextButton disabled={busy || toValue(replacing.draft, f.name) === null} onClick={replace}>
-                    {t.secrets.save}
-                  </TextButton>
-                </div>
-              </div>
-            )}
-          </li>
-        ))}
-        {adding ? (
-          <li className="py-3">
-            <div className="flex items-center gap-2">
-              <input
-                autoFocus
-                aria-label={t.secrets.fieldName}
-                placeholder={t.secrets.fieldName}
-                maxLength={60}
-                className="min-w-0 flex-1 bg-transparent text-[14px] font-medium outline-none"
-                style={{ color: "var(--text-primary)" }}
-                value={adding.name}
-                onChange={(e) => setAdding({ ...adding, name: e.target.value })}
-              />
-              <KindToggle kind={adding.draft.kind} onChange={(kind) => setAdding({ ...adding, draft: blank(kind) })} />
-            </div>
-            <ValueEditor
-              draft={adding.draft}
-              onChange={(draft) => setAdding({ ...adding, draft })}
-              secret
-              fallbackName={adding.name}
-              look="page"
-              label={adding.name || t.secrets.fieldName}
+      <ul className={`${groupClass} mt-4`} style={{ background: "var(--fill-secondary)" }}>
+        <BoxRow label={t.secrets.name}>
+          <Box value={name} onChange={setName} max={100} />
+        </BoxRow>
+        {entry.plain.map((field) => (
+          <BoxRow key={field.name} label={labelOf(field.name, field.role, t)}>
+            <Box
+              lines={field.value.kind === "file"}
+              value={plain.get(field.name) ?? ""}
+              onChange={(text) => setPlain(new Map(plain).set(field.name, text))}
+              placeholder={field.value.kind === "file" ? t.secrets.pastePlaceholder : undefined}
             />
-            <div className="mt-1 flex justify-end gap-2">
-              <TextButton tone="neutral" onClick={() => setAdding(null)}>
-                {t.common.cancel}
-              </TextButton>
-              <TextButton disabled={busy || !addingOk} onClick={addSecret}>
-                {t.common.add}
-              </TextButton>
-            </div>
-          </li>
-        ) : (
-          <li className="py-1">
-            <TextButton onClick={() => setAdding({ name: "", draft: blank("text") })}>
-              <Plus size={14} className="mr-1 inline" />
-              {t.secrets.addSecret}
-            </TextButton>
-          </li>
-        )}
+            {field.value.kind === "file" && (
+              <span className="block text-[13px]" style={{ color: "var(--text-secondary)" }}>
+                {field.value.filename}
+              </span>
+            )}
+          </BoxRow>
+        ))}
+        {entry.secret.map((field) => (
+          <BoxRow key={field.name} label={labelOf(field.name, field.role, t)}>
+            <Box
+              hidden
+              lines={field.kind === "file"}
+              value={secret.get(field.name) ?? ""}
+              onChange={(text) => setSecret(new Map(secret).set(field.name, text))}
+              placeholder={field.kind === "file" ? t.secrets.pastePlaceholder : t.secrets.keepPlaceholder}
+            />
+          </BoxRow>
+        ))}
+        <NoteRow value={note} onChange={setNote} />
       </ul>
 
-      <Heading title={t.secrets.noteHeading} help={t.secrets.noteHelp} />
-      <NoteField value={note} onChange={setNote} />
+      <details className="mt-4 rounded-[18px] px-4" style={{ background: "var(--fill-secondary)" }}>
+        <summary className="flex cursor-pointer list-none items-center justify-between py-3 text-[15px] [&::-webkit-details-marker]:hidden" style={{ color: "var(--text-primary)" }}>
+          {t.secrets.advanced}
+          <ChevronDown size={16} style={{ color: "var(--icon-secondary)" }} />
+        </summary>
+        <p className="text-[12px]" style={{ color: "var(--text-tertiary)" }}>
+          {t.secrets.advancedHelp}
+        </p>
+        <p className="mt-3 text-[12px]" style={{ color: "var(--text-secondary)" }}>
+          {t.secrets.usedHeading}
+        </p>
+        <ul className="divide-y divide-[var(--fill-divider)]">
+          {entry.uses.length === 0 && (
+            <li className="py-3 text-[14px]" style={{ color: "var(--text-secondary)" }}>
+              {t.secrets.noUses}
+            </li>
+          )}
+          {entry.uses.map((use) => (
+            <li key={use.id} className="flex items-center gap-3 py-2.5">
+              <span className="min-w-0 flex-1 truncate text-[15px]" style={{ color: "var(--text-primary)" }}>
+                {describeUse(use, names, t)}
+              </span>
+              <TextButton tone="danger" disabled={busy} onClick={() => run(() => session.call("secrets.unuse", { id: entry.id, use: use.id }))}>
+                {t.common.remove}
+              </TextButton>
+            </li>
+          ))}
+        </ul>
+        {addingUse ? (
+          <div className="pb-4">
+            <UseForm
+              fields={[...entry.plain.map((f) => ({ id: f.name, name: labelOf(f.name, f.role, t), kind: f.value.kind })), ...entry.secret.map((f) => ({ id: f.name, name: labelOf(f.name, f.role, t), kind: f.kind }))]}
+              busy={busy}
+              onCancel={() => setAddingUse(false)}
+              onAdd={(field, spec) => run(() => session.call("secrets.use", { id: entry.id, use: useOf(field, spec) }), () => setAddingUse(false))}
+            />
+          </div>
+        ) : (
+          <div className="pb-2">
+            <Button variant="plain" tone="accent" className="-ml-4" onClick={() => setAddingUse(true)}>
+              {t.secrets.addUse}
+            </Button>
+          </div>
+        )}
+      </details>
 
       {stuck && !unchanged && (
         <p className="mt-4 px-1 text-[13px]" style={{ color: "var(--text-secondary)" }}>
-          {t.secrets.problem[stuck]}
+          {stuck}
         </p>
       )}
       <Button variant="primary" size="lg" className="mt-4" disabled={unchanged || stuck !== null || busy} onClick={save}>
         {t.secrets.save}
       </Button>
-
-      <Heading title={t.secrets.usesHeading} />
-      <ul className={groupClass} style={{ background: "var(--fill-secondary)" }}>
-        {entry.uses.length === 0 && (
-          <li className="py-3 text-[14px]" style={{ color: "var(--text-secondary)" }}>
-            {t.secrets.noUses}
-          </li>
-        )}
-        {entry.uses.map((use) => (
-          <li key={use.id} className="flex items-center gap-3 py-2.5">
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[15px]" style={{ color: "var(--text-primary)" }}>
-                {describeUse(use, names, t)}
-              </span>
-              <span className="block truncate text-[13px]" style={{ color: "var(--text-secondary)" }}>
-                {t.secrets.useFor(use.field)}
-              </span>
-            </span>
-            <TextButton
-              tone="danger"
-              disabled={busy}
-              onClick={() => run(() => session.call("secrets.unuse", { id: entry.id, use: use.id }))}
-            >
-              {t.common.remove}
-            </TextButton>
-          </li>
-        ))}
-      </ul>
-      {addingUse ? (
-        <UseForm
-          fields={[...entry.plain.map((f) => ({ id: f.name, name: f.name, kind: f.value.kind })), ...entry.secret.map((f) => ({ id: f.name, name: f.name, kind: f.kind }))]}
-          busy={busy}
-          onCancel={() => setAddingUse(false)}
-          onAdd={(field, spec) => run(() => session.call("secrets.use", { id: entry.id, use: useOf(field, spec) }), () => setAddingUse(false))}
-        />
-      ) : (
-        <div className="mt-1">
-          <TextButton onClick={() => setAddingUse(true)}>{t.secrets.addUse}</TextButton>
-        </div>
-      )}
-
-      <Button size="lg" tone="danger" className="mt-8" onClick={() => setRemoving(true)}>
-        {t.secrets.removeEntry}
+      <Button variant="plain" size="lg" className="mt-2" onClick={onDone}>
+        {t.common.cancel}
       </Button>
-
-      <RemoveSheet
-        open={removingField !== null}
-        onClose={() => setRemovingField(null)}
-        title={t.secrets.removeFieldTitle(removingField?.name ?? "")}
-        help={t.secrets.removeFieldHelp}
-        stops={describe(usesOf(removingField?.name ?? ""))}
-        extra={serverUse(usesOf(removingField?.name ?? "")) ? t.secrets.removeServer : null}
-        busy={busy}
-        onConfirm={() => {
-          const field = removingField;
-          if (field) run(() => session.call("secrets.removeSecret", { id: entry.id, name: field.name }), () => setRemovingField(null));
-        }}
-      />
-      <RemoveSheet
-        open={removing}
-        onClose={() => setRemoving(false)}
-        title={t.secrets.removeTitle(entry.name)}
-        help={t.secrets.removeHelp}
-        stops={describe(entry.uses)}
-        extra={serverUse(entry.uses) ? t.secrets.removeServer : null}
-        busy={busy}
-        onConfirm={() => run(() => session.call("secrets.remove", { id: entry.id }), () => setRemoving(false))}
-      />
     </Page>
   );
 }

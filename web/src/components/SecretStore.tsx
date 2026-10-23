@@ -1,20 +1,20 @@
 /**
- * Settings › Vault: the long-term secrets Amuse keeps (API keys, logins, key files), apart from where they are
- * used. A list to search, each entry with what it is used for; an entry's page; and adding one. The values of secret
- * fields are never shown, only replaced.
+ * Settings › Vault: the keys and passwords Amuse keeps, as a phone's password manager lists them: one line each, with
+ * where it is used; an entry's page; and adding one.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronRight, KeyRound, Plus, Search } from "lucide-react";
 import type { SecretEntry, Session } from "@amuse/protocol";
 import { Button } from "./Button";
 import { useT } from "../i18n/react.ts";
-import { type Group, type ProviderNames, groupOf, matches, usesSummary } from "../secrets.ts";
+import { type ProviderNames, matches, usesSummary } from "../secrets.ts";
 import type { SecretPage } from "../ui.ts";
 import { SecretForm } from "./SecretForm";
 import { SecretEntryPage } from "./SecretEntryPage";
 import { Alert, groupClass } from "./SecretFields";
 
-const ORDER: Group[] = ["sandbox", "server", "none"];
+/** The search shows once there are this many entries: fewer are seen at a glance. */
+const SEARCH_FROM = 8;
 
 /** `page`: the entry open, or the form to add one (the settings' own state, so a phone's back button can leave it). */
 export function SecretStore({
@@ -119,59 +119,48 @@ export function SecretStore({
 
       {entries !== null && entries.length > 0 && (
         <>
-          <label
-            className="mb-2 mt-4 flex items-center gap-2 rounded-full px-4 py-2.5"
-            style={{ background: "var(--field)" }}
-          >
-            <Search size={16} style={{ color: "var(--icon-secondary)" }} />
-            <input
-              aria-label={t.secrets.search}
-              className="min-w-0 flex-1 bg-transparent text-[15px] outline-none"
-              style={{ color: "var(--text-primary)" }}
-              placeholder={t.secrets.search}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          </label>
+          {entries.length >= SEARCH_FROM && (
+            <label
+              className="mb-2 mt-4 flex items-center gap-2 rounded-full px-4 py-2.5"
+              style={{ background: "var(--field)" }}
+            >
+              <Search size={16} style={{ color: "var(--icon-secondary)" }} />
+              <input
+                aria-label={t.secrets.search}
+                className="min-w-0 flex-1 bg-transparent text-[15px] outline-none"
+                style={{ color: "var(--text-primary)" }}
+                placeholder={t.secrets.search}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </label>
+          )}
           {shown.length === 0 && (
             <p className="mt-4 px-1 text-[14px]" style={{ color: "var(--text-secondary)" }}>
               {t.secrets.noMatch(query.trim())}
             </p>
           )}
-          {ORDER.map((group) => {
-            const inGroup = shown.filter((entry) => groupOf(entry) === group);
-            if (inGroup.length === 0) return null;
-            const heading = { sandbox: t.secrets.groupSandbox, server: t.secrets.groupServer, none: t.secrets.groupUnused }[group];
-            return (
-              <section key={group}>
-                <p className="mb-2 mt-6 px-1 text-[13px] font-medium" style={{ color: "var(--text-secondary)" }}>
-                  {heading}
-                </p>
-                <ul className={groupClass} style={{ background: "var(--fill-secondary)" }}>
-                  {inGroup.map((entry) => (
-                    <li key={entry.id}>
-                      <button
-                        className="flex w-full items-center gap-3 py-2.5 text-left"
-                        onClick={() => onPage({ kind: "entry", id: entry.id, name: entry.name })}
-                      >
-                        <KeyRound size={18} style={{ color: "var(--icon-secondary)" }} />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[16px]" style={{ color: "var(--text-primary)" }}>
-                            {entry.name}
-                          </span>
-                          <span className="block truncate text-[13px]" style={{ color: "var(--text-secondary)" }}>
-                            {entry.managed ? `${t.secrets.managed} · ` : ""}
-                            {usesSummary(entry, names, t)}
-                          </span>
-                        </span>
-                        <ChevronRight size={16} style={{ color: "var(--icon-secondary)" }} />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            );
-          })}
+          <ul className={groupClass} style={{ background: "var(--fill-secondary)" }}>
+            {shown.map((entry) => (
+              <li key={entry.id}>
+                <button
+                  className="flex w-full items-center gap-3 py-2.5 text-left"
+                  onClick={() => onPage({ kind: "entry", id: entry.id, name: entry.name })}
+                >
+                  <KeyRound size={18} style={{ color: "var(--icon-secondary)" }} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[16px]" style={{ color: "var(--text-primary)" }}>
+                      {entry.name}
+                    </span>
+                    <span className="block truncate text-[13px]" style={{ color: "var(--text-secondary)" }}>
+                      {usesSummary(entry, names, t)}
+                    </span>
+                  </span>
+                  <ChevronRight size={16} style={{ color: "var(--icon-secondary)" }} />
+                </button>
+              </li>
+            ))}
+          </ul>
         </>
       )}
     </div>

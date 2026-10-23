@@ -6,15 +6,14 @@
  *     and answering a card with anything that lasts beyond this once ("Always allow");
  *   - changing where data goes: a model provider's, Composio's or a voice service's key (setting one up starts with
  *     keys.login), or the address of a speech server;
- *   - the Vault (secrets.*): storing a secret (secrets.add, secrets.setSecret), destroying one (secrets.removeSecret),
+ *   - the Vault (secrets.*): showing a secret's value to the user (secrets.reveal), storing a secret (secrets.add, secrets.setSecret), destroying one (secrets.removeSecret),
  *     deleting an entry and the secret it holds (secrets.remove), and pointing a secret somewhere new (secrets.use).
  *     Listing the Vault, an entry's name, note and plain fields (secrets.edit), and taking a use away (secrets.unuse)
  *     are not: nothing secret is written, and a use taken away is a use no longer delivered.
  * Tightening, "Allow once", disconnecting, signing the browsers out, resetting the sandbox and everyday use are not.
  * The way in (devices, the password, the PIN itself) is the HTTP server's, and checked there (server.ts).
  *
- * A method added later that should be behind the PIN goes here; the Vault's reveal, say, is `case "secrets.reveal":
- * return true`.
+ * A method added later that should be behind the PIN goes here.
  */
 import { type Rules, browserPermission, browserActions, defaultBrowser, defaultPermission, permissionOf, setSiteEntry } from "@amuse/core";
 import type { Call, Permission } from "@amuse/protocol";
@@ -49,6 +48,7 @@ export async function sensitive(call: Call, rules: Rules): Promise<boolean> {
       return call.params.service !== null;
     case "secrets.add":
     case "secrets.setSecret":
+    case "secrets.reveal":
     case "secrets.removeSecret":
     case "secrets.use":
     case "secrets.remove":

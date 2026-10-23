@@ -93,6 +93,9 @@ export function memorySecrets(): Secrets {
       const next = fieldOf(field);
       change(id, (e) => ({ ...e, secret: entry.secret.some((f) => f.name === field.name) ? e.secret.map((f) => (f.name === field.name ? { ...next, last: f.last } : f)) : [...e.secret, next] }));
     },
+    async reveal() {
+      throw unsound("The demo keeps no secret to show.");
+    },
     async removeSecret({ id, name }) {
       const entry = find(id);
       if (entry.secret.length === 1) throw unsound(`${entry.name} needs a secret: remove the entry instead.`);

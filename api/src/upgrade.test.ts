@@ -239,6 +239,7 @@ test("an instance upgraded from before the PIN asks for one, and keeps everythin
       ["secrets.remove", { id: "s-1" }],
       ["secrets.add", { name: "Mail", note: "", plain: [], secret: [{ name: "token", role: null, value: { kind: "text", text: "a made-up value" } }], uses: [] }],
       ["secrets.setSecret", { id: "s-1", field: { name: "token", role: null, value: { kind: "text", text: "a made-up value" } } }],
+      ["secrets.reveal", { id: "s-1", field: "token" }],
       ["secrets.removeSecret", { id: "s-1", name: "token" }],
       ["secrets.use", { id: "s-1", use: { kind: "env", field: "token", name: "MAIL_TOKEN" } }],
     ];

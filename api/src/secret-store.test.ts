@@ -306,6 +306,25 @@ test("a service finds its key by what it serves, records the use at most once a 
   assert.deepEqual(await store.list(), []);
 });
 
+test("reveal gives one secret field as text, only for the user's own entries, and does not count as a use", async () => {
+  const store = setup().open();
+  const { id } = await store.add({ name: "API", note: "", plain: [{ name: "account", role: null, value: line("acct-1") }], secret: [token("rev-fake-value-1111")], uses: [] });
+  assert.equal(await store.reveal({ id, field: "token" }), "rev-fake-value-1111");
+  assert.equal((await first(store)).secret[0]?.last, null, "looking is not using");
+  await assert.rejects(store.reveal({ id, field: "account" }), /no secret called account/);
+  await assert.rejects(store.reveal({ id, field: "nope" }), /no secret called nope/);
+  await assert.rejects(store.reveal({ id: "gone", field: "token" }), /not there any more/);
+  await store.setSecret({ id, field: token("rev-fake-value-2222") });
+  assert.equal(await store.reveal({ id, field: "token" }), "rev-fake-value-2222");
+});
+
+test("a sign-in's tokens are never revealed", async () => {
+  const store = setup().open();
+  await store.putService({ name: "OpenAI sign-in", managed: true, targets: [{ service: "model", target: "openai" }], bound: "access", plain: [], secret: [{ name: "access", text: "acc-fake-0001" }, { name: "refresh", text: "ref-fake-0001" }] });
+  const entry = await first(store);
+  await assert.rejects(store.reveal({ id: entry.id, field: "access" }), /kept by Amuse/);
+});
+
 test("an entry the system keeps can be removed but not changed", async () => {
   const store = setup(fake().sandbox).open();
   await store.putService({

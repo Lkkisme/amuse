@@ -202,6 +202,8 @@ export interface Secrets {
   add(params: Params["secrets.add"]): Promise<{ id: string }>;
   edit(params: Params["secrets.edit"]): Promise<void>;
   setSecret(params: Params["secrets.setSecret"]): Promise<void>;
+  /** A secret field as text, for the user's own eyes (a client's reveal and copy): never an agent's, which has `AgentSecrets` only. */
+  reveal(params: Params["secrets.reveal"]): Promise<string>;
   removeSecret(params: Params["secrets.removeSecret"]): Promise<void>;
   /** Add a use, putting the field where it says (a variable or file in the sandbox) now. */
   use(params: Params["secrets.use"]): Promise<Use>;
@@ -228,6 +230,9 @@ export const noSecrets: Secrets = {
     throw noStore();
   },
   setSecret: async () => {
+    throw noStore();
+  },
+  reveal: async () => {
     throw noStore();
   },
   removeSecret: async () => {
@@ -978,6 +983,7 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
       await ports.secrets.setSecret(params);
       return null;
     },
+    "secrets.reveal": async (params) => ({ value: await ports.secrets.reveal(params) }),
     "secrets.removeSecret": async (params) => {
       await ports.secrets.removeSecret(params);
       return null;

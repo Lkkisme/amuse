@@ -1,13 +1,13 @@
 /**
- * Adding a use to a secret: a field goes into the sandbox as an environment variable, or as a file in its home
- * folder (with a variable that holds the file's path, if wanted). Uses of the server's own services are not made here:
+ * Adding a use to a secret (under Advanced): a value goes to Amuse's computer as an environment variable, or as a file
+ * in its home folder (with a variable that holds the file's path, if wanted). Uses of the server's own services are not made here:
  * the model, voice and connection settings make those.
  */
 import { useState } from "react";
 import type { FieldKind } from "@amuse/protocol";
 import { Button } from "./Button";
 import { useT } from "../i18n/react.ts";
-import { type UseSpec, validEnv, validPath } from "../secrets.ts";
+import { type UseSpec, computerName, validEnv, validPath } from "../secrets.ts";
 
 /** A field a use can be for; `id` is how the caller tells it (a form not yet saved has no names to rely on). */
 export interface UsableField {
@@ -34,6 +34,7 @@ export function UseForm({
   onCancel: () => void;
 }) {
   const t = useT();
+  const computer = computerName(t);
   const [field, setField] = useState(fields[0]?.id ?? "");
   const [how, setHow] = useState<"env" | "file">("env");
   const [name, setName] = useState("");
@@ -66,7 +67,7 @@ export function UseForm({
       {fields.length > 1 && (
         <label className="mb-3 block">
           <span className="mb-1 block text-[12px] font-medium" style={{ color: "var(--text-secondary)" }}>
-            {t.secrets.useField}
+            {t.secrets.useWhich}
           </span>
           <select className={input} style={inputStyle} value={chosen?.id ?? ""} onChange={(e) => setField(e.target.value)}>
             {fields.map((f) => (
@@ -111,8 +112,8 @@ export function UseForm({
         <>
           <input
             autoFocus
-            aria-label={t.secrets.filePath}
-            placeholder={t.secrets.filePath}
+            aria-label={t.secrets.filePath(computer)}
+            placeholder={t.secrets.filePath(computer)}
             maxLength={1024}
             spellCheck={false}
             className={`${input} font-mono`}
@@ -149,7 +150,7 @@ export function UseForm({
         </p>
       )}
       <p className="mt-2 text-[12px]" style={{ color: "var(--text-secondary)" }}>
-        {t.secrets.sandboxNote}
+        {t.secrets.computerNote(computer)}
       </p>
       <div className="mt-3 flex justify-end gap-2">
         <Button variant="plain" type="button" onClick={onCancel}>

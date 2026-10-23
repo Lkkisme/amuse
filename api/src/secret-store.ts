@@ -597,6 +597,12 @@ export function secretStore({ db, keyPath, sandbox, now = () => new Date().toISO
         });
       }),
 
+    reveal: async ({ id: entryId, field }) => {
+      const entry = yours(entries, entryId);
+      if (!entry.secret.some((f) => f.name === field)) throw unsound(`${entry.name} has no secret called ${field}.`);
+      return textOf(entry, field);
+    },
+
     removeSecret: ({ id: entryId, name }) =>
       serial(async () => {
         const before = yours(entries, entryId);

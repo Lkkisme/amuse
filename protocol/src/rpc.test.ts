@@ -46,6 +46,7 @@ const handlers: Handlers = {
   "secrets.add": async () => ({ id: "e-1" }),
   "secrets.edit": async () => null,
   "secrets.setSecret": async () => null,
+  "secrets.reveal": async () => ({ value: "made-up" }),
   "secrets.removeSecret": async () => null,
   "secrets.use": async () => ({ use: { id: "u-1", kind: "env", field: "key", name: "TOKEN" } }),
   "secrets.unuse": async () => null,

@@ -2,17 +2,20 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { SecretEntry } from "@amuse/protocol";
 import { en } from "./i18n/en.ts";
+import { zhCN } from "./i18n/zh-CN.ts";
 import {
   type Draft,
   blank,
   describeUse,
   encodeText,
+  labelOf,
+  typedSecret,
+  useSentence,
+  valueText,
   formatSize,
-  groupOf,
   homePath,
   matches,
   pasted,
-  problem,
   toValue,
   usesSummary,
 } from "./secrets.ts";
@@ -47,16 +50,19 @@ test("a line of text is a value when it is there and has no line breaks", () => 
   assert.deepEqual(toValue({ kind: "text", text: " a b " }, "key"), { kind: "text", text: " a b " });
 });
 
-test("an entry is not saved without a name, with unnamed or twice-named fields, or with a value missing", () => {
-  const text = (value: string): Draft => ({ kind: "text", text: value });
-  const ok = { name: "Site", plain: [{ name: "username", draft: text("me") }], secret: [{ name: "password", draft: text("fake-pass") }] };
-  assert.equal(problem(ok), null);
-  assert.equal(problem({ ...ok, name: " " }), "name");
-  assert.equal(problem({ ...ok, secret: [{ name: "", draft: text("x") }] }), "fieldName");
-  assert.equal(problem({ ...ok, secret: [{ name: "username", draft: text("x") }] }), "twice");
-  assert.equal(problem({ ...ok, secret: [{ name: "password", draft: blank("text") }] }), "value");
-  // an entry being edited keeps its secret values
-  assert.equal(problem({ ...ok, secret: [{ name: "password", draft: null }] }), null);
+test("a secret typed on one line is text, on several lines it is kept whole; a plain line must have text", () => {
+  assert.deepEqual(typedSecret(" sk-fake ", "key"), { kind: "text", text: "sk-fake" });
+  assert.deepEqual(typedSecret('{\n "a": 1\n}', "secret"), { kind: "file", filename: "secret", content: encodeText('{\n "a": 1\n}') });
+  assert.equal(typedSecret("  ", "key"), null);
+  assert.equal(valueText({ kind: "file", filename: "k", content: encodeText("héllo\nthere") }), "héllo\nthere");
+  assert.equal(valueText({ kind: "file", filename: "k", content: "/w==" }), null, "bytes that are not text have none to show");
+});
+
+test("a field is told by its role, or by its name as it was given", () => {
+  assert.equal(labelOf("username", "username", en), "Username");
+  assert.equal(labelOf("password", "password", en), "Password");
+  assert.equal(labelOf("key", null, en), "API key");
+  assert.equal(labelOf("account id", null, en), "Account id");
 });
 
 test("uses are told in words, and the server's name its provider", () => {
@@ -68,14 +74,13 @@ test("uses are told in words, and the server's name its provider", () => {
     describeUse({ kind: "file", field: "key.json", path: "~/.config/g/key.json", env: "GOOGLE_APPLICATION_CREDENTIALS" }, names, en),
     "file .config/g/key.json, and $GOOGLE_APPLICATION_CREDENTIALS holds its path",
   );
-  assert.equal(usesSummary(entry([]), names, en), "Not used");
-  assert.equal(usesSummary(entry([env, server]), names, en), "$CF_API_TOKEN, OpenAI models");
-});
-
-test("an entry is in the sandbox's list if anything of the sandbox uses it, else the server's, else not used", () => {
-  assert.equal(groupOf(entry([env, server])), "sandbox");
-  assert.equal(groupOf(entry([server])), "server");
-  assert.equal(groupOf(entry([])), "none");
+  assert.equal(usesSummary(entry([]), names, en), "Not used yet");
+  assert.equal(usesSummary(entry([server]), names, en), "OpenAI models");
+  assert.equal(usesSummary(entry([env]), names, en), "Amuse's computer: $CF_API_TOKEN");
+  assert.equal(usesSummary(entry([env, server]), names, en), "Amuse's computer: $CF_API_TOKEN · OpenAI models");
+  assert.equal(useSentence(env, names, en), "Commands on Amuse's computer can use $CF_API_TOKEN");
+  assert.equal(useSentence(file, names, en), "Saved on Amuse's computer as .config/x/key.json");
+  assert.equal(useSentence(env, names, zhCN), "Amuse 的电脑上的命令可以用 $CF_API_TOKEN");
 });
 
 test("searching looks at the name, the fields' names and the uses", () => {
@@ -91,19 +96,28 @@ test("a home path loses its ~/ and a leading slash; a size is told short", () =>
   assert.equal(formatSize(2458), "2.4 KB");
 });
 
-test("the Vault's screens never reveal or copy a secret: no clipboard, no show button, and a replaced value starts blank", async () => {
+test("the Vault's screens read a secret only through secrets.reveal, and copy only in the one helper", async () => {
   const { readFileSync, readdirSync } = await import("node:fs");
   const folder = new URL("./components/", import.meta.url);
   const screens = readdirSync(folder).filter((name) => /^Secret.*\.tsx$/.test(name));
   assert.ok(screens.length >= 4);
   for (const name of screens) {
     const source = readFileSync(new URL(name, folder), "utf8");
-    assert.doesNotMatch(source, /clipboard|writeText|execCommand\(["']copy/i, `${name} copies something`);
-    assert.doesNotMatch(source, /\b(reveal|showSecret|showValue|unmask)\b/i, `${name} reveals something`);
+    assert.doesNotMatch(source, /navigator\.clipboard|writeText|execCommand\(["']copy/i, `${name} copies without the helper`);
+    assert.doesNotMatch(source, /localStorage|sessionStorage/, `${name} keeps something in the browser`);
   }
-  // a secret's input is a password input, and the replace form begins from an empty draft
-  assert.match(readFileSync(new URL("SecretFields.tsx", folder), "utf8"), /type=\{secret \? "password" : "text"\}/);
-  assert.match(readFileSync(new URL("SecretEntryPage.tsx", folder), "utf8"), /blank\(/);
+  const page = readFileSync(new URL("SecretEntryPage.tsx", folder), "utf8");
+  assert.match(page, /"secrets\.reveal"/);
+  // an edit starts from empty boxes for the secrets: what is typed replaces, nothing is shown back
+  assert.match(page, /secret\.get\(field\.name\) \?\? ""/);
+  // a secret's box is dots
+  assert.match(readFileSync(new URL("SecretFields.tsx", folder), "utf8"), /hidden \? "password" : "text"/);
+});
+
+test("a revealed secret hides again after 30 seconds, and a copied one leaves the clipboard after 60", async () => {
+  const { REVEAL_MS, CLIPBOARD_MS } = await import("./secrets.ts");
+  assert.equal(REVEAL_MS, 30_000);
+  assert.equal(CLIPBOARD_MS, 60_000);
 });
 
 test("a request card has no input for a plain field: what the user types there is secret, and the plain fields are shown as text", async () => {
@@ -115,4 +129,22 @@ test("a request card has no input for a plain field: what the user types there i
   assert.match(form, /ValueEditor[^>]*\bsecret\b/);
   assert.match(form, /kind: "stored", secret: secretValues/);
   assert.match(form, /ask\.plain\.map/);
+});
+
+test("copying a secret empties the clipboard later if it still holds it, and leaves another thing copied since", async () => {
+  const { copy } = await import("./secrets.ts");
+  let held = "";
+  const clipboard = { writeText: async (text: string) => void (held = text), readText: async () => held };
+  Object.defineProperty(globalThis, "navigator", { value: { clipboard }, configurable: true });
+  await copy("sk-fake-copied", 5);
+  assert.equal(held, "sk-fake-copied");
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(held, "", "cleared");
+  await copy("sk-fake-again", 5);
+  held = "something else";
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(held, "something else", "not the user's later copy");
+  await copy("plain value", null);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(held, "plain value", "a plain value is left");
 });

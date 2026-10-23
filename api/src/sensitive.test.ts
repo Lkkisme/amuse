@@ -46,6 +46,8 @@ test("Always allow on a card needs the PIN, Allow once does not; keys and a spee
     [{ method: "models.localVoice", params: { service: { url: "http://speech:8000", model: "whisper", key: null } } }, true],
     [{ method: "models.localVoice", params: { service: null } }, false],
     [{ method: "secrets.remove", params: { id: "s" } }, true],
+    // a secret is shown to the user
+    [{ method: "secrets.reveal", params: { id: "s", field: "token" } }, true],
     [{ method: "apps.disconnect", params: { account: "a" } }, false],
     [{ method: "logins.forget", params: { site: "example.com" } }, false],
     [{ method: "sandbox.reset", params: {} }, false],

@@ -46,6 +46,9 @@ const FORBIDDEN = [
   COMPOSIO,
 ];
 
+/** The one method that gives a secret's value back: the user's own reveal, behind the PIN (sensitive.ts). */
+const REVEALS = ["secrets.reveal"];
+
 const isSecretsMethod = (method: string) => method.startsWith("secret");
 
 test("no method of the protocol that has to do with secrets, and no view of them, returns a secret's value", async () => {
@@ -66,7 +69,7 @@ test("no method of the protocol that has to do with secrets, and no view of them
   const call: typeof host.call = async (method, params) => {
     called.add(method);
     const answer = await host.call(method, params);
-    answers.push(`${method}: ${JSON.stringify(answer)}`);
+    if (!REVEALS.includes(method)) answers.push(`${method}: ${JSON.stringify(answer)}`);
     return answer;
   };
 
@@ -85,6 +88,8 @@ test("no method of the protocol that has to do with secrets, and no view of them
   await call("secrets.edit", { id, name: "Readback", note: "another note", plain: [{ name: "account id", role: null, value: text("STORED-FIELD-VALUE-FAKE") }] });
   const { use } = await call("secrets.use", { id, use: { kind: "file", field: "key.json", path: ".config/readback/key.json", env: "READBACK_KEY_PATH" } });
   await call("secrets.setSecret", { id, field: { name: "token", role: null, value: text(REPLACED) } });
+  // the reveal gives that one value and nothing more, and the views after it still do not
+  assert.deepEqual(await call("secrets.reveal", { id, field: "token" }), { value: REPLACED });
   await call("secrets.list", {});
   await call("secrets.unuse", { id, use: use.id });
   await call("secrets.removeSecret", { id, name: "key.json" });
@@ -115,6 +120,9 @@ test("no method of the protocol that has to do with secrets, and no view of them
   await call("session.sync", { chat: "main", since: null });
   await call("session.history", { chat: "main", before: 1000, limit: 200 });
   await call("approvals.list", {});
+
+  // only the reveal is let off the walk, and nothing else answers with a value
+  assert.deepEqual(REVEALS.filter((method) => !called.has(method)), []);
 
   // every method about secrets was walked: a new one fails here until it is added to the walk
   const methods = Call.options.map((option) => option.shape.method.value).filter(isSecretsMethod);

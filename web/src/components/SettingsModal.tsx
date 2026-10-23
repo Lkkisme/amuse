@@ -6,7 +6,7 @@
  * Permissions (per-site Allow/Ask/Deny), the Vault (SecretStore.tsx), Browser data (the sites the browser keeps
  * the user signed in to), Schedules and the Sandbox (reset it). Modeled on the reference settings sheet.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -38,6 +38,7 @@ import { Models } from "./Models";
 import { Logins } from "./Logins";
 import { Sandbox } from "./Sandbox";
 import { SecretStore } from "./SecretStore";
+import { type BarSlots, BarSlotsContext } from "./SecretFields";
 import { Security } from "./Security";
 
 const NAV: { id: SettingsSection; icon: React.ReactNode }[] = [
@@ -154,6 +155,10 @@ export function SettingsModal({
   const { mounted, closing, onAnimationEnd } = usePresence(ui.open);
   // adding (a website rule, a login) starts from the bar's +, and ends with the section
   const [adding, setAdding] = useState(false);
+  // the bar's room for a Vault page's button (SecretFields.tsx)
+  const [slots, setSlots] = useState<BarSlots>({ phone: null, desktop: null });
+  const phoneSlot = useCallback((el: HTMLElement | null) => setSlots((was) => (was.phone === el ? was : { ...was, phone: el })), []);
+  const desktopSlot = useCallback((el: HTMLElement | null) => setSlots((was) => (was.desktop === el ? was : { ...was, desktop: el })), []);
   useEffect(() => setAdding(false), [ui.section, ui.open]);
   if (!mounted) return null;
   // a phone shows the sections as a list first, then one section as a page of its own; a desktop shows both side by side
@@ -253,7 +258,7 @@ export function SettingsModal({
           >
             {title}
           </p>
-          {add ?? <span />}
+          {add ?? <span ref={phoneSlot} className="flex justify-end" />}
         </header>
 
         {/* the sections: a list on a phone (until one is open), a column on a desktop */}
@@ -318,6 +323,7 @@ export function SettingsModal({
                   : t.settings.sections[shown]}
             </p>
             {addLabelled}
+            <span ref={desktopSlot} className="flex" />
             <button
               aria-label={t.settings.closeSettings}
               className={barButton}
@@ -345,7 +351,9 @@ export function SettingsModal({
           {shown === "schedules" && <Schedules session={session} />}
           {shown === "logins" && <Logins session={session} />}
           {shown === "secrets" && (
-            <SecretStore session={session} page={ui.entry} onPage={actions.openEntry} />
+            <BarSlotsContext.Provider value={slots}>
+              <SecretStore session={session} page={ui.entry} onPage={actions.openEntry} />
+            </BarSlotsContext.Provider>
           )}
           {shown === "sandbox" && (
             <Sandbox session={session} onSecrets={() => actions.openSettings("secrets")} />
