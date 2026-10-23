@@ -4,7 +4,7 @@
  * button, top right, opens Edit and Remove. Edit is the same few boxes as adding; where it is used lives under Advanced.
  */
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, Copy, Eye, EyeOff, KeyRound, MoreHorizontal } from "lucide-react";
+import { Check, ChevronDown, Copy, Eye, EyeOff, MoreHorizontal } from "lucide-react";
 import type { PlainField, PlainInput, SecretEntry, SecretField, Session } from "@amuse/protocol";
 import { useT } from "../i18n/react.ts";
 import {
@@ -172,20 +172,6 @@ function Actions({ name, items }: { name: string; items: { label: string; danger
   );
 }
 
-/** The name, over the icon: the entry's face. */
-function Face({ name }: { name: string }) {
-  return (
-    <div className="mt-2 flex flex-col items-center text-center">
-      <span className="flex size-12 items-center justify-center rounded-[14px]" style={{ background: "#ffffff", color: "#111112" }}>
-        <KeyRound size={22} />
-      </span>
-      <p className="mt-2 text-[18px] font-semibold [overflow-wrap:anywhere]" style={{ color: "var(--text-primary)" }}>
-        {name}
-      </p>
-    </div>
-  );
-}
-
 export function SecretEntryPage({
   session,
   entry,
@@ -240,7 +226,6 @@ export function SecretEntryPage({
         />
       }
     >
-      <Face name={entry.name} />
       <Alert message={error} />
       <ul className={`${groupClass} mt-4`} style={{ background: "var(--fill-secondary)" }}>
         {entry.managed ? (
