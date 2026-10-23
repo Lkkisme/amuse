@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { changedViewport, contained, frameFits, frameOf } from "./native-frames.ts";
+import { changedViewport, contained, frameFits, frameOf, nativeFrameHasResolution } from "./native-frames.ts";
 
 test("frame descriptors carry the source viewport and generation, and reject malformed metadata", () => {
   assert.deepEqual(frameOf({ type: "frame", width: 412, height: 650, generation: 3 }), { width: 412, height: 650, generation: 3 });
@@ -25,4 +25,21 @@ test("real CDP downscaled and transitional JPEGs retain shape while stale deskto
   assert.equal(area.width / image.width, area.height / image.height, "one scale keeps circles round even for an obsolete JPEG");
   assert.equal(area.width, 412);
   assert.equal(area.y > 0, true);
+});
+
+test("tagged mobile frames refuse the real same-shape CDP keyboard transition", () => {
+  const viewport = { width: 411, height: 634 };
+  const transition = { width: 166, height: 256 };
+  assert.equal(frameFits(transition, viewport), true, "shape alone cannot detect this real low-resolution frame");
+  assert.equal(nativeFrameHasResolution(transition, viewport), false);
+  assert.equal(nativeFrameHasResolution(viewport, viewport), true);
+  assert.equal(nativeFrameHasResolution({ width: 410, height: 633 }, viewport), true, "one pixel of encoding rounding is harmless");
+  assert.equal(nativeFrameHasResolution({ width: 409, height: 632 }, viewport), false);
+});
+
+test("tagged desktop streams still accept the real CDP caps and continue updating", () => {
+  assert.equal(nativeFrameHasResolution({ width: 1280, height: 606 }, { width: 1900, height: 900 }), true);
+  assert.equal(nativeFrameHasResolution({ width: 1279, height: 605 }, { width: 1900, height: 900 }), true);
+  assert.equal(nativeFrameHasResolution({ width: 640, height: 303 }, { width: 1900, height: 900 }), false);
+  assert.equal(nativeFrameHasResolution({ width: 768, height: 1920 }, { width: 800, height: 2000 }), true);
 });

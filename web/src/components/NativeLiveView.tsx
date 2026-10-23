@@ -5,7 +5,7 @@ import { keys } from "../remote-keys.ts";
 import { TouchSurface } from "./TouchSurface";
 import { useT } from "../i18n/react.ts";
 import { activeT } from "../i18n/language.ts";
-import { changedViewport, contained, frameFits, frameOf, type Frame } from "../native-frames.ts";
+import { changedViewport, contained, frameFits, frameOf, nativeFrameHasResolution, type Frame } from "../native-frames.ts";
 
 type Generation = string | number;
 type Size = { width: number; height: number };
@@ -175,7 +175,7 @@ export function NativeLiveView({ url, interactive, onFit, initialSize, renderCon
         const target = canvas.current;
         if (!left && !failed && current?.generation === frame.metadata.generation &&
           current.width === frame.metadata.width && current.height === frame.metadata.height &&
-          frameFits(decoded, current) && target) {
+          frameFits(decoded, current) && (!current.tagged || nativeFrameHasResolution(decoded, current)) && target) {
           const context = target.getContext("2d");
           if (!context) throw new Error("Canvas is unavailable");
           if (target.width !== current.width) target.width = current.width;

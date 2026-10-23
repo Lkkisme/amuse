@@ -23,6 +23,17 @@ export function frameFits(image: Size, viewport: Size): boolean {
     Math.abs(image.height * scale - viewport.height) <= Math.max(2, scale * 2);
 }
 
+/** Keep these caps aligned with native-browser.ts's Page.startScreencast.
+ * CDP can label a transitional, much smaller JPEG with the new viewport.
+ * A phone needs the full CSS resolution; a wide desktop may legitimately hit
+ * the existing 1280 × 1920 stream caps. Allow one pixel of rounding per side.
+ */
+export function nativeFrameHasResolution(image: Size, viewport: Size): boolean {
+  const scale = Math.min(1, 1280 / viewport.width, 1920 / viewport.height);
+  return image.width >= Math.floor(viewport.width * scale) - 1 &&
+    image.height >= Math.floor(viewport.height * scale) - 1;
+}
+
 /** Always draw with one scale, even while compositor dimensions settle. */
 export function contained(image: Size, viewport: Size) {
   const scale = Math.min(viewport.width / image.width, viewport.height / image.height);
