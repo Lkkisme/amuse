@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { CallFailed } from "@amuse/api/client";
 import { type Session, errors, parseResult } from "@amuse/protocol";
 import { describeDevice } from "./device.ts";
-import { type Need, type Said, needOf, pinDigits, pinGuarded, withPin } from "./pin.ts";
+import { type Need, type Said, needOf, pinGuarded, withPin } from "./pin.ts";
 
 /** A session whose first answers are the failures given, then a result. */
 function failing(...failures: Error[]): Session & { tries: () => number } {
@@ -44,12 +44,6 @@ test("an account request the PIN holds is asked for and tried again, once", asyn
   const answers: Said[] = [held, { ok: true }];
   assert.deepEqual(await withPin(async () => true, async () => answers.shift() ?? held), { ok: true });
   assert.deepEqual(await withPin(async () => false, async () => held), held);
-});
-
-test("a PIN field keeps six digits, whatever is typed or pasted", () => {
-  assert.equal(pinDigits("12 34-56"), "123456");
-  assert.equal(pinDigits("1234567"), "123456");
-  assert.equal(pinDigits("abc"), "");
 });
 
 test("a device is told apart by what it is and its browser", () => {

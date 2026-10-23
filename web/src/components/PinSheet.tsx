@@ -3,14 +3,15 @@
  * "enter it so you don't forget it". A sensitive action that the server holds opens one (pin.ts asks), as does a
  * reminder (App.tsx) or Settings › Security. The PIN goes only to the server, in a request's body.
  */
-import { type ReactNode, createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { type ReactNode, createContext, useCallback, useContext, useRef, useState } from "react";
 import { LockKeyhole } from "lucide-react";
 import { Sheet } from "./Sheet";
 import { Button } from "./Button";
+import { PinInput } from "./PinInput";
 import { useT } from "../i18n/react.ts";
 import { activeLocale } from "../i18n/language.ts";
 import { checkPin, remindLater, setPin, unlockPin } from "../account.ts";
-import { type Ask, PIN_DIGITS, type Said, pinDigits } from "../pin.ts";
+import { type Ask, PIN_DIGITS, type Said } from "../pin.ts";
 
 /** set: the first PIN; change: a new one; unlock: for a sensitive action; check: the weekly reminder. */
 export type PinMode = "set" | "change" | "unlock" | "check";
@@ -31,29 +32,11 @@ function problemOf(said: Exclude<Said, { ok: true }>, t: ReturnType<typeof useT>
   return said.reason;
 }
 
+/** Whether the server counted this against the PIN (a try left, or a lockout): the boxes shake when it did. */
+const countedPin = (said: Exclude<Said, { ok: true }>) => said.left !== null || said.until !== null;
+
 const fieldClass = "h-12 w-full rounded-full px-5 text-[16px] outline-none";
 const fieldLook = { background: "var(--fill-secondary)", color: "var(--text-primary)" };
-
-/** Six digits, shown as dots; a phone shows its number pad. */
-function PinField({ label, value, onChange, autoFocus = false }: { label: string; value: string; onChange: (pin: string) => void; autoFocus?: boolean }) {
-  return (
-    <input
-      autoFocus={autoFocus}
-      type="password"
-      inputMode="numeric"
-      pattern="[0-9]*"
-      autoComplete="off"
-      maxLength={PIN_DIGITS}
-      aria-label={label}
-      placeholder={label}
-      // the dots spaced out, the placeholder as it is
-      className={`${fieldClass} text-center ${value ? "tracking-[0.4em]" : ""}`}
-      style={fieldLook}
-      value={value}
-      onChange={(e) => onChange(pinDigits(e.target.value))}
-    />
-  );
-}
 
 function PinForm({ mode, from, onClose }: { mode: PinMode; from: PinFrom; onClose: (done: boolean) => void }) {
   const t = useT();
@@ -64,27 +47,35 @@ function PinForm({ mode, from, onClose }: { mode: PinMode; from: PinFrom; onClos
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [forgot, setForgot] = useState(false);
+  /** wrong tries, per PIN field: each one shakes that field's boxes */
+  const [wrongCurrent, setWrongCurrent] = useState(0);
+  const [wrongPin, setWrongPin] = useState(0);
+  const passwordField = useRef<HTMLInputElement>(null);
+  const againField = useRef<HTMLInputElement>(null);
   const choosing = mode === "set" || mode === "change";
 
-  const submit = async () => {
+  const submit = async (entered: string, confirmed: string) => {
     if (busy) return;
     setProblem(null);
-    if (choosing && pin !== again) return setProblem(t.pin.mismatch);
-    if (pin.length !== PIN_DIGITS || (mode === "change" && current.length !== PIN_DIGITS)) return setProblem(t.pin.sixDigits);
+    if (choosing && entered !== confirmed) return setProblem(t.pin.mismatch);
+    if (entered.length !== PIN_DIGITS || (mode === "change" && current.length !== PIN_DIGITS)) return setProblem(t.pin.sixDigits);
     setBusy(true);
     // a new PIN is set behind the one there is: that one first
     const unlocked = mode === "change" ? await unlockPin(current) : null;
     const said =
-      unlocked && !unlocked.ok ? unlocked : choosing ? await setPin(password, pin) : mode === "unlock" ? await unlockPin(pin) : await checkPin(pin);
+      unlocked && !unlocked.ok ? unlocked : choosing ? await setPin(password, entered) : mode === "unlock" ? await unlockPin(entered) : await checkPin(entered);
     setBusy(false);
     if (said.ok) return onClose(true);
     setProblem(problemOf(said, t));
+    // a wrong PIN says so in the boxes as well: they shake, and what was typed goes
+    if (unlocked && !unlocked.ok) {
+      setCurrent("");
+      if (countedPin(said)) setWrongCurrent((tries) => tries + 1);
+      return;
+    }
     if (!choosing) setPinText("");
+    if (countedPin(said)) setWrongPin((tries) => tries + 1);
   };
-  // entering the PIN goes as soon as it has its six digits
-  useEffect(() => {
-    if (!choosing && pin.length === PIN_DIGITS) void submit();
-  }, [pin]);
 
   const later = () => {
     void remindLater();
@@ -97,7 +88,7 @@ function PinForm({ mode, from, onClose }: { mode: PinMode; from: PinFrom; onClos
       className="flex flex-col items-center gap-3 px-6 pb-6 pt-5 text-center"
       onSubmit={(e) => {
         e.preventDefault();
-        void submit();
+        void submit(pin, again);
       }}
     >
       <span className="flex size-14 items-center justify-center rounded-[16px]" style={{ background: "#ffffff", color: "#111112" }}>
@@ -111,9 +102,20 @@ function PinForm({ mode, from, onClose }: { mode: PinMode; from: PinFrom; onClos
           {line}
         </p>
       )}
-      {mode === "change" && <PinField autoFocus label={t.pin.currentPin} value={current} onChange={setCurrent} />}
+      {mode === "change" && (
+        <PinInput
+          autoFocus
+          autoComplete="off"
+          wrong={wrongCurrent}
+          label={t.pin.currentPin}
+          value={current}
+          onChange={setCurrent}
+          onDone={() => passwordField.current?.focus()}
+        />
+      )}
       {choosing && (
         <input
+          ref={passwordField}
           autoFocus={mode === "set"}
           type="password"
           autoComplete="current-password"
@@ -125,8 +127,32 @@ function PinForm({ mode, from, onClose }: { mode: PinMode; from: PinFrom; onClos
           onChange={(e) => setPassword(e.target.value)}
         />
       )}
-      <PinField autoFocus={!choosing} label={mode === "change" ? t.pin.newPin : t.pin.pin} value={pin} onChange={setPinText} />
-      {choosing && <PinField label={t.pin.pinAgain} value={again} onChange={setAgain} />}
+      <PinInput
+        autoFocus={!choosing}
+        autoComplete={choosing ? "off" : "one-time-code"}
+        wrong={wrongPin}
+        label={mode === "change" ? t.pin.newPin : t.pin.pin}
+        value={pin}
+        onChange={setPinText}
+        onDone={(entered) => {
+          // choosing a PIN goes on by itself: the field it is typed again in, and the button for the rest
+          if (choosing) return againField.current?.focus();
+          void submit(entered, again);
+        }}
+      />
+      {choosing && (
+        <PinInput
+          ref={againField}
+          autoComplete="off"
+          label={t.pin.pinAgain}
+          value={again}
+          onChange={setAgain}
+          onDone={(confirmed) => {
+            // the password is the one thing the PIN cannot fill in: without it the button is the way
+            if (password) void submit(pin, confirmed);
+          }}
+        />
+      )}
       {problem && (
         <p role="alert" className="text-[13px]" style={{ color: "var(--fill-red)" }}>
           {problem}

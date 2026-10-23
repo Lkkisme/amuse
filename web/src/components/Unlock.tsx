@@ -5,11 +5,12 @@
  * trusted device approves it (this page then asks every few seconds, and goes
  * in once it is).
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "./Button";
+import { PinInput } from "./PinInput";
 import { admitted, enter } from "../connection.ts";
 import { useT } from "../i18n/react.ts";
-import { PIN_DIGITS, pinDigits } from "../pin.ts";
+import { PIN_DIGITS } from "../pin.ts";
 
 /** how often a waiting device asks whether it is approved */
 const POLL_MS = 3000;
@@ -20,6 +21,7 @@ export function Unlock({ ready, waiting: waitingAtStart }: { ready: boolean; wai
   const [again, setAgain] = useState("");
   const [pin, setPin] = useState("");
   const [pinAgain, setPinAgain] = useState("");
+  const pinAgainField = useRef<HTMLInputElement>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [waiting, setWaiting] = useState(waitingAtStart);
@@ -32,6 +34,22 @@ export function Unlock({ ready, waiting: waitingAtStart }: { ready: boolean; wai
     }, POLL_MS);
     return () => clearInterval(timer);
   }, [waiting]);
+  /** What the form does, with the PIN as it was typed: the sixth digit of the one typed again sends it. */
+  const send = (entered: string, confirmed: string) => {
+    if (!password || busy) return;
+    if (!ready && password !== again) return setProblem(t.unlock.mismatch);
+    if (!ready && entered.length !== PIN_DIGITS) return setProblem(t.pin.sixDigits);
+    if (!ready && entered !== confirmed) return setProblem(t.pin.mismatch);
+    setBusy(true);
+    void enter(password, ready ? null : entered).then((why) => {
+      setBusy(false);
+      if (why === "waiting") {
+        setProblem(null);
+        return setWaiting(true);
+      }
+      setProblem(why);
+    });
+  };
   const field =
     "h-11 w-full max-w-xs rounded-full px-4 text-[15px] outline-none";
   const look = {
@@ -39,21 +57,7 @@ export function Unlock({ ready, waiting: waitingAtStart }: { ready: boolean; wai
     color: "var(--text-primary)",
     boxShadow: "var(--shadow-float)",
   };
-  const pinField = (value: string, onChange: (pin: string) => void, label: string) => (
-    <input
-      type="password"
-      inputMode="numeric"
-      pattern="[0-9]*"
-      autoComplete="off"
-      maxLength={PIN_DIGITS}
-      aria-label={label}
-      placeholder={label}
-      className={`${field} text-center ${value ? "tracking-[0.3em]" : ""}`}
-      style={look}
-      value={value}
-      onChange={(e) => onChange(pinDigits(e.target.value))}
-    />
-  );
+
   const heading = waiting ? t.unlock.waitingTitle : ready ? t.unlock.welcome : t.unlock.setTitle;
   const help = waiting ? t.unlock.waitingHelp : ready ? t.unlock.enterHelp : t.unlock.setHelp;
 
@@ -63,20 +67,7 @@ export function Unlock({ ready, waiting: waitingAtStart }: { ready: boolean; wai
       style={{ background: "var(--chat-background)" }}
       onSubmit={(e) => {
         e.preventDefault();
-        if (!password || busy) return;
-        if (!ready && password !== again)
-          return setProblem(t.unlock.mismatch);
-        if (!ready && pin.length !== PIN_DIGITS) return setProblem(t.pin.sixDigits);
-        if (!ready && pin !== pinAgain) return setProblem(t.pin.mismatch);
-        setBusy(true);
-        void enter(password, ready ? null : pin).then((why) => {
-          setBusy(false);
-          if (why === "waiting") {
-            setProblem(null);
-            return setWaiting(true);
-          }
-          setProblem(why);
-        });
+        send(pin, pinAgain);
       }}
     >
       <span
@@ -136,8 +127,24 @@ export function Unlock({ ready, waiting: waitingAtStart }: { ready: boolean; wai
               >
                 {t.pin.setLine}
               </p>
-              {pinField(pin, setPin, t.unlock.pin)}
-              {pinField(pinAgain, setPinAgain, t.unlock.pinAgain)}
+              <PinInput
+                autoComplete="off"
+                label={t.unlock.pin}
+                value={pin}
+                onChange={setPin}
+                onDone={() => pinAgainField.current?.focus()}
+              />
+              <PinInput
+                ref={pinAgainField}
+                autoComplete="off"
+                label={t.unlock.pinAgain}
+                value={pinAgain}
+                onChange={setPinAgain}
+                onDone={(confirmed) => {
+                  // the password is the one thing the PIN cannot fill in: without it the button is the way
+                  if (password && again) send(pin, confirmed);
+                }}
+              />
             </>
           )}
         </>

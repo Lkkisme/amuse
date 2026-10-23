@@ -44,5 +44,3 @@ export async function withPin(ask: Ask, attempt: () => Promise<Said>): Promise<S
 }
 
 export const PIN_DIGITS = 6;
-/** Only digits, at most six: what a PIN field keeps of what is typed or pasted. */
-export const pinDigits = (typed: string) => typed.replace(/\D/g, "").slice(0, PIN_DIGITS);
