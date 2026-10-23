@@ -43,6 +43,7 @@ import {
   viewerRun,
   viewerTabs,
 } from "../view.ts";
+import { Button } from "./Button";
 import { PagePreview } from "./cards";
 import { LiveView } from "./LiveView";
 import { TerminalView } from "./TerminalView";
@@ -197,16 +198,9 @@ function NoBrowser({ corner, actions }: { corner: boolean; actions: Actions }) {
         >
           {t.viewer.noBrowserHelp}
         </p>
-        <button
-          className="hover-fade mt-3 flex h-10 items-center gap-1.5 rounded-full px-4 text-[15px] font-medium"
-          style={{
-            background: "var(--fill-secondary)",
-            color: "var(--text-primary)",
-          }}
-          onClick={actions.newBrowser}
-        >
+        <Button className="mt-3" onClick={actions.newBrowser}>
           <Plus size={16} /> {t.viewer.newBrowser}
-        </button>
+        </Button>
       </div>
     </>
   );
@@ -297,35 +291,35 @@ function ViewerHeader({
         </span>
       </button>
       {stoppable(browser) && (
-        <button
+        <Button
+          tone="danger"
+          className="shrink-0"
           aria-label={t.common.stop}
-          className="hover-fade flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2 text-[14px] font-medium"
-          style={{ color: "var(--fill-red)" }}
           onClick={() => actions.control(browser.id, "stop")}
         >
           <CircleDot size={15} /> <span className="hidden sm:inline">{t.common.stop}</span>
-        </button>
+        </Button>
       )}
       {user ? (
-        <button
-          className="flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[10px] px-4 text-[14px] font-medium text-white"
-          style={{ background: "var(--fill-blue)" }}
+        <Button
+          variant="primary"
+          className="shrink-0"
           onClick={() => actions.control(browser.id, "handBack")}
         >
           <Check size={15} /> {t.common.done}
-        </button>
+        </Button>
       ) : (
         canTake && (
-          <button
-            className="flex h-9 shrink-0 items-center whitespace-nowrap rounded-[10px] px-3.5 text-[14px] font-medium text-white"
-            style={{ background: "var(--fill-blue)" }}
+          <Button
+            variant="primary"
+            className="shrink-0"
             onClick={() => actions.control(browser.id, "take")}
           >
             <span className="sm:hidden">{t.viewer.takeControl}</span>
             <span className="hidden sm:inline">
               {t.viewer.takeControlOfBrowser}
             </span>
-          </button>
+          </Button>
         )
       )}
       {/* the corner is the browser button's (it stays put and collapses the viewer) */}

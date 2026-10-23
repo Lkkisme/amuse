@@ -20,6 +20,7 @@ import {
   type SiteRule,
 } from "@amuse/protocol";
 import { ACTIONS, mergedEntry, summary } from "../browserRules.ts";
+import { Button } from "./Button";
 import { ActionSelect, PermissionSelect } from "./PermissionSelect";
 import { Sheet } from "./Sheet";
 import { useT } from "../i18n/react.ts";
@@ -288,21 +289,18 @@ export function SitePermissions({
               {error}
             </p>
           )}
-          <button
+          <Button
+            variant="primary"
+            size="lg"
+            className="mt-6"
             disabled={!draft.trim()}
-            className="mt-6 h-12 w-full rounded-full text-[16px] font-semibold text-white disabled:opacity-40"
-            style={{ background: "var(--fill-blue)" }}
             onClick={add}
           >
             {t.permissions.add}
-          </button>
-          <button
-            className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
-            style={{ color: "var(--text-primary)" }}
-            onClick={cancel}
-          >
+          </Button>
+          <Button variant="plain" size="lg" className="mt-2" onClick={cancel}>
             {t.common.cancel}
-          </button>
+          </Button>
         </div>
       </Sheet>
 
@@ -336,23 +334,21 @@ export function SitePermissions({
               }}
             />
           </div>
-          <button
-            className="hover-fade mt-4 h-11 w-full rounded-full text-[16px] font-medium"
-            style={{ color: "var(--fill-red)" }}
+          <Button
+            variant="plain"
+            size="lg"
+            tone="danger"
+            className="mt-4"
             onClick={() => {
               if (editing) void permit(editing, null);
               setEditing(null);
             }}
           >
             {t.permissions.removeExceptions}
-          </button>
-          <button
-            className="hover-fade h-11 w-full rounded-full text-[16px] font-medium"
-            style={{ color: "var(--text-primary)" }}
-            onClick={() => setEditing(null)}
-          >
+          </Button>
+          <Button variant="plain" size="lg" onClick={() => setEditing(null)}>
             {t.common.done}
-          </button>
+          </Button>
         </div>
       </Sheet>
 

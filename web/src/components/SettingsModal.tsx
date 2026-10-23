@@ -26,6 +26,7 @@ import type { Session } from "@amuse/protocol";
 import type { Actions, SettingsSection, Theme, Ui } from "../ui.ts";
 import type { Choice } from "../i18n/language.ts";
 import { useLanguageChoice, useT } from "../i18n/react.ts";
+import { Button } from "./Button";
 import { usePresence } from "./usePresence";
 import { barButton, barButtonLook, barIcon } from "./bar";
 import { AppsKey } from "./AppsKey";
@@ -203,22 +204,20 @@ function PasswordGroup() {
               className="flex justify-end gap-2 px-3 py-2"
               style={{ borderTop: "1px solid var(--fill-divider)" }}
             >
-              <button
+              <Button
+                variant="plain"
                 type="button"
-                className="hover-fade h-9 rounded-full px-3 text-[14px] font-medium"
-                style={{ color: "var(--text-primary)" }}
                 onClick={() => setChanging(false)}
               >
                 {t.common.cancel}
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="primary"
                 type="submit"
                 disabled={!current || !next}
-                className="h-9 rounded-full px-4 text-[14px] font-semibold text-white disabled:opacity-40"
-                style={{ background: "var(--fill-blue)" }}
               >
                 {t.settings.general.change}
-              </button>
+              </Button>
             </div>
           </form>
         ) : (
@@ -308,17 +307,13 @@ export function SettingsModal({
     </button>
   );
   const addLabelled = adds && (
-    <button
+    <Button
+      className="shrink-0"
       aria-pressed={adding}
-      className="hover-fade flex h-8 shrink-0 items-center gap-1.5 rounded-full pl-2.5 pr-3.5 text-[14px] font-medium"
-      style={{
-        background: "var(--fill-secondary)",
-        color: "var(--text-primary)",
-      }}
       onClick={() => setAdding((a) => !a)}
     >
       <Plus size={15} /> {adds}
-    </button>
+    </Button>
   );
   return (
     <div

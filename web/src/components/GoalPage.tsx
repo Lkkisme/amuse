@@ -9,6 +9,7 @@ import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { Bell, BellOff, CalendarClock, ChevronLeft } from "lucide-react";
 import type { Goal, GoalNote, Schedule, Session } from "@amuse/protocol";
 import { repeats, scheduleState } from "../schedules.ts";
+import { Button } from "./Button";
 import { RichText } from "./markdown";
 import { day, reason } from "./Goals";
 import { useT } from "../i18n/react.ts";
@@ -204,19 +205,16 @@ export function GoalPage({
               </Section>
             )}
 
-            <button
+            <Button
+              size="lg"
+              className="mt-8"
               disabled={busy}
-              className="hover-fade mt-8 h-12 w-full rounded-full text-[16px] font-semibold disabled:opacity-40"
-              style={{
-                background: "var(--fill-secondary)",
-                color: "var(--text-primary)",
-              }}
               onClick={() =>
                 update({ status: goal.status === "done" ? "active" : "done" })
               }
             >
               {goal.status === "done" ? t.goals.reopen : t.goals.markDone}
-            </button>
+            </Button>
           </>
         )}
       </div>

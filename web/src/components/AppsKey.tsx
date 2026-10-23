@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ChevronRight, KeyRound, LayoutGrid } from "lucide-react";
 import type { App, KeyProvider, Session } from "@amuse/protocol";
+import { Button } from "./Button";
 import { Connectors } from "./Connectors";
 import { KeyLine, KeyLogin, useKeyTests } from "./KeyLogin";
 import { Sheet } from "./Sheet";
@@ -134,13 +135,13 @@ export function AppsKey({
           ))}
         </ol>
         {key && (
-          <button
-            className="mt-5 h-11 rounded-full px-5 text-[15px] font-semibold text-white"
-            style={{ background: "var(--fill-blue)" }}
+          <Button
+            variant="primary"
+            className="mt-5"
             onClick={() => setSetting(key)}
           >
             {t.connections.addKey}
-          </button>
+          </Button>
         )}
         {sheet}
       </div>
@@ -229,13 +230,14 @@ export function AppsKey({
               </button>
             </li>
           </ul>
-          <button
-            className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
-            style={{ color: "var(--text-primary)" }}
+          <Button
+            variant="plain"
+            size="lg"
+            className="mt-2"
             onClick={() => setManaging(false)}
           >
             {t.common.done}
-          </button>
+          </Button>
         </div>
       </Sheet>
       {sheet}

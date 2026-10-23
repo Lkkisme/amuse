@@ -12,6 +12,7 @@ import type {
   LoginStep,
   Session,
 } from "@amuse/protocol";
+import { Button } from "./Button";
 import { Sheet } from "./Sheet";
 import { useT } from "../i18n/react.ts";
 
@@ -147,14 +148,15 @@ export function KeyLogin({
               value={value}
               onChange={(e) => setValue(e.target.value)}
             />
-            <button
+            <Button
+              variant="primary"
+              size="lg"
+              className="mt-6"
               type="submit"
               disabled={!value.trim() || busy}
-              className="mt-6 h-12 w-full rounded-full text-[16px] font-semibold text-white disabled:opacity-40"
-              style={{ background: "var(--fill-blue)" }}
             >
               {t.common.continue}
-            </button>
+            </Button>
           </form>
         )}
 
@@ -211,23 +213,20 @@ export function KeyLogin({
             >
               {step.reason}
             </p>
-            <button
-              className="mt-6 h-12 w-full rounded-full text-[16px] font-semibold text-white"
-              style={{ background: "var(--fill-blue)" }}
+            <Button
+              variant="primary"
+              size="lg"
+              className="mt-6"
               onClick={() => shown && start(shown.id)}
             >
               {t.keys.tryAgain}
-            </button>
+            </Button>
           </>
         )}
 
-        <button
-          className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
-          style={{ color: "var(--text-primary)" }}
-          onClick={cancel}
-        >
+        <Button variant="plain" size="lg" className="mt-2" onClick={cancel}>
           {t.common.cancel}
-        </button>
+        </Button>
       </div>
     </Sheet>
   );

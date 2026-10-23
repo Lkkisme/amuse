@@ -26,6 +26,7 @@ import { repeats, scheduleState } from "../schedules.ts";
 import type { Actions } from "../ui.ts";
 import { useT } from "../i18n/react.ts";
 import type { Messages } from "../i18n/en.ts";
+import { Button } from "./Button";
 import { type Place, alone, corners } from "./shape.ts";
 import { AppLogo } from "./AppLogo";
 import { useEffect, useState } from "react";
@@ -216,37 +217,32 @@ export function ApprovalCard({
           {/* three answers: this once, always (only where a rule can hold it: app actions), or no */}
           {/* one under another: three side by side were cramped on a phone */}
           <div className="mt-3 flex flex-col gap-2">
-            <button
-              className="h-10 w-full rounded-full text-[15px] font-semibold text-white"
-              style={{ background: "var(--fill-blue)" }}
+            <Button
+              variant="primary"
+              className="w-full"
               onClick={() => actions.resolveApproval(approval.id, "allow_once")}
             >
               {t.cards.allowOnce}
-            </button>
+            </Button>
             {approval.remember && (
-              <button
-                className="h-10 w-full rounded-full text-[15px] font-semibold"
-                style={{
-                  background: "var(--fill-card-button)",
-                  color: "var(--fill-blue)",
-                }}
+              <Button
+                tone="accent"
+                onCard
+                className="w-full"
                 onClick={() =>
                   actions.resolveApproval(approval.id, "allow_always")
                 }
               >
                 {t.cards.alwaysAllow}
-              </button>
+              </Button>
             )}
-            <button
-              className="h-10 w-full rounded-full text-[15px] font-semibold"
-              style={{
-                background: "var(--fill-card-button)",
-                color: "var(--text-primary)",
-              }}
+            <Button
+              onCard
+              className="w-full"
               onClick={() => actions.resolveApproval(approval.id, "deny")}
             >
               {t.cards.deny}
-            </button>
+            </Button>
           </div>
         </>
       ) : (
@@ -317,21 +313,28 @@ export function ConnectionCard({
           </p>
         </div>
       </div>
-      <button
-        disabled={connection.status !== "pending"}
-        className="mt-2.5 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-full text-[14px] font-medium"
-        style={{
-          background: "var(--fill-card-button)",
-          color:
-            connection.status === "connected"
-              ? "var(--fill-green)"
-              : "var(--text-primary)",
-        }}
-        onClick={() => actions.openExplainer(connection.id)}
-      >
-        {connection.status === "connected" && <Check size={15} />}
-        {label}
-      </button>
+      {connection.status === "pending" ? (
+        <Button
+          onCard
+          className="mt-2.5 w-full"
+          onClick={() => actions.openExplainer(connection.id)}
+        >
+          {label}
+        </Button>
+      ) : (
+        <p
+          className="mt-2.5 inline-flex items-center gap-1.5 text-[14px] font-medium"
+          style={{
+            color:
+              connection.status === "connected"
+                ? "var(--fill-green)"
+                : "var(--text-secondary)",
+          }}
+        >
+          {connection.status === "connected" && <Check size={15} />}
+          {label}
+        </p>
+      )}
     </div>
   );
 }
@@ -439,25 +442,22 @@ export function SecretCard({
             </p>
           )}
           <div className="mt-2.5 flex gap-2">
-            <button
+            <Button
+              onCard
+              className="flex-1"
               disabled={busy}
-              className="h-9 flex-1 rounded-full text-[14px] font-medium disabled:opacity-50"
-              style={{
-                background: "var(--fill-card-button)",
-                color: "var(--text-primary)",
-              }}
               onClick={() => answer(null)}
             >
               {t.cards.decline}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
+              className="flex-1"
               disabled={busy || !value}
-              className="h-9 flex-1 rounded-full text-[14px] font-semibold text-white disabled:opacity-40"
-              style={{ background: "var(--fill-blue)" }}
               onClick={() => answer(value)}
             >
               {t.cards.provide}
-            </button>
+            </Button>
           </div>
         </>
       ) : (
@@ -529,16 +529,13 @@ export function FailureCard({
         </div>
       </div>
       {failure.status === "open" ? (
-        <button
-          className="hover-fade mt-2.5 h-8 w-full rounded-full text-[14px] font-medium"
-          style={{
-            background: "var(--fill-card-button)",
-            color: "var(--text-primary)",
-          }}
+        <Button
+          onCard
+          className="mt-2.5 w-full"
           onClick={() => actions.retry(failure.id)}
         >
           {t.cards.tryAgain}
-        </button>
+        </Button>
       ) : (
         <p
           className="mt-2 text-[12px]"
@@ -795,16 +792,9 @@ export function BrowserCard({
         )}
       </button>
 
-      <button
-        className="mt-3 h-9 w-full rounded-full text-[14px] font-medium"
-        style={{
-          background: "var(--fill-card-button)",
-          color: "var(--text-primary)",
-        }}
-        onClick={open}
-      >
+      <Button onCard className="mt-3 w-full" onClick={open}>
         {t.cards.openBrowser}
-      </button>
+      </Button>
     </div>
   );
 }

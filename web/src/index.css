@@ -267,7 +267,7 @@
 .hover-fade {
   transition: opacity 0.18s ease, background-color 0.18s ease;
 }
-.hover-fade:hover {
+.hover-fade:not(:disabled):hover {
   opacity: 0.72;
 }
 /* Panel opacity transition .18-.2s */

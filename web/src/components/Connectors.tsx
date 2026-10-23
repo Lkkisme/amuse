@@ -16,6 +16,7 @@ import type {
   Session,
   ToolKind,
 } from "@amuse/protocol";
+import { Button } from "./Button";
 import { AppLogo } from "./AppLogo";
 import { PermissionSelect } from "./PermissionSelect";
 import { useT } from "../i18n/react.ts";
@@ -189,6 +190,8 @@ export function Connectors({
         {TABS.map((option) => (
           <button
             key={option}
+            role="tab"
+            aria-selected={tab === option}
             className="rounded-full text-[14px] font-medium"
             style={
               tab === option
@@ -217,13 +220,14 @@ export function Connectors({
             <>
               <Group>{found.apps.map(row)}</Group>
               {found.cursor && (
-                <button
-                  className="hover-fade mt-2 h-10 w-full rounded-full text-[14px] font-medium"
-                  style={{ color: "var(--fill-blue)" }}
+                <Button
+                  variant="plain"
+                  tone="accent"
+                  className="mt-2 w-full"
                   onClick={more}
                 >
                   {t.connections.showMore}
-                </button>
+                </Button>
               )}
             </>
           )
@@ -325,14 +329,16 @@ function AppPage({
         </Group>
       )}
       {accounts.length === 0 ? (
-        <button
-          disabled={busy === app.id}
-          className="mx-auto mt-5 block h-10 w-full max-w-[280px] rounded-full text-[15px] font-medium text-white disabled:opacity-50"
-          style={{ background: "var(--fill-blue)" }}
-          onClick={onConnect}
-        >
-          {t.connections.connect}
-        </button>
+        <div className="mt-5 flex justify-center">
+          <Button
+            variant="primary"
+            className="w-full max-w-[280px]"
+            disabled={busy === app.id}
+            onClick={onConnect}
+          >
+            {t.connections.connect}
+          </Button>
+        </div>
       ) : (
         <Group className="mt-3">
           {accounts.map((account) => (
@@ -450,17 +456,18 @@ function AppPage({
             </section>
           ))}
           {rules.some((r) => r.chosen) && (
-            <button
-              className="hover-fade ml-auto mt-3 block px-4 text-[14px]"
-              style={{ color: "var(--fill-red)" }}
-              onClick={() =>
-                rules
-                  .filter((r) => r.chosen)
-                  .forEach((r) => permit(r.kind, null))
-              }
-            >
-              {t.connections.resetDefaults}
-            </button>
+            <div className="mt-3 flex justify-end">
+              <Button
+                tone="danger"
+                onClick={() =>
+                  rules
+                    .filter((r) => r.chosen)
+                    .forEach((r) => permit(r.kind, null))
+                }
+              >
+                {t.connections.resetDefaults}
+              </Button>
+            </div>
           )}
         </>
       )}

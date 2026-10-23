@@ -14,6 +14,7 @@ import type {
   Session,
   ThinkingLevel,
 } from "@amuse/protocol";
+import { Button } from "./Button";
 import { KeyLine, KeyLogin, type TestState, useKeyTests } from "./KeyLogin";
 import { Sheet } from "./Sheet";
 import { useT } from "../i18n/react.ts";
@@ -635,10 +636,11 @@ function LocalVoiceSheet({
             {problem}
           </p>
         )}
-        <button
+        <Button
+          variant="primary"
+          size="lg"
+          className="mt-6"
           disabled={!url.trim() || !model.trim()}
-          className="mt-6 h-12 w-full rounded-full text-[16px] font-semibold text-white disabled:opacity-40"
-          style={{ background: "var(--fill-blue)" }}
           onClick={() =>
             void save({
               url: url.trim(),
@@ -648,23 +650,21 @@ function LocalVoiceSheet({
           }
         >
           {t.models.save}
-        </button>
+        </Button>
         {current && (
-          <button
-            className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
-            style={{ color: "var(--fill-red)" }}
+          <Button
+            variant="plain"
+            size="lg"
+            tone="danger"
+            className="mt-2"
             onClick={() => void save(null)}
           >
             {t.common.remove}
-          </button>
+          </Button>
         )}
-        <button
-          className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
-          style={{ color: "var(--text-primary)" }}
-          onClick={onClose}
-        >
+        <Button variant="plain" size="lg" className="mt-2" onClick={onClose}>
           {t.common.cancel}
-        </button>
+        </Button>
       </div>
     </Sheet>
   );

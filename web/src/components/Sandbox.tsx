@@ -9,7 +9,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { KeyRound, Terminal } from "lucide-react";
 import type { SecretInfo, Session } from "@amuse/protocol";
-import { Sheet } from "./Sheet";
+import { Button } from "./Button";
+import { ConfirmSheet } from "./ConfirmSheet";
 import { useT } from "../i18n/react.ts";
 import type { Messages } from "../i18n/en.ts";
 
@@ -74,56 +75,29 @@ export function Sandbox({ session }: { session: Session }) {
           >
             {t.sandbox.resetRow}
           </span>
-          <button
+          <Button
+            onCard
+            tone="danger"
             disabled={busy}
-            className="hover-fade rounded-full px-2 py-1 text-[14px] font-medium disabled:opacity-50"
-            style={{ color: "var(--fill-red)" }}
             onClick={() => setConfirming(true)}
           >
             {t.common.reset}
-          </button>
+          </Button>
         </li>
       </ul>
 
       <Credentials session={session} />
 
-      <Sheet open={confirming} onClose={() => setConfirming(false)} bare>
-        <div className="flex flex-col items-center px-6 pb-6 pt-5 text-center">
-          <span
-            className="flex size-14 items-center justify-center rounded-[16px]"
-            style={{ background: "#ffffff", color: "#111112" }}
-          >
-            <Terminal size={26} />
-          </span>
-          <p
-            className="mt-4 text-[20px] font-semibold"
-            style={{ color: "var(--text-primary)" }}
-          >
-            {t.sandbox.resetTitle}
-          </p>
-          <p
-            className="mt-1 text-[14px]"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            {t.sandbox.resetHelp}
-          </p>
-          <button
-            disabled={busy}
-            className="mt-6 h-12 w-full rounded-full text-[16px] font-semibold text-white disabled:opacity-50"
-            style={{ background: "var(--fill-red)" }}
-            onClick={reset}
-          >
-            {t.common.reset}
-          </button>
-          <button
-            className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
-            style={{ color: "var(--text-primary)" }}
-            onClick={() => setConfirming(false)}
-          >
-            {t.common.cancel}
-          </button>
-        </div>
-      </Sheet>
+      <ConfirmSheet
+        open={confirming}
+        onClose={() => setConfirming(false)}
+        icon={Terminal}
+        title={t.sandbox.resetTitle}
+        body={t.sandbox.resetHelp}
+        action={t.common.reset}
+        busy={busy}
+        onConfirm={reset}
+      />
     </div>
   );
 }
@@ -217,54 +191,23 @@ function Credentials({ session }: { session: Session }) {
                 {where(s.deliver, t)}
               </span>
             </span>
-            <button
-              className="hover-fade rounded-full px-2 py-1 text-[14px] font-medium"
-              style={{ color: "var(--fill-red)" }}
-              onClick={() => setRemoving(s)}
-            >
+            <Button onCard tone="danger" onClick={() => setRemoving(s)}>
               {t.common.remove}
-            </button>
+            </Button>
           </li>
         ))}
       </ul>
 
-      <Sheet open={removing !== null} onClose={() => setRemoving(null)} bare>
-        <div className="flex flex-col items-center px-6 pb-6 pt-5 text-center">
-          <span
-            className="flex size-14 items-center justify-center rounded-[16px]"
-            style={{ background: "#ffffff", color: "#111112" }}
-          >
-            <KeyRound size={26} />
-          </span>
-          <p
-            className="mt-4 text-[20px] font-semibold"
-            style={{ color: "var(--text-primary)" }}
-          >
-            {t.sandbox.removeTitle(removing?.name ?? "")}
-          </p>
-          <p
-            className="mt-1 text-[14px]"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            {t.sandbox.removeHelp}
-          </p>
-          <button
-            disabled={busy}
-            className="mt-6 h-12 w-full rounded-full text-[16px] font-semibold text-white disabled:opacity-50"
-            style={{ background: "var(--fill-red)" }}
-            onClick={() => removing && remove(removing)}
-          >
-            {t.common.remove}
-          </button>
-          <button
-            className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
-            style={{ color: "var(--text-primary)" }}
-            onClick={() => setRemoving(null)}
-          >
-            {t.common.cancel}
-          </button>
-        </div>
-      </Sheet>
+      <ConfirmSheet
+        open={removing !== null}
+        onClose={() => setRemoving(null)}
+        icon={KeyRound}
+        title={t.sandbox.removeTitle(removing?.name ?? "")}
+        body={t.sandbox.removeHelp}
+        action={t.common.remove}
+        busy={busy}
+        onConfirm={() => removing && remove(removing)}
+      />
     </section>
   );
 }

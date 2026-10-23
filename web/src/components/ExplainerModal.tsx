@@ -10,6 +10,7 @@ import type { Connection, State } from "@amuse/protocol";
 import type { Actions } from "../ui.ts";
 import { byId, providerLogo } from "../view.ts";
 import { useT } from "../i18n/react.ts";
+import { Button } from "./Button";
 import { Sheet } from "./Sheet";
 import { AppLogo } from "./AppLogo";
 import { useLastValue } from "./usePresence";
@@ -79,20 +80,17 @@ function ExplainerBody({ req, open, actions }: { req: Connection; open: boolean;
           className="shrink-0 border-t px-6 pb-4 pt-3 text-left"
           style={{ borderColor: "var(--fill-divider)" }}
         >
-          <button
-            className="mt-3.5 h-12 w-full rounded-full text-[16px] font-semibold text-white"
-            style={{ background: "var(--fill-blue)" }}
+          <Button
+            variant="primary"
+            size="lg"
+            className="mt-3.5"
             onClick={() => actions.connect(req.id)}
           >
             {t.explainer.connect}
-          </button>
-          <button
-            className="mx-auto mt-2 block py-2 text-[16px] font-semibold"
-            style={{ color: "var(--text-primary)" }}
-            onClick={close}
-          >
+          </Button>
+          <Button variant="plain" size="lg" className="mt-2" onClick={close}>
             {t.common.cancel}
-          </button>
+          </Button>
         </div>
     </Sheet>
   );

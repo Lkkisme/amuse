@@ -13,6 +13,7 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { SquareTerminal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { Button } from "./Button";
 import { useT } from "../i18n/react.ts";
 import type { Messages } from "../i18n/en.ts";
 
@@ -180,13 +181,12 @@ export function TerminalView({
               {closed.text}
             </p>
             {closed.again && (
-              <button
-                className="hover-fade mt-3 h-10 rounded-full px-4 text-[15px] font-medium"
-                style={{ background: "#3a3a3c", color: "#f2f2f7" }}
-                onClick={() => setAttempt((n) => n + 1)}
-              >
-                {t.viewer.openAgain}
-              </button>
+              // the terminal is dark in either theme: the button takes the dark one's colours
+              <div className="dark mt-3">
+                <Button onClick={() => setAttempt((n) => n + 1)}>
+                  {t.viewer.openAgain}
+                </Button>
+              </div>
             )}
           </div>
         )}

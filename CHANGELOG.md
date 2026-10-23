@@ -25,6 +25,7 @@ What changed in each release of Amuse, for the people who run it. The format fol
 - Long chats cost less and answer sooner: each turn is laid out so the model's provider can reuse what it already read of the chat, and the conversation Amuse is shown changes at its end instead of from its start (older parts move to a shorter form a few thousand characters at a time, not with every message). (#37)
 - Settings › Models gives each role (chat, browser, background) a group of its own, with a row for its provider, its model and its thinking, each named; the provider is chosen first, so the same model from two providers is no longer listed twice. The thinking row is always there, and says when a model has to be chosen first or does not think.
 - Sheets close with the same round button as the rest of the app, and a task's details open in a wider sheet.
+- Buttons with words look the same everywhere: one height for a button in a row or card and one for a sheet's, one way to show it is disabled, pressed or focused. A destructive action in a row (Sign out, Delete, Remove, Reset) is the grey pill with red text that Schedules had, so Settings › Saved logins and Sandbox match it, and "are you sure?" sheets are all one design. The buttons on Amuse's cards are a little smaller than before, and a connection card that is already connected or dismissed shows that as text instead of a greyed button.
 - The terminal's lines are a little taller, so Chinese characters are no longer cut off at the top.
 
 ### Fixed

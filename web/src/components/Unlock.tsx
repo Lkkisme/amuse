@@ -3,6 +3,7 @@
  * (typed twice); after that it opens Muse on each device once.
  */
 import { useState } from "react";
+import { Button } from "./Button";
 import { enter } from "../connection.ts";
 import { useT } from "../i18n/react.ts";
 
@@ -91,14 +92,15 @@ export function Unlock({ ready }: { ready: boolean }) {
           {problem}
         </p>
       )}
-      <button
+      <Button
+        variant="primary"
+        size="lg"
+        className="max-w-xs"
         type="submit"
         disabled={busy}
-        className="h-10 rounded-full px-6 text-[15px] font-semibold text-white disabled:opacity-60"
-        style={{ background: "var(--fill-blue)" }}
       >
         {ready ? t.common.continue : t.unlock.setButton}
-      </button>
+      </Button>
     </form>
   );
 }
