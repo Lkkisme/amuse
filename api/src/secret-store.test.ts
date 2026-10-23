@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { FieldValue, SecretInput, SecretRequest } from "@amuse/protocol";
 import { type SandboxClient, SandboxError, mask } from "@amuse/sandbox";
+import { storeCredentials } from "@amuse/pi";
 import { type Db, migratedNow, queryOne } from "@amuse/db";
 import { z } from "zod";
 import { KeyUnavailable } from "./seal.ts";
@@ -322,6 +323,45 @@ test("an entry the system keeps can be removed but not changed", async () => {
   await assert.rejects(store.use({ id: entry.id, use: { kind: "env", field: "access", name: "TOK" } }), /kept by Amuse/);
   await store.remove(entry.id);
   assert.deepEqual(await store.list(), []);
+});
+
+test("a provider's sign-in is a Vault entry of its own: the tokens are secret fields, the expiry and the account id plain, and the list shows only hints", async () => {
+  const { db, open } = setup();
+  const vault = open();
+  const keys = storeCredentials(vault, { names: () => "OpenAI" });
+  await keys.modify("openai", async () => ({ type: "oauth", access: "acc-fake-0123456789abcdef01", refresh: "ref-fake-0123456789abcdef01", expires: 1_777_777_777_000, accountId: "acct-42" }));
+
+  // the entry: the tokens sealed, the expiry and the account id there to see, and the use that finds it
+  const entry = await first(vault);
+  assert.equal(entry.name, "OpenAI");
+  assert.equal(entry.managed, true, "kept by Amuse: the user may remove it, which signs out, and not edit it");
+  // OpenAI's key also serves its speech, so the one sign-in entry carries both uses
+  assert.deepEqual(
+    entry.uses.map((use) => (use.kind === "server" ? [use.service, use.target, use.field] : null)),
+    [
+      ["model", "openai", "access"],
+      ["voice", "openai", "access"],
+    ],
+  );
+  assert.deepEqual(entry.plain.map((f) => [f.name, f.value]), [
+    ["expires", { kind: "text", text: "1777777777000" }],
+    ["accountId", { kind: "text", text: "acct-42" }],
+  ]);
+  assert.deepEqual(entry.secret.map((f) => [f.name, f.kind, f.hint]), [
+    ["access", "text", "…ef01"],
+    ["refresh", "text", "…ef01"],
+  ]);
+
+  // the list API shows a hint and no more, and the tables hold the tokens sealed
+  assert.ok(!JSON.stringify(await vault.list()).includes("acc-fake-0123456789abcdef01"), "the access token never comes back");
+  assert.ok(!dump(db).includes("acc-fake-0123456789abcdef01") && !dump(db).includes("ref-fake-0123456789abcdef01"), "and neither token is in the tables in the open");
+  // they are the secrets an error is redacted with
+  assert.deepEqual(vault.serviceSecrets().sort(), ["acc-fake-0123456789abcdef01", "ref-fake-0123456789abcdef01"]);
+
+  // Pi reads the sign-in back as it was, and signing out removes the entry
+  assert.deepEqual(await keys.read("openai"), { type: "oauth", access: "acc-fake-0123456789abcdef01", refresh: "ref-fake-0123456789abcdef01", expires: 1_777_777_777_000, accountId: "acct-42" });
+  await keys.delete("openai");
+  assert.deepEqual(await vault.list(), []);
 });
 
 test("a store whose key is gone refuses to open, and makes no new one", async () => {

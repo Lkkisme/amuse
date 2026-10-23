@@ -18,9 +18,9 @@ const entry = (over: Partial<SecretEntry> = {}): SecretEntry => ({
 });
 
 const providers: KeyProvider[] = [
-  { id: "openai", name: "OpenAI", use: "models", connected: true, hint: "…abcd" },
-  { id: "openrouter", name: "OpenRouter", use: "models", connected: false, hint: null },
-  { id: "composio", name: "Composio", use: "apps", connected: false, hint: null },
+  { id: "openai", name: "OpenAI", use: "models", connected: true, way: "key", hint: "…abcd", account: { name: "OpenAI (ChatGPT)", subscription: true }, guide: null },
+  { id: "openrouter", name: "OpenRouter", use: "models", connected: false, way: null, hint: null, account: null, guide: null },
+  { id: "composio", name: "Composio", use: "apps", connected: false, way: null, hint: null, account: null, guide: null },
 ];
 
 function setup(entries: SecretEntry[] = [], answer: Answer | Promise<Answer> = { verdict: "approved", remember: false }, hold?: Hold) {

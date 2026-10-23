@@ -4,10 +4,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { fileCredentials } from "./credentials.ts";
+import type { ServiceStore } from "@amuse/core";
+import { storeCredentials } from "./credentials.ts";
 import { guideNotes, guides } from "./guides.ts";
-import { piKeys } from "./keys.ts";
+import { memoryChoices, piKeys } from "./keys.ts";
 import { voiceServices } from "./voice.ts";
+
+/** A Vault holding nothing: the key sheet is asked for its providers, not for what is set up. */
+const emptyVault: ServiceStore = {
+  serviceKey: () => undefined,
+  serviceTargets: () => [],
+  putService: async () => {},
+  dropService: async () => {},
+  serviceSecrets: () => [],
+};
 
 const urlsOf = (id: string): string[] => {
   const guide = guides[id];
@@ -49,8 +59,8 @@ test("every note is from the closed set", () => {
 test("the key sheet is given a guide for every provider and the apps' key", async () => {
   const dir = mkdtempSync(join(tmpdir(), "amuse-guides-"));
   const keys = piKeys({
-    keys: fileCredentials(join(dir, "keys.json")),
-    choicePath: join(dir, "models.json"),
+    keys: storeCredentials(emptyVault),
+    choices: memoryChoices(),
     apps: [{ id: "composio", name: "Composio", message: "Your key", where: "On composio.dev.", link: { url: "https://composio.dev/", label: "composio.dev" } }],
   });
   const { providers } = await keys.list();

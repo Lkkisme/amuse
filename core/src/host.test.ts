@@ -580,7 +580,7 @@ test("a card for the key of a service is settled when the key appears, however i
   const { ports, io } = capture();
   const keys: Keys = {
     ...noKeys,
-    list: async () => ({ ...(await noKeys.list()), providers: [{ id: "openrouter", name: "OpenRouter", use: "models", connected, hint: connected ? "…a1b2" : null }] }),
+    list: async () => ({ ...(await noKeys.list()), providers: [{ id: "openrouter", name: "OpenRouter", use: "models", connected, way: connected ? "key" : null, hint: connected ? "…a1b2" : null, account: null, guide: null }] }),
     onChange: (listener) => void (changed = listener),
   };
   const host = createHost({ ...ports, keys, prompt: (turn, agent) => (turn.kind === "note" ? void notes.push(turn.text) : ports.prompt(turn, agent)) });

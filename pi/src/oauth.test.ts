@@ -1,11 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { test } from "node:test";
 import { type OAuthAuth, type OAuthCredential, type Provider, envApiKeyAuth } from "@earendil-works/pi-ai";
-import { fileCredentials } from "./credentials.ts";
-import { piKeys } from "./keys.ts";
+import type { ServiceKey, ServiceStore, ServiceWrite } from "@amuse/core";
+import { storeCredentials } from "./credentials.ts";
+import { memoryChoices, piKeys } from "./keys.ts";
 import { runtime } from "./session.ts";
 
 /** A provider of Pi's, but with a sign-in of the test's own, so no account is ever signed in to. */
@@ -24,18 +22,51 @@ function fake(id: string, oauth: OAuthAuth): Provider {
   };
 }
 
-const tokens = (n: number): OAuthCredential => ({ type: "oauth", access: `access_secret_${n}`, refresh: `refresh_secret_${n}`, expires: Date.now() + 3_600_000, accountId: "acct-1" });
+/** When the tokens the fake providers hand out expire: an hour from the test run's start, so a test can name the moment. */
+const EXPIRES = Date.now() + 3_600_000;
 
-async function setup(providers: Provider[]) {
-  const dir = mkdtempSync(join(tmpdir(), "amuse-oauth-"));
-  const path = join(dir, "keys.json");
-  const file = fileCredentials(path);
-  const models = await runtime({ auth: { kind: "keys", keys: file } });
-  for (const p of providers) models.registerNativeProvider(p);
-  return { dir, path, file, models, keys: piKeys({ keys: file, choicePath: join(dir, "models.json") }) };
+const tokens = (n: number): OAuthCredential => ({ type: "oauth", access: `access_secret_${n}`, refresh: `refresh_secret_${n}`, expires: EXPIRES, accountId: "acct-1" });
+
+/**
+ * The Vault as far as Pi's credentials need it, in memory: one entry for each service, written whole as
+ * `ServiceWrite` says (api/src/secret-store.ts is the real one, behind the same interface). Nothing goes to a
+ * file, so a test can look at exactly what a sign-in leaves in the Vault, and read it back as after a restart.
+ */
+function vault() {
+  const kept = new Map<string, ServiceWrite>();
+  const find = (service: string, target: string) => [...kept.entries()].find(([, write]) => write.targets.some((t) => t.service === service && t.target === target));
+  const store: ServiceStore = {
+    serviceKey(service, target) {
+      const found = find(service, target);
+      if (!found) return undefined;
+      const [id, write] = found;
+      const entry: ServiceKey["entry"] = { id, name: write.name, managed: write.managed, plain: [], secret: [], note: "", uses: [], created: "" };
+      return { entry, field: write.bound, values: Object.fromEntries([...write.plain, ...write.secret].map((f) => [f.name, f.text])) };
+    },
+    serviceTargets: () => [...kept.values()].flatMap((write) => write.targets),
+    async putService(write) {
+      const first = write.targets[0];
+      const before = first && find(first.service, first.target);
+      kept.set(before?.[0] ?? `e-${kept.size + 1}`, write);
+    },
+    async dropService(service, target) {
+      const found = find(service, target);
+      if (found) kept.delete(found[0]);
+    },
+    serviceSecrets: () => [...kept.values()].flatMap((write) => write.secret.map((f) => f.text)),
+  };
+  return { store, kept };
 }
 
-test("signing in with an account: the provider's page, then the address it ends on pasted back; the tokens stay on the server", async () => {
+async function setup(providers: Provider[]) {
+  const { store, kept } = vault();
+  const file = storeCredentials(store);
+  const models = await runtime({ auth: { kind: "keys", keys: file } });
+  for (const p of providers) models.registerNativeProvider(p);
+  return { store, kept, file, models, keys: piKeys({ keys: file, choices: memoryChoices() }) };
+}
+
+test("signing in with an account: the provider's page, then the address it ends on pasted back; the tokens are a Vault entry", async () => {
   const seen: { device: string | undefined; agent: string | undefined } = { device: undefined, agent: undefined };
   const chat = fake("fake-chat", {
     name: "Fake (ChatGPT subscription)",
@@ -52,7 +83,7 @@ test("signing in with an account: the provider's page, then the address it ends 
     refresh: async () => tokens(2),
     toAuth: async (credential) => ({ apiKey: credential.access }),
   });
-  const { keys, path } = await setup([chat]);
+  const { keys, kept, file } = await setup([chat]);
   const listed = (await keys.list()).providers.find((p) => p.id === "fake-chat");
   assert.deepEqual(listed?.account, { name: "Fake (ChatGPT subscription)", subscription: true });
   assert.equal(listed?.way, null);
@@ -65,7 +96,7 @@ test("signing in with an account: the provider's page, then the address it ends 
   assert.deepEqual(first.notes, [], "Pi's own progress is said in the app's words instead");
   assert.deepEqual(await keys.answer(first.login, "  http://127.0.0.1:1455/auth/callback?code=c1&state=s1 \n"), { kind: "done" });
 
-  // the installation's id is a UUID, the same every time
+  // this instance registers with a UUID of its own, and says who it is
   assert.match(seen.device ?? "", /^[0-9a-f-]{36}$/);
   assert.equal(seen.agent, "Amuse");
 
@@ -75,13 +106,36 @@ test("signing in with an account: the provider's page, then the address it ends 
   assert.equal(signedIn?.way, "account");
   assert.equal(signedIn?.hint, null, "a sign-in shows no end of a token");
   assert.ok(!JSON.stringify(after).includes("secret"), "no token comes back");
-  assert.ok(readFileSync(path, "utf8").includes("refresh_secret_1"));
-  assert.equal(statSync(path).mode & 0o777, 0o600);
 
-  // signing out forgets the tokens
+  // what the sign-in left in the Vault: the tokens are secret fields, the expiry and the account id plain
+  const entry = [...kept.values()][0];
+  assert.equal(entry?.name, "fake-chat");
+  assert.equal(entry?.managed, true, "a sign-in is Amuse's to keep: the user may remove it, which signs out, and not edit it");
+  assert.deepEqual(entry?.targets, [{ service: "model", target: "fake-chat" }], "the use that finds it is the provider's models");
+  assert.equal(entry?.bound, "access", "the field the use is for");
+  assert.deepEqual(entry?.secret, [
+    { name: "access", text: "access_secret_1" },
+    { name: "refresh", text: "refresh_secret_1" },
+  ]);
+  assert.deepEqual(entry?.plain, [
+    { name: "expires", text: String(EXPIRES) },
+    { name: "accountId", text: "acct-1" },
+  ]);
+  // errors leave the tokens out
+  assert.deepEqual(file.secrets(), ["access_secret_1", "refresh_secret_1"]);
+
+  // signing out removes the entry
   await keys.logout("fake-chat");
-  assert.ok(!readFileSync(path, "utf8").includes("secret"));
+  assert.equal(kept.size, 0, "the entry goes with the sign-out");
+  assert.deepEqual(file.secrets(), [], "and nothing of the tokens is left to leave out of an error");
   assert.equal((await keys.list()).providers.find((p) => p.id === "fake-chat")?.way, null);
+
+  // this instance's own id was made once and kept (the choice it is kept in): signing in again uses the same one
+  const made = seen.device;
+  const again = await keys.login("fake-chat", "account");
+  if (again.kind !== "prompt") return assert.fail("expected a prompt");
+  assert.equal(seen.device, made, "the installation's id is the one kept, not a new one");
+  await keys.cancel(again.login);
 });
 
 test("a way of signing in meant for another machine is chosen for the user, and its code is asked for", async () => {
@@ -181,7 +235,7 @@ test("a provider without a sign-in is set up by key only", async () => {
   assert.equal(providers.find((p) => p.id === "anthropic")?.account?.subscription, true);
 });
 
-test("expired tokens are refreshed once, in the keys store, and the new ones replace the old", async () => {
+test("expired tokens are refreshed once, in the Vault entry they are kept in, and the new ones replace the old", async () => {
   let refreshed = 0;
   const provider = fake("fake-refresh", {
     name: "Fake refresh",
@@ -195,7 +249,7 @@ test("expired tokens are refreshed once, in the keys store, and the new ones rep
     },
     toAuth: async (credential) => ({ apiKey: credential.access }),
   });
-  const { file, models, path } = await setup([provider]);
+  const { store, kept, file, models } = await setup([provider]);
   await file.modify("fake-refresh", async () => ({ ...tokens(1), expires: Date.now() - 1000 }));
 
   const [a, b] = await Promise.all([models.getAuth("fake-refresh"), models.getAuth("fake-refresh")]);
@@ -203,15 +257,21 @@ test("expired tokens are refreshed once, in the keys store, and the new ones rep
   assert.equal(a?.auth.apiKey, "access_secret_2");
   assert.equal(b?.auth.apiKey, "access_secret_2");
 
-  const kept = JSON.parse(readFileSync(path, "utf8"));
-  assert.equal(kept["fake-refresh"].refresh, "refresh_secret_2");
-  assert.equal(kept["fake-refresh"].accountId, "acct-1");
-  assert.ok(!readFileSync(path, "utf8").includes("refresh_secret_1"));
+  // one entry, changed in place, holding the tokens that came back
+  assert.equal(kept.size, 1, "the refresh does not make a second entry");
+  const entry = [...kept.values()][0];
+  assert.equal(entry?.managed, true);
+  assert.deepEqual(entry?.secret, [
+    { name: "access", text: "access_secret_2" },
+    { name: "refresh", text: "refresh_secret_2" },
+  ]);
+  assert.deepEqual(entry?.plain.find((f) => f.name === "accountId"), { name: "accountId", text: "acct-1" }, "the account id stays beside the tokens");
+  assert.ok(!file.secrets().includes("refresh_secret_1"), "the old tokens are gone");
   // errors leave out the new tokens too
-  assert.ok(file.secrets().includes("refresh_secret_2") && file.secrets().includes("access_secret_2"));
+  assert.deepEqual(file.secrets(), ["access_secret_2", "refresh_secret_2"]);
 
-  // kept across restarts
-  const reopened = fileCredentials(path);
+  // kept across a restart: Pi's credentials read the same Vault entry back
+  const reopened = storeCredentials(store);
   const credential = await reopened.read("fake-refresh");
   assert.equal(credential?.type === "oauth" ? credential.access : undefined, "access_secret_2");
 });

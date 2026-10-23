@@ -10,8 +10,10 @@
  * provider's page, and the code comes back pasted (the page the sign-in ends
  * on is this server's, which the user's browser cannot reach) or by the
  * provider's own confirmation of a device code. The tokens are kept with the
- * keys, in the same credential store, and Pi refreshes them there; they never
- * leave the server.
+ * keys, in the Vault (credentials.ts): one managed entry for the provider, its
+ * tokens as secret fields and the expiry and what the provider keeps beside
+ * them (an account id) as plain ones. Pi refreshes them in place there, and
+ * they never leave the server.
  */
 import { randomUUID } from "node:crypto";
 import { type AuthEvent, type AuthInteraction, type AuthPrompt, clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
