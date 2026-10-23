@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
+import { createHost, memoryRules, noKeys, noLogins, noSandbox, noWorkspace, type Ports } from "@amuse/core";
+import { paseoBridge } from "./paseo.ts";
 import { connectPaseo, type PaseoAgent, type PaseoClientEvent, type PaseoDirectoryPage, type PaseoTimeline, type PaseoTimelineEntry } from "./paseo-client.ts";
 
 const agent = (id: string): PaseoAgent => ({
@@ -33,9 +35,12 @@ async function fixture(t: TestContext) {
   let events: ((event: unknown) => void) | undefined;
   let timelineEvents: ((event: unknown) => void) | undefined;
   let catalogObserver: { snapshot(value: PaseoDirectoryPage): void } | undefined;
+  let connectionListener: ((state: unknown) => void) | undefined;
+  let reconnectEnabled = false;
   let watchReady = Promise.resolve();
   const record = (method: string, ...args: unknown[]) => { calls.push({ method, args }); };
   const driver = {
+    setReconnectEnabled(enabled: boolean) { reconnectEnabled = enabled; record("setReconnectEnabled", enabled); },
     async fetchAgents(...args: unknown[]) { record("fetchAgents", ...args); return directory([]); },
     observeAgents(...args: unknown[]) {
       record("observeAgents", ...args);
@@ -48,7 +53,7 @@ async function fixture(t: TestContext) {
       return Object.assign(() => record("watchUnsubscribe"), { ready: watchReady, async release() { record("releaseWatch", id); } });
     },
     subscribe(listener: (event: unknown) => void) { events = listener; return () => record("removeEvents"); },
-    subscribeConnectionStatus(listener: (state: unknown) => void) { listener({ status: "connected" }); return () => record("removeConnection"); },
+    subscribeConnectionStatus(listener: (state: unknown) => void) { connectionListener = listener; listener({ status: "connected" }); return () => record("removeConnection"); },
     async sendMessage(...args: unknown[]) { record("send", ...args); },
     async cancelAgent(...args: unknown[]) { record("cancel", ...args); },
     async updateAgent(...args: unknown[]) { record("rename", ...args); },
@@ -63,6 +68,14 @@ async function fixture(t: TestContext) {
     emit: (event: unknown) => events?.(event),
     emitTimeline: (event: unknown) => timelineEvents?.(event),
     emitCatalog: (page: PaseoDirectoryPage) => catalogObserver?.snapshot(page),
+    disconnect: () => connectionListener?.({ status: "disconnected", reason: "synthetic transport lost" }),
+    restore: (page: PaseoDirectoryPage, watchedId = "a") => {
+      if (!reconnectEnabled) return false;
+      connectionListener?.({ status: "connected" });
+      catalogObserver?.snapshot(page);
+      timelineEvents?.({ type: "agent.timeline.subscription_restored", payload: { agentId: watchedId, subscriptionId: "restored" } });
+      return true;
+    },
     watchReady: (ready: Promise<void>) => { watchReady = ready; },
   };
 }
@@ -219,4 +232,88 @@ test("failed watch setup releases its subscription and close never cancels a run
   assert.equal(f.calls.filter((c) => c.method === "releaseWatch").length, 1);
   await client.close();
   assert.ok(!f.calls.some((c) => c.method === "cancel"));
+});
+
+test("supported SDK recovery restores thirteen original sessions and settles bridge activity without replaying an uncertain send", async (t) => {
+  const f = await fixture(t);
+  const originals = Array.from({ length: 13 }, (_, index) => ({ ...agent(`native-${index}`),
+    persistence: { provider: "qwen-multi", sessionId: `original-session-${index}` },
+    ...(index === 0 ? { status: "running", activeTurn: { turnId: "existing-turn", startedAt: "2026-10-21T00:00:00Z" } } : {}),
+  }));
+  let current = originals;
+  const page = (): PaseoDirectoryPage => ({ ...directory([]), entries: current.map((native) => ({ agent: structuredClone(native) })) });
+  f.driver.fetchAgents = async () => page();
+  const client = await connectPaseo(f.config);
+  const observed: PaseoClientEvent[] = [];
+  client.subscribe((event) => observed.push(event));
+  f.emitCatalog(page());
+  const release = await client.watch("native-0");
+  const ports: Ports = {
+    prompt: () => { throw new Error("This recovery must never start a model or replay a prompt."); },
+    interrupt: () => {}, title: async () => "unused", browse: () => {}, job: () => {}, task: () => {}, schedule: () => {}, browser: () => {}, approval: () => {}, stopTask: () => {}, fit: () => {}, connect: async () => "",
+    apps: { search: async () => ({ apps: [], cursor: null }), accounts: async () => [], connect: async () => "", disconnect: async () => {}, permissions: async () => [], permit: async () => {} },
+    rules: memoryRules(), keys: noKeys, files: noWorkspace, logins: noLogins, sandbox: noSandbox,
+  };
+  const host = createHost(ports);
+  const path = join(f.config.home, "bridge.json");
+  const bridge = paseoBridge(client, { path, cwd: f.config.cwd, workspaceRoot: f.config.cwd, model: "same-qwen", contextWindow: 262144,
+    files: { ...noWorkspace, save: async () => null, find: () => null, serve: async () => null },
+  });
+  t.after(async () => { await bridge.close(); });
+  const session = await bridge.attach(host);
+  const binding = JSON.parse(readFileSync(path, "utf8")) as { bindings: Record<string, string>; queue: unknown[] };
+  const mirrored = Object.entries(binding.bindings).find(([, id]) => id === "native-0")![0];
+  assert.equal(host.external.state(mirrored).activity?.kind, "working");
+
+  // The daemon may have received this one explicit send before its ACK is lost.
+  f.driver.sendMessage = async (...args) => { f.calls.push({ method: "send", args }); f.disconnect(); throw new Error("synthetic lost acknowledgement"); };
+  await assert.rejects(client.send("native-0", "one explicit synthetic message", { messageId: "original-message-id" }), /lost acknowledgement/);
+  assert.equal(bridge.status().connected, false, "the UI must reflect a lost connection rather than invent idle");
+  assert.equal(host.external.state(mirrored).activity?.kind, "working", "disconnect alone must not clear task activity");
+  assert.throws(() => client.send("native-0", "must not enter the SDK send queue"), /temporarily disconnected/);
+  assert.throws(() => client.createAgent("must not create a replacement"), /temporarily disconnected/);
+  const lastState: PaseoClientEvent[] = [];
+  client.subscribe((event) => lastState.push(event));
+  assert.ok(lastState[0]?.type === "connection" && lastState[0].state.status === "disconnected");
+
+  current = originals.map((native, index) => ({ ...native, status: index === 0 ? "error" : "idle", activeTurn: null }));
+  assert.equal(f.restore(page(), "native-0"), true, "the adapter must enable the SDK's public reconnect support");
+  assert.equal(bridge.status().connected, true);
+  assert.equal(host.external.state(mirrored).activity, null, "the actual terminal snapshot must settle activity through normal bridge events");
+  assert.ok(observed.some((event) => event.type === "timeline" && event.message.type === "agent.timeline.subscription_restored"));
+  const restored = observed.filter((event) => event.type === "agent_update").map((event) => event.type === "agent_update" && event.payload.kind === "upsert" ? event.payload.agent : null).filter(Boolean);
+  assert.equal(restored.length, 13);
+  for (const old of originals) assert.equal(restored.find((native) => native?.id === old.id)?.persistence?.sessionId, old.persistence.sessionId);
+  assert.equal((await session.call("chats.list", {})).chats.filter((chat) => chat.id !== "main").length, 13);
+  assert.equal(JSON.parse(readFileSync(path, "utf8")).queue.length, 0);
+  assert.equal(f.calls.filter((call) => call.method === "send").length, 1, "connection recovery must never replay the uncertain message");
+  assert.equal(f.calls.filter((call) => call.method === "connect").length, 1, "the SDK restores the same driver, client identity and subscriptions");
+  assert.equal(f.calls.filter((call) => call.method === "watch").length, 1, "restoration must not duplicate adapter timeline subscriptions");
+  assert.ok(!f.calls.some((call) => ["createAgent", "cancel", "permission"].includes(call.method)));
+  await release();
+  await bridge.close();
+  assert.equal(f.calls.filter((call) => call.method === "releaseWatch").length, 1);
+  assert.equal(f.calls.filter((call) => call.method === "releaseCatalog").length, 1);
+  assert.deepEqual(f.calls.filter((call) => call.method === "setReconnectEnabled").map((call) => call.args[0]), [true, false]);
+  assert.equal(f.restore(page()), false, "closing the adapter disables automatic reconnect");
+});
+
+test("close during a disconnect releases subscriptions and does not reconnect or send later", async (t) => {
+  const f = await fixture(t);
+  const client = await connectPaseo(f.config);
+  await client.watch("a");
+  f.disconnect();
+  await client.close();
+  assert.equal(f.restore(directory(["a"])), false);
+  assert.equal(f.calls.filter((call) => call.method === "releaseWatch").length, 1);
+  assert.equal(f.calls.filter((call) => call.method === "releaseCatalog").length, 1);
+  assert.ok(!f.calls.some((call) => ["send", "createAgent", "cancel", "permission"].includes(call.method)));
+});
+
+test("an unsupported SDK fails clearly and closes its connection instead of silently keeping a stale bridge", async (t) => {
+  const f = await fixture(t);
+  Reflect.deleteProperty(f.driver, "setReconnectEnabled");
+  await assert.rejects(connectPaseo(f.config), /does not expose supported connection recovery/);
+  assert.equal(f.calls.filter((call) => call.method === "close").length, 1);
+  assert.equal(f.calls.filter((call) => call.method === "observeAgents").length, 0);
 });

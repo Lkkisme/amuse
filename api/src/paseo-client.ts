@@ -189,6 +189,8 @@ interface TimelineSubscription {
 }
 interface DirectoryQuery { filter: { includeArchived: boolean }; page: { limit: number; cursor?: string }; timeout: number }
 interface Driver {
+  /** Public SDK API; the short-lived CLI helper disables this by default. */
+  setReconnectEnabled(enabled: boolean): void;
   fetchAgents(options: DirectoryQuery): Promise<PaseoDirectoryPage>;
   observeAgents(options: DirectoryQuery): Observation<PaseoDirectoryPage>;
   createAgent(options: { provider: string; cwd: string; title?: string } & PaseoCreateOptions): Promise<PaseoAgent>;
@@ -218,10 +220,22 @@ export async function connectPaseo(config: PaseoConfig): Promise<PaseoClient> {
   const module = await import(pathToFileURL(config.clientModule).href) as { connectToDaemon?: (options: unknown) => Promise<Driver> };
   if (typeof module.connectToDaemon !== "function") throw new Error("The Paseo client module does not export connectToDaemon.");
   const driver = await module.connectToDaemon({ target: { kind: "instance", home: config.home }, timeout });
+  if (typeof driver.setReconnectEnabled !== "function") {
+    await driver.close().catch(() => {});
+    throw new Error("The configured Paseo CLI does not expose supported connection recovery. Update its SDK before using a persistent connection.");
+  }
+  // The pinned SDK owns backoff, credentials, and catalog/timeline restoration.
+  // Use its public switch, never its private config or a replacement agent.
+  // On transport loss the SDK rejects uncertain RPCs/sends instead of replaying them.
+  driver.setReconnectEnabled(true);
   const listeners = new Set<(event: PaseoClientEvent) => void>();
   let closed = false;
   let state: PaseoConnectionState = { status: "connected" };
   const check = () => { if (closed) throw new Error("The Paseo client is closed."); };
+  const checkConnected = () => {
+    check();
+    if (state.status !== "connected") throw new Error("Paseo is temporarily disconnected. Existing sessions are retained; retry after reconnection.");
+  };
   const emit = (event: PaseoClientEvent) => {
     if (closed) return;
     for (const listener of listeners) {
@@ -232,10 +246,19 @@ export async function connectPaseo(config: PaseoConfig): Promise<PaseoClient> {
   const removeConnection = driver.subscribeConnectionStatus((next) => { state = next; emit({ type: "connection", state: next }); });
   let catalog: Observation<PaseoDirectoryPage>;
   let removeCatalog: (() => void) | undefined;
+  let hadCatalogSnapshot = false;
   try {
     catalog = driver.observeAgents(directoryQuery());
     removeCatalog = catalog.subscribe({
-      snapshot: (page) => emit({ type: "catalog", page }),
+      snapshot: (page) => {
+        emit({ type: "catalog", page });
+        // A restored owned subscription delivers a new snapshot, not necessarily
+        // agent_update for every changed entry. Publish its authoritative states
+        // through the same event path the bridge already reconciles.
+        if (hadCatalogSnapshot) for (const entry of page.entries)
+          emit({ type: "agent_update", agentId: entry.agent.id, payload: { kind: "upsert", agent: entry.agent, ...(entry.project === undefined ? {} : { project: entry.project }) } });
+        hadCatalogSnapshot = true;
+      },
       update: () => {}, // Native agent_update events are forwarded once by driver.subscribe.
       error: () => emit({ type: "error", message: "Paseo session-list subscription failed." }),
     });
@@ -244,6 +267,7 @@ export async function connectPaseo(config: PaseoConfig): Promise<PaseoClient> {
     removeCatalog?.();
     removeEvents();
     removeConnection();
+    driver.setReconnectEnabled(false);
     await driver.close().catch(() => {});
     throw error;
   }
@@ -270,7 +294,7 @@ export async function connectPaseo(config: PaseoConfig): Promise<PaseoClient> {
       }
     },
     createAgent(title, cwd = config.cwd, options = {}) {
-      check();
+      checkConnected();
       if (!isAbsolute(cwd)) throw new Error("Paseo working directory must be an absolute local path.");
       // Model, thinking and permissions belong to the existing provider profile.
       // Explicit additions apply only to this new session, never to old agents.
@@ -370,22 +394,23 @@ export async function connectPaseo(config: PaseoConfig): Promise<PaseoClient> {
       };
     },
     send(agentId, text, options = {}) {
-      check();
+      checkConnected();
       const { clientMessageId, ...native } = options;
       if (native.messageId && clientMessageId && native.messageId !== clientMessageId) throw new Error("Conflicting Paseo message IDs.");
       const messageId = native.messageId ?? clientMessageId;
       return driver.sendMessage(agentId, text, { ...native, activeTurnBehavior: native.activeTurnBehavior ?? "steer", ...(messageId ? { messageId } : {}) });
     },
-    cancel(agentId) { check(); return driver.cancelAgent(agentId); },
+    cancel(agentId) { checkConnected(); return driver.cancelAgent(agentId); },
     rename(agentId, title) {
-      check();
+      checkConnected();
       if (!title.trim()) throw new Error("A Paseo session title is required.");
       return driver.updateAgent(agentId, { name: title.trim() });
     },
-    respondPermission(agentId, requestId, response) { check(); return driver.respondToPermission(agentId, requestId, response); },
+    respondPermission(agentId, requestId, response) { checkConnected(); return driver.respondToPermission(agentId, requestId, response); },
     async close() {
       if (closed) return;
       closed = true;
+      driver.setReconnectEnabled(false);
       listeners.clear();
       removeEvents();
       removeConnection();
