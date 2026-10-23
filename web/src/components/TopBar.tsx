@@ -4,7 +4,7 @@
  * line ("is responding", "Re-observing page", ...).
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { List, Menu, PanelLeftClose, ShieldAlert, Wrench } from "lucide-react";
+import { List, Menu, PanelLeftClose, ShieldAlert, Wrench, X } from "lucide-react";
 import type { State } from "@amuse/protocol";
 import type { Actions } from "../ui.ts";
 import type { Swipe } from "../useSwipe.ts";
@@ -12,6 +12,7 @@ import { type AgentLine, agentLine } from "../view.ts";
 import { HOLD_MS, holds, sameLine } from "../badge.ts";
 import { museAvatar } from "../transition.ts";
 import { useT } from "../i18n/react.ts";
+import { barButton, barButtonLook, barIcon } from "./bar";
 
 const LINE_ICONS = { list: List, tool: Wrench, approval: ShieldAlert } as const;
 
@@ -137,14 +138,11 @@ function BadgeLine({ line, className, onAnimationEnd }: { line: AgentLine; class
 }
 
 /**
- * The ☰ button. It stays put above the drawer (z-45: over the drawer's z-40,
- * under the viewer's z-50) and morphs into a collapse icon while the drawer
- * is open, so one tap target opens and closes it.
- */
-/**
- * ☰, one round button for the sidebar, as the browser's is: away, it sits at the chat's top left; with the
- * sidebar out, it moves into the sidebar's top right and becomes the way to put it away (App.tsx places it), on the
- * same curve the sidebar moves on.
+ * ☰, one round button for the sidebar, as the browser's is: away, it sits at the chat's top left; with the sidebar
+ * out, it becomes the way to put it away. On a phone, where the sidebar fills the screen, it stays where it is and
+ * turns into the round close X the sheets and the viewer have (mirrored: the viewer's is at the top right);
+ * from md, it moves into the sidebar's top right (App.tsx places it) and becomes the collapse icon, on the same
+ * curve the sidebar moves on.
  */
 export function MenuButton({ open, left, swipe, openLeft, onClick }: { open: boolean; left: number; swipe: Swipe | null; openLeft: number; onClick: () => void }) {
   const t = useT();
@@ -154,31 +152,30 @@ export function MenuButton({ open, left, swipe, openLeft, onClick }: { open: boo
   const following = swipe?.panel === "sidebar" && (swipe.phase === "drag" || swipe.phase === "settle");
   const settling = swipe?.phase === "settle";
   const icon = `absolute ${following ? (settling ? "swipe-settle" : "transition-none") : "transition-all duration-200 ease-out"}`;
+  const closeIcon = following
+    ? { opacity: "var(--swipe)", transform: "rotate(calc((1 - var(--swipe)) * -90deg)) scale(calc(0.6 + 0.4 * var(--swipe)))" }
+    : { opacity: open ? 1 : 0, transform: open ? "none" : "rotate(-90deg) scale(0.6)" };
   return (
     <button
       aria-label={open ? t.chat.closeSidebar : t.chat.openMenu}
       aria-expanded={open}
       data-swipe="sidebar"
-      className="hover-fade fixed top-3 z-[45] flex size-11 items-center justify-center rounded-full"
+      className={`${barButton} fixed top-3 z-[45]`}
       style={{
+        ...barButtonLook,
         left: following ? `calc(12px + ${openLeft - 12}px * var(--swipe))` : left,
-        background: "var(--fill-primary)",
-        color: "var(--text-primary)",
-        boxShadow: "var(--shadow-float)",
         transition: following && !settling ? "none" : `left ${ease}`,
       }}
       onClick={onClick}
     >
       <Menu
-        size={20}
+        size={barIcon}
         className={icon}
         style={following ? { opacity: "calc(1 - var(--swipe))", transform: "rotate(calc(var(--swipe) * 90deg)) scale(calc(1 - 0.4 * var(--swipe)))" } : { opacity: open ? 0 : 1, transform: open ? "rotate(90deg) scale(0.6)" : "none" }}
       />
-      <PanelLeftClose
-        size={20}
-        className={icon}
-        style={following ? { opacity: "var(--swipe)", transform: "rotate(calc((1 - var(--swipe)) * -90deg)) scale(calc(0.6 + 0.4 * var(--swipe)))" } : { opacity: open ? 1 : 0, transform: open ? "none" : "rotate(-90deg) scale(0.6)" }}
-      />
+      {/* a phone's page is closed with the X, a wider screen's panel is collapsed */}
+      <PanelLeftClose size={barIcon} className={`${icon} hidden md:block`} style={closeIcon} />
+      <X size={barIcon} className={`${icon} md:hidden`} style={closeIcon} />
     </button>
   );
 }
