@@ -6,10 +6,10 @@
  * the curve of the buttons (index.css), and the change is made to the UI state once it has.
  *
  * Off: where the pointer is not coarse or the window is not a phone's; while something is over the chat (a sheet,
- * a menu: `blocked`, `data-no-swipe`); when the touch starts in a text field, or while text is selected; and for
- * sideways content that can still scroll the way the finger goes. With the viewer open, whose live desktop and
- * terminal read touch for themselves, only a touch that starts on its edge strip, header or switch (`data-swipe-close`)
- * can close it.
+ * a menu: `blocked`, `data-no-swipe`); when the touch starts in a text field, or while text is selected (the page's,
+ * or the terminal's: `data-selecting`); and for sideways content that can still scroll the way the finger goes.
+ * Anywhere else a swipe closes the viewer, a live desktop that is only watched included: noVNC sends nothing from
+ * a view-only desktop. Only while the user controls the desktop (`data-no-swipe` on it) does it keep every touch.
  */
 import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
@@ -54,6 +54,9 @@ export function useSwipe({ open, blocked, commit }: Options): Swipe | null {
   useEffect(() => {
     let state = initial;
     let finger: number | null = null;
+    /** where the finger's moves and lifting are heard: the node it touched, which hears them even once it has been
+     * replaced (the terminal redraws its rows), when they no longer bubble up to the document */
+    let node: Element | null = null;
     let settling: ReturnType<typeof setTimeout> | undefined;
 
     const show = (panel: Panel, progress: number) => {
@@ -91,9 +94,20 @@ export function useSwipe({ open, blocked, commit }: Options): Swipe | null {
 
     const onStart = (event: TouchEvent) => {
       const touch = event.changedTouches[0];
-      if (finger !== null || settling !== undefined || event.touches.length !== 1 || !touch) return;
-      if (latest.current.blocked || !eligible(event.target, latest.current.open)) return;
+      if (event.touches.length !== 1 || !touch) return; // a second finger does not count
+      if (finger !== null) {
+        // the first one is gone, its lifting unheard: let go of it
+        finger = null;
+        release();
+        feed({ kind: "cancel" }, event);
+      }
+      if (settling !== undefined) return;
+      if (latest.current.blocked || !eligible(event.target)) return;
       finger = touch.identifier;
+      node = event.target instanceof Element ? event.target : null;
+      node?.addEventListener("touchmove", heardMove, { passive: false }); // cancelled once the swipe is claimed
+      node?.addEventListener("touchend", heardEnd);
+      node?.addEventListener("touchcancel", heardEnd);
       feed(
         {
           kind: "down",
@@ -107,6 +121,12 @@ export function useSwipe({ open, blocked, commit }: Options): Swipe | null {
         event,
       );
     };
+    const release = () => {
+      node?.removeEventListener("touchmove", heardMove);
+      node?.removeEventListener("touchend", heardEnd);
+      node?.removeEventListener("touchcancel", heardEnd);
+      node = null;
+    };
     const onMove = (event: TouchEvent) => {
       const touch = mine(event);
       if (touch) feed({ kind: "move", at: { x: touch.clientX, y: touch.clientY }, time: event.timeStamp }, event);
@@ -114,19 +134,23 @@ export function useSwipe({ open, blocked, commit }: Options): Swipe | null {
     const onEnd = (event: TouchEvent) => {
       if (!mine(event)) return;
       finger = null;
+      release();
       feed(event.type === "touchcancel" ? { kind: "cancel" } : { kind: "up", time: event.timeStamp }, event);
     };
 
-    document.addEventListener("touchstart", onStart, { passive: true });
-    document.addEventListener("touchmove", onMove, { passive: false }); // cancelled once the swipe is claimed
-    document.addEventListener("touchend", onEnd);
-    document.addEventListener("touchcancel", onEnd);
+    // (an element's listeners are typed by the plain Event; only touches reach these)
+    const heard = (handler: (event: TouchEvent) => void) => (event: Event) => {
+      if (event instanceof TouchEvent) handler(event);
+    };
+    const heardMove = heard(onMove);
+    const heardEnd = heard(onEnd);
+
+    // in the capture phase: noVNC stops the touches on its canvas before they could bubble up to the document
+    document.addEventListener("touchstart", onStart, { passive: true, capture: true });
     return () => {
       clearTimeout(settling);
-      document.removeEventListener("touchstart", onStart);
-      document.removeEventListener("touchmove", onMove);
-      document.removeEventListener("touchend", onEnd);
-      document.removeEventListener("touchcancel", onEnd);
+      release();
+      document.removeEventListener("touchstart", onStart, { capture: true });
     };
   }, []);
 
@@ -134,19 +158,21 @@ export function useSwipe({ open, blocked, commit }: Options): Swipe | null {
 }
 
 /** Whether a touch that starts on `target` may be a swipe, as far as the page can tell before it moves. */
-function eligible(target: EventTarget | null, open: Panel | null): boolean {
+function eligible(target: EventTarget | null): boolean {
   if (!matchMedia(PHONE).matches || !(target instanceof Element)) return false;
-  if (open === "viewer" && !target.closest("[data-swipe-close]")) return false;
-  // the sheets have gestures of their own; a text field's fingers are for its text
-  const own = "[data-no-swipe], input, textarea, select, [contenteditable]:not([contenteditable=false])";
+  // what keeps its touches (the sheets; the live desktop while the user controls it; the terminal while text is
+  // selected in it) is marked; a text field's fingers are for its text
+  const own = "[data-no-swipe], [data-selecting], input, textarea, select, [contenteditable]:not([contenteditable=false])";
   if (target.closest(own) || document.querySelector("[role=menu]")) return false;
   return !selecting();
 }
 
 /** Whether text is selected, on the page or in a field (a swipe would drag its handles about). */
 function selecting(): boolean {
-  if (getSelection()?.isCollapsed === false) return true;
   const field = document.activeElement;
+  // the terminal's own field holds what is selected in it, even after the selection is gone: TerminalView says when it is
+  if (field?.closest(".xterm")) return false;
+  if (getSelection()?.isCollapsed === false) return true;
   return (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) && field.selectionStart !== field.selectionEnd;
 }
 

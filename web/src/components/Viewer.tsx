@@ -91,6 +91,8 @@ export function Viewer({
   const shown: Shown = terminal ? viewer.shown : "browser";
   // with none left, there are no cards to show
   if (!browser && overview) setOverview(false);
+  // the user controls its live desktop: touches there are the desktop's (TouchSurface)
+  const control = live !== null && shown === "browser" && browser?.status === "paused";
 
   return (
     <div
@@ -102,8 +104,9 @@ export function Viewer({
       style={moving ? { transform: "translateX(calc((1 - var(--swipe)) * 100%))" } : undefined}
     >
       <ResizeEdge onResize={onResize} />
-      {/* phone: the one place on its live desktop where a swipe closes it, over the desktop's own touch (useSwipe.ts) */}
-      <div data-swipe-close="" className="absolute inset-y-0 left-0 z-[5] w-10 md:hidden" />
+      {/* phone, the user controlling the desktop: it keeps every touch (useSwipe.ts), but for this strip over its left
+          edge (and the header and switch above it), where a swipe closes the viewer */}
+      {control && <div className="absolute inset-y-0 left-0 z-[5] w-10 md:hidden" />}
       {terminal && <Switch shown={shown} actions={actions} />}
       {terminal && !opening && (
         <TerminalView url={terminal} visible={shown === "terminal"} />
@@ -158,7 +161,7 @@ function Switch({ shown, actions }: { shown: Shown; actions: Actions }) {
   return (
     // 44px and centred on the browser button, 12px from the window's top; from lg (the viewer 8px in) it sits in the
     // panel's corner as that button does in the other, 4px in from both edges, so its round end follows the 24px corner
-    <div data-swipe-close="" className="flex items-center gap-2 pb-2 pl-3 pr-3 pt-3 lg:pl-1 lg:pt-1">
+    <div className="flex items-center gap-2 pb-2 pl-3 pr-3 pt-3 lg:pl-1 lg:pt-1">
       <div
         role="tablist"
         className="flex rounded-full p-1"
@@ -196,7 +199,7 @@ function NoBrowser({ corner, actions }: { corner: boolean; actions: Actions }) {
   return (
     <>
       {corner && (
-        <header data-swipe-close="" className="flex justify-end pr-3 pt-2">
+        <header className="flex justify-end pr-3 pt-2">
           <span className="size-11" />
         </header>
       )}
@@ -272,7 +275,7 @@ function ViewerHeader({
     browser.live && (stoppable(browser) || browser.status === "completed");
 
   return (
-    <header data-swipe-close="" className="flex items-center gap-2 py-2 pl-3 pr-3 sm:gap-3">
+    <header className="flex items-center gap-2 py-2 pl-3 pr-3 sm:gap-3">
       <div className="min-w-0 flex-1">
         {/* two 20px lines: as tall as the corner button, which then sits where it sits over the chat */}
         <p

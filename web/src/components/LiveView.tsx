@@ -159,7 +159,9 @@ export function LiveView({ url, interactive, onFit }: { url: string; interactive
   return (
     // nothing here is the phone's to select or long-press: Firefox would select the page and pop its
     // Copy / Select all menu instead of letting the desktop see the press
+    // (in control, its touches are the desktop's: no swipe starts here, useSwipe.ts; watching, one does, and sends nothing)
     <div
+      data-no-swipe={interactive ? "" : undefined}
       className="remote-surface flex min-h-0 flex-1 flex-col"
       style={{ background: "var(--bg-secondary)" }}
       onContextMenu={(e) => e.preventDefault()}

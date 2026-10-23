@@ -132,6 +132,8 @@ export function TerminalView({
     const binary = term.onBinary((data) =>
       send(Uint8Array.from(data, (c) => c.charCodeAt(0) & 0xff)),
     );
+    // text selected in it keeps the touches, as selected text on the page does (useSwipe.ts)
+    const selection = term.onSelectionChange(() => el.toggleAttribute("data-selecting", term.hasSelection()));
     const resized = term.onResize(({ cols, rows }) => {
       if (ws.readyState === WebSocket.OPEN)
         ws.send(JSON.stringify({ type: "resize", cols, rows }));
@@ -142,6 +144,7 @@ export function TerminalView({
       observer.disconnect();
       typed.dispose();
       binary.dispose();
+      selection.dispose();
       resized.dispose();
       ws.onclose = null;
       ws.close();
