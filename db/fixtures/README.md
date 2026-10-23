@@ -23,7 +23,7 @@ Never copy a real instance's data here.
 | `access.json` | the master password is `fixture-password-0.1.0`; two sessions are open |
 | `keys.json` | an OpenRouter key and a Composio key, both made up |
 | `models.json` | the chat model `openrouter/fake-model` |
-| `sandbox-secrets.json` | one made-up token for `GH_TOKEN` |
+| `sandbox-secrets.json` | one made-up token for `GH_TOKEN` (all three of these end up in the Vault; `keys.json` and this file are deleted once imported) |
 | `events.jsonl`, `chats/`, `chats.json` | the main chat and one side chat, scripted by the demo ports |
 | `rules.json`, `defaults.json`, `sent.json` | a few rules, the four first defaults, one uploaded photo |
 | `workspace/` | a memory file, a skill, the uploaded photo |

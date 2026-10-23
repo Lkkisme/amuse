@@ -18,17 +18,24 @@ import type {
   Browser,
   Connection,
   Failure,
+  KeyProvider,
   Schedule,
+  SecretAnswer,
+  SecretAsk,
   SecretRequest,
+  Session,
   Task,
 } from "@amuse/protocol";
 import { repeats, scheduleState } from "../schedules.ts";
 import type { Actions } from "../ui.ts";
 import { useT } from "../i18n/react.ts";
-import type { Messages } from "../i18n/en.ts";
 import { Button } from "./Button";
 import { type Place, alone, corners } from "./shape.ts";
+import { type Draft, type ProviderNames, blank, describeUse, toValue } from "../secrets.ts";
 import { AppLogo } from "./AppLogo";
+import { ValueEditor } from "./SecretFields";
+import { KeyLine, KeyLogin, useKeyTests } from "./KeyLogin";
+import { useSession } from "../sessionContext.ts";
 import { useEffect, useState } from "react";
 import {
   bannerActive,
@@ -222,7 +229,7 @@ export function ApprovalCard({
               className="w-full"
               onClick={() => actions.resolveApproval(approval.id, "allow_once")}
             >
-              {t.cards.allowOnce}
+              {approval.lasting ? t.cards.allow : t.cards.allowOnce}
             </Button>
             {approval.remember && (
               <Button
@@ -341,16 +348,13 @@ export function ConnectionCard({
 
 /* ---------- Credential ---------- */
 
-/** Where a credential goes, as the user reads it. */
-function destination(deliver: SecretRequest["deliver"], t: Messages): string {
-  if (deliver.kind === "env") return t.cards.destinationEnv(deliver.name);
-  if (deliver.kind === "file") return t.cards.destinationFile(deliver.path.replace(/^~?\/?/, ""));
-  return t.cards.destinationPane(deliver.pane);
-}
+/** What a card for a secret can have said of a use of the server's, which it does not know the provider's name for. */
+const NO_NAMES: ProviderNames = new Map();
 
 /**
- * Amuse asking for a credential its computer needs: typed here, it goes to
- * the sandbox through the server, never into the chat or Amuse's context.
+ * Amuse asking for a secret: a code a program waits for (typed here, it goes into that terminal and is kept nowhere),
+ * or a long-term one (kept in the Vault, with the uses the card says; filling it in is the user's word for
+ * them). Either way it goes through the server, never into the chat or Amuse's context.
  */
 export function SecretCard({
   secret,
@@ -362,20 +366,18 @@ export function SecretCard({
   actions: Actions;
 }) {
   const t = useT();
-  const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const answer = (given: string | null) => {
+  /** `cleared`: what to forget of what was typed, once it is given */
+  const answer = (given: SecretAnswer | null, cleared: () => void) => {
     setBusy(true);
     setError(null);
     actions
       .answerSecret(secret.id, given)
-      .then(
-        () => setValue(""),
-        (e: unknown) => setError(e instanceof Error ? e.message : String(e)),
-      )
+      .then(cleared, (e: unknown) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setBusy(false));
   };
+  const { deliver } = secret;
   return (
     <div {...shell(place, "w-full max-w-[320px] p-3", 18)}>
       <div className="flex items-center gap-2.5">
@@ -399,7 +401,11 @@ export function SecretCard({
             className="truncate text-[12px]"
             style={{ color: "var(--text-secondary)" }}
           >
-            {destination(secret.deliver, t)}
+            {deliver.kind === "temporary"
+              ? t.cards.destinationPane(deliver.pane)
+              : deliver.kind === "key"
+                ? t.cards.keySub
+                : t.cards.storedSub}
           </p>
         </div>
       </div>
@@ -411,70 +417,284 @@ export function SecretCard({
           {secret.why}
         </p>
       )}
-      {secret.status === "pending" ? (
-        <>
-          <input
-            type="password"
-            autoComplete="off"
-            aria-label={secret.name}
-            placeholder={t.cards.secretPlaceholder}
-            className="mt-2.5 h-10 w-full rounded-[12px] px-3 text-[14px] outline-none"
-            style={{ background: "var(--field)", color: "var(--text-primary)" }}
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) =>
-              e.key === "Enter" && value && !busy && answer(value)
-            }
-          />
-          <p
-            className="mt-1.5 text-[12px]"
-            style={{ color: "var(--text-tertiary)" }}
-          >
-            {t.cards.secretNote}
-          </p>
-          {error && (
-            <p
-              role="alert"
-              className="mt-1.5 text-[12px]"
-              style={{ color: "var(--fill-red)" }}
-            >
-              {error}
-            </p>
-          )}
-          <div className="mt-2.5 flex gap-2">
-            <Button
-              onCard
-              className="flex-1"
-              disabled={busy}
-              onClick={() => answer(null)}
-            >
-              {t.cards.decline}
-            </Button>
-            <Button
-              variant="primary"
-              className="flex-1"
-              disabled={busy || !value}
-              onClick={() => answer(value)}
-            >
-              {t.cards.provide}
-            </Button>
-          </div>
-        </>
+      {deliver.kind === "key" ? (
+        <KeyForm
+          provider={deliver.provider}
+          hint={deliver.hint}
+          status={secret.status}
+          busy={busy}
+          error={error}
+          onNotNow={() => answer(null, () => undefined)}
+        />
+      ) : secret.status === "pending" ? (
+        deliver.kind === "temporary" ? (
+          <OneTimeForm label={secret.name} busy={busy} error={error} answer={answer} />
+        ) : (
+          <StoredForm ask={deliver} busy={busy} error={error} answer={answer} />
+        )
       ) : (
-        <p
-          className="mt-2.5 inline-flex items-center gap-1.5 text-[14px] font-medium"
-          style={{
-            color:
-              secret.status === "provided"
-                ? "var(--fill-green)"
-                : "var(--text-secondary)",
-          }}
-        >
-          {secret.status === "provided" && <Check size={15} />}
-          {secret.status === "provided" ? t.cards.provided : t.cards.declined}
-        </p>
+        <SecretOutcome status={secret.status} added={deliver.kind === "stored" ? t.cards.savedToVault : t.cards.provided} notAdded={t.cards.declined} />
       )}
     </div>
+  );
+}
+
+/**
+ * Amuse asking for the key of a service of the server's: the sign-in sheet is Settings' own. The server settles the
+ * card as soon as the key is there, whoever added it, so this only offers the sheet, tries the key it adds, and says
+ * how it stands.
+ */
+function KeyForm(props: KeyFormProps) {
+  const session = useSession();
+  return session ? <KeyFormOn session={session} {...props} /> : null;
+}
+
+interface KeyFormProps {
+  provider: string;
+  hint: string | null;
+  status: SecretRequest["status"];
+  busy: boolean;
+  error: string | null;
+  onNotNow: () => void;
+}
+
+function KeyFormOn({
+  session,
+  provider,
+  hint,
+  status,
+  busy,
+  error,
+  onNotNow,
+}: KeyFormProps & { session: Session }) {
+  const t = useT();
+  const [setting, setSetting] = useState<KeyProvider | null>(null);
+  const [said, setSaid] = useState<string | null>(null);
+  const { tests, test } = useKeyTests(session);
+  const open = () => {
+    setSaid(null);
+    void session.call("keys.list", {}).then(
+      ({ providers }) => {
+        const found = providers.find((p) => p.id === provider);
+        if (found) setSetting(found);
+        else setSaid(t.cards.keyUnknown);
+      },
+      (e: unknown) => setSaid(e instanceof Error ? e.message : String(e)),
+    );
+  };
+  const tried = tests[provider];
+  return (
+    <>
+      {status !== "declined" && (hint || tried !== undefined) && (
+        <div className="mt-2">
+          <KeyLine hint={hint} test={tried} />
+        </div>
+      )}
+      {(error ?? said) && (
+        <p role="alert" className="mt-1.5 text-[12px]" style={{ color: "var(--fill-red)" }}>
+          {error ?? said}
+        </p>
+      )}
+      {status === "pending" ? (
+        <div className="mt-2.5 flex gap-2">
+          <Button onCard className="flex-1" disabled={busy} onClick={onNotNow}>
+            {t.cards.notNow}
+          </Button>
+          <Button variant="primary" className="flex-1" disabled={busy} onClick={open}>
+            {t.cards.addKey}
+          </Button>
+        </div>
+      ) : (
+        <SecretOutcome status={status} added={t.cards.keyAdded} notAdded={t.cards.keyNotAdded} />
+      )}
+      <KeyLogin
+        session={session}
+        provider={setting}
+        onClose={(done) => {
+          // a key just set up is tried at once, as in Settings
+          if (done && setting) test(setting.id);
+          setSetting(null);
+        }}
+      />
+    </>
+  );
+}
+
+/** How a card for a secret ended. */
+function SecretOutcome({ status, added, notAdded }: { status: SecretRequest["status"]; added: string; notAdded: string }) {
+  return (
+    <p
+      className="mt-2.5 inline-flex items-center gap-1.5 text-[14px] font-medium"
+      style={{ color: status === "provided" ? "var(--fill-green)" : "var(--text-secondary)" }}
+    >
+      {status === "provided" && <Check size={15} />}
+      {status === "provided" ? added : notAdded}
+    </p>
+  );
+}
+
+/** What a form on a secret's card hands the card to send: the answer (null: declined), and what to forget once it is sent. */
+type Answer = (given: SecretAnswer | null, cleared: () => void) => void;
+
+/** The error, if any, and Decline / Provide (Provide once there is something to provide). */
+function AnswerButtons({
+  busy,
+  error,
+  ready,
+  provide,
+  onDecline,
+  onProvide,
+}: {
+  busy: boolean;
+  error: string | null;
+  ready: boolean;
+  /** what the button that gives it says */
+  provide: string;
+  onDecline: () => void;
+  onProvide: () => void;
+}) {
+  const t = useT();
+  return (
+    <>
+      {error && (
+        <p
+          role="alert"
+          className="mt-1.5 text-[12px]"
+          style={{ color: "var(--fill-red)" }}
+        >
+          {error}
+        </p>
+      )}
+      <div className="mt-2.5 flex gap-2">
+        <Button onCard className="flex-1" disabled={busy} onClick={onDecline}>
+          {t.cards.decline}
+        </Button>
+        <Button variant="primary" className="flex-1" disabled={busy || !ready} onClick={onProvide}>
+          {provide}
+        </Button>
+      </div>
+    </>
+  );
+}
+
+/** A code for a program that waits for it: one line, used once. */
+function OneTimeForm({
+  label,
+  busy,
+  error,
+  answer,
+}: {
+  label: string;
+  busy: boolean;
+  error: string | null;
+  answer: Answer;
+}) {
+  const t = useT();
+  const [value, setValue] = useState("");
+  const provide = () => answer({ kind: "temporary", value }, () => setValue(""));
+  return (
+    <>
+      <input
+        type="password"
+        autoComplete="off"
+        aria-label={label}
+        placeholder={t.cards.secretPlaceholder}
+        className="mt-2.5 h-10 w-full rounded-[12px] px-3 text-[14px] outline-none"
+        style={{ background: "var(--field)", color: "var(--text-primary)" }}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && value && !busy && provide()}
+      />
+      <p
+        className="mt-1.5 text-[12px]"
+        style={{ color: "var(--text-tertiary)" }}
+      >
+        {t.cards.oneTime}
+      </p>
+      <AnswerButtons
+        busy={busy}
+        error={error}
+        ready={value !== ""}
+        provide={t.cards.provide}
+        onDecline={() => answer(null, () => setValue(""))}
+        onProvide={provide}
+      />
+    </>
+  );
+}
+
+/**
+ * A long-term secret: the plain fields Amuse filled in (read-only, said to be visible to it), an input for each secret field the user types
+ * (everything typed on a card is secret), Amuse's note, and what it sets up.
+ */
+function StoredForm({
+  ask,
+  busy,
+  error,
+  answer,
+}: {
+  ask: Extract<SecretAsk, { kind: "stored" }>;
+  busy: boolean;
+  error: string | null;
+  answer: Answer;
+}) {
+  const t = useT();
+  const [secret, setSecret] = useState<Draft[]>(() => ask.secret.map((f) => blank(f.kind)));
+  /** the values given, in order; as many as there are fields only when every one is filled in */
+  const secretValues = ask.secret.flatMap((field, i) => {
+    const draft = secret[i];
+    const value = draft ? toValue(draft, field.name) : null;
+    return value ? [{ name: field.name, value }] : [];
+  });
+  const ready = secretValues.length === ask.secret.length;
+  const change = (i: number, draft: Draft) => setSecret((drafts) => drafts.map((d, j) => (j === i ? draft : d)));
+  const forget = () => setSecret(ask.secret.map((f) => blank(f.kind)));
+  return (
+    <>
+      {ask.plain.length > 0 && (
+        <div className="mt-2.5">
+          <p className="mb-1 text-[12px]" style={{ color: "var(--text-tertiary)" }}>
+            {t.cards.plainNote}
+          </p>
+          {ask.plain.map((f) => (
+            <p key={f.name} className="text-[13px] [overflow-wrap:anywhere]" style={{ color: "var(--text-primary)" }}>
+              <span style={{ color: "var(--text-secondary)" }}>{f.name}: </span>
+              {f.value.kind === "text" ? f.value.text : f.value.filename}
+            </p>
+          ))}
+        </div>
+      )}
+      {ask.secret.map((f, i) => (
+        <div key={f.name} className="mt-2.5">
+          <p className="mb-1 text-[12px] font-medium" style={{ color: "var(--text-secondary)" }}>
+            {f.name}
+          </p>
+          {secret[i] && <ValueEditor draft={secret[i]} onChange={(draft) => change(i, draft)} secret fallbackName={f.name} look="card" label={f.name} />}
+        </div>
+      ))}
+      {ask.note && (
+        <p className="mt-2.5 text-[13px] [overflow-wrap:anywhere]" style={{ color: "var(--text-secondary)" }}>
+          <span className="font-medium">{t.cards.noteLabel}: </span>
+          {ask.note}
+        </p>
+      )}
+      {ask.uses.length > 0 && (
+        <p className="mt-2 text-[13px] [overflow-wrap:anywhere]" style={{ color: "var(--text-secondary)" }}>
+          {t.cards.setsUp(ask.uses.map((use) => describeUse(use, NO_NAMES, t)).join(", "))}
+        </p>
+      )}
+      <p className="mt-1.5 text-[12px]" style={{ color: "var(--text-tertiary)" }}>
+        {t.cards.storedNote}
+      </p>
+      <AnswerButtons
+        busy={busy}
+        error={error}
+        ready={ready}
+        provide={t.cards.saveToVault}
+        onDecline={() => answer(null, forget)}
+        onProvide={() => answer({ kind: "stored", secret: secretValues }, forget)}
+      />
+    </>
   );
 }
 

@@ -368,8 +368,8 @@ export function composio(apiKey: string, http: typeof fetch = fetch): Composio {
  */
 export const composioGuide = [
   "Connections are not set up yet: connecting services (mail, calendar, sheets, ...) needs the user's own Composio API key. Why: each service only lets in software it has approved, and Composio is approved by them, so the user need not set up each one; it is the user's own Composio account, so their logins stay in it and they can revoke them there.",
-  "Walk the user through it, a step at a time, in plain words: 1) sign in or sign up at dashboard.composio.dev; 2) open Settings, then Project Settings; 3) under API Keys, copy the key (it starts with ak_); 4) here, in Settings, then Connections (a Connect card in the chat opens it), choose Add Composio key and paste it; the app tests it at once.",
-  "Once the key is added, try again. Never ask the user to paste the key into the chat: it goes only in Settings.",
+  "Walk the user through it, a step at a time, in plain words: 1) sign in or sign up at dashboard.composio.dev; 2) open Settings, then Project Settings; 3) under API Keys, copy the key (it starts with ak_); 4) then ask for the key with request_secret and provider composio: a card in the chat opens the sheet where they paste it, and the app tests it at once (the same as Settings › Connections › Add Composio key).",
+  "Once the key is added, try again. Never ask the user to paste the key into the chat: it goes only on that card, or in Settings.",
 ].join(" ");
 
 /** No Composio key is set up: the agent hears how the user sets one up. */

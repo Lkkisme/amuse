@@ -6,16 +6,13 @@
  */
 import { z } from "zod";
 import { Account, App, AppAccess, BrowserAction, BrowserRule, KindRule, Permission, Site, SiteEntry, SiteRule, ToolKind } from "./apps.ts";
-import { Approval, Attachment, Id, Resolution, Schedule, SecretDestination, TimeZone } from "./entities.ts";
+import { Approval, Attachment, Id, Resolution, Schedule, TimeZone } from "./entities.ts";
+import { FieldName, PlainInput, SecretAnswer, SecretEntry, SecretInput, Use, UseInput } from "./secrets.ts";
 import { Envelope, Index, Page, Seq, State } from "./events.ts";
 import { Chat, Push } from "./chats.ts";
 import { Goal, GoalNote, GoalStatus } from "./goals.ts";
 import { SkillInfo, SkillOrigin } from "./skills.ts";
 import { KeyTest, KeysState, LocalVoice, LoginStep, ModelRef, ModelRole, ThinkingLevel } from "./keys.ts";
-
-/** A credential given for the sandbox, as it is listed: never its value. */
-export const SecretInfo = z.object({ id: Id, name: z.string(), deliver: SecretDestination, at: z.string() });
-export type SecretInfo = z.infer<typeof SecretInfo>;
 
 const call = <M extends string, P extends z.ZodObject>(method: M, params: P) =>
   z.object({ method: z.literal(method), params });
@@ -99,11 +96,23 @@ export const Call = z.discriminatedUnion("method", [
   call("goals.get", z.object({ id: z.string().min(1).max(100) })),
   /** Add a goal: what the user wants, and anything more about it. */
   call("goals.add", z.object({ title: z.string().trim().min(1).max(200), about: z.string().max(4000) })),
-  /** Answer a request for a credential: its value (taken to the sandbox, never kept in the chat), or null to decline. */
-  call("secret.answer", z.object({ id: Id, value: z.string().min(1).max(200_000).nullable() })),
-  /** The credentials given for the sandbox: what and where, never their values. */
+  /** Answer a card that asks for a secret: the code (typed into its terminal, kept nowhere), or the fields of a long-term secret (kept in the Vault); null declines. */
+  call("secret.answer", z.object({ id: Id, answer: SecretAnswer.nullable() })),
+  /** The Vault: every entry, plain fields in full, secret fields never. */
   call("secrets.list", z.object({})),
-  /** Take a credential back: from the sandbox too. */
+  /** Add an entry, with the uses (the user's own word for them). */
+  call("secrets.add", z.object({ name: z.string().trim().min(1).max(100), note: z.string().max(2000), plain: z.array(PlainInput).max(20), secret: z.array(SecretInput).min(1).max(20), uses: z.array(UseInput).max(20) })),
+  /** Change an entry's name, its note and its plain fields (the whole list: one left out is taken away, unless it has uses). */
+  call("secrets.edit", z.object({ id: Id, name: z.string().trim().min(1).max(100), note: z.string().max(2000), plain: z.array(PlainInput).max(20) })),
+  /** Set a secret field: a new one is added, one of that name has its value replaced (never read back). */
+  call("secrets.setSecret", z.object({ id: Id, field: SecretInput })),
+  /** Take a secret field away, with its uses; an entry keeps at least one. */
+  call("secrets.removeSecret", z.object({ id: Id, name: FieldName })),
+  /** Add a use to an entry. */
+  call("secrets.use", z.object({ id: Id, use: UseInput })),
+  /** Take a use away (from the sandbox too). */
+  call("secrets.unuse", z.object({ id: Id, use: Id })),
+  /** Remove an entry, with its uses (from the sandbox too). */
   call("secrets.remove", z.object({ id: Id })),
   /** Every skill: the user's first, then the built-in ones. */
   call("skills.list", z.object({})),
@@ -185,7 +194,13 @@ export const results = {
   "goals.add": Goal,
   "goals.update": done,
   "secret.answer": done,
-  "secrets.list": z.object({ secrets: z.array(SecretInfo) }),
+  "secrets.list": z.object({ entries: z.array(SecretEntry) }),
+  "secrets.add": z.object({ id: Id }),
+  "secrets.edit": done,
+  "secrets.setSecret": done,
+  "secrets.removeSecret": done,
+  "secrets.use": z.object({ use: Use }),
+  "secrets.unuse": done,
   "secrets.remove": done,
   "skills.list": z.object({ skills: z.array(SkillInfo) }),
   "skills.get": z.object({ skill: SkillInfo, body: z.string(), files: z.array(z.string()) }),
@@ -250,6 +265,12 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "goals.update": (raw) => results["goals.update"].parse(raw),
   "secret.answer": (raw) => results["secret.answer"].parse(raw),
   "secrets.list": (raw) => results["secrets.list"].parse(raw),
+  "secrets.add": (raw) => results["secrets.add"].parse(raw),
+  "secrets.edit": (raw) => results["secrets.edit"].parse(raw),
+  "secrets.setSecret": (raw) => results["secrets.setSecret"].parse(raw),
+  "secrets.removeSecret": (raw) => results["secrets.removeSecret"].parse(raw),
+  "secrets.use": (raw) => results["secrets.use"].parse(raw),
+  "secrets.unuse": (raw) => results["secrets.unuse"].parse(raw),
   "secrets.remove": (raw) => results["secrets.remove"].parse(raw),
   "skills.list": (raw) => results["skills.list"].parse(raw),
   "skills.get": (raw) => results["skills.get"].parse(raw),

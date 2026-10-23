@@ -43,6 +43,7 @@ import {
 import { Composer } from "./components/Composer";
 import { ExplainerModal } from "./components/ExplainerModal";
 import { SettingsModal } from "./components/SettingsModal";
+import { SessionContext } from "./sessionContext.ts";
 import { TaskDetailSheet } from "./components/TaskDetailSheet";
 import { BrowserButton } from "./components/BrowserButton";
 import { MenuButton, TopBar } from "./components/TopBar";
@@ -269,8 +270,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
       },
       stop: () => call("chat.stop", { chat: chatRef.current }),
       retry: (id) => call("chat.retry", { id }),
-      answerSecret: async (id, value) =>
-        void (await session.call("secret.answer", { id, value })),
+      answerSecret: async (id, answer) =>
+        void (await session.call("secret.answer", { id, answer })),
       resolveApproval: (id, resolution) =>
         call("approval.resolve", { id, resolution }),
       // before apps are set up, a Connect card goes straight to where their key goes
@@ -284,6 +285,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
                   section: "connectors",
                   app: null,
                   provider: null,
+                  entry: null,
                 },
               }
             : { ...u, explainer },
@@ -299,6 +301,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
               section: "connectors",
               app: null,
               provider: null,
+              entry: null,
             },
           }));
         patch((u) => ({ ...u, explainer: null }));
@@ -421,12 +424,14 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         patch((u) => ({
           ...u,
           chatsOpen: false,
-          settings: { open: true, section, app: null, provider: null },
+          settings: { open: true, section, app: null, provider: null, entry: null },
         })),
       openApp: (app) =>
         patch((u) => ({ ...u, settings: { ...u.settings, app } })),
       openProvider: (provider) =>
         patch((u) => ({ ...u, settings: { ...u.settings, provider } })),
+      openEntry: (entry) =>
+        patch((u) => ({ ...u, settings: { ...u.settings, entry } })),
       closeSettings: () =>
         patch((u) => ({ ...u, settings: { ...u.settings, open: false } })),
       setTheme: (theme) => patch((u) => ({ ...u, theme })),
@@ -465,6 +470,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
 
   return (
     <Files.Provider value={files}>
+      <SessionContext.Provider value={session}>
       <div
         className="flex h-full"
         style={{ background: "var(--chat-background)" }}
@@ -612,6 +618,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           actions={actions}
         />
       </div>
+      </SessionContext.Provider>
     </Files.Provider>
   );
 }

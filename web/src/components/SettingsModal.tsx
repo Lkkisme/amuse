@@ -2,9 +2,8 @@
  * Settings (surfaces 7, 9, 10): a page on a phone, a modal with a nav column on
  * a desktop — General (appearance; the password), Models (the user's keys and
  * the models chosen: Models.tsx), Connections (the server's directory: Connectors.tsx),
- * Permissions (per-site Allow/Ask/Deny), Schedules and the Sandbox (reset it). Modeled on the reference
- * settings sheet. (Muse's secure store is left out: the browser keeps logins
- * from the user's own sign-ins instead.)
+ * Permissions (per-site Allow/Ask/Deny), the Vault (SecretStore.tsx), Browser data (the sites the browser keeps
+ * the user signed in to), Schedules and the Sandbox (reset it). Modeled on the reference settings sheet.
  */
 import { useEffect, useState } from "react";
 import {
@@ -14,11 +13,12 @@ import {
   Globe,
   LayoutGrid,
   Plus,
+  Cookie,
   Settings as SettingsIcon,
   Shield,
   Sparkles,
-  KeyRound,
   Terminal,
+  Vault,
   X,
   CalendarClock,
 } from "lucide-react";
@@ -35,6 +35,7 @@ import { Schedules } from "./Schedules";
 import { Models } from "./Models";
 import { Logins } from "./Logins";
 import { Sandbox } from "./Sandbox";
+import { SecretStore } from "./SecretStore";
 import { changePassword, lock } from "../connection.ts";
 
 const NAV: { id: SettingsSection; icon: React.ReactNode }[] = [
@@ -42,7 +43,8 @@ const NAV: { id: SettingsSection; icon: React.ReactNode }[] = [
   { id: "models", icon: <Sparkles size={18} /> },
   { id: "connectors", icon: <LayoutGrid size={18} /> },
   { id: "permissions", icon: <Shield size={18} /> },
-  { id: "logins", icon: <KeyRound size={18} /> },
+  { id: "secrets", icon: <Vault size={18} /> },
+  { id: "logins", icon: <Cookie size={18} /> },
   { id: "schedules", icon: <CalendarClock size={18} /> },
   { id: "sandbox", icon: <Terminal size={18} /> },
 ];
@@ -292,8 +294,19 @@ export function SettingsModal({
       ? ui.app.name
       : ui.provider
         ? ui.provider.name
-        : t.settings.sections[section];
-  const adds = !ui.app && shown === "permissions" ? t.settings.addWebsite : null;
+        : ui.entry
+          ? ui.entry.kind === "add"
+            ? t.secrets.newTitle
+            : ui.entry.name
+          : t.settings.sections[section];
+  const adds =
+    !ui.app && shown === "permissions"
+      ? t.settings.addWebsite
+      : shown === "secrets" && !ui.entry
+        ? t.secrets.add
+        : null;
+  // the Vault's adding is a page of its own (so Back leaves it); a website is added in place
+  const onAdd = () => (shown === "secrets" ? actions.openEntry({ kind: "add" }) : setAdding((a) => !a));
   // a phone's bar has the chat's round buttons; a desktop's has small labelled ones, the height of its close button
   const add = adds && (
     <button
@@ -301,7 +314,7 @@ export function SettingsModal({
       aria-pressed={adding}
       className={barButton}
       style={barButtonLook}
-      onClick={() => setAdding((a) => !a)}
+      onClick={onAdd}
     >
       <Plus size={barIcon} />
     </button>
@@ -310,7 +323,7 @@ export function SettingsModal({
     <Button
       className="shrink-0"
       aria-pressed={adding}
-      onClick={() => setAdding((a) => !a)}
+      onClick={onAdd}
     >
       <Plus size={15} /> {adds}
     </Button>
@@ -341,7 +354,9 @@ export function SettingsModal({
                   ? t.settings.allConnections
                   : ui.provider
                     ? t.settings.allProviders
-                    : t.settings.allSettings
+                    : ui.entry
+                      ? t.settings.allSecrets
+                      : t.settings.allSettings
             }
             className={barButton}
             style={barButtonLook}
@@ -352,7 +367,9 @@ export function SettingsModal({
                   ? actions.openApp(null)
                   : ui.provider
                     ? actions.openProvider(null)
-                    : actions.openSettings(null)
+                    : ui.entry
+                      ? actions.openEntry(null)
+                      : actions.openSettings(null)
             }
           >
             <ChevronLeft size={barIcon} />
@@ -421,7 +438,11 @@ export function SettingsModal({
               style={{ color: "var(--text-primary)" }}
             >
               {/* the section shown (General before one is chosen), not the phone's list title */}
-              {ui.app || ui.provider ? "" : t.settings.sections[shown]}
+              {ui.app || ui.provider || ui.entry?.kind === "entry"
+                ? ""
+                : ui.entry
+                  ? t.secrets.newTitle
+                  : t.settings.sections[shown]}
             </p>
             {addLabelled}
             <button
@@ -450,7 +471,12 @@ export function SettingsModal({
           )}
           {shown === "schedules" && <Schedules session={session} />}
           {shown === "logins" && <Logins session={session} />}
-          {shown === "sandbox" && <Sandbox session={session} />}
+          {shown === "secrets" && (
+            <SecretStore session={session} page={ui.entry} onPage={actions.openEntry} />
+          )}
+          {shown === "sandbox" && (
+            <Sandbox session={session} onSecrets={() => actions.openSettings("secrets")} />
+          )}
           {shown === "models" && (
             <Models
               session={session}

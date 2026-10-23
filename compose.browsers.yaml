@@ -4,7 +4,8 @@
 # so the browser can open what Amuse serves in its sandbox (http://sandbox:<port>; the sandbox cannot connect
 # back: its rules let out only replies on that network). No Docker socket.
 # Secrets are made on first start by `secrets` (kept in its volume, never typed in): the bearer
-# token between amuse and the controllers, and the key that encrypts saved logins.
+# token between amuse and the controllers and the key that encrypts saved logins. The Vault's key is not among them:
+# it has a volume of its own (`vault-key`), since the secrets above can be made anew and the Vault's cannot.
 # Used by compose.yaml (production) and compose.dev.yaml (published on localhost for `mise run dev`).
 # More pairs: copy a pair block and add it to AMUSE_BROWSERS in compose.yaml.
 # Images build from auto-browser at a pinned commit (a fork carrying the desktop-resize fix).
@@ -85,7 +86,7 @@ services:
     read_only: true
     network_mode: none
     restart: "no"
-    volumes: [secrets:/secrets, handoff-1:/handoff/1, handoff-2:/handoff/2, handoff-3:/handoff/3]
+    volumes: [secrets:/secrets, vault-key:/vault-key, handoff-1:/handoff/1, handoff-2:/handoff/2, handoff-3:/handoff/3]
     entrypoint:
       - python
       - -c
@@ -102,6 +103,12 @@ services:
         # amuse (uid 1000) owns the token; the controllers (root, without capabilities) read it as group 0
         make("auto-browser-token", secrets.token_hex(24), 1000, 0o440)
         make("logins-key", base64.urlsafe_b64encode(os.urandom(32)).decode(), 0, 0o400)  # Fernet key, controllers only
+        # the Vault's key folder (a volume of its own: uid 1000 only, no controller can read it): amuse makes the key in it on its
+        # first start, and never anew
+        os.chown("/vault-key", 1000, 0)
+        os.chmod("/vault-key", 0o700)
+        # the empty folder the key's volume is mounted on (a mount cannot make its own folder in a read-only volume)
+        os.makedirs("/secrets/amuse-store", exist_ok=True)
         # the folders amuse hands a file to upload through: amuse (uid 1000) puts it there, the controller
         # (root without capabilities) makes its own session folder beside it and reads the file
         for folder in ("/handoff/1", "/handoff/2", "/handoff/3"):
@@ -183,6 +190,7 @@ networks:
 
 volumes:
   secrets: # made on first start by `secrets`
+  vault-key: # the Vault's key (`docker volume rm` of `secrets` cannot destroy it); its folder is made for amuse by `secrets`; back it up
   logins: # auth profiles (saved logins, encrypted), shared by every controller
   profile-1:
   profile-2:

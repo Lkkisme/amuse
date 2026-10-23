@@ -126,9 +126,32 @@ leaves it, and deleting or overwriting the files you sent, still needs your word
   (the daemon watches for it), Docker brings it back into the new network, and it never has an open one in
   between.
 
+## The Vault
+
+Settings › Vault keeps the long-term secrets Amuse uses for you: API keys, tokens, passwords, key files,
+and the keys of its own models, speech and connections. An entry has plain fields (an account id, a username:
+Amuse and you can see them), secret fields (never shown back; you replace them) and a note. Where a secret is
+used is separate from what it is: a variable or file in the sandbox, or one of Amuse's own services (which
+neither Amuse nor the sandbox ever sees).
+
+- The Vault is in the database (`amuse.db`). Secret fields are encrypted (AES-256-GCM) with a key in a file of its
+  own, `store.key`, in a volume of its own (`vault-key`, at `/secrets/amuse-store`), apart from `/data` and from the
+  browsers' `secrets` volume: a copy of `/data` alone opens nothing, and `docker volume rm` of `secrets` cannot destroy it. A compromised server does give the secrets, so this is not protection against that.
+- **Back the key up** (`docker compose cp amuse:/secrets/amuse-store/store.key .`, and keep it safe). Without it
+  nothing in the Vault can be opened, and Amuse refuses to start (its address says so) rather than make a new key
+  over secrets sealed with the old one. If the key is lost for good, `docker compose exec amuse amuse-admin
+  reset-vault --yes` forgets everything in the Vault so a new key can be made; you add your keys and secrets again.
+- A temporary code (a login or verification code a program waits for) is not kept: you type it on a card and it
+  goes straight into the terminal that waits for it.
+- When you upgrade from an earlier version, `keys.json`, `models.json` and `sandbox-secrets.json` move into the
+  database once, on the first start, and `keys.json` and `sandbox-secrets.json` (which held secrets in the open) are
+  deleted once the move is checked: no plaintext copy is left anywhere. The database keeps a copy of each, sealed with
+  the Vault's key, so you can go back: `amuse-admin restore-secret-files` writes them out again, and
+  `amuse-admin forget-secret-files --yes` deletes those copies once you are sure.
+
 ## Good to know
 
-- Your conversation, the password, your keys, saved browser logins and the sandbox's home folder live in Docker volumes;
+- Your conversation, the password, your secrets and keys (sealed; their key is in the `vault-key` volume), saved browser data and the sandbox's home folder live in Docker volumes;
   they survive restarts and updates. `docker compose down -v` deletes them.
 - Update: `git pull && docker compose up -d --build`. Before an update that changes the stored data, Amuse copies its database to `backups/` in the data volume;
   `docker compose exec amuse amuse-admin migrate --dry-run` shows beforehand what would change.

@@ -10,7 +10,9 @@
  *   AMUSE_JOURNAL  where the older versions kept the journal (a JSONL file): imported once into the database
  *                 and kept as <name>.bak, with the other old files beside it
  *   AMUSE_PI_MODEL, AMUSE_PI_BROWSER_MODEL, <PROVIDER>_API_KEY, AMUSE_PI_AUTH, AMUSE_COMPOSIO_KEY(_FILE)
- *                 read once, when there is no keys.json yet: taken over into it
+ *                 read once, when the Vault is new: taken over into it
+ *   AMUSE_SECRETS_DIR  where the Vault's key lives (store.key, made on first start), apart from the data
+ *                 (compose.yaml: /secrets/amuse-store); without it, beside the data, which is no protection against a leak of it
  *   AMUSE_BROWSERS  the auto-browser pool: name|controller URL|noVNC URL, comma-separated
  *                 (see compose.browsers.yaml); AUTO_BROWSER_TOKEN_FILE holds the controllers' bearer token
  *   AMUSE_PUBLIC_URL  this server's address as the user's browser reaches it (http://host:port);
@@ -25,7 +27,8 @@ import { join } from "node:path";
 import { readFileSync } from "node:fs";
 import { SandboxError, masking, sandboxClient, terminalAt } from "@amuse/sandbox";
 import { NoComposioKey, composio, composioSaid, composioApps, composioGuide, composioConnector, composioDirectory, keyedComposio } from "@amuse/composio";
-import { StartupError } from "@amuse/db";
+import { StartupError, queryOne } from "@amuse/db";
+import { z } from "zod";
 import { JournalError, sqliteChats } from "./journal.ts";
 import { locate, openData } from "./data.ts";
 import { serveProblem } from "./startup.ts";
@@ -34,13 +37,16 @@ import { workspace } from "./workspace.ts";
 import { browserPool, controller } from "@amuse/browser";
 import { type Ports, Rejected, createHost, noLogins, noSandbox, realTimers } from "@amuse/core";
 import type { Entity } from "@amuse/protocol";
-import { type PiAuth, VoiceUnavailable, adoptEnvironment, builtInSkills, skillsPort, transcriber, fileCredentials, piAgent, piBrowserAgent, piKeys, piScheduleRunner, piTaskRunner, untrustedRule } from "@amuse/pi";
+import { type KeyFile, type PiAuth, LOCAL_VOICE, VoiceUnavailable, adoptEnvironment, builtInSkills, piAgent, piBrowserAgent, piKeys, piScheduleRunner, piTaskRunner, providerNames, skillsPort, storeCredentials, transcriber, untrustedRule } from "@amuse/pi";
 import { sqliteAccess } from "./access.ts";
 import { sqliteDefaults } from "./defaults.ts";
 import { listen } from "./server.ts";
 import { sqliteRules } from "./rules.ts";
 import { refusing } from "./sandbox.ts";
-import { sandboxSecrets } from "./secrets.ts";
+import { maskingFiles } from "./masked-files.ts";
+import { KeyUnavailable } from "./seal.ts";
+import { sqliteChoices } from "./choices.ts";
+import { secretStore } from "./secret-store.ts";
 
 const port = Number(process.env["AMUSE_PORT"] ?? 8797);
 const host = process.env["AMUSE_HOST"] ?? "127.0.0.1";
@@ -69,24 +75,54 @@ const dataDir = where.dir;
 const db = await openData(where).catch(stopped);
 const access = sqliteAccess(db);
 
-/** The user's keys and models, set up in the app; what the environment held before is taken over once. */
-const keysPath = join(dataDir, "keys.json");
-const choicePath = join(dataDir, "models.json");
+/** Amuse's own machine, where there is one: commands run there by the agents, and wiped by the user in Settings */
+const sandboxUrl = process.env["AMUSE_SANDBOX_URL"];
+const sandboxDirect = sandboxUrl ? sandboxClient(sandboxUrl) : undefined;
+
+/**
+ * The Vault: every secret Amuse keeps for the user, in the database, sealed, with its key apart from the data (a folder of its
+ * own, checked at start). The keys of the models, speech and Composio are in it too, with a use for what they serve
+ * (pi/src/credentials.ts), and so are the credentials given for the sandbox. A key that is missing, damaged or not the one the
+ * secrets were sealed with stops the start here, and the address says so.
+ */
+if (!where.secretsMounted) console.warn("AMUSE_SECRETS_DIR is not set: the Vault's key is kept beside the data, so a copy of the data carries it too. Give it a folder of its own (compose.yaml does).");
+const newVault = queryOne(db, z.object({ n: z.number() }), "select (select count(*) from vault_check) + (select count(*) from model_choice) as n")?.n === 0;
+const vault = await (async () => {
+  try {
+    return secretStore({ db, keyPath: join(where.secrets, "store.key"), sandbox: sandboxDirect });
+  } catch (error) {
+    if (error instanceof KeyUnavailable) return await stopped(new StartupError({ kind: "vault-key", trouble: error.trouble }, error.message));
+    throw error;
+  }
+})();
+
+// what the sandbox could not be told to forget while it was out of reach is taken out now, and what it should hold is given again
+void vault.sweep().catch((error: unknown) => console.warn(`The sandbox could not be brought up to date with the Vault: ${error instanceof Error ? error.message : "an error"}`));
+
+/** The user's keys and models, set up in the app; what the environment held before is taken over once, into a Vault that is new. */
+const choices = sqliteChoices(db);
 const keyFile = process.env["AMUSE_COMPOSIO_KEY_FILE"];
-const adopted = await adoptEnvironment({
-  keysPath,
-  choicePath,
-  apps: {
-    composio: keyFile ? readFileSync(keyFile, "utf8").trim() : process.env["AMUSE_COMPOSIO_KEY"],
-  },
-  env: process.env,
-  ...(process.env["AMUSE_PI_AUTH"] ? { authFile: process.env["AMUSE_PI_AUTH"] } : {}),
-});
+const providerLabels = await providerNames();
+const keyNames = (id: string) => (id === "composio" ? "Composio" : id === LOCAL_VOICE ? "Your speech server" : (providerLabels.get(id) ?? id));
+const appKeyIds = ["composio"];
+// keys the old files held came in under their provider's plain id: they are given the names they are known by
+await vault.relabel(keyNames);
+const credentials: KeyFile = storeCredentials(vault, { apps: appKeyIds, names: keyNames });
+const adopted = newVault
+  ? await adoptEnvironment({
+      keys: credentials,
+      choices,
+      apps: {
+        composio: keyFile ? readFileSync(keyFile, "utf8").trim() : process.env["AMUSE_COMPOSIO_KEY"],
+      },
+      env: process.env,
+      ...(process.env["AMUSE_PI_AUTH"] ? { authFile: process.env["AMUSE_PI_AUTH"] } : {}),
+    })
+  : [];
 if (adopted.length > 0) console.log(`Keys taken over from the environment: ${adopted.join(", ")}. Set them in the app from now on.`);
-const credentials = fileCredentials(keysPath);
 const keys = piKeys({
   keys: credentials,
-  choicePath,
+  choices,
   apps: [
     {
       id: "composio",
@@ -101,12 +137,8 @@ const keys = piKeys({
   ],
 });
 const auth: PiAuth = { kind: "keys", keys: credentials };
-/** Amuse's own machine, where there is one: commands run there by the agents, and wiped by the user in Settings */
-const sandboxUrl = process.env["AMUSE_SANDBOX_URL"];
-const sandboxDirect = sandboxUrl ? sandboxClient(sandboxUrl) : undefined;
-/** credentials the user gave for the sandbox (secrets.ts): kept, given, and masked in all it says to the agent */
-const given = sandboxDirect ? sandboxSecrets(join(dataDir, "sandbox-secrets.json"), sandboxDirect) : undefined;
-const sandbox = sandboxDirect && given ? masking(sandboxDirect, () => given.masked()) : undefined;
+/** what the sandbox says to the agents comes back with the secrets that are in it masked (the Vault knows which) */
+const sandbox = sandboxDirect && masking(sandboxDirect, () => vault.masked());
 const model = () => keys.model("chat");
 const browserModel = () => keys.model("browser");
 const system = [
@@ -131,6 +163,7 @@ const system = [
         "You have a computer of your own, a sandbox, for running programs, scripts and installs (the sandbox skill says how). What you do inside it needs no one's OK; deleting or overwriting the user's own files, or anything that leaves it, still does.",
       ]
     : []),
+  "Secrets: look with `list_secrets` before you ask for one, and never ask for one in the chat. A code a program waits for (a login, verification or OAuth code) is temporary: ask with `request_secret` for the terminal it waits in, and it is typed there and kept nowhere. A key, token or password for later is long-term: ask with `request_secret` and it is saved to the user's vault, encrypted (they see it in Settings › Vault): you fill in its plain fields (a username, an account id: ask the user in the chat if you do not know them), and the user types only the secrets on the card; `use_secret` puts it to use in your sandbox. When your work needs a model provider's or Composio's key that is not set up, ask for it with `request_secret` and `provider` instead of sending the user to Settings. You never see a secret's value; what your sandbox prints shows it masked.",
   untrustedRule,
 ].join("\n");
 /** connections go through Composio, with the key set up now (none: each use says it is needed) */
@@ -140,6 +173,8 @@ const composioUser = "owner";
 const rules = sqliteRules(db);
 // Muse's workspace, and the index of sent files kept in the database
 const files = workspace(join(dataDir, "workspace"), sqliteSent(db), dataDir);
+/** what the agents read of it comes back with the secrets that are in the sandbox masked (the user's own view of their files is the workspace itself) */
+const agentFiles = maskingFiles(files, () => vault.masked());
 const publicUrl = process.env["AMUSE_PUBLIC_URL"];
 const connector = composioConnector(composioClient, {
   userId: composioUser,
@@ -244,9 +279,10 @@ const about = async (): Promise<string> => {
 };
 
 const ports: Ports = {
-  ...piAgent({ model, thinking: () => keys.thinking("chat"), auth, system, rules, files, ...(sandbox ? { sandbox } : {}), apps, search: apps.search, appsSetup: () => (keys.appKey("composio") ? null : composioGuide), skills, about, defaults: sqliteDefaults(db) }),
+  ...piAgent({ secrets: { secrets: vault, keys }, model, thinking: () => keys.thinking("chat"), auth, system, rules, files: agentFiles, ...(sandbox ? { sandbox } : {}), apps, search: apps.search, appsSetup: () => (keys.appKey("composio") ? null : composioGuide), skills, about, defaults: sqliteDefaults(db) }),
   // scheduled work runs on the background model (the chat's when none is chosen)
   ...piScheduleRunner({
+    secrets: { secrets: vault, keys },
     model: () => keys.model("background"),
     thinking: () => keys.thinking("background"),
     auth,
@@ -254,12 +290,13 @@ const ports: Ports = {
     skills,
     about,
     rules,
-    files,
+    files: agentFiles,
     ...(sandbox ? { sandbox } : {}),
     apps,
     search: apps.search,
   }),
   ...piTaskRunner({
+    secrets: { secrets: vault, keys },
     model,
     thinking: () => keys.thinking("chat"),
     auth,
@@ -267,7 +304,7 @@ const ports: Ports = {
     skills,
     about,
     rules,
-    files,
+    files: agentFiles,
     ...(sandbox ? { sandbox } : {}),
     apps,
     search: apps.search,
@@ -298,7 +335,7 @@ const ports: Ports = {
         fit: () => {},
       }),
   sandbox:
-    sandbox && given
+    sandbox && sandboxDirect
       ? {
           reset: async () => {
             try {
@@ -307,14 +344,12 @@ const ports: Ports = {
               // our own words only, never what the sandbox said about it (`detail`)
               throw error instanceof SandboxError ? new Rejected({ kind: "unsound", reason: error.message }) : error;
             }
-            // the reset emptied its home, where the credentials were
-            await given.again();
+            // the reset emptied its home, where the secrets were put: given again
+            await vault.again();
           },
-          give: (request, value) => given.give(request, value),
-          secrets: () => given.secrets(),
-          forget: (id) => given.forget(id),
         }
       : noSandbox,
+  secrets: vault,
   rules,
   approval: () => {}, // waiting agents get the verdict through AgentIO.decision
   // a card from before the key was removed: the user hears where to add one

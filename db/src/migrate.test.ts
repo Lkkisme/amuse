@@ -12,7 +12,7 @@ import { StartupError } from "./problem.ts";
 import { tempFolder } from "./testing.ts";
 
 const folder = () => tempFolder("amuse-runner-");
-const context = (dir: string): Omit<Context, "db"> => ({ dataDir: dir, journal: join(dir, "events.jsonl"), log: () => {} });
+const context = (dir: string): Omit<Context, "db"> => ({ dataDir: dir, journal: join(dir, "events.jsonl"), secretsDir: join(dir, "secret-key"), log: () => {} });
 const tables = (db: DatabaseSync) => query(db, z.object({ name: z.string() }), "select name from sqlite_master where type = 'table' and name not like 'sqlite_%' order by name").map((r) => r.name);
 
 /** A folder of migrations: SQL files as given, and TypeScript ones from their source. */

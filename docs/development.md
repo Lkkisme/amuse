@@ -46,8 +46,11 @@ keys on, a 5 s `busy_timeout`, `synchronous = full` (every commit is on disk whe
 What is in it: the journal (`events`, append-only, one row per event, replayed one row at a time; the host keeps
 only the latest 1000 events of a chat to catch a client up, and sends a snapshot to one further behind), chats,
 the rules, the password and its sessions, the defaults set up, the index of sent files. What stays as files: the
-workspace (Amuse's memory, goals, skills and the user's files), and, until the Secret store moves them, `keys.json`,
-`models.json` and `sandbox-secrets.json`.
+workspace (Amuse's memory, goals, skills and the user's files). The Vault (the user's long-term secrets, and the keys of
+the models, speech and Composio, with the model choice) is in it too, with every secret value sealed: its key is a file
+in a folder of its own (`AMUSE_SECRETS_DIR`, the `vault-key` volume), never in `/data`. The image sets it; in development
+set it in `~/.config/remuse/dev.env` to a folder apart from the data (without it, the key is made in `secret-key/` beside the
+data, with a warning), and compose.yaml's `secrets` service makes the volume's folder for uid 1000.
 
 Replay is not the bottleneck yet: 620,000 events (about a year of use) replay in 1.3 s. If that changes, the next step
 is a snapshot of each chat's state with the last event it covers, but a snapshot is only a cache of the events and
@@ -67,6 +70,9 @@ export [chat]         the chat's journal as JSONL (the main chat by default), ea
 chats                 the chats and how many events each has
 reset-password        forget the master password; the next visit sets one
 schema                write db/schema.sql
+restore-secret-files  write keys.json and sandbox-secrets.json back from their sealed copies in the database
+forget-secret-files --yes   delete those sealed copies
+reset-vault --yes     forget everything in the Vault (its key is lost for good), after a copy, so a new key can be made
 ```
 
 ### Migrations
@@ -111,10 +117,15 @@ To add a migration, give it a timestamp later than the newest (`date -u +%Y%m%d%
   only and stores the event's text exactly as written, so a field this version does not know is never dropped; the live schema reads it at
   replay.
 
-The Secret store adds its tables and its move of `keys.json`, the model choice and `sandbox-secrets.json` this way:
-a SQL migration for the tables, and a TypeScript one (`<timestamp>_import_secrets.ts`) for the move, using `Context`
-and the same pattern as `db/src/legacy/import.ts`. Anything that needs a folder checked at start (a key folder) adds a
-`Requirement` to the `preflight` list in `data.ts`, with a `Hint`.
+The Vault is an example of both kinds: `20261023110000_vault.sql` makes its tables, and `20261023110100_import_secrets.ts`
+moves `keys.json`, `models.json` and `sandbox-secrets.json` into them (the work is in `db/src/legacy/vault.ts`, which has
+its own frozen copy of how a value is sealed; a test in `api/` checks that it opens in the live Vault). Sealing is
+synchronous (`node:crypto`), as `up` must be. The two files that held secrets in the open are deleted after the import is
+read back and every secret opened again; the database keeps them only sealed (`imported_secret_files`), and `amuse-admin
+restore-secret-files` and `forget-secret-files` bring them back or delete them. `Context.secretsDir` is the key's folder.
+Anything that needs a folder checked at start (a key folder) adds a `Requirement` to the `preflight` list in `data.ts`, with
+a `Hint`: the Vault's is `key-folder`. A store takes `db`, writes in `transaction()` (a savepoint when a caller has one
+open), and does what reaches the sandbox first and takes it back if a step fails (`api/src/secret-store.ts`).
 
 ### Upgrade fixtures
 

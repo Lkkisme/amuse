@@ -17,6 +17,7 @@
  */
 import type { Attachment, Entity, State, When } from "@amuse/protocol";
 import { localTime, userZone } from "./schedule.ts";
+import { askedFor } from "./secrets.ts";
 
 export interface Budget {
   /** characters of the newest part, rendered in full */
@@ -90,11 +91,9 @@ export function line(entity: Entity, detail: Detail, zone: string, where: Where 
       return `[${at}] Approval to ${entity.action} ${entity.target}: ${entity.status}`;
     case "connection":
       return `[${at}] Connect ${entity.title}: ${entity.status}`;
-    case "secret": {
+    case "secret":
       // what and where only: the value never reaches the agent
-      const where = entity.deliver.kind === "env" ? `$${entity.deliver.name}` : entity.deliver.kind === "file" ? entity.deliver.path : `terminal ${entity.deliver.pane}`;
-      return `[${at}] Asked the user for a credential, ${entity.name}, for ${where} in your sandbox: ${entity.status}`;
-    }
+      return `[${at}] Asked the user for ${entity.name}, ${askedFor(entity.deliver)}: ${entity.status}`;
     case "failure":
       return `[${at}] (You could not reply here: ${entity.reason === "refused" ? "the model's provider refused (content filter)" : "the model's service failed"}${entity.status === "retried" ? "; tried again" : ""})`;
     case "instruction":

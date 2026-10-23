@@ -84,7 +84,9 @@ test("an event the running version cannot read stops the import before anything 
   assert.ok(problem?.kind === "migration-failed" && /line 2 is an event this version of Amuse cannot read; nothing was imported or renamed/.test(problem.message));
   assert.ok(!existsSync(join(dir, "events.jsonl.bak")) && !existsSync(join(dir, "access.json.bak")), "nothing renamed");
   assert.equal(readFileSync(join(dir, "events.jsonl"), "utf8"), `${fine}\n${odd}\n`);
-  assert.deepEqual(readdirSync(dir).filter((n) => !n.startsWith("amuse.db") && n !== "backups" && n !== "workspace").sort(), before.filter((n) => n !== "workspace" && n !== "backups"));
+  // the folders the start makes (backups, workspace, the Vault's key folder) are not the old files
+  const made = (n: string) => n.startsWith("amuse.db") || ["backups", "workspace", "secret-key"].includes(n);
+  assert.deepEqual(readdirSync(dir).filter((n) => !made(n)).sort(), before.filter((n) => !made(n)));
   const db = openDatabase(join(dir, "amuse.db"));
   assert.equal(query(db, z.object({ n: z.number() }), "select count(*) as n from events")[0]?.n, 0, "no row stayed");
   assert.equal(query(db, z.object({ n: z.number() }), "select count(*) as n from access")[0]?.n, 0);

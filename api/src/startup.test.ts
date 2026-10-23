@@ -4,7 +4,7 @@ import type { Hint, Problem } from "@amuse/db";
 import { type Language, catalogs, explain, languageOf, problemPage, serveProblem } from "./startup.ts";
 
 const languages: Language[] = ["en", "zh-CN"];
-const hints: Hint[] = ["compose-up", "data-volume"];
+const hints: Hint[] = ["compose-up", "data-volume", "key-folder"];
 const troubles: Extract<Problem, { kind: "folder" }>["trouble"][] = ["missing", "not-a-folder", "not-writable"];
 
 /** One of each kind of problem, with sample values: a kind added to Problem does not compile here until it is listed. */
@@ -17,6 +17,7 @@ const samples: { [K in Problem["kind"]]: Extract<Problem, { kind: K }> } = {
   "migration-failed": { kind: "migration-failed", version: "20261023100100", name: "import_json", message: "DETAIL SyntaxError: Unexpected token 's3cret' in JSON at position 4", backup: "/data/backups/x-pre-migrate.db" },
   "journal-unreadable": { kind: "journal-unreadable", chat: "c-1", event: 7 },
   "old-files": { kind: "old-files", files: ["events.jsonl", "access.json"] },
+  "vault-key": { kind: "vault-key", trouble: "wrong" },
 };
 
 test("every kind of problem has its words in each language, using what happened", () => {

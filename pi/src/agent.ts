@@ -21,7 +21,8 @@ import { statusOf } from "./status.ts";
 import { relayTools } from "./runs.ts";
 import { taskTools } from "./tasks.ts";
 import { scheduleTools } from "./schedules.ts";
-import { CHAT_LIMITS, sandboxTools, secretTools } from "./sandbox.ts";
+import { CHAT_LIMITS, sandboxTools } from "./sandbox.ts";
+import { type SecretAccess, secretTools } from "./secrets.ts";
 import { sayTools, silenceTools } from "./silence.ts";
 import { type Apps, appTools, chatTools, tools } from "./tools.ts";
 import { type Search, webTools } from "./web.ts";
@@ -38,6 +39,8 @@ export interface PiConfig extends PiModelConfig {
   files?: Workspace;
   /** Its own machine to run commands in (the chat agent and its helpers; not the browser agent); without one, no such tools. */
   sandbox?: SandboxClient;
+  /** The Vault, and the keys (to ask for one of Amuse's own): the agent's tools for secrets. */
+  secrets?: Omit<SecretAccess, "sandbox">;
   /** While apps are not set up: how the user sets them up (null once they are). */
   appsSetup?: () => string | null;
   /** The skills that ship with Amuse (the user's own are read from skills/ in the workspace). */
@@ -378,7 +381,8 @@ export function agentTools(cfg: PiConfig, io: () => AgentIO, heard: () => boolea
     ...webTools(io, cfg.rules, cfg.search),
     ...(cfg.apps ? appTools(io, cfg.apps) : []),
     ...(cfg.files ? workspaceTools(io, cfg.files) : []),
-    ...(cfg.sandbox ? [...sandboxTools(cfg.sandbox, CHAT_LIMITS), ...secretTools(io)] : []),
+    ...(cfg.sandbox ? sandboxTools(cfg.sandbox, CHAT_LIMITS) : []),
+    ...(cfg.secrets ? secretTools(io, { ...cfg.secrets, sandbox: cfg.sandbox !== undefined }) : []),
     ...sayTools(io),
     ...silenceTools(heard, silence),
   ];

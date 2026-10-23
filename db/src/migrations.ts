@@ -19,6 +19,8 @@ export interface Context {
   dataDir: string;
   /** Where the old journal lived (events.jsonl, or whatever AMUSE_JOURNAL named). */
   journal: string;
+  /** The folder the Vault's key lives in, apart from the data (AMUSE_SECRETS_DIR). */
+  secretsDir: string;
   /** Said in the server's log. */
   log(message: string): void;
   /**

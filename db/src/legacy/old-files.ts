@@ -5,18 +5,19 @@
  * `retireOldFiles` finishes the rename, for the files that are exactly what was imported and no others.
  */
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, renameSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { join, relative } from "node:path";
 import { z } from "zod";
 import type { Context } from "../migrations.ts";
 import { type Db, query } from "../open.ts";
+import { SECRET_FILES, VAULT_FILES } from "./vault.ts";
 
 const SIDE = /^(.+)\.jsonl$/;
 
 /** The old files that are there: the journal, the other JSON files, and the side chats' journals of chats the database has. */
 export function oldFilesBeside(db: Db, context: Omit<Context, "db">): string[] {
   const chats = new Set(query(db, z.object({ id: z.string() }), "select id from chats").map((c) => c.id));
-  const fixed = [context.journal, ...["chats.json", "rules.json", "access.json", "defaults.json", "sent.json"].map((name) => join(context.dataDir, name))];
+  const fixed = [context.journal, ...["chats.json", "rules.json", "access.json", "defaults.json", "sent.json", ...Object.values(VAULT_FILES)].map((name) => join(context.dataDir, name))];
   const sideDir = join(context.dataDir, "chats");
   const side = existsSync(sideDir)
     ? readdirSync(sideDir)
@@ -34,18 +35,27 @@ export function retired(path: string): string {
   }
 }
 
-/** Rename each old file that is, byte for byte, what imported_files says was imported; say which were, and which were not (they differ, or were never imported). */
-export function retireOldFiles(db: Db, context: Omit<Context, "db">): { renamed: { name: string; to: string }[]; kept: string[] } {
+/**
+ * Rename each old file that is, byte for byte, what imported_files says was imported (`to`: its new name), and delete the ones
+ * that held secrets in the open (`to`: null; the database has them sealed); say which were, and which were not (they differ, or
+ * were never imported).
+ */
+export function retireOldFiles(db: Db, context: Omit<Context, "db">): { renamed: { name: string; to: string | null }[]; kept: string[] } {
   const imported = new Map(query(db, z.object({ name: z.string(), sha256: z.string() }), "select name, sha256 from imported_files").map((row) => [row.name, row.sha256]));
-  const renamed: { name: string; to: string }[] = [];
+  const renamed: { name: string; to: string | null }[] = [];
   const kept: string[] = [];
   for (const name of oldFilesBeside(db, context)) {
     const path = join(context.dataDir, name);
     const same = imported.get(name) === createHash("sha256").update(readFileSync(path)).digest("hex");
     if (same) {
-      const to = retired(path);
-      renameSync(path, to);
-      renamed.push({ name, to: relative(context.dataDir, to) });
+      if (SECRET_FILES.includes(name)) {
+        rmSync(path);
+        renamed.push({ name, to: null });
+      } else {
+        const to = retired(path);
+        renameSync(path, to);
+        renamed.push({ name, to: relative(context.dataDir, to) });
+      }
     } else kept.push(name);
   }
   return { renamed, kept };

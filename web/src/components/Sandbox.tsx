@@ -3,18 +3,16 @@
  * what it installs. Resetting stops what runs in it and wipes its home folder;
  * the workspace (the files shared with the user) is kept, and so is what was
  * installed system-wide, until the container is recreated on the server (see
- * the README). Below, the credentials given for it (on Amuse's cards): what
- * and where, never their values, each to take back.
+ * the README). The credentials it uses live in the Vault, which a row here leads to.
  */
-import { useCallback, useEffect, useState } from "react";
-import { KeyRound, Terminal } from "lucide-react";
-import type { SecretInfo, Session } from "@amuse/protocol";
+import { useState } from "react";
+import { ChevronRight, KeyRound, Terminal } from "lucide-react";
+import type { Session } from "@amuse/protocol";
 import { Button } from "./Button";
 import { ConfirmSheet } from "./ConfirmSheet";
 import { useT } from "../i18n/react.ts";
-import type { Messages } from "../i18n/en.ts";
 
-export function Sandbox({ session }: { session: Session }) {
+export function Sandbox({ session, onSecrets }: { session: Session; onSecrets: () => void }) {
   const t = useT();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -86,7 +84,23 @@ export function Sandbox({ session }: { session: Session }) {
         </li>
       </ul>
 
-      <Credentials session={session} />
+      <ul
+        className="mt-3 divide-y divide-[var(--fill-divider)] rounded-[18px] px-4"
+        style={{ background: "var(--fill-secondary)" }}
+      >
+        <li>
+          <button className="flex w-full items-center gap-3 py-2.5 text-left" onClick={onSecrets}>
+            <KeyRound size={18} style={{ color: "var(--icon-secondary)" }} />
+            <span
+              className="min-w-0 flex-1 text-[16px]"
+              style={{ color: "var(--text-primary)" }}
+            >
+              {t.sandbox.secretsRow}
+            </span>
+            <ChevronRight size={16} style={{ color: "var(--icon-secondary)" }} />
+          </button>
+        </li>
+      </ul>
 
       <ConfirmSheet
         open={confirming}
@@ -99,115 +113,5 @@ export function Sandbox({ session }: { session: Session }) {
         onConfirm={reset}
       />
     </div>
-  );
-}
-
-/** Where a credential went, as the user reads it. */
-function where(deliver: SecretInfo["deliver"], t: Messages): string {
-  if (deliver.kind === "env") return t.sandbox.deliverEnv(deliver.name);
-  if (deliver.kind === "file") return t.sandbox.deliverFile(deliver.path.replace(/^~?\/?/, ""));
-  return t.sandbox.deliverPane(deliver.pane);
-}
-
-function Credentials({ session }: { session: Session }) {
-  const t = useT();
-  const [secrets, setSecrets] = useState<SecretInfo[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [removing, setRemoving] = useState<SecretInfo | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const load = useCallback(
-    () =>
-      session.call("secrets.list", {}).then(
-        ({ secrets }) => setSecrets(secrets),
-        () => setSecrets([]),
-      ),
-    [session],
-  );
-  useEffect(() => void load(), [load]);
-
-  const remove = (secret: SecretInfo) => {
-    setBusy(true);
-    setError(null);
-    session
-      .call("secrets.remove", { id: secret.id })
-      .then(load, (e: unknown) =>
-        setError(e instanceof Error ? e.message : String(e)),
-      )
-      .finally(() => {
-        setBusy(false);
-        setRemoving(null);
-      });
-  };
-
-  return (
-    <section className="mt-6">
-      <p
-        className="mb-2 text-[13px] font-semibold"
-        style={{ color: "var(--text-secondary)" }}
-      >
-        {t.sandbox.credentials}
-      </p>
-      {error && (
-        <p
-          role="alert"
-          className="mb-2 text-[13px]"
-          style={{ color: "var(--fill-red)" }}
-        >
-          {error}
-        </p>
-      )}
-      <ul
-        className="divide-y divide-[var(--fill-divider)] rounded-[18px] px-4"
-        style={{ background: "var(--fill-secondary)" }}
-      >
-        {secrets === null && (
-          <li className="py-3">
-            <div className="skeleton h-5 w-2/5 rounded" />
-          </li>
-        )}
-        {secrets?.length === 0 && (
-          <li
-            className="py-3 text-[14px]"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            {t.sandbox.noCredentials}
-          </li>
-        )}
-        {secrets?.map((s) => (
-          <li key={s.id} className="flex items-center gap-3 py-2.5">
-            <KeyRound size={18} style={{ color: "var(--icon-secondary)" }} />
-            <span className="min-w-0 flex-1">
-              <span
-                className="block truncate text-[16px]"
-                style={{ color: "var(--text-primary)" }}
-              >
-                {s.name}
-              </span>
-              <span
-                className="block truncate text-[13px]"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                {where(s.deliver, t)}
-              </span>
-            </span>
-            <Button onCard tone="danger" onClick={() => setRemoving(s)}>
-              {t.common.remove}
-            </Button>
-          </li>
-        ))}
-      </ul>
-
-      <ConfirmSheet
-        open={removing !== null}
-        onClose={() => setRemoving(null)}
-        icon={KeyRound}
-        title={t.sandbox.removeTitle(removing?.name ?? "")}
-        body={t.sandbox.removeHelp}
-        action={t.common.remove}
-        busy={busy}
-        onConfirm={() => removing && remove(removing)}
-      />
-    </section>
   );
 }

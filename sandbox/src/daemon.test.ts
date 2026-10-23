@@ -165,6 +165,13 @@ test("a credential file goes in the home folder, never the workspace or out of h
   assert.equal(existsSync(written), false);
 });
 
+test("a credential file may be bytes, sent as base64", async () => {
+  const bytes = Buffer.from([0, 1, 2, 250, 251, 252]);
+  await sandbox.setFile({ path: ".config/tool/store.p12", value: bytes.toString("base64"), encoding: "base64" });
+  assert.deepEqual(readFileSync(join(home, ".config", "tool", "store.p12")), bytes);
+  await sandbox.forget({ file: ".config/tool/store.p12" });
+});
+
 test("nothing a browser sends is taken: a page's POST or websocket says where it comes from, and is refused", async () => {
   const file = join(root, "from-a-page");
   const page = await fetch(`http://127.0.0.1:${daemon.port}/run`, {

@@ -332,7 +332,7 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
   };
 
   /** Write `text` to `path` as the user's own, readable by them alone, with its folders. */
-  const keep = async (path: string, text: string) => {
+  const keep = async (path: string, text: string | Buffer) => {
     const folder = dirname(path);
     await mkdir(folder, { recursive: true, mode: 0o700 });
     for (let at = folder; at !== home && at.startsWith(`${home}/`); at = dirname(at)) if (user) await lchown(at, user.uid, user.gid);
@@ -348,8 +348,8 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
     return {};
   };
 
-  const setFile = async ({ path, value }: SecretFile) => {
-    await keep(homePath(path), value);
+  const setFile = async ({ path, value, encoding }: SecretFile) => {
+    await keep(homePath(path), encoding === "base64" ? Buffer.from(value, "base64") : value);
     return {};
   };
 

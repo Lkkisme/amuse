@@ -19,7 +19,7 @@ import type {
   Resolution,
   RunOutcome,
   Schedule,
-  SecretDestination,
+  SecretAsk,
   State,
   Task,
   TaskStatus,
@@ -98,7 +98,7 @@ export type AgentAction =
   /** Hand a browser task to the browser port; it starts working at once. `instructions`: the user's ask in full; `files`: workspace files it may upload. */
   | { kind: "browse"; title: string; url: string; instructions: string; files: string[] }
   /** Ask the user to approve a consequential step before taking it; `remember`: the answer may become a rule. */
-  | { kind: "ask"; action: string; target: string; detail: string; remember: boolean; app?: string | null }
+  | { kind: "ask"; action: string; target: string; detail: string; remember: boolean; app?: string | null; lasting?: boolean }
   /** Record that the user's own rule refused a step, without asking: an approval that ends denied by the rule (their Approvals list shows it). */
   | { kind: "refuse"; action: string; target: string; detail: string; app?: string | null }
   /** A browser run's progress, from the agent driving it. */
@@ -124,10 +124,10 @@ export type AgentAction =
   | { kind: "schedule"; title: string; instructions: string; when: When; needs?: Needs | null; preset?: boolean; goal?: string | null }
   /** Cancel a schedule for good. */
   | { kind: "unschedule"; id: string }
-  /** Ask the user for a credential for the sandbox, on a card (the value goes from there to the sandbox, never through here). */
-  | { kind: "askSecret"; name: string; why: string; deliver: SecretDestination }
-  /** A credential request was answered (by the server, once the value is where it was to go). */
-  | { kind: "secretAnswered"; id: string; outcome: "provided" | "declined" }
+  /** Ask the user for a secret on a card: a temporary code for a terminal, or a long-term secret for the Vault (the value goes from there to where it is kept or typed, never through here). */
+  | { kind: "askSecret"; name: string; why: string; deliver: SecretAsk }
+  /** A secret request was answered (by the server, once the value is where it was to go). */
+  | { kind: "secretAnswered"; id: string; outcome: "provided" | "declined"; hint?: string | null }
   /** One every instance starts with takes its instructions as this version of Amuse words them (they ship with it, like the built-in skills). */
   | { kind: "revisePreset"; title: string; instructions: string }
   /** A schedule's run has ended, and how. */
@@ -366,10 +366,10 @@ const agentRules: AgentRules = {
     const id = ctx.id("c");
     return ok([upsert({ kind: "connection", id, at: ctx.now, provider, title, status: "pending" })], [], { id });
   },
-  ask: (_, { action, target, detail, remember, app = null }, ctx) => {
+  ask: (_, { action, target, detail, remember, app = null, lasting = false }, ctx) => {
     const id = ctx.id("a");
     const expires = later(ctx.now, APPROVAL_TTL_MS);
-    return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, remember, status: "pending", expires, app, always: false, byRule: false })], [], { id });
+    return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, remember, status: "pending", expires, app, always: false, byRule: false, lasting })], [], { id });
   },
   refuse: (state, { action, target, detail, app = null }, ctx) => {
     const now = Date.parse(ctx.now);
@@ -382,7 +382,7 @@ const agentRules: AgentRules = {
     const last = lately.at(-1);
     if (last && lately.length >= MOST_REFUSALS_PER_HOUR) return ok([], [], { id: last.id });
     const id = ctx.id("a");
-    return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, remember: false, status: "denied", expires: ctx.now, app, always: false, byRule: true })], [], { id });
+    return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, remember: false, status: "denied", expires: ctx.now, app, always: false, byRule: true, lasting: false })], [], { id });
   },
   schedule: (state, { title, instructions, when, needs = null, preset = false, goal = null }, ctx) => {
     if (standing(state).length >= MAX_SCHEDULES) return reject({ kind: "unsound", reason: `there are already ${MAX_SCHEDULES} schedules; cancel one first` });
@@ -398,11 +398,13 @@ const agentRules: AgentRules = {
     const id = ctx.id("k");
     return ok([upsert({ kind: "secret", id, at: ctx.now, name, why, deliver, status: "pending" })], [], { id });
   },
-  secretAnswered: (state, { id, outcome }) => {
+  secretAnswered: (state, { id, outcome, hint = null }) => {
     const request = find(state, "secret", id);
     if (!request) return reject({ kind: "notFound", entity: "secret", id });
     if (request.status !== "pending") return ok([], [], { id });
-    return ok([upsert({ ...request, status: outcome })], [], { id });
+    // a key's card keeps the end of the key that was added
+    const deliver = request.deliver.kind === "key" ? { ...request.deliver, hint } : request.deliver;
+    return ok([upsert({ ...request, deliver, status: outcome })], [], { id });
   },
   revisePreset: (state, { title, instructions }) => {
     const preset = state.entities.find((e): e is Schedule => e.kind === "schedule" && e.preset && e.title === title && (e.status === "active" || e.status === "paused"));

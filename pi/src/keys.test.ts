@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileCredentials } from "./credentials.ts";
-import { bare, piKeys, plainly } from "./keys.ts";
+import { bare, memoryChoices, piKeys, plainly } from "./keys.ts";
 import { transcriber } from "./voice.ts";
 
 const composio = {
@@ -23,7 +23,7 @@ function setup() {
   const path = join(dir, "keys.json");
   const keys = piKeys({
     keys: fileCredentials(path),
-    choicePath: join(dir, "models.json"),
+    choices: memoryChoices(),
     apps: [composio],
   });
   return { dir, path, keys };
@@ -37,7 +37,7 @@ test("a provider's key is set up through its own prompts, kept owner-only, and s
   assert.equal(first.kind, "prompt");
   if (first.kind !== "prompt") return;
   assert.equal(first.prompt.type, "secret");
-  assert.deepEqual(await keys.answer(first.login, "fw_secret_key_1234"), {
+  assert.deepEqual(await keys.answer(first.login, "fw_secret_key_fake_value_1234"), {
     kind: "done",
   });
   assert.equal(changes, 1);
@@ -51,7 +51,7 @@ test("a provider's key is set up through its own prompts, kept owner-only, and s
     connected: true,
     hint: "…1234",
   });
-  assert.ok(!JSON.stringify(listed).includes("fw_secret_key_1234"), "the key never comes back");
+  assert.ok(!JSON.stringify(listed).includes("fw_secret_key_fake_value_1234"), "the key never comes back");
   assert.ok(listed.models.length > 0 && listed.models.every((m) => m.provider === "fireworks"));
   assert.equal(statSync(path).mode & 0o777, 0o600);
 
@@ -63,7 +63,7 @@ test("models are chosen among those offered; the browser's must see pictures; fo
   const { keys } = setup();
   const first = await keys.login("fireworks");
   if (first.kind !== "prompt") return assert.fail("expected a prompt");
-  await keys.answer(first.login, "fw_secret_key_1234");
+  await keys.answer(first.login, "fw_secret_key_fake_value_1234");
   const { models } = await keys.list();
   const seeing = models.find((m) => m.images);
   const blind = models.find((m) => !m.images);
@@ -89,21 +89,21 @@ test("an app's key is asked for with where to get it, and read back by the serve
   const first = await keys.login("composio");
   if (first.kind !== "prompt") return assert.fail("expected a prompt");
   assert.equal(first.notes[0]?.links[0]?.url, composio.link.url);
-  assert.deepEqual(await keys.answer(first.login, "  ak_composio_5678 "), {
+  assert.deepEqual(await keys.answer(first.login, "  ak_composio_fake_value_5678 "), {
     kind: "done",
   });
-  assert.equal(keys.appKey("composio"), "ak_composio_5678");
+  assert.equal(keys.appKey("composio"), "ak_composio_fake_value_5678");
   assert.equal((await keys.list()).providers[0]?.hint, "…5678");
 
   // kept across restarts
   const again = piKeys({
     keys: fileCredentials(join(dir, "keys.json")),
-    choicePath: join(dir, "models.json"),
+    choices: memoryChoices(),
     apps: [composio],
   });
   await again.list();
-  assert.equal(again.appKey("composio"), "ak_composio_5678");
-  assert.ok(readFileSync(join(dir, "keys.json"), "utf8").includes("ak_composio_5678"));
+  assert.equal(again.appKey("composio"), "ak_composio_fake_value_5678");
+  assert.ok(readFileSync(join(dir, "keys.json"), "utf8").includes("ak_composio_fake_value_5678"));
 });
 
 test("a sign-in can be stopped, and an unknown provider is refused", async () => {
@@ -121,7 +121,7 @@ test("a key is tried on request: none set up says so; an app's test says how it 
   let works = true;
   const keys = piKeys({
     keys: fileCredentials(join(dir, "keys.json")),
-    choicePath: join(dir, "models.json"),
+    choices: memoryChoices(),
     apps: [
       {
         ...composio,
@@ -136,12 +136,12 @@ test("a key is tried on request: none set up says so; an app's test says how it 
 
   const first = await keys.login("composio");
   if (first.kind !== "prompt") return assert.fail("expected a prompt");
-  await keys.answer(first.login, "ak_composio_5678");
+  await keys.answer(first.login, "ak_composio_fake_value_5678");
   assert.deepEqual(await keys.test("composio"), { ok: true, detail: "The key works." });
   works = false;
   const failed = await keys.test("composio");
   assert.equal(failed.ok, false);
-  assert.ok(failed.detail.includes("401") && !failed.detail.includes("ak_composio_5678"));
+  assert.ok(failed.detail.includes("401") && !failed.detail.includes("ak_composio_fake_value_5678"));
 });
 
 test("a provider's error reads plainly", () => {
@@ -164,16 +164,16 @@ test("a key pasted as an env file line gives its value", async () => {
   assert.equal(bare("KEY="), "KEY=");
 
   const dir = mkdtempSync(join(tmpdir(), "amuse-keys-"));
-  const keys = piKeys({ keys: fileCredentials(join(dir, "keys.json")), choicePath: join(dir, "models.json"), apps: [composio] });
+  const keys = piKeys({ keys: fileCredentials(join(dir, "keys.json")), choices: memoryChoices(), apps: [composio] });
   const first = await keys.login("composio");
   if (first.kind !== "prompt") return assert.fail("expected a prompt");
-  await keys.answer(first.login, "COMPOSIO_API_KEY=ak_composio_5678");
-  assert.equal(keys.appKey("composio"), "ak_composio_5678");
+  await keys.answer(first.login, "COMPOSIO_API_KEY=ak_composio_fake_value_5678");
+  assert.equal(keys.appKey("composio"), "ak_composio_fake_value_5678");
 });
 
 test("each role's model thinks as much as chosen, within what the model takes; another model keeps the nearest level", async () => {
   const dir = mkdtempSync(join(tmpdir(), "amuse-keys-"));
-  const keys = piKeys({ keys: fileCredentials(join(dir, "keys.json")), choicePath: join(dir, "models.json") });
+  const keys = piKeys({ keys: fileCredentials(join(dir, "keys.json")), choices: memoryChoices() });
   for (const provider of ["fireworks", "openrouter"]) {
     const first = await keys.login(provider);
     if (first.kind !== "prompt") return assert.fail("expected a prompt");
@@ -206,7 +206,7 @@ test("the browser and scheduled work run on the chat's model until they have one
   const { keys } = setup();
   const first = await keys.login("fireworks");
   if (first.kind !== "prompt") return assert.fail("expected a prompt");
-  await keys.answer(first.login, "fw_secret_key_1234");
+  await keys.answer(first.login, "fw_secret_key_fake_value_1234");
   const [a, b] = (await keys.list()).models;
   assert.ok(a && b);
   await keys.choose("chat", a.id);

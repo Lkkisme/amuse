@@ -8,10 +8,14 @@
  *   chats                 the chats, with how many events each has
  *   reset-password        forget the master password and every session: the next visit sets a new one
  *   schema                write db/schema.sql from the migrations
+ *   restore-secret-files --yes  write keys.json and sandbox-secrets.json back from their sealed copies in the database (to go back to an older Amuse, or to read them)
+ *   forget-secret-files --yes   delete those sealed copies, once the Vault is known to hold everything
+ *   reset-vault --yes     forget everything in the Vault (when its key is lost for good and nothing can be opened), so that a new key can be made
  */
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { type Db, MEMORY, StartupError, applied, dataMigrations, describePending, dumpSchema, loadMigrations, migrate, openDatabase, openReadOnly, plan, refuseNewer, retireOldFiles, revert, snapshot } from "@amuse/db";
+import { type Db, MEMORY, StartupError, applied, dataMigrations, describePending, dumpSchema, forgetSecretFiles, KEY_NAME, loadMigrations, migrate, openDatabase, openReadOnly, plan, refuseNewer, restoreSecretFiles, retireOldFiles, revert, snapshot, transaction } from "@amuse/db";
 import { MAIN } from "@amuse/protocol";
 import { z } from "zod";
 import { resetPassword } from "./access.ts";
@@ -22,7 +26,7 @@ import { exported } from "./journal.ts";
 const schemaFile = fileURLToPath(new URL("../../db/schema.sql", import.meta.url));
 
 function usage(): never {
-  console.error("usage: amuse-admin [--data <folder>] migrate [--dry-run] | rollback --yes | retire-old-files | export [chat] | chats | reset-password | schema");
+  console.error("usage: amuse-admin [--data <folder>] migrate [--dry-run] | rollback --yes | retire-old-files | export [chat] | chats | reset-password | schema | restore-secret-files --yes | forget-secret-files --yes | reset-vault --yes");
   return process.exit(2);
 }
 
@@ -36,7 +40,7 @@ async function dryRun(where: Location): Promise<void> {
     console.log(`${where.database}: ${db ? `${found.applied.length} migration${found.applied.length === 1 ? "" : "s"} applied` : "not there yet"}`);
     if (found.pending.length === 0) return void console.log("Nothing to run.");
     console.log(found.applied.length > 0 ? `A copy of the database is made in ${where.backups} first.` : "A new database: nothing to copy first.");
-    for (const m of describePending(found, { dataDir: where.dir, journal: where.journal, log: console.log })) {
+    for (const m of describePending(found, { dataDir: where.dir, journal: where.journal, secretsDir: where.secrets, log: console.log })) {
       console.log(`would run ${m.version}_${m.name} (${m.kind === "sql" ? "SQL" : "TypeScript"}):`);
       for (const touch of m.touches) console.log(`  ${touch}`);
     }
@@ -57,12 +61,12 @@ async function main(argv: string[]): Promise<void> {
     args.splice(flag, 2);
   }
   const [command, ...rest] = args;
-  if (!command || !["migrate", "rollback", "retire-old-files", "export", "chats", "reset-password", "schema"].includes(command)) usage();
+  if (!command || !["migrate", "rollback", "retire-old-files", "export", "chats", "reset-password", "schema", "restore-secret-files", "forget-secret-files", "reset-vault"].includes(command)) usage();
   if (command === "schema") {
     // from the migrations alone, in a database that is only in memory
     const db = openDatabase(MEMORY);
     
-    await migrate(db, await loadMigrations(dataMigrations), { backups: "", context: { dataDir: "", journal: "", log: () => {} } });
+    await migrate(db, await loadMigrations(dataMigrations), { backups: "", context: { dataDir: "", journal: "", secretsDir: "", log: () => {} } });
     writeFileSync(schemaFile, dumpSchema(db));
     return void console.log(`wrote ${schemaFile}`);
   }
@@ -77,7 +81,7 @@ async function main(argv: string[]): Promise<void> {
     db.close();
     return void console.log("The database is up to date.");
   }
-  const context = { dataDir: where.dir, journal: where.journal, log: console.log };
+  const context = { dataDir: where.dir, journal: where.journal, secretsDir: where.secrets, log: console.log };
   // the rest work on a database that is there as it is: nothing is made, checked or migrated
   const db: Db = await openExisting(where, { allowPending: command === "rollback" });
   try {
@@ -97,7 +101,7 @@ async function main(argv: string[]): Promise<void> {
       }
       case "retire-old-files": {
         const { renamed, kept } = retireOldFiles(db, context);
-        for (const { name, to } of renamed) console.log(`renamed ${name} to ${to}`);
+        for (const { name, to } of renamed) console.log(to === null ? `deleted ${name} (it held secrets in the open; the database has them sealed)` : `renamed ${name} to ${to}`);
         for (const name of kept) console.error(`kept ${name}: it is not what was imported (it differs, or was never imported); an older version may have written it`);
         if (renamed.length === 0 && kept.length === 0) console.log("There are no old files.");
         if (kept.length > 0) {
@@ -115,6 +119,43 @@ async function main(argv: string[]): Promise<void> {
         const rows = db.prepare("select id, title, (select count(*) from events where chat = chats.id) as events from chats order by at, id").all();
         for (const row of rows.map((r) => z.object({ id: z.string(), title: z.string(), events: z.number() }).parse(r))) console.log(`${row.id}\t${row.events} events\t${row.title}`);
         return;
+      }
+      case "restore-secret-files": {
+        if (!rest.includes("--yes")) {
+          console.error(
+            "restore-secret-files writes keys.json and sandbox-secrets.json, which hold your secrets in the open, back into the data folder. Amuse will not start again until they are removed (it refuses to run beside them): use it to go back to an older Amuse, or to read them, and delete them when you are done. Run it again with --yes to go on.",
+          );
+          return process.exit(2);
+        }
+        const { written, there } = restoreSecretFiles(db, context);
+        for (const name of written) console.log(`wrote ${name}, as it was when the Vault took it in (it holds secrets in the open: delete it when you are done)`);
+        if (written.length > 0) console.log("The next start of this version will refuse, saying old files are beside the database, until they are removed (amuse-admin retire-old-files deletes them)."); 
+        for (const name of there) console.error(`kept ${name}: there is a file by that name already`);
+        if (written.length === 0 && there.length === 0) console.log("There are no sealed copies.");
+        return;
+      }
+      case "forget-secret-files": {
+        if (!rest.includes("--yes")) {
+          console.error("forget-secret-files deletes the sealed copies of keys.json and sandbox-secrets.json kept in the database: after it, they cannot be restored. Run it again with --yes to go on.");
+          return process.exit(2);
+        }
+        return void console.log(`${forgetSecretFiles(db)} sealed copies deleted.`);
+      }
+      case "reset-vault": {
+        if (!rest.includes("--yes")) {
+          console.error("reset-vault forgets every entry in the Vault (and the sealed copies of the old files), with no way back. Use it only when the Vault's key is lost for good. Run it again with --yes to go on; a copy of the database is made first.");
+          return process.exit(2);
+        }
+        console.log(`a copy of the database is ${await snapshot(db, where.backups, "pre-reset-vault")}`);
+        // a key file that is not a key (cut short, or not 32 bytes) is moved aside, not deleted: a new key is then made, and the old one is there to look at
+        const key = join(where.secrets, KEY_NAME);
+        if (existsSync(key) && !(lstatSync(key).isFile() && statSync(key).size === 32)) {
+          const aside = `${key}.damaged-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+          renameSync(key, aside);
+          console.log(`the Vault's key file was not a key, so it was moved aside as ${aside}; a new key is made when Amuse starts`);
+        }
+        transaction(db, () => db.exec("delete from secrets; delete from vault_check; delete from imported_secret_files"));
+        return void console.log("The Vault is empty. Start Amuse: a new key is made if there is none, and you add your keys and secrets again.");
       }
       case "reset-password":
         resetPassword(db);

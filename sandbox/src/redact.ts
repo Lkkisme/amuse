@@ -1,12 +1,12 @@
 /**
  * The sandbox as the agent sees it: everything it says comes back with the
- * credentials the user gave for it masked (‹NAME›), so a command that prints
+ * secrets the user gave for it masked ([secret: name]), so a command that prints
  * one does not put it in the agent's context, the chat or memory. This keeps
  * them from showing by accident; it does not hide them from what runs there.
  */
 import { type SandboxClient, SandboxError } from "./client.ts";
 
-/** A credential to mask: its value, and the name it is shown by. */
+/** A secret to mask: its value, and the name it is shown by (the entry and the field: "Cloudflare token"). */
 export interface Masked {
   name: string;
   value: string;
@@ -55,7 +55,7 @@ export function mask(text: string, secrets: readonly Masked[]): string {
   let out = "";
   let at = 0;
   for (const { start, end, name } of found.sort((a, b) => a.start - b.start)) {
-    out += `${text.slice(at, start)}\u2039${name}\u203a`;
+    out += `${text.slice(at, start)}[secret: ${name}]`;
     at = end;
   }
   return out + text.slice(at);

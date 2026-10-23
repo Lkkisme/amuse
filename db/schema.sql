@@ -52,8 +52,76 @@ CREATE TABLE imported_files (
   sha256 text not null,
   imported_at text not null
 ) strict, without rowid;
+CREATE TABLE vault_check (
+  id integer primary key check (id = 1),
+  sealed text not null
+) strict;
+CREATE TABLE secrets (
+  id text primary key,
+  name text not null,
+  managed integer not null check (managed in (0, 1)),
+  note text not null,
+  created text not null
+) strict, without rowid;
+CREATE UNIQUE INDEX secrets_name on secrets (lower(name));
+CREATE TABLE secret_plain (
+  entry text not null references secrets (id) on delete cascade,
+  position integer not null,
+  name text not null,
+  role text check (role is null or role = 'username'),
+  kind text not null check (kind in ('text', 'file')),
+  value text not null,
+  filename text,
+  primary key (entry, name)
+) strict, without rowid;
+CREATE TABLE secret_fields (
+  entry text not null references secrets (id) on delete cascade,
+  position integer not null,
+  name text not null,
+  role text check (role is null or role = 'password'),
+  kind text not null check (kind in ('text', 'file')),
+  filename text,
+  size integer not null check (size >= 0),
+  hint text,
+  sealed text not null,
+  last_at text,
+  last_how text check (last_how is null or last_how in ('sandbox', 'server')),
+  last_what text,
+  primary key (entry, name)
+) strict, without rowid;
+CREATE TABLE secret_uses (
+  id text primary key,
+  entry text not null references secrets (id) on delete cascade,
+  position integer not null,
+  field text not null,
+  kind text not null check (kind in ('env', 'file', 'server')),
+  name text,
+  path text,
+  env text,
+  service text,
+  target text
+) strict, without rowid;
+CREATE TABLE secret_claims (
+  claim text primary key,
+  use text not null references secret_uses (id) on delete cascade
+) strict, without rowid;
+CREATE TABLE model_choice (
+  id integer primary key check (id = 1),
+  choice text not null
+) strict;
+CREATE TABLE imported_secret_files (
+  name text primary key,
+  sealed text not null
+) strict, without rowid;
+CREATE TABLE sandbox_cleanup (
+  kind text not null check (kind in ('env', 'file')),
+  target text not null,
+  primary key (kind, target)
+) strict, without rowid;
 
 -- Dbmate schema migrations
 INSERT INTO schema_migrations (version) VALUES
   ('20261023100000'),
-  ('20261023100100');
+  ('20261023100100'),
+  ('20261023110000'),
+  ('20261023110100');

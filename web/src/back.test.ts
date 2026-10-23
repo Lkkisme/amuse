@@ -8,7 +8,7 @@ const app = { id: "gmail", name: "Gmail", description: "Email", logo: null };
 const deep: Ui = {
   ...initialUi,
   museOpen: true,
-  settings: { open: true, section: "connectors", app, provider: null },
+  settings: { open: true, section: "connectors", app, provider: null, entry: null },
   explainer: "c1",
 };
 
@@ -39,13 +39,22 @@ test("a key provider's page is a layer over its section, and Back leaves it firs
   };
   const page: Ui = {
     ...initialUi,
-    settings: { open: true, section: "models", app: null, provider },
+    settings: { open: true, section: "models", app: null, provider, entry: null },
   };
   assert.deepEqual(layers(page, true), ["settings", "section", "provider"]);
   assert.deepEqual(close(page, "provider").settings, {
     ...page.settings,
     provider: null,
   });
+});
+
+test("a secret's page is a layer over its section, and Back leaves it first", () => {
+  const page: Ui = {
+    ...initialUi,
+    settings: { open: true, section: "secrets", app: null, provider: null, entry: { kind: "entry", id: "s1", name: "Cloudflare" } },
+  };
+  assert.deepEqual(layers(page, true), ["settings", "section", "entry"]);
+  assert.equal(close(page, "entry").settings.entry, null);
 });
 
 test("closing the top layer each time unwinds them one at a time, down to nothing", () => {

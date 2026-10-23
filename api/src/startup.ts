@@ -21,8 +21,8 @@ type Words = { [K in Problem["kind"]]: (problem: Extract<Problem, { kind: K }>) 
 
 /** The folders by what they are for, as the page names them. */
 const folders: Record<Language, Record<Folder, string>> = {
-  en: { data: "data", backups: "backups", workspace: "workspace" },
-  "zh-CN": { data: "数据", backups: "备份（backups）", workspace: "工作区（workspace）" },
+  en: { data: "data", backups: "backups", workspace: "workspace", secrets: "Vault key" },
+  "zh-CN": { data: "数据", backups: "备份（backups）", workspace: "工作区（workspace）", secrets: "保险箱密钥" },
 };
 
 export const en: Words = {
@@ -37,7 +37,9 @@ export const en: Words = {
     todo:
       hint === "compose-up"
         ? "Run `docker compose up -d` once from the Amuse folder: it prepares the folders Amuse needs. Then restart Amuse."
-        : "Check that the data volume is mounted, and that the user Amuse runs as (uid 1000 in Docker) may write to it. Then restart Amuse.",
+        : hint === "key-folder"
+          ? "Run `docker compose up -d` once from the Amuse folder: it makes the folder for the Vault's key, in the `vault-key` volume (Amuse makes the key itself the first time it starts). Then restart Amuse. Keep that volume, and a copy of the key: without it nothing in the Vault can be opened."
+          : "Check that the data volume is mounted, and that the user Amuse runs as (uid 1000 in Docker) may write to it. Then restart Amuse.",
   }),
   "database-newer": ({ needed, known }) => ({
     what: `Your data was written by a newer version of Amuse (its step ${needed}${known ? `; this version knows up to ${known}` : ""}).`,
@@ -61,7 +63,16 @@ export const en: Words = {
   }),
   "old-files": () => ({
     what: "Amuse found its old data files (events.jsonl, access.json and others) beside a database that has already taken them in.",
-    todo: "Either an update was cut short before it renamed them, or an older version of Amuse was run on this data and wrote them. Never run an older version on this data: it would start with no password and no history. If an update was cut short, run `amuse-admin retire-old-files`: it renames them only if they are exactly what was taken in. If it says some differ, move those files into a folder of their own and start again: what they hold is not taken in. Nothing was changed.",
+    todo: "Either an update was cut short before it renamed them, or an older version of Amuse was run on this data and wrote them. Never run an older version on this data: it would start with no password and no history. If an update was cut short, run `amuse-admin retire-old-files`: it renames them (keys.json and sandbox-secrets.json, which held secrets in the open, it deletes) only if they are exactly what was taken in. If it says some differ, move those files into a folder of their own and start again: what they hold is not taken in. Nothing was changed.",
+  }),
+  "vault-key": ({ trouble }) => ({
+    what:
+      trouble === "missing"
+        ? "The Vault holds secrets, but the key that opens them is not there."
+        : trouble === "damaged"
+          ? "The Vault's key file is damaged: it is not a key."
+          : "The Vault's key file is not the key its secrets were sealed with.",
+    todo: "Restore the key file from your backup, into the folder the Vault's key lives in (the `vault-key` volume), then restart Amuse. Amuse does not make a new key over secrets sealed with another: nothing was changed. If the key is lost for good, `amuse-admin reset-vault --yes` forgets everything in the Vault (it cannot be opened anyway) so that a new key can be made; you then add your keys and secrets again.",
   }),
 };
 
@@ -77,7 +88,9 @@ export const zhCN: Words = {
     todo:
       hint === "compose-up"
         ? "在 Amuse 所在目录运行一次 `docker compose up -d`，它会准备好 Amuse 需要的文件夹，然后重启 Amuse。"
-        : "请确认数据卷已挂载，并且运行 Amuse 的用户（Docker 中为 uid 1000）可以写入，然后重启 Amuse。",
+        : hint === "key-folder"
+          ? "在 Amuse 所在目录运行一次 `docker compose up -d`，它会在 `vault-key` 卷里建好存放保险箱密钥的文件夹（密钥由 Amuse 在第一次启动时自己生成），然后重启 Amuse。请保留这个卷，并另存一份密钥：没有它，保险箱里的内容就打不开。"
+          : "请确认数据卷已挂载，并且运行 Amuse 的用户（Docker 中为 uid 1000）可以写入，然后重启 Amuse。",
   }),
   "database-newer": ({ needed, known }) => ({
     what: `你的数据由更新版本的 Amuse 写入（其中的步骤 ${needed}${known ? `；当前版本只认识到 ${known}` : ""}）。`,
@@ -101,7 +114,11 @@ export const zhCN: Words = {
   }),
   "old-files": () => ({
     what: "Amuse 发现旧的数据文件（events.jsonl、access.json 等）与一个已经导入过它们的数据库放在一起。",
-    todo: "可能是更新在重命名它们之前中断了，也可能是在这份数据上运行过旧版本的 Amuse 并写入了它们。千万不要在这份数据上运行旧版本：它会在没有密码、没有历史的状态下启动。若是更新被中断，请运行 `amuse-admin retire-old-files`：只有与导入内容完全一致的文件才会被重命名。若它说有文件不一致，请把这些文件移到它们自己的文件夹里再启动：其中的内容不会被导入。数据没有被改动。",
+    todo: "可能是更新在重命名它们之前中断了，也可能是在这份数据上运行过旧版本的 Amuse 并写入了它们。千万不要在这份数据上运行旧版本：它会在没有密码、没有历史的状态下启动。若是更新被中断，请运行 `amuse-admin retire-old-files`：只有与导入内容完全一致的文件才会被处理（重命名；keys.json 和 sandbox-secrets.json 以明文存放过秘密，会被删除）。若它说有文件不一致，请把这些文件移到它们自己的文件夹里再启动：其中的内容不会被导入。数据没有被改动。",
+  }),
+  "vault-key": ({ trouble }) => ({
+    what: trouble === "missing" ? "保险箱里存有秘密，但打开它们的密钥不在。" : trouble === "damaged" ? "保险箱的密钥文件已损坏：它不是一个密钥。" : "保险箱的密钥文件，不是封存这些秘密时用的那把密钥。",
+    todo: "请把密钥文件从备份恢复到保险箱密钥所在的文件夹（`vault-key` 卷），然后重启 Amuse。Amuse 不会在已封存的秘密上另造新密钥：数据没有被改动。若密钥已彻底丢失，运行 `amuse-admin reset-vault --yes` 会清空保险箱里的一切（反正也打不开了），之后才能生成新密钥；然后请重新添加你的密钥和秘密。",
   }),
 };
 
@@ -127,6 +144,8 @@ export function explain(problem: Problem, language: Language): Explained {
       return words["journal-unreadable"](problem);
     case "old-files":
       return words["old-files"](problem);
+    case "vault-key":
+      return words["vault-key"](problem);
   }
 }
 

@@ -16,6 +16,10 @@ export interface Location {
   journal: string;
   database: string;
   backups: string;
+  /** the folder the Vault's key lives in, apart from the data (AMUSE_SECRETS_DIR; without it, beside the data) */
+  secrets: string;
+  /** whether AMUSE_SECRETS_DIR named it: a folder that is a mount, which must be there, not one of ours to make */
+  secretsMounted: boolean;
 }
 
 /**
@@ -32,7 +36,8 @@ export function locate(env: NodeJS.ProcessEnv): Location {
   if (data && journal && resolve(dirname(journal)) !== resolve(data))
     throw new StartupError({ kind: "configuration", trouble: "folders-differ" }, `AMUSE_DATA (${data}) is not the folder of AMUSE_JOURNAL (${journal})`);
   const dir = data ?? (journal ? dirname(journal) : mkdtempSync(join(tmpdir(), "amuse-data-")));
-  return { dir, journal: journal ?? join(dir, "events.jsonl"), database: join(dir, "amuse.db"), backups: join(dir, "backups") };
+  const secrets = env["AMUSE_SECRETS_DIR"] || undefined;
+  return { dir, journal: journal ?? join(dir, "events.jsonl"), database: join(dir, "amuse.db"), backups: join(dir, "backups"), secrets: secrets ?? join(dir, "secret-key"), secretsMounted: secrets !== undefined };
 }
 
 const said = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -44,6 +49,9 @@ export async function openData(location: Location, log: (message: string) => voi
     { folder: "backups", path: location.backups, create: true, hint: "data-volume" },
     // made by the first start, and by compose's sandbox-init before it (as the sandbox mounts it): theirs to be right
     { folder: "workspace", path: join(location.dir, "workspace"), create: true, hint: "compose-up" },
+    // the Vault's key lives here, apart from the data: a mount (compose makes the folder for uid 1000), so it must be there; with
+    // no AMUSE_SECRETS_DIR (development, tests) it is a folder beside the data that is made
+    { folder: "secrets", path: location.secrets, create: !location.secretsMounted, hint: "key-folder" },
   ]);
   let db: Db;
   try {
@@ -52,7 +60,7 @@ export async function openData(location: Location, log: (message: string) => voi
     throw new StartupError({ kind: "database-unreadable", path: location.database, message: said(error) }, said(error));
   }
   try {
-    const context = { dataDir: location.dir, journal: location.journal, log, readable: (envelope: unknown) => Envelope.safeParse(envelope).success };
+    const context = { dataDir: location.dir, journal: location.journal, secretsDir: location.secrets, log, readable: (envelope: unknown) => Envelope.safeParse(envelope).success };
     const report = await migrate(db, await loadMigrations(dataMigrations), { backups: location.backups, context });
     if (report.backup) log(`database: a copy from before the update is ${report.backup}`);
     for (const m of report.ran) log(`database: migration ${m.version}_${m.name} done`);

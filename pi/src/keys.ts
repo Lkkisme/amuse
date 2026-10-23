@@ -8,12 +8,11 @@
  * form is kept per provider. Only API keys: the subscription sign-ins Pi knows
  * go through other apps' client ids, so they are left out.
  */
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { type AuthEvent, type AuthInteraction, type AuthPrompt, clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
-import { type Keys, Rejected, newId } from "@amuse/core";
+import { type Keys, Rejected, hintOf, newId } from "@amuse/core";
 import { type KeyProvider, type LoginNote, type LoginPrompt, type LoginStep, type ModelOption, type ModelRole, ThinkingLevel } from "@amuse/protocol";
 import { z } from "zod";
-import { type KeyFile, fileCredentials, readOnlyCredentials } from "./credentials.ts";
+import { type KeyFile, LOCAL_VOICE, readOnlyCredentials } from "./credentials.ts";
 import { redact } from "./redact.ts";
 import { type PiModelConfig, parseModel, runtime } from "./session.ts";
 import { voiceServices } from "./voice.ts";
@@ -48,7 +47,7 @@ export interface PiKeys extends Keys {
   onChange(listener: () => void): void;
 }
 
-const Choice = z.object({
+export const Choice = z.object({
   chat: z.string().nullable(),
   browser: z.string().nullable(),
   /** scheduled work's model; null: the chat's */
@@ -61,15 +60,25 @@ const Choice = z.object({
     .object({ chat: ThinkingLevel, browser: ThinkingLevel, background: ThinkingLevel.default("off") })
     .default({ chat: "off", browser: "off", background: "off" }),
 });
-type Choice = z.infer<typeof Choice>;
+export type Choice = z.infer<typeof Choice>;
 
-/** Where the key of the user's own speech server is kept, among the keys. */
-export const LOCAL_VOICE = "local-voice";
+/** Where the models chosen are kept (the server's database; a test's memory). */
+export interface Choices {
+  /** What was chosen, or null when nothing has been yet. */
+  load(): Choice | null;
+  save(choice: Choice): void;
+}
+
+/** The choices in memory, from `initial` (tests, the demo). */
+export function memoryChoices(initial: Choice | null = null): Choices {
+  let kept = initial;
+  return { load: () => kept, save: (choice) => void (kept = choice) };
+}
 
 /** How long a sign-in may wait for its next answer. */
 const LOGIN_TIMEOUT_MS = 10 * 60_000;
 
-const hint = (key: string | undefined) => (key && key.length >= 8 ? `…${key.slice(-4)}` : null);
+const hint = (key: string | undefined) => (key ? hintOf(key) : null);
 
 function promptOf(prompt: AuthPrompt): LoginPrompt | null {
   if (prompt.type !== "text" && prompt.type !== "secret" && prompt.type !== "select") return null;
@@ -99,6 +108,12 @@ function noteOf(event: AuthEvent): LoginNote | null {
     };
   if (event.type === "progress") return { message: event.message, links: [] };
   return null; // auth_url and device_code belong to OAuth, which is not offered
+}
+
+/** The providers Pi can take a key for, by id, with the names the user knows them by ("openai" → "OpenAI"). */
+export async function providerNames(): Promise<Map<string, string>> {
+  const models = await runtime({ auth: { kind: "environment" } });
+  return new Map(models.getProviders().map((p) => [p.id, p.name]));
 }
 
 /** A provider's error as a person reads it: "401 {…"message":"The API key you provided is invalid."…}" → "401 · The API key you provided is invalid." */
@@ -144,20 +159,17 @@ interface Flow {
 }
 
 /**
- * `keys` holds the keys; `choicePath` the models chosen; `apps` the keys that
+ * `keys` holds the keys; `choices` the models chosen; `apps` the keys that
  * are not a model provider's.
  */
-export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyFile; choicePath: string; apps?: AppKey[]; modelsPath?: string }): PiKeys {
+export function piKeys({ keys, choices, apps = [], modelsPath }: { keys: KeyFile; choices: Choices; apps?: AppKey[]; modelsPath?: string }): PiKeys {
   const cfg: Pick<PiModelConfig, "auth" | "modelsPath"> = {
     auth: { kind: "keys", keys },
     ...(modelsPath ? { modelsPath } : {}),
   };
-  let choice: Choice = existsSync(choicePath) ? Choice.parse(JSON.parse(readFileSync(choicePath, "utf8"))) : { chat: null, browser: null, background: null, voice: null, localVoice: null, thinking: { chat: "off", browser: "off", background: "off" } };
+  let choice: Choice = choices.load() ?? { chat: null, browser: null, background: null, voice: null, localVoice: null, thinking: { chat: "off", browser: "off", background: "off" } };
   const choose = (next: Choice) => {
-    writeFileSync(`${choicePath}.tmp`, JSON.stringify(next, null, 2), {
-      mode: 0o600,
-    });
-    renameSync(`${choicePath}.tmp`, choicePath);
+    choices.save(next);
     choice = next;
   };
   const listeners: (() => void)[] = [];
@@ -440,28 +452,27 @@ export function piKeys({ keys, choicePath, apps = [], modelsPath }: { keys: KeyF
 }
 
 /**
- * Once, when there is no keys file yet: take over what the environment held
+ * Once, when nothing is kept yet (the caller says when): take over what the environment held
  * before keys were set up in the app (each provider's <PROVIDER>_API_KEY, the
  * API keys of a Pi auth file, the apps' keys, the models named), so an
  * instance that ran on them goes on.
  */
 export async function adoptEnvironment({
-  keysPath,
-  choicePath,
+  keys,
+  choices,
   apps,
   env,
   authFile,
 }: {
-  keysPath: string;
-  choicePath: string;
+  /** where they are kept */
+  keys: KeyFile;
+  choices: Choices;
   /** the apps' keys found, by id */
   apps: Record<string, string | undefined>;
   env: Record<string, string | undefined>;
   /** a Pi auth file: its API keys (not its subscription sign-ins) */
   authFile?: string;
 }): Promise<string[]> {
-  if (existsSync(keysPath)) return [];
-  const keys = fileCredentials(keysPath);
   const adopted: string[] = [];
   const models = await runtime({ auth: { kind: "keys", keys } });
   for (const provider of models.getProviders()) {
@@ -485,10 +496,8 @@ export async function adoptEnvironment({
     await keys.modify(id, async () => ({ type: "api_key", key }));
     adopted.push(id);
   }
-  // an empty file says the environment was looked at
-  if (adopted.length === 0) await keys.delete("none");
   const chat = env["AMUSE_PI_MODEL"]?.trim() || null;
-  if (!existsSync(choicePath) && chat) {
+  if (choices.load() === null && chat) {
     const choice: Choice = {
       chat,
       browser: env["AMUSE_PI_BROWSER_MODEL"]?.trim() || null,
@@ -497,7 +506,7 @@ export async function adoptEnvironment({
       localVoice: null,
       thinking: { chat: "off", browser: "off", background: "off" },
     };
-    writeFileSync(choicePath, JSON.stringify(choice, null, 2), { mode: 0o600 });
+    choices.save(choice);
   }
   return adopted;
 }

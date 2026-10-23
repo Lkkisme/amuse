@@ -4,10 +4,10 @@
  */
 
 /** What to tell the owner to do about a folder (a closed list: each has its words on the page). */
-export type Hint = "compose-up" | "data-volume";
+export type Hint = "compose-up" | "data-volume" | "key-folder";
 
 /** The folders the start checks, by what they are for (the page names them so, never by their paths). */
-export type Folder = "data" | "backups" | "workspace";
+export type Folder = "data" | "backups" | "workspace" | "secrets";
 
 /**
  * Values carry what the log needs (paths, the raw message); the page shows only the kind, the step and the hint,
@@ -26,7 +26,9 @@ export type Problem =
   /** A chat's journal in the database is not a run of valid events, `event` being the first that is not. */
   | { kind: "journal-unreadable"; chat: string; event: number }
   /** The old files (events.jsonl, access.json …) are beside a database that has already imported them. */
-  | { kind: "old-files"; files: string[] };
+  | { kind: "old-files"; files: string[] }
+  /** The Vault's key is not there (but the Vault holds secrets), is not a key, or is not the one they were sealed with. */
+  | { kind: "vault-key"; trouble: "missing" | "damaged" | "wrong" };
 
 /** Thrown when start-up must stop; `problem` is what to show. */
 export class StartupError extends Error {

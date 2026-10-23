@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MEMORY, type Db, openDatabase } from "./open.ts";
-import { loadMigrations } from "./migrations.ts";
+import { type Context, loadMigrations } from "./migrations.ts";
 import { migrate } from "./migrate.ts";
 import { dataMigrations } from "./data.ts";
 
@@ -20,6 +20,23 @@ export function tempFolder(prefix: string): string {
 export async function migratedDatabase(dir?: string): Promise<Db> {
   const folder = dir ?? tempFolder("amuse-db-");
   const db = openDatabase(dir === undefined ? MEMORY : join(folder, "amuse.db"));
-  await migrate(db, await loadMigrations(dataMigrations), { backups: join(folder, "backups"), context: { dataDir: folder, journal: join(folder, "events.jsonl"), log: () => {} } });
+  await migrate(db, await loadMigrations(dataMigrations), { backups: join(folder, "backups"), context: { dataDir: folder, journal: join(folder, "events.jsonl"), secretsDir: join(folder, "secret-key"), log: () => {} } });
+  return db;
+}
+
+const known = await loadMigrations(dataMigrations);
+
+/**
+ * A database with every migration run, made at once (no backups, no report): for tests of a store that need the tables and
+ * nothing more. In memory, or in a file in `dir`; `context` is for the migrations that import old files (none are there by default).
+ */
+export function migratedNow(dir?: string, context: Partial<Omit<Context, "db">> = {}): Db {
+  const folder = dir ?? tempFolder("amuse-db-");
+  const db = openDatabase(dir === undefined ? MEMORY : join(folder, "amuse.db"));
+  const full: Omit<Context, "db"> = { dataDir: folder, journal: join(folder, "events.jsonl"), secretsDir: join(folder, "secret-key"), log: () => {}, ...context };
+  for (const migration of known) {
+    if (migration.kind === "sql") db.exec(migration.up);
+    else migration.up({ ...full, db })?.();
+  }
   return db;
 }

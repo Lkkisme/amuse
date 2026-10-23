@@ -51,7 +51,12 @@ export const SecretEnv = z.object({ name: EnvName, value: z.string().min(1).max(
 export type SecretEnv = z.infer<typeof SecretEnv>;
 
 /** A credential written to a file in the home folder (never the workspace, which the user and Amuse's own tools read). */
-export const SecretFile = z.object({ path: z.string().min(1).max(1024), value: z.string().min(1).max(200_000) });
+export const SecretFile = z.object({
+  path: z.string().min(1).max(1024),
+  value: z.string().min(1).max(200_000),
+  /** `base64`: the value is the file's bytes in base64 (a keystore is not text); `utf8` (the default): the text itself */
+  encoding: z.enum(["utf8", "base64"]).optional(),
+});
 export type SecretFile = z.infer<typeof SecretFile>;
 
 /** Taking a credential back: the variable, or the file. */

@@ -3,6 +3,7 @@
  * and Cancel. Sign out, reset, remove. `busy` holds the action while it runs.
  */
 import type { LucideIcon } from "lucide-react";
+import type { ReactNode } from "react";
 import { Sheet } from "./Sheet";
 import { Button } from "./Button";
 import { useT } from "../i18n/react.ts";
@@ -16,6 +17,7 @@ export function ConfirmSheet({
   action,
   busy = false,
   onConfirm,
+  children,
 }: {
   open: boolean;
   onClose: () => void;
@@ -27,6 +29,8 @@ export function ConfirmSheet({
   action: string;
   busy?: boolean;
   onConfirm: () => void;
+  /** more about what it touches (what stops working with it), between the words and the button */
+  children?: ReactNode;
 }) {
   const t = useT();
   return (
@@ -52,6 +56,7 @@ export function ConfirmSheet({
         >
           {body}
         </p>
+        {children}
         <Button variant="danger" size="lg" className="mt-6" disabled={busy} onClick={onConfirm}>
           {action}
         </Button>

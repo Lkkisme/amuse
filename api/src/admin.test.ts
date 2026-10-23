@@ -32,7 +32,7 @@ test("the dry run lists what is pending and what it touches, and changes nothing
 test("migrate runs them; after it, the dry run has nothing to do", () => {
   const dir = copy();
   run("--data", dir, "migrate");
-  assert.match(run("--data", dir, "migrate", "--dry-run"), /2 migrations applied\nNothing to run\./);
+  assert.match(run("--data", dir, "migrate", "--dry-run"), /4 migrations applied\nNothing to run\./);
   assert.ok(existsSync(join(dir, "events.jsonl.bak")));
 });
 
@@ -87,12 +87,12 @@ test("export, chats and reset-password refuse when migrations are pending, and d
   const dir = tempFolder("amuse-pending-");
   const db = openDatabase(join(dir, "amuse.db"));
   const known = await loadMigrations(dataMigrations);
-  await migrate(db, known.slice(0, 1), { backups: join(dir, "backups"), context: { dataDir: dir, journal: join(dir, "events.jsonl"), log: () => {} } });
+  await migrate(db, known.slice(0, 1), { backups: join(dir, "backups"), context: { dataDir: dir, journal: join(dir, "events.jsonl"), secretsDir: join(dir, "secret-key"), log: () => {} } });
   db.close();
   for (const command of ["export", "chats", "reset-password"]) {
     const result = fails("--data", dir, command);
     assert.equal(result.status, 1, command);
-    assert.match(result.stderr, /1 migration is pending: run `amuse-admin migrate` first/, command);
+    assert.match(result.stderr, /3 migrations are pending: run `amuse-admin migrate` first/, command);
   }
   const after = openDatabase(join(dir, "amuse.db"));
   assert.deepEqual(applied(after), ["20261023100000"]);
@@ -104,7 +104,7 @@ test("rollback asks for --yes, copies the database first, and never applies what
   const dir = tempFolder("amuse-rollback-");
   const db = openDatabase(join(dir, "amuse.db"));
   const known = await loadMigrations(dataMigrations);
-  await migrate(db, known.slice(0, 1), { backups: join(dir, "backups"), context: { dataDir: dir, journal: join(dir, "events.jsonl"), log: () => {} } });
+  await migrate(db, known.slice(0, 1), { backups: join(dir, "backups"), context: { dataDir: dir, journal: join(dir, "events.jsonl"), secretsDir: join(dir, "secret-key"), log: () => {} } });
   db.close();
   const without = fails("--data", dir, "rollback");
   assert.equal(without.status, 2);
@@ -156,4 +156,56 @@ test("retire-old-files says the name it really gave the file, when .bak was take
   writeFileSync(join(dir, "events.jsonl.bak"), "an earlier import's file");
   assert.match(run("--data", dir, "retire-old-files"), /renamed events\.jsonl to events\.jsonl\.bak\.2/);
   assert.equal(readFileSync(join(dir, "events.jsonl.bak"), "utf8"), "an earlier import's file");
+});
+
+test("restore-secret-files writes the two files back as they were, from their sealed copies; forget-secret-files deletes the copies, and only with --yes", () => {
+  const dir = copy();
+  run("--data", dir, "migrate");
+  assert.equal(existsSync(join(dir, "keys.json")), false);
+  const refused = fails("--data", dir, "restore-secret-files");
+  assert.equal(refused.status, 2);
+  assert.match(refused.stderr, /Amuse will not start again until they are removed.*Run it again with --yes/);
+  assert.equal(existsSync(join(dir, "keys.json")), false, "nothing was written without --yes");
+  const said = run("--data", dir, "restore-secret-files", "--yes");
+  assert.match(said, /The next start of this version will refuse/);
+  assert.match(said, /wrote keys\.json/);
+  assert.match(said, /wrote sandbox-secrets\.json/);
+  assert.equal(readFileSync(join(dir, "keys.json"), "utf8"), readFileSync(join(fixture, "keys.json"), "utf8"));
+  assert.equal(readFileSync(join(dir, "sandbox-secrets.json"), "utf8"), readFileSync(join(fixture, "sandbox-secrets.json"), "utf8"));
+  // a file already there is kept, and said
+  assert.match(fails("--data", dir, "restore-secret-files", "--yes").stderr, /kept keys\.json: there is a file by that name already/);
+  const without = fails("--data", dir, "forget-secret-files");
+  assert.equal(without.status, 2);
+  assert.match(without.stderr, /Run it again with --yes/);
+  assert.match(run("--data", dir, "forget-secret-files", "--yes"), /2 sealed copies deleted/);
+  assert.match(run("--data", dir, "forget-secret-files", "--yes"), /0 sealed copies deleted/);
+});
+
+test("reset-vault asks for --yes, copies the database first, and leaves the Vault empty", () => {
+  const dir = copy();
+  run("--data", dir, "migrate");
+  const refused = fails("--data", dir, "reset-vault");
+  assert.equal(refused.status, 2);
+  assert.match(refused.stderr, /only when the Vault's key is lost for good/);
+  assert.match(run("--data", dir, "reset-vault", "--yes"), /a copy of the database is .*pre-reset-vault\.db\nThe Vault is empty/);
+  assert.equal(readdirSync(join(dir, "backups")).filter((n) => n.endsWith("-pre-reset-vault.db")).length, 1);
+  const db = openDatabase(join(dir, "amuse.db"));
+  for (const table of ["secrets", "secret_fields", "secret_uses", "secret_claims", "vault_check", "imported_secret_files"]) assert.equal(db.prepare(`select count(*) as n from ${table}`).get()?.["n"], 0, table);
+  db.close();
+  assert.match(run("--data", dir, "restore-secret-files", "--yes"), /There are no sealed copies/);
+});
+
+test("reset-vault moves a damaged key file aside (after its copy of the database), says so, and leaves a good key where it is", () => {
+  const dir = copy();
+  run("--data", dir, "migrate");
+  const key = join(dir, "secret-key", "store.key");
+  const good = readFileSync(key);
+  assert.doesNotMatch(run("--data", dir, "reset-vault", "--yes"), /moved aside/);
+  assert.ok(readFileSync(key).equals(good), "a key that is a key stays");
+  writeFileSync(key, "cut short");
+  const said = run("--data", dir, "reset-vault", "--yes");
+  assert.match(said, /the Vault's key file was not a key, so it was moved aside as .*store\.key\.damaged-/);
+  assert.equal(existsSync(key), false);
+  assert.deepEqual(readdirSync(join(dir, "secret-key")).filter((n) => n.startsWith("store.key.damaged-")).length, 1);
+  assert.equal(readFileSync(join(dir, "secret-key", readdirSync(join(dir, "secret-key"))[0] ?? ""), "utf8"), "cut short");
 });

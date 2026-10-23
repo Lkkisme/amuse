@@ -34,7 +34,7 @@ export const envelopes: Envelope[] = [
     event: {
       kind: "upserted",
       index: 3,
-      entity: { kind: "approval", id: "a1", at, action: "Send email", target: "restaurant@example.com", detail: "Table for 4", remember: true, status: "pending", expires: "2026-10-20T08:54:00Z", app: "gmail", always: false, byRule: false },
+      entity: { kind: "approval", id: "a1", at, action: "Send email", target: "restaurant@example.com", detail: "Table for 4", remember: true, status: "pending", expires: "2026-10-20T08:54:00Z", app: "gmail", always: false, byRule: false, lasting: false },
     },
   },
   {

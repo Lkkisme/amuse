@@ -8,3 +8,4 @@ export * from "./testing.ts";
 export { dataMigrations } from "./data.ts";
 export { readJournalFile } from "./legacy/journal.ts";
 export { oldFilesBeside, retireOldFiles } from "./legacy/old-files.ts";
+export { KEY_NAME, forgetSecretFiles, restoreSecretFiles } from "./legacy/vault.ts";

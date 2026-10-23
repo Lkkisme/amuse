@@ -1,8 +1,8 @@
 /**
- * Settings › Saved logins: the sites Amuse's browsers keep the user signed in
- * to (from their own sign-ins, kept so they need not sign in again), and
- * signing out of one: its kept login goes, from every open browser too. The
- * cookies themselves are never shown.
+ * Settings › Browser data: the sites Amuse's browsers keep the user signed in
+ * to (cookies and storage from their own sign-ins, kept so they need not sign
+ * in again; no passwords), and signing out of one: what is kept for it goes,
+ * from every open browser too. The cookies themselves are never shown.
  */
 import { useCallback, useEffect, useState } from "react";
 import { Globe, KeyRound } from "lucide-react";

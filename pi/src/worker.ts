@@ -12,7 +12,8 @@ import type { AgentIO } from "@amuse/core";
 import type { PiConfig } from "./agent.ts";
 import { workspaceTools } from "./attachments.ts";
 import { redact } from "./redact.ts";
-import { sandboxTools, secretTools } from "./sandbox.ts";
+import { sandboxTools } from "./sandbox.ts";
+import { secretTools } from "./secrets.ts";
 import { type Hold, type RunHandle, askTool, inbox } from "./runs.ts";
 import { type PiSession, openSession, secretsOf } from "./session.ts";
 import { appTools, chatTools, tools } from "./tools.ts";
@@ -51,7 +52,8 @@ export function helperTools(cfg: PiConfig, run: RunHandle, hold: Hold): ToolDefi
     ...webTools(io, cfg.rules, cfg.search, hold),
     ...(cfg.apps ? appTools(io, cfg.apps, hold) : []),
     ...(cfg.files ? workspaceTools(io, cfg.files, { send: false }) : []),
-    ...(cfg.sandbox ? [...sandboxTools(cfg.sandbox), ...secretTools(io)] : []),
+    ...(cfg.sandbox ? sandboxTools(cfg.sandbox) : []),
+    ...(cfg.secrets ? secretTools(io, { ...cfg.secrets, sandbox: cfg.sandbox !== undefined }, hold) : []),
     askTool(run),
   ];
 }

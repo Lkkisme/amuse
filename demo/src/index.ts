@@ -20,6 +20,7 @@ import {
   verdict,
 } from "@amuse/core";
 import type { Account, App, Entity } from "@amuse/protocol";
+import { memorySecrets } from "./secrets.ts";
 
 const demoApp = (id: string, name: string, description: string): App => ({
   id,
@@ -152,6 +153,7 @@ export function demoPorts<H>(timers: Timers<H>): Ports {
     keys: noKeys, // nor keys: its agent is scripted
     logins: noLogins, // nor real browsers
     sandbox: noSandbox, // nor a machine of its own
+    secrets: memorySecrets(),
     // a side chat is named after its first few words
     title: async (text) => text.split(/\s+/).slice(0, 4).join(" "),
     prompt: (turn, { emit, act, time }) => {
@@ -350,6 +352,7 @@ export function seed(): Entity[] {
       app: "gmail",
       always: false,
       byRule: false,
+      lasting: false,
     },
     {
       kind: "browser",

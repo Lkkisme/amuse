@@ -7,7 +7,7 @@
  * The old files are never edited or deleted, so a crash at any point leaves either the old files alone (the transaction
  * did not commit: the import starts over) or the rows and the files both (the rename is the only step left).
  *
- * Left out on purpose: keys.json, models.json and sandbox-secrets.json (the Secret store moves them in its own migration).
+ * Left out on purpose: keys.json, models.json and sandbox-secrets.json (the Vault moves them in its own migration).
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, renameSync, statSync } from "node:fs";

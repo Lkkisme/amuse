@@ -43,7 +43,8 @@ USER node
 ENV AMUSE_HOST=0.0.0.0 \
     AMUSE_PORT=8080 \
     AMUSE_WEB=/app/web/dist \
-    AMUSE_DATA=/data
+    AMUSE_DATA=/data \
+    AMUSE_SECRETS_DIR=/secrets/amuse-store
 EXPOSE 8080
 VOLUME /data
 CMD ["node", "api/src/main.ts"]

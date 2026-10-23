@@ -30,13 +30,15 @@ import {
   type Reply,
   type Results,
   type Schedule,
-  type SecretInfo,
+  type SecretAnswer,
+  type SecretEntry,
   type SecretRequest,
   type SkillInfo,
   type SkillOrigin,
   type Session,
   type Task,
   type State,
+  type Use,
   type Update,
   MAIN,
   apply,
@@ -44,6 +46,7 @@ import {
   empty,
   recent,
 } from "@amuse/protocol";
+import { misfit, told } from "./secrets.ts";
 import {
   type AgentAction,
   type Change,
@@ -169,18 +172,14 @@ export interface Ports {
   skills?: Skills;
   /** Amuse's own machine, as far as the user controls it (none where there is no sandbox). */
   sandbox: Sandbox;
+  /** The Vault. */
+  secrets: Secrets;
 }
 
-/** The sandbox Amuse works in, as the user sees it: it can be wiped, and given credentials. */
+/** The sandbox Amuse works in, as the user sees it: it can be wiped. */
 export interface Sandbox {
   /** Stop what runs in the sandbox and wipe its home folder; the workspace is kept, and system-wide installs stay until the container is recreated. Rejects, in words, when it cannot. */
   reset(): Promise<void>;
-  /** Give the sandbox a credential the user typed, where `request` says. Rejects, in words, when it cannot. */
-  give(request: SecretRequest, value: string): Promise<void>;
-  /** The credentials given, never their values. */
-  secrets(): Promise<SecretInfo[]>;
-  /** Take one back, from the sandbox too. */
-  forget(id: string): Promise<void>;
 }
 
 const noSandboxHere = () => new Rejected({ kind: "unsound", reason: "This server has no sandbox." });
@@ -190,12 +189,63 @@ export const noSandbox: Sandbox = {
   reset: async () => {
     throw noSandboxHere();
   },
-  give: async () => {
-    throw noSandboxHere();
+};
+
+/**
+ * The Vault (protocol/src/secrets.ts), as the user manages it in Settings and as the agents use it. Every
+ * call rejects, in words, when it cannot be done. What it keeps, it keeps encrypted; a secret field's value comes
+ * out only to where a use of it says (the sandbox, a service of the server's), never to a client or an agent.
+ */
+export interface Secrets {
+  list(): Promise<SecretEntry[]>;
+  add(params: Params["secrets.add"]): Promise<{ id: string }>;
+  edit(params: Params["secrets.edit"]): Promise<void>;
+  setSecret(params: Params["secrets.setSecret"]): Promise<void>;
+  removeSecret(params: Params["secrets.removeSecret"]): Promise<void>;
+  /** Add a use, putting the field where it says (a variable or file in the sandbox) now. */
+  use(params: Params["secrets.use"]): Promise<Use>;
+  /** Add a use for an agent: the same, but a secret field's first use in the sandbox only with `approved` (the user's word on a card). */
+  useByAgent(params: Params["secrets.use"], approved: boolean): Promise<Use>;
+  unuse(params: Params["secrets.unuse"]): Promise<void>;
+  remove(id: string): Promise<void>;
+  /** The user answered a card: a code goes into its terminal and is kept nowhere (but for a while in memory, to mask what the terminal shows of it); the fields of a long-term secret are stored, with the uses the card names. */
+  answer(request: SecretRequest, answer: SecretAnswer): Promise<void>;
+}
+
+/** What an agent may do with the store: look, and add a use. */
+export type AgentSecrets = Pick<Secrets, "list" | "useByAgent">;
+
+const noStore = () => new Rejected({ kind: "unsound", reason: "This server has no Vault." });
+
+/** No Vault on this server (tests). */
+export const noSecrets: Secrets = {
+  list: async () => [],
+  add: async () => {
+    throw noStore();
   },
-  secrets: async () => [],
-  forget: async () => {
-    throw noSandboxHere();
+  edit: async () => {
+    throw noStore();
+  },
+  setSecret: async () => {
+    throw noStore();
+  },
+  removeSecret: async () => {
+    throw noStore();
+  },
+  use: async () => {
+    throw noStore();
+  },
+  useByAgent: async () => {
+    throw noStore();
+  },
+  unuse: async () => {
+    throw noStore();
+  },
+  remove: async () => {
+    throw noStore();
+  },
+  answer: async () => {
+    throw noStore();
   },
 };
 
@@ -321,6 +371,8 @@ export interface Keys {
   voice(provider: string | null): Promise<void>;
   /** Set up (or remove) the user's own speech server. */
   localVoice(service: (LocalVoice & { key: string | null }) | null): Promise<void>;
+  /** Called after any key is set up or forgotten, by whoever did it (where the keys can tell). */
+  onChange?(listener: () => void): void;
 }
 
 /** No keys: where none are kept (the demo, tests); the demo's agent needs none. */
@@ -776,6 +828,24 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
   if (!stored.some((c) => c.id === MAIN)) store.save(ordered());
   arm(); // what fell due while amuse was down happens now (or is recorded as missed)
 
+  /**
+   * A card that asks for the key of a service is done once the key is there, however it got there (the sheet on the
+   * card, or Settings): it shows the end of the key, and the chat's agent is woken to carry on.
+   */
+  const settleKeys = async () => {
+    const waiting = [...rooms.values()].flatMap((room) => room.state.entities.flatMap((e) => (e.kind === "secret" && e.status === "pending" && e.deliver.kind === "key" ? [{ room, request: e, provider: e.deliver.provider }] : [])));
+    if (waiting.length === 0) return;
+    const { providers } = await ports.keys.list();
+    for (const { room, request, provider } of waiting) {
+      const found = providers.find((p) => p.id === provider);
+      if (!found?.connected) continue;
+      room.agent.act({ kind: "secretAnswered", id: request.id, outcome: "provided", hint: found.hint });
+      room.agent.report(told(request, true));
+    }
+  };
+  ports.keys.onChange?.(() => void settleKeys().catch(() => {}));
+  void settleKeys().catch(() => {});
+
   /** A side chat with no title yet is named after its first message. */
   const nameAfter = (room: Room, text: string) => {
     if (room.chat.id === MAIN || room.chat.title || room.state.entities.filter((e) => e.kind === "prompt").length !== 1) return;
@@ -878,25 +948,43 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
         .flatMap((room) => room.state.entities.filter((e): e is Approval => e.kind === "approval").map((approval) => ({ chat: room.chat, approval })))
         .sort((a, b) => Date.parse(b.approval.at) - Date.parse(a.approval.at)),
     }),
-    // the value goes from here to the sandbox, never into the chat, the journal or the agent's context
-    "secret.answer": async ({ id, value }) => {
+    // the value goes from here to where it is kept or typed, never into the chat, the journal or the agent's context
+    "secret.answer": async ({ id, answer }) => {
       const room = holder(id);
       const request = room?.state.entities.find((e): e is SecretRequest => e.kind === "secret" && e.id === id);
       if (!room || !request) throw new Rejected({ kind: "notFound", entity: "secret", id });
       if (request.status !== "pending") throw new Rejected({ kind: "unsound", reason: "That has been answered already." });
-      if (value !== null) await ports.sandbox.give(request, value);
-      const provided = value !== null;
-      room.agent.act({ kind: "secretAnswered", id, outcome: provided ? "provided" : "declined" });
-      room.agent.report(
-        provided
-          ? `[credential] The user provided ${request.name}; it is in your sandbox as asked. Carry on with what needed it (you never see the value, and output shows it masked).`
-          : `[credential] The user declined to give ${request.name}. Do not ask for it again unless they bring it up.`,
-      );
+      if (answer !== null) {
+        const wrong = misfit(request.deliver, answer);
+        if (wrong) throw new Rejected({ kind: "unsound", reason: wrong });
+        await ports.secrets.answer(request, answer);
+      }
+      room.agent.act({ kind: "secretAnswered", id, outcome: answer !== null ? "provided" : "declined" });
+      const note = told(request, answer !== null);
+      if (note) room.agent.report(note);
       return null;
     },
-    "secrets.list": async () => ({ secrets: await ports.sandbox.secrets() }),
+    "secrets.list": async () => ({ entries: await ports.secrets.list() }),
+    "secrets.add": (params) => ports.secrets.add(params),
+    "secrets.edit": async (params) => {
+      await ports.secrets.edit(params);
+      return null;
+    },
+    "secrets.setSecret": async (params) => {
+      await ports.secrets.setSecret(params);
+      return null;
+    },
+    "secrets.removeSecret": async (params) => {
+      await ports.secrets.removeSecret(params);
+      return null;
+    },
+    "secrets.use": async (params) => ({ use: await ports.secrets.use(params) }),
+    "secrets.unuse": async (params) => {
+      await ports.secrets.unuse(params);
+      return null;
+    },
     "secrets.remove": async ({ id }) => {
-      await ports.sandbox.forget(id);
+      await ports.secrets.remove(id);
       return null;
     },
     "skills.list": async () => ({ skills: await (ports.skills ?? noSkills).list() }),
