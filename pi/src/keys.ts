@@ -425,7 +425,8 @@ export function piKeys({ keys, choices, apps = [], modelsPath }: { keys: KeyFile
         thinking: { chat: await inEffect("chat"), browser: await inEffect("browser"), background: await inEffect("background") },
         voice: {
           services: [
-            ...voiceServices.filter((v) => stored.has(v.provider)).map(({ provider, name }) => ({ provider, name })),
+            // only an API key serves speech: a sign-in with an account is for the provider's models
+            ...voiceServices.filter((v) => stored.get(v.provider)?.type === "api_key").map(({ provider, name }) => ({ provider, name })),
             ...(choice.localVoice ? [{ provider: "local", name: `Your own server (${choice.localVoice.model})` }] : []),
           ],
           chosen: choice.voice,
@@ -559,7 +560,12 @@ export function piKeys({ keys, choices, apps = [], modelsPath }: { keys: KeyFile
       }
       if (provider !== null && !voiceServices.some((v) => v.provider === provider))
         throw new Rejected({ kind: "unsound", reason: `${provider} does not turn speech into text here.` });
-      if (provider !== null && !(await keys.read(provider))) throw new Rejected({ kind: "unsound", reason: `Add a key for ${provider} first.` });
+      if (provider !== null) {
+        const credential = await keys.read(provider);
+        if (!credential) throw new Rejected({ kind: "unsound", reason: `Add a key for ${provider} first.` });
+        // speech is served by a key alone: a sign-in with an account is for the provider's models
+        if (credential.type !== "api_key") throw new Rejected({ kind: "unsound", reason: `${provider} serves speech with an API key only.` });
+      }
       choose({ ...choice, voice: provider });
     },
 

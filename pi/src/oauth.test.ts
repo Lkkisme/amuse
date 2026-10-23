@@ -356,3 +356,30 @@ test("a second sign-in for a provider hears the step the first is on, and stoppi
   assert.equal(held, 2);
   await keys.cancel(again.kind === "wait" ? again.login : "");
 });
+
+test("only an API key makes a provider a speech service, not a sign-in with the account", async () => {
+  const openai = fake("openai", {
+    name: "OpenAI",
+    async login() {
+      return tokens(1);
+    },
+    refresh: async () => tokens(2),
+    toAuth: async (credential) => ({ apiKey: credential.access }),
+  });
+  const { keys } = await setup([openai]);
+
+  assert.deepEqual(await keys.login("openai", "account"), { kind: "done" });
+  assert.equal((await keys.list()).providers.find((p) => p.id === "openai")?.way, "account");
+  assert.deepEqual((await keys.list()).voice.services, [], "a sign-in is no speech service");
+  await assert.rejects(keys.voice("openai"), /API key only/);
+  assert.equal(keys.voiceChoice(), null);
+
+  // the key the provider also takes is one
+  await keys.logout("openai");
+  const byKey = await keys.login("openai");
+  if (byKey.kind !== "prompt") return assert.fail("expected a prompt");
+  await keys.answer(byKey.login, "sk-fake-openai-key-1234");
+  assert.deepEqual((await keys.list()).voice.services, [{ provider: "openai", name: "OpenAI (GPT-4o mini Transcribe)" }]);
+  await keys.voice("openai");
+  assert.equal(keys.voiceChoice(), "openai");
+});
