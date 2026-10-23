@@ -20,6 +20,7 @@ import { viewerTabs } from "./view.ts";
 import { type Outgoing, outgoingIn } from "./outgoing.ts";
 import { flyAvatar, transition, travels } from "./transition.ts";
 import { close, useBack } from "./back.ts";
+import { useSwipe } from "./useSwipe.ts";
 
 /** the width the user dragged the viewer to (only that is kept; the default follows the window) */
 const VIEWER_WIDTH = "amuse.viewerDragged";
@@ -180,9 +181,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
   // ☰ sits in the sidebar's top right while it is out (4px in from its edge), else at the chat's top left
   // (on a phone the sidebar is a page of its own: the screen's top right)
   const drawerWidth = width >= 768 ? SIDEBAR_WIDTH : width;
-  const menuLeft = sidebarOut
-    ? (width >= 768 ? SIDEBAR_INSET : 0) + drawerWidth - 4 - 44
-    : 12;
+  const menuOpenLeft = (width >= 768 ? SIDEBAR_INSET : 0) + drawerWidth - 4 - 44;
+  const menuLeft = sidebarOut ? menuOpenLeft : 12;
   // once there is room to dock it, the sidebar is no longer a drawer over the chat
   useEffect(() => {
     if (docked) setUi((u) => (u.chatsOpen ? { ...u, chatsOpen: false } : u));
@@ -441,6 +441,14 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
     layer === "muse" ? actions.setMuse(false) : setUi((u) => close(u, layer)),
   );
 
+  // on a phone, swipes open and close the sidebar and the Amuse panel; the viewer, sheets and the like keep their own
+  const swipe = useSwipe({
+    open: ui.museOpen ? "muse" : ui.chatsOpen ? "sidebar" : null,
+    blocked: ui.viewer !== null || ui.settings.open || ui.explainer !== null || ui.taskDetail !== null,
+    commit: (panel, open) => setUi((u) => (panel === "sidebar" ? { ...u, chatsOpen: open } : { ...u, museOpen: open })),
+  });
+  const swiping = (panel: "sidebar" | "muse") => (swipe?.panel === panel ? swipe : null);
+
   // a notice shows for a few seconds, a longer one a little longer (a tap closes it sooner)
   useEffect(() => {
     if (!ui.notice) return;
@@ -494,6 +502,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           <MenuButton
             open={sidebarOut}
             left={menuLeft}
+            swipe={swiping("sidebar")}
+            openLeft={menuOpenLeft}
             onClick={() =>
               docked
                 ? actions.setSidebar(false)
@@ -549,6 +559,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
 
         <MusePanel
           open={ui.museOpen}
+          swipe={swiping("muse")}
           conversation={conversation}
           session={session}
           mode={ui.viewer ? "floating" : "docked"}
@@ -556,6 +567,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         />
         <DrawerSidebar
           open={ui.chatsOpen && !docked}
+          swipe={swiping("sidebar")}
           chats={chats}
           current={ui.chat}
           left={ui.left}

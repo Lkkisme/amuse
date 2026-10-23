@@ -173,6 +173,12 @@
 .anim-panel-in-right { animation: panel-in-right 0.24s cubic-bezier(0.2, 0, 0, 1) both; }
 .anim-panel-out-right { animation: panel-out-right 0.24s cubic-bezier(0.2, 0, 0, 1) both; }
 
+/* A page a swipe lets go of (useSwipe.ts) settles open or closed on the same duration and curve; reduced motion: it snaps */
+.swipe-settle { transition: transform 0.24s cubic-bezier(0.2, 0, 0, 1), opacity 0.24s cubic-bezier(0.2, 0, 0, 1); }
+@media (prefers-reduced-motion: reduce) {
+  .swipe-settle { transition: none; }
+}
+
 /* On a phone, the Muse panel and its avatar travel together (transition.ts): one duration and curve for both */
 ::view-transition-group(muse-avatar) {
   animation-duration: 0.3s;

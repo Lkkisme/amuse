@@ -7,6 +7,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { List, Menu, PanelLeftClose, ShieldAlert, Wrench } from "lucide-react";
 import type { State } from "@amuse/protocol";
 import type { Actions } from "../ui.ts";
+import type { Swipe } from "../useSwipe.ts";
 import { type AgentLine, agentLine } from "../view.ts";
 import { HOLD_MS, holds, sameLine } from "../badge.ts";
 import { museAvatar } from "../transition.ts";
@@ -145,26 +146,39 @@ function BadgeLine({ line, className, onAnimationEnd }: { line: AgentLine; class
  * sidebar out, it moves into the sidebar's top right and becomes the way to put it away (App.tsx places it), on the
  * same curve the sidebar moves on.
  */
-export function MenuButton({ open, left, onClick }: { open: boolean; left: number; onClick: () => void }) {
+export function MenuButton({ open, left, swipe, openLeft, onClick }: { open: boolean; left: number; swipe: Swipe | null; openLeft: number; onClick: () => void }) {
   const t = useT();
-  const icon = "absolute transition-all duration-200 ease-out";
   const ease = "0.24s cubic-bezier(0.2, 0, 0, 1)";
+  // while a swipe moves the sidebar, the button goes with it, by how open it is (`--swipe`, useSwipe.ts): from the
+  // chat's corner into the sidebar's, the icon turning as it goes
+  const following = swipe?.panel === "sidebar" && (swipe.phase === "drag" || swipe.phase === "settle");
+  const settling = swipe?.phase === "settle";
+  const icon = `absolute ${following ? (settling ? "swipe-settle" : "transition-none") : "transition-all duration-200 ease-out"}`;
   return (
     <button
       aria-label={open ? t.chat.closeSidebar : t.chat.openMenu}
       aria-expanded={open}
+      data-swipe="sidebar"
       className="hover-fade fixed top-3 z-[45] flex size-11 items-center justify-center rounded-full"
       style={{
-        left,
+        left: following ? `calc(12px + ${openLeft - 12}px * var(--swipe))` : left,
         background: "var(--fill-primary)",
         color: "var(--text-primary)",
         boxShadow: "var(--shadow-float)",
-        transition: `left ${ease}`,
+        transition: following && !settling ? "none" : `left ${ease}`,
       }}
       onClick={onClick}
     >
-      <Menu size={20} className={icon} style={{ opacity: open ? 0 : 1, transform: open ? "rotate(90deg) scale(0.6)" : "none" }} />
-      <PanelLeftClose size={20} className={icon} style={{ opacity: open ? 1 : 0, transform: open ? "none" : "rotate(-90deg) scale(0.6)" }} />
+      <Menu
+        size={20}
+        className={icon}
+        style={following ? { opacity: "calc(1 - var(--swipe))", transform: "rotate(calc(var(--swipe) * 90deg)) scale(calc(1 - 0.4 * var(--swipe)))" } : { opacity: open ? 0 : 1, transform: open ? "rotate(90deg) scale(0.6)" : "none" }}
+      />
+      <PanelLeftClose
+        size={20}
+        className={icon}
+        style={following ? { opacity: "var(--swipe)", transform: "rotate(calc((1 - var(--swipe)) * -90deg)) scale(calc(0.6 + 0.4 * var(--swipe)))" } : { opacity: open ? 1 : 0, transform: open ? "none" : "rotate(-90deg) scale(0.6)" }}
+      />
     </button>
   );
 }
