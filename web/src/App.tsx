@@ -178,9 +178,10 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
   const docked = ui.sidebar && fits;
   /** the sidebar is out, docked or over the chat */
   const sidebarOut = docked || ui.chatsOpen;
-  // ☰ sits in the sidebar's top right while it is out (4px in from its edge), else at the chat's top left; on a
-  // phone the sidebar is a page of its own and the button stays at the corner, turning into the close X
-  const menuOpenLeft = width >= 768 ? SIDEBAR_INSET + SIDEBAR_WIDTH - 4 - 44 : 12;
+  // ☰ sits in the sidebar's top right while it is out (4px in from its edge), else at the chat's top left
+  // (on a phone the sidebar is a page of its own: the screen's top right, where it turns into the close X)
+  const drawerWidth = width >= 768 ? SIDEBAR_WIDTH : width;
+  const menuOpenLeft = (width >= 768 ? SIDEBAR_INSET : 0) + drawerWidth - 4 - 44;
   const menuLeft = sidebarOut ? menuOpenLeft : 12;
   // once there is room to dock it, the sidebar is no longer a drawer over the chat
   useEffect(() => {

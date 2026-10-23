@@ -139,10 +139,9 @@ function BadgeLine({ line, className, onAnimationEnd }: { line: AgentLine; class
 
 /**
  * ☰, one round button for the sidebar, as the browser's is: away, it sits at the chat's top left; with the sidebar
- * out, it becomes the way to put it away. On a phone, where the sidebar fills the screen, it stays where it is and
- * turns into the round close X the sheets and the viewer have (mirrored: the viewer's is at the top right);
- * from md, it moves into the sidebar's top right (App.tsx places it) and becomes the collapse icon, on the same
- * curve the sidebar moves on.
+ * out, it moves into the sidebar's top right (App.tsx places it), on the same curve the sidebar moves on, and becomes
+ * the way to put it away: on a phone, where the sidebar fills the screen, the round close X the sheets and the
+ * viewer have; from md, the collapse icon.
  */
 export function MenuButton({ open, left, swipe, openLeft, onClick }: { open: boolean; left: number; swipe: Swipe | null; openLeft: number; onClick: () => void }) {
   const t = useT();
