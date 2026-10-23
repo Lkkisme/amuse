@@ -1,0 +1,54 @@
+// Makes a data folder as v0.1.0 writes it, with the release's own code and fake values only.
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { createHost, realTimers } from "@amuse/core";
+import { demoPorts, seed } from "@amuse/demo";
+import { fileAccess } from "./src/access.ts";
+import { fileChats } from "./src/journal.ts";
+import { fileRules } from "./src/rules.ts";
+import { fileDefaults } from "./src/defaults.ts";
+import { workspace } from "./src/workspace.ts";
+import { fileCredentials } from "@amuse/pi";
+
+const dir = process.argv[2] ?? "";
+rmSync(dir, { recursive: true, force: true });
+mkdirSync(dir, { recursive: true });
+const journal = join(dir, "events.jsonl");
+
+const access = fileAccess(join(dir, "access.json"));
+await access.setup("fixture-password-0.1.0");
+await access.login("fixture-password-0.1.0");
+
+const keys = fileCredentials(join(dir, "keys.json"));
+await keys.modify("openrouter", async () => ({ type: "api_key", key: "sk-or-v1-FAKE-FIXTURE-NOT-A-KEY" }));
+await keys.modify("composio", async () => ({ type: "api_key", key: "ak_FAKEFIXTURE0000" }));
+writeFileSync(join(dir, "models.json"), JSON.stringify({ chat: "openrouter/fake-model", browser: null, background: null, voice: null, localVoice: null, thinking: { chat: "off", browser: "off", background: "off" } }, null, 2), { mode: 0o600 });
+writeFileSync(
+  join(dir, "sandbox-secrets.json"),
+  JSON.stringify([{ id: "s-fake-0001", name: "GitHub token", deliver: { kind: "env", name: "GH_TOKEN" }, at: "2026-10-21T18:00:00.000Z", value: "ghp_FAKEFIXTURE0000000000000000000000" }], null, 2),
+  { mode: 0o600 },
+);
+
+const rules = fileRules(join(dir, "rules.json"));
+await rules.set("gmail", "destructive", "deny");
+await rules.set("gmail", "write", "ask");
+await rules.set("github", "read", "allow");
+await rules.setBrowser("download", "ask");
+await rules.setSite("bank.example", { never: true, actions: {} });
+await rules.setSiteAction("news.example", "submit", "allow");
+fileDefaults(join(dir, "defaults.json")).markSetUp(["memory", "people", "reflection", "wrap-up"]);
+
+const files = workspace(join(dir, "workspace"), join(dir, "sent.json"));
+await files.write("memory/MEMORY.md", new TextEncoder().encode("# Memory\n\n- Fixture user likes tea.\n"), false);
+await files.write("skills/hello/SKILL.md", new TextEncoder().encode("---\nname: hello\ndescription: Say hello.\n---\nSay hello.\n"), false);
+const cat = await files.save("cat.jpg", "image/jpeg", [new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4])]);
+
+const host = createHost({ ...demoPorts(realTimers), files }, { seed: seed(), store: fileChats(dir, journal), timers: realTimers });
+await host.call("chat.send", { chat: "main", text: "Hello Amuse, remember that I like tea.", timezone: "UTC", attachments: cat ? [cat] : [] });
+await new Promise((r) => setTimeout(r, 6000));
+const side = await host.call("chats.create", {});
+await host.call("chat.send", { chat: side.id, text: "A side thought about the garden", timezone: "UTC", attachments: [] });
+await new Promise((r) => setTimeout(r, 6000));
+await host.call("chat.send", { chat: "main", text: "Thanks, that is all for today.", timezone: "UTC", attachments: [] });
+await new Promise((r) => setTimeout(r, 6000));
+process.exit(0);

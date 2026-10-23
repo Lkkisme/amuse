@@ -6,6 +6,7 @@ WORKDIR /app
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY protocol/package.json protocol/
 COPY core/package.json core/
+COPY db/package.json db/
 COPY demo/package.json demo/
 COPY pi/package.json pi/
 COPY composio/package.json composio/
@@ -28,6 +29,7 @@ COPY --from=runtime-deps /app/node_modules node_modules
 COPY --from=deps /app/package.json /app/tsconfig.base.json ./
 COPY protocol protocol
 COPY core core
+COPY db db
 COPY demo demo
 COPY pi pi
 COPY composio composio
@@ -40,7 +42,7 @@ USER node
 ENV AMUSE_HOST=0.0.0.0 \
     AMUSE_PORT=8080 \
     AMUSE_WEB=/app/web/dist \
-    AMUSE_JOURNAL=/data/events.jsonl
+    AMUSE_DATA=/data
 EXPOSE 8080
 VOLUME /data
 CMD ["node", "api/src/main.ts"]

@@ -557,3 +557,25 @@ test("a refusal by the user's rule is an approval that ends denied, marked as th
   assert.equal(approvals.find((a) => a.approval.id === asked.id)?.approval.byRule, false);
   await assert.rejects(host.call("approval.resolve", { id: refused.id, resolution: "allow_once" }), /cannot resolve from denied/);
 });
+
+test("a journal is replayed as it is read, and the host keeps only the latest events to catch a client up", async () => {
+  const total = 2500;
+  let produced = 0;
+  const events = function* () {
+    for (let seq = 1; seq <= total; seq++) {
+      produced += 1;
+      yield { seq, event: { kind: "activity" as const, activity: null } };
+    }
+  };
+  const base = memoryChats();
+  const store = { ...base, journal: (chat: string) => (chat === "main" ? { load: () => events(), append: () => {} } : base.journal(chat)) };
+  const idle: Timers<number> = { set: () => 0, clear: () => {} };
+  const host = createHost(capture().ports, { store, timers: idle });
+  assert.equal(produced, total, "every event was read, one at a time");
+  const near = await host.call("session.sync", { chat: "main", since: total - 5 });
+  assert.ok(near.kind === "events" && near.events.length === 5 && near.events[0]?.seq === total - 4);
+  const far = await host.call("session.sync", { chat: "main", since: 10 });
+  assert.ok(far.kind === "snapshot" && far.state.seq === total, "too far behind for the events kept: a snapshot");
+  const current = await host.call("session.sync", { chat: "main", since: total });
+  assert.ok(current.kind === "events" && current.events.length === 0);
+});

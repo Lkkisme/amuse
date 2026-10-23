@@ -2,12 +2,12 @@
  * Who may use this instance: whoever knows its master password. The first
  * visitor sets it (the instance holds nothing of theirs before: no keys, no
  * chats); from then on the password opens a session, kept as an HttpOnly
- * cookie. The file keeps the password's scrypt hash and the hashes of the
- * sessions open (a session id is never stored as it is). Deleting the file
- * (and restarting) lets the password be set again.
+ * cookie. The database keeps the password's scrypt hash and the hashes of the
+ * sessions open (a session id is never stored as it is). `amuse reset-password`
+ * lets the password be set again.
  */
 import { createHash, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { type Db, queryOne, transaction } from "@amuse/db";
 import { z } from "zod";
 
 /** scrypt's cost: about 50 ms and 32 MB a try */
@@ -16,11 +16,8 @@ export const MIN_PASSWORD = 8;
 /** sessions kept at most (the oldest go first) */
 const MAX_SESSIONS = 50;
 
-const Stored = z.object({
-  password: z.object({ salt: z.string(), hash: z.string() }),
-  sessions: z.array(z.string()),
-});
-type Stored = z.infer<typeof Stored>;
+const Password = z.object({ salt: z.string(), hash: z.string() });
+type Password = z.infer<typeof Password>;
 
 export class PasswordRejected extends Error {}
 
@@ -41,13 +38,14 @@ const derive = (password: string, salt: Buffer) =>
   new Promise<Buffer>((resolve, reject) => scrypt(password.normalize("NFC"), salt, 64, COST, (error, key) => (error ? reject(error) : resolve(key))));
 const digest = (session: string) => createHash("sha256").update(session).digest("hex");
 
-export function fileAccess(path: string): Access {
-  let stored: Stored | null = existsSync(path) ? Stored.parse(JSON.parse(readFileSync(path, "utf8"))) : null;
-  const save = (next: Stored) => {
-    writeFileSync(`${path}.tmp`, JSON.stringify(next), { mode: 0o600 });
-    renameSync(`${path}.tmp`, path);
-    stored = next;
-  };
+export function sqliteAccess(db: Db): Access {
+  const stored = () => queryOne(db, Password, "select salt, hash from access");
+  /** The password and its sessions replaced together; the sessions of any earlier password end. */
+  const replace = (password: Password) =>
+    transaction(db, () => {
+      db.exec("delete from access; delete from sessions");
+      db.prepare("insert into access (id, salt, hash) values (1, ?, ?)").run(password.salt, password.hash);
+    });
   const hashOf = async (password: string) => {
     const salt = randomBytes(16);
     return {
@@ -56,17 +54,18 @@ export function fileAccess(path: string): Access {
     };
   };
   const matches = async (password: string) => {
-    if (!stored) return false;
-    const key = await derive(password, Buffer.from(stored.password.salt, "hex"));
-    return timingSafeEqual(key, Buffer.from(stored.password.hash, "hex"));
+    const kept = stored();
+    if (!kept) return false;
+    const key = await derive(password, Buffer.from(kept.salt, "hex"));
+    return timingSafeEqual(key, Buffer.from(kept.hash, "hex"));
   };
-  const open = (keep: string[]) => {
+  /** A new session, added after the ones open (the oldest go beyond the most kept). */
+  const open = () => {
     const session = randomBytes(32).toString("base64url");
-    if (stored)
-      save({
-        ...stored,
-        sessions: [...keep, digest(session)].slice(-MAX_SESSIONS),
-      });
+    transaction(db, () => {
+      db.prepare("insert into sessions (digest) values (?)").run(digest(session));
+      db.prepare("delete from sessions where position not in (select position from sessions order by position desc limit ?)").run(MAX_SESSIONS);
+    });
     return session;
   };
   const acceptable = (password: string) => {
@@ -74,32 +73,33 @@ export function fileAccess(path: string): Access {
   };
 
   return {
-    ready: () => stored !== null,
+    ready: () => stored() !== null,
     async setup(password) {
       acceptable(password);
-      if (stored) throw new PasswordRejected("The password is already set.");
+      if (stored()) throw new PasswordRejected("The password is already set.");
       const hashed = await hashOf(password);
-      if (stored) throw new PasswordRejected("The password is already set."); // set meanwhile
-      save({ password: hashed, sessions: [] });
-      return open([]);
+      if (stored()) throw new PasswordRejected("The password is already set."); // set meanwhile
+      replace(hashed);
+      return open();
     },
     async login(password) {
-      if (!stored || !(await matches(password))) return null;
-      return open(stored.sessions);
+      if (!(await matches(password))) return null;
+      return open();
     },
-    valid: (session) => stored !== null && stored.sessions.includes(digest(session)),
+    valid: (session) => queryOne(db, z.object({ there: z.number() }), "select 1 as there from sessions where digest = ?", digest(session)) !== null,
     logout(session) {
-      if (stored)
-        save({
-          ...stored,
-          sessions: stored.sessions.filter((s) => s !== digest(session)),
-        });
+      db.prepare("delete from sessions where digest = ?").run(digest(session));
     },
     async change(current, next) {
       acceptable(next);
-      if (!stored || !(await matches(current))) return null;
-      save({ password: await hashOf(next), sessions: [] });
-      return open([]);
+      if (!(await matches(current))) return null;
+      replace(await hashOf(next));
+      return open();
     },
   };
+}
+
+/** Forget the password and every session: the next visit sets a new one (`amuse reset-password`). */
+export function resetPassword(db: Db): void {
+  transaction(db, () => db.exec("delete from access; delete from sessions"));
 }

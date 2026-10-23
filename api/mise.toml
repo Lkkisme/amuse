@@ -9,10 +9,10 @@ depends = ["//:install"]
 run = "node --watch src/main.ts"
 
 [tasks.try]
-description = "A throwaway API for live tests: dev ports and keys, but its own port (PORT, default 8799), localhost only, and a temp journal"
+description = "A throwaway API for live tests: dev ports and keys, but its own port (PORT, default 8799), localhost only, and a temp data folder"
 depends = ["//:install"]
 run = '''
 set -a; . "$HOME/.config/remuse/dev.env"; set +a
-export AMUSE_HOST=127.0.0.1 AMUSE_PORT="${PORT:-8799}" AMUSE_JOURNAL="$(mktemp -d)/events.jsonl"
+export AMUSE_HOST=127.0.0.1 AMUSE_PORT="${PORT:-8799}" AMUSE_DATA="$(mktemp -d)"
 exec node src/main.ts
 '''

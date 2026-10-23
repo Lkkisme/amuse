@@ -6,6 +6,7 @@
   "workspaces": [
     "protocol",
     "core",
+    "db",
     "demo",
     "pi",
     "composio",

@@ -10,6 +10,7 @@ import { Attachment } from "@amuse/protocol";
 import { WorkspaceError } from "@amuse/core";
 import { worded } from "./descend.ts";
 import { MAX_FILE, workspace } from "./workspace.ts";
+import { memorySent } from "./sent.ts";
 import type { Access } from "./access.ts";
 import { listen } from "./server.ts";
 
@@ -26,7 +27,7 @@ const access: Access = {
 
 async function serve() {
   const dir = mkdtempSync(join(tmpdir(), "amuse-files-"));
-  const files = workspace(join(dir, "workspace"), join(dir, "sent.json"));
+  const files = workspace(join(dir, "workspace"), memorySent(), dir);
   const server = await listen({
     session: createHost({ ...demoPorts(never), files }, { timers: never }),
     files,
@@ -115,7 +116,7 @@ test("no upload without a session, none over the limit, and no file by a made-up
 
 test("the workspace stays inside itself, and the chat's files follow them when they move, and are gone when deleted", async () => {
   const dir = mkdtempSync(join(tmpdir(), "amuse-ws-"));
-  const files = workspace(join(dir, "workspace"), join(dir, "sent.json"));
+  const files = workspace(join(dir, "workspace"), memorySent(), dir);
   await files.write("notes/today.md", new TextEncoder().encode("# hi"), false);
   await assert.rejects(files.write("notes/today.md", new Uint8Array(), false), /already exists/);
   await assert.rejects(files.open("../sent.json"), /outside the workspace/);
@@ -153,7 +154,7 @@ function withSecrets() {
   mkdirSync(join(secrets, "folder"), { recursive: true });
   writeFileSync(join(secrets, "keys.json"), "keys");
   writeFileSync(join(secrets, "folder/more.json"), "more");
-  const files = workspace(join(dir, "workspace"), join(dir, "sent.json"));
+  const files = workspace(join(dir, "workspace"), memorySent(), dir);
   const untouched = () => {
     assert.equal(readFileSync(join(secrets, "keys.json"), "utf8"), "keys");
     assert.equal(readFileSync(join(secrets, "folder/more.json"), "utf8"), "more");
@@ -255,7 +256,7 @@ test("deleting a folder deletes the links in it, not what they lead to; a pipe i
 function fresh() {
   const dir = mkdtempSync(join(tmpdir(), "amuse-protected-"));
   const root = join(dir, "workspace");
-  return { dir, root, files: workspace(root, join(dir, "sent.json")) };
+  return { dir, root, files: workspace(root, memorySent(), dir) };
 }
 
 test("what is moved into memory/, skills/ or user/ is a copy, with inodes the sandbox has no hold on", async () => {
@@ -321,15 +322,15 @@ test("memory/, skills/ and user/ always exist, and cannot be removed or renamed,
   assert.ok(existsSync(join(root, "skills")));
   // made again at the next start, if they went some other way
   rmSync(join(root, "memory"), { recursive: true });
-  workspace(root, join(dir, "sent.json"));
+  workspace(root, memorySent(), dir);
   assert.ok(statSync(join(root, "memory")).isDirectory());
   // but not over something that is not a folder
   rmSync(join(root, "skills"), { recursive: true });
   writeFileSync(join(root, "skills"), "a file");
-  assert.throws(() => workspace(root, join(dir, "sent.json")), /skills in the workspace is not a folder/);
+  assert.throws(() => workspace(root, memorySent(), dir), /skills in the workspace is not a folder/);
   rmSync(join(root, "skills"));
   symlinkSync(dir, join(root, "skills"));
-  assert.throws(() => workspace(root, join(dir, "sent.json")), /skills in the workspace is not a folder/);
+  assert.throws(() => workspace(root, memorySent(), dir), /skills in the workspace is not a folder/);
 });
 
 test("a sent file deleted or swapped outside the server is gone for locate, as it is for reading", async () => {

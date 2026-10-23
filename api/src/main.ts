@@ -1,12 +1,14 @@
 /**
  * The server: the core host with Pi agents, served on 127.0.0.1. Who may use it
- * is whoever knows the master password, set on the first visit (access.json
- * beside the journal); the model providers' keys, Composio's and the models
- * chosen are set up in the app (keys.json, models.json).
+ * is whoever knows the master password, set on the first visit (kept in the
+ * database); the model providers' keys, Composio's and the models chosen are
+ * set up in the app (keys.json, models.json).
  *   AMUSE_PORT   default 8797
  *   AMUSE_HOST   default 127.0.0.1
- *   AMUSE_JOURNAL  JSONL file the event log lives in (survives restarts), with the rest of the
- *                 data beside it; without one, everything goes in a temporary folder
+ *   AMUSE_DATA   the folder everything is kept in: amuse.db (the journal, chats, rules, password …), the workspace,
+ *                 backups/. Without it, AMUSE_JOURNAL's folder; with neither, a temporary folder
+ *   AMUSE_JOURNAL  where the older versions kept the journal (a JSONL file): imported once into the database
+ *                 and kept as <name>.bak, with the other old files beside it
  *   AMUSE_PI_MODEL, AMUSE_PI_BROWSER_MODEL, <PROVIDER>_API_KEY, AMUSE_PI_AUTH, AMUSE_COMPOSIO_KEY(_FILE)
  *                 read once, when there is no keys.json yet: taken over into it
  *   AMUSE_BROWSERS  the auto-browser pool: name|controller URL|noVNC URL, comma-separated
@@ -19,31 +21,48 @@
  *                 away every request from it, whether or not the sandbox is in use; required with AMUSE_SANDBOX_URL
  *   AMUSE_WEB    directory of the built web app to serve (same origin as /rpc and /live)
  */
-import { dirname, join } from "node:path";
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { SandboxError, masking, sandboxClient, terminalAt } from "@amuse/sandbox";
 import { ComposioError, NoComposioKey, composio, composioApps, composioGuide, composioConnector, composioDirectory, keyedComposio } from "@amuse/composio";
-import { fileChats } from "./journal.ts";
+import { StartupError } from "@amuse/db";
+import { sqliteChats } from "./journal.ts";
+import { locate, openData } from "./data.ts";
+import { serveProblem } from "./startup.ts";
+import { sqliteSent } from "./sent.ts";
 import { workspace } from "./workspace.ts";
 import { browserPool, controller } from "@amuse/browser";
-import { type Ports, Rejected, createHost, memoryRules, noLogins, noSandbox, realTimers } from "@amuse/core";
+import { type Ports, Rejected, createHost, noLogins, noSandbox, realTimers } from "@amuse/core";
 import type { Entity } from "@amuse/protocol";
 import { type PiAuth, VoiceUnavailable, adoptEnvironment, builtInSkills, skillsPort, transcriber, fileCredentials, piAgent, piBrowserAgent, piKeys, piScheduleRunner, piTaskRunner, untrustedRule } from "@amuse/pi";
-import { fileAccess } from "./access.ts";
-import { fileDefaults } from "./defaults.ts";
+import { sqliteAccess } from "./access.ts";
+import { sqliteDefaults } from "./defaults.ts";
 import { listen } from "./server.ts";
-import { fileRules } from "./rules.ts";
+import { sqliteRules } from "./rules.ts";
 import { refusing } from "./sandbox.ts";
 import { sandboxSecrets } from "./secrets.ts";
 
 const port = Number(process.env["AMUSE_PORT"] ?? 8797);
 const host = process.env["AMUSE_HOST"] ?? "127.0.0.1";
 
-/** where everything is kept: beside the journal (or, with none, somewhere that goes with this run) */
-const journalFile = process.env["AMUSE_JOURNAL"];
-const dataDir = journalFile ? dirname(journalFile) : mkdtempSync(join(tmpdir(), "amuse-data-"));
-const access = fileAccess(join(dataDir, "access.json"));
+/**
+ * Before anything opens the data: its folders are checked, and the database is opened and migrated (db/). When that cannot
+ * be done, this server still answers, with a page that says why and what to do, and nothing else starts.
+ */
+const where = locate(process.env);
+const dataDir = where.dir;
+const db = await (async () => {
+  try {
+    return await openData(where);
+  } catch (error) {
+    if (!(error instanceof StartupError)) throw error;
+    console.error(`amuse could not start: ${error.message}`);
+    for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => process.exit(1));
+    await serveProblem(error.problem, { port, host });
+    return await new Promise<never>(() => {});
+  }
+})();
+const access = sqliteAccess(db);
 
 /** The user's keys and models, set up in the app; what the environment held before is taken over once. */
 const keysPath = join(dataDir, "keys.json");
@@ -112,10 +131,10 @@ const system = [
 /** connections go through Composio, with the key set up now (none: each use says it is needed) */
 const composioClient = keyedComposio(() => keys.appKey("composio"));
 const composioUser = "owner";
-/** what the agent may do with connections (core/policy.ts): kept beside the journal, or in memory without one */
-const rules = journalFile ? fileRules(join(dataDir, "rules.json")) : memoryRules();
-// Muse's workspace, and the index of sent files beside it
-const files = workspace(join(dataDir, "workspace"), join(dataDir, "sent.json"));
+/** what the agent may do with connections (core/policy.ts) */
+const rules = sqliteRules(db);
+// Muse's workspace, and the index of sent files kept in the database
+const files = workspace(join(dataDir, "workspace"), sqliteSent(db), dataDir);
 const publicUrl = process.env["AMUSE_PUBLIC_URL"];
 const connector = composioConnector(composioClient, {
   userId: composioUser,
@@ -228,7 +247,7 @@ const about = async (): Promise<string> => {
 };
 
 const ports: Ports = {
-  ...piAgent({ model, thinking: () => keys.thinking("chat"), auth, system, rules, files, ...(sandbox ? { sandbox } : {}), apps, search: apps.search, appsSetup: () => (keys.appKey("composio") ? null : composioGuide), skills, about, defaults: fileDefaults(join(dataDir, "defaults.json")) }),
+  ...piAgent({ model, thinking: () => keys.thinking("chat"), auth, system, rules, files, ...(sandbox ? { sandbox } : {}), apps, search: apps.search, appsSetup: () => (keys.appKey("composio") ? null : composioGuide), skills, about, defaults: sqliteDefaults(db) }),
   // scheduled work runs on the background model (the chat's when none is chosen)
   ...piScheduleRunner({
     model: () => keys.model("background"),
@@ -313,10 +332,7 @@ const ports: Ports = {
   },
 };
 
-const journalPath = process.env["AMUSE_JOURNAL"];
-// side chats beside the main chat's log
-const store = journalPath ? { store: fileChats(dirname(journalPath), journalPath) } : {};
-const session = createHost(ports, store);
+const session = createHost(ports, { store: sqliteChats(db) });
 
 // the live channel asks which runs the user holds, in any chat: followed here from the events like any client
 const held = new Set<string>();
@@ -353,7 +369,11 @@ await listen({
   port,
   host,
 });
-for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => process.exit(0));
+for (const signal of ["SIGINT", "SIGTERM"] as const)
+  process.once(signal, () => {
+    db.close(); // folds the write-ahead log into the database file
+    process.exit(0);
+  });
 // the way in: the first visit sets the master password
 if (!access.ready()) console.log(`amuse is ready. Open ${publicUrl ?? `http://${host}:${port}`} and set the master password.`);
 console.log(

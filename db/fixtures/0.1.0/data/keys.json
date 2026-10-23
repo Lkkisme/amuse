@@ -1,0 +1,10 @@
+{
+  "openrouter": {
+    "type": "api_key",
+    "key": "sk-or-v1-FAKE-FIXTURE-NOT-A-KEY"
+  },
+  "composio": {
+    "type": "api_key",
+    "key": "ak_FAKEFIXTURE0000"
+  }
+}

@@ -7,7 +7,8 @@ import { createHost, type Timers } from "@amuse/core";
 import { demoPorts, seed } from "@amuse/demo";
 import { type State, apply, empty } from "@amuse/protocol";
 import { connect } from "./client.ts";
-import { type Access, fileAccess } from "./access.ts";
+import { type Access, sqliteAccess } from "./access.ts";
+import { migratedDatabase } from "@amuse/db";
 import { listen } from "./server.ts";
 
 /** Lets every request in: for what is not about the way in. */
@@ -205,7 +206,7 @@ test("a client that reconnects receives the events it missed", async () => {
 
 /** A server whose way in is real: a fresh instance, the password not set yet. */
 async function guarded() {
-  const access = fileAccess(join(mkdtempSync(join(tmpdir(), "amuse-access-")), "access.json"));
+  const access = sqliteAccess(await migratedDatabase());
   const server = await listen({
     session: createHost(demoPorts(instant), { timers: never }),
     access,
@@ -359,7 +360,7 @@ test("the terminals' socket is the session's and this origin's alone; without a 
 });
 
 test("speech becomes text for a session, from this origin, audio only; when it cannot, the reason comes back", async () => {
-  const access = fileAccess(join(mkdtempSync(join(tmpdir(), "amuse-access-")), "access.json"));
+  const access = sqliteAccess(await migratedDatabase());
   const heard: string[] = [];
   const server = await listen({
     session: createHost(demoPorts(instant), { timers: never }),

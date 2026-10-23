@@ -1,7 +1,7 @@
 monorepo_root = true
 
 [monorepo]
-config_roots = ["protocol", "core", "demo", "pi", "composio", "browser", "sandbox", "api", "web"]
+config_roots = ["protocol", "core", "db", "demo", "pi", "composio", "browser", "sandbox", "api", "web"]
 
 [tools]
 node = "24"
@@ -23,7 +23,7 @@ run = "node scripts/check-dockerfile.ts"
 
 [tasks.check]
 description = "Type-check and test every package"
-depends = ["dockerfile-check", "//protocol:kotlin", "//protocol:check", "//core:check", "//demo:check", "//pi:check", "//composio:check", "//browser:check", "//sandbox:check", "//api:check", "//web:check"]
+depends = ["dockerfile-check", "//protocol:kotlin", "//protocol:check", "//core:check", "//db:check", "//demo:check", "//pi:check", "//composio:check", "//browser:check", "//sandbox:check", "//api:check", "//web:check"]
 run = "true"
 
 [tasks.dev]

@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@amuse/core": "*",
+    "@amuse/db": "*",
     "@amuse/protocol": "*",
     "@amuse/sandbox": "*",
     "ws": "^8.18.3",

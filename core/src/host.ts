@@ -366,9 +366,12 @@ export interface Clock {
   now(): string;
 }
 
-/** Where a chat's event log survives restarts. The host replays it on start and appends every event. */
+/**
+ * Where a chat's event log survives restarts. The host replays it on start, event by event (so a store can read it as it goes,
+ * without holding it whole), and appends every event.
+ */
 export interface Journal {
-  load(): Envelope[];
+  load(): Iterable<Envelope>;
   append(envelope: Envelope): void;
 }
 
@@ -426,7 +429,10 @@ const SETTLE_SLACK_MS = 60_000;
 /** How much of another chat the agent reads at once. */
 const otherChat: Budget = { full: 12_000, brief: 4_000 };
 
-/** One chat as the host keeps it: the whole feed (clients may ask for any of it), its log, and its agent's IO. */
+/** How many of a chat's latest events the host keeps to answer a client that is only a little behind; further back, the client gets a snapshot. */
+const LOG_KEPT = 1000;
+
+/** One chat as the host keeps it: the whole feed (clients may ask for any of it), its latest events, and its agent's IO. */
 interface Room {
   chat: Chat;
   state: State;
@@ -504,6 +510,8 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
   const record = (room: Room, envelope: Envelope) => {
     room.state = apply(room.state, envelope);
     room.log.push(envelope);
+    // the log is only its tail, trimmed in steps so that most events cost nothing; the state is the whole feed
+    if (room.log.length > LOG_KEPT * 2) room.log.splice(0, room.log.length - LOG_KEPT);
   };
   /** Every change is recorded here; ports only reach the Say subset of them (AgentIO.emit). */
   const commit = (room: Room, change: Change) => {
@@ -747,10 +755,13 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
   const chats = stored.some((c) => c.id === MAIN) ? stored : [{ id: MAIN, title: "", at: now, updated: now }, ...stored];
   for (const chat of chats) {
     const room = open(chat);
-    const history = room.journal.load();
-    history.forEach((envelope) => record(room, envelope));
+    let replayed = 0;
+    for (const envelope of room.journal.load()) {
+      record(room, envelope);
+      replayed += 1;
+    }
     recover(room.state, now).forEach((change) => commit(room, change));
-    if (chat.id === MAIN && history.length === 0) for (const entity of options.seed ?? []) commit(room, { kind: "upserted", entity });
+    if (chat.id === MAIN && replayed === 0) for (const entity of options.seed ?? []) commit(room, { kind: "upserted", entity });
   }
   if (!stored.some((c) => c.id === MAIN)) store.save(ordered());
   arm(); // what fell due while amuse was down happens now (or is recorded as missed)
