@@ -4,7 +4,7 @@
  */
 import { type App, type AppAccess, type Attachment, type KeyProvider, MAIN, type SecretAnswer, type SkillOrigin } from "@amuse/protocol";
 
-export type SettingsSection = "general" | "models" | "connectors" | "permissions" | "logins" | "secrets" | "schedules" | "sandbox";
+export type SettingsSection = "general" | "security" | "models" | "connectors" | "permissions" | "logins" | "secrets" | "schedules" | "sandbox";
 
 /** What the Vault shows besides its list: the form to add an entry, or an entry's page (its name, to title the page). */
 export type SecretPage = { kind: "add" } | { kind: "entry"; id: string; name: string };

@@ -76,6 +76,13 @@ const samples: Record<string, unknown[]> = {
   "viewer.showBrowserAt": ["example.com"],
   "panel.taskSteps": ["Working", 1, 3],
   "panel.connectTitle": ["Sample app"],
+  "pin.wrong": [3],
+  "pin.lockedUntil": ["14:30"],
+  "pin.lockedNotice": ["14:30"],
+  "devices.seen": ["Today, 8:00", "100.64.0.7"],
+  "devices.removeTitle": ["iPhone · Safari"],
+  "settings.security.unlockedUntil": ["14:30"],
+  "settings.security.minutes": [5],
 };
 
 test("the Chinese catalog has every message the English one has", () => {

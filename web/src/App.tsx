@@ -21,6 +21,9 @@ import { type Outgoing, outgoingIn } from "./outgoing.ts";
 import { flyAvatar, transition, travels } from "./transition.ts";
 import { close, useBack } from "./back.ts";
 import { useSwipe } from "./useSwipe.ts";
+import { type Ask, pinGuarded } from "./pin.ts";
+import { PinContext, usePinSheet } from "./components/PinSheet";
+import { AccountWatch } from "./components/AccountWatch";
 
 /** the width the user dragged the viewer to (only that is kept; the default follows the window) */
 const VIEWER_WIDTH = "amuse.viewerDragged";
@@ -49,13 +52,17 @@ import { BrowserButton } from "./components/BrowserButton";
 import { MenuButton, TopBar } from "./components/TopBar";
 import { Viewer } from "./components/Viewer";
 
-/** A session and how to let go of it (a socket must be closed, or it reconnects forever). */
+/**
+ * A session and how to let go of it (a socket must be closed, or it reconnects forever). On a server, a sensitive
+ * call the server holds for the PIN asks for it (`ask`), then goes again.
+ */
 const openSession = (
   where: Connection,
+  ask: Ask,
 ): { session: Session; close: () => void } => {
   if (where.kind === "server") {
     const remote = connect(where.rpc);
-    return { session: remote, close: () => remote.close() };
+    return { session: pinGuarded(remote, ask), close: () => remote.close() };
   }
   return {
     session: createHost(demoPorts(realTimers), { seed: seed() }),
@@ -68,7 +75,7 @@ export default function App() {
   useEffect(() => void connection().then(setWhere), []);
   if (!where) return null;
   return where.kind === "locked" ? (
-    <Unlock ready={where.ready} />
+    <Unlock ready={where.ready} waiting={where.waiting} />
   ) : (
     <Chat where={where} />
   );
@@ -76,7 +83,8 @@ export default function App() {
 
 function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
   const t = useT();
-  const [link, setLink] = useState(() => openSession(where));
+  const pin = usePinSheet();
+  const [link, setLink] = useState(() => openSession(where, pin.ask));
   const { session } = link;
   const chats = useChats(session);
   // the look this device was left in
@@ -437,11 +445,11 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
       setTheme: (theme) => patch((u) => ({ ...u, theme })),
       reset: () => {
         link.close();
-        setLink(openSession(where));
+        setLink(openSession(where, pin.ask));
         setUi((u) => ({ ...initialUi, theme: u.theme }));
       },
     };
-  }, [session, link, conversation]);
+  }, [session, link, conversation, pin.ask]);
 
   // Back closes the top layer; Muse's panel closes as its button does, its avatar travelling home
   useBack(ui, (layer) =>
@@ -469,156 +477,160 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
   }, [ui.notice]);
 
   return (
-    <Files.Provider value={files}>
-      <SessionContext.Provider value={session}>
-      <div
-        className="flex h-full"
-        style={{ background: "var(--chat-background)" }}
-      >
-        {/* on a desktop, closing (by ☰, or giving way) as it opens: by its width */}
-        <DockedSidebar
-          open={docked}
-          chats={chats}
-          current={ui.chat}
-          left={ui.left}
-          goal={ui.goal}
-          skill={ui.skill}
-          session={session}
-          actions={actions}
-        />
-        {/* with the viewer open on desktop, the chat keeps what the viewer leaves */}
+    <PinContext.Provider value={pin}>
+      <Files.Provider value={files}>
+        <SessionContext.Provider value={session}>
         <div
-          className="relative flex min-w-0 flex-1 flex-col"
-          // the right side's panel (the Amuse panel, or the browser) pushes the chat aside on the same curve as the
-          // sidebar on the left
-          style={{
-            marginRight: width >= 768 ? right : 0,
-            transition: "margin-right 0.24s cubic-bezier(0.2, 0, 0, 1)",
-          }}
+          className="flex h-full"
+          style={{ background: "var(--chat-background)" }}
         >
-          <ChatFeed
-            conversation={conversation}
-            outgoing={shownOutgoing}
-            older={older}
-            release={release}
-            thumb={where.kind === "server" ? where.thumb : null}
+          {/* on a desktop, closing (by ☰, or giving way) as it opens: by its width */}
+          <DockedSidebar
+            open={docked}
+            chats={chats}
+            current={ui.chat}
+            left={ui.left}
+            goal={ui.goal}
+            skill={ui.skill}
+            session={session}
             actions={actions}
           />
-          <TopBar
-            conversation={conversation}
-            museOpen={ui.museOpen}
-            actions={actions}
-          />
-          <MenuButton
-            open={sidebarOut}
-            left={menuLeft}
-            swipe={swiping("sidebar")}
-            openLeft={menuOpenLeft}
-            onClick={() =>
-              docked
-                ? actions.setSidebar(false)
-                : ui.chatsOpen
-                  ? actions.setChats(false)
-                  : fits
-                    ? actions.setSidebar(true)
-                    : actions.setChats(true)
-            }
-          />
-          <BrowserButton
-            conversation={conversation}
-            open={ui.viewer !== null}
-            swipe={swiping("viewer")}
-            actions={actions}
-          />
-          {ui.notice && (
-            <p
-              role="status"
-              onClick={() => setUi((u) => ({ ...u, notice: null }))}
-              className="anim-fade-in absolute inset-x-0 bottom-[86px] z-30 mx-auto w-fit max-w-[90%] rounded-[18px] px-4 py-2 text-[13px]"
-              style={{
-                background: "var(--fill-primary)",
-                color: "var(--fill-red)",
-                boxShadow: "var(--shadow-float)",
-              }}
-            >
-              {ui.notice}
-            </p>
-          )}
-          {needsModel && !ui.notice && (
-            <button
-              className="anim-fade-in absolute inset-x-0 bottom-[86px] z-30 mx-auto w-fit max-w-[90%] rounded-full px-4 py-2 text-[13px] font-medium"
-              style={{
-                background: "var(--fill-primary)",
-                color: "var(--fill-blue)",
-                boxShadow: "var(--shadow-float)",
-              }}
-              onClick={() => actions.openSettings("models")}
-            >
-              {t.chat.chooseModel}
-            </button>
-          )}
-          <Composer
-            conversation={conversation}
-            place={
-              ui.chat === MAIN
-                ? null
-                : chats.find((c) => c.id === ui.chat)?.title || t.chat.newChat
-            }
-            actions={actions}
-          />
-        </div>
+          {/* with the viewer open on desktop, the chat keeps what the viewer leaves */}
+          <div
+            className="relative flex min-w-0 flex-1 flex-col"
+            // the right side's panel (the Amuse panel, or the browser) pushes the chat aside on the same curve as the
+            // sidebar on the left
+            style={{
+              marginRight: width >= 768 ? right : 0,
+              transition: "margin-right 0.24s cubic-bezier(0.2, 0, 0, 1)",
+            }}
+          >
+            <ChatFeed
+              conversation={conversation}
+              outgoing={shownOutgoing}
+              older={older}
+              release={release}
+              thumb={where.kind === "server" ? where.thumb : null}
+              actions={actions}
+            />
+            <TopBar
+              conversation={conversation}
+              museOpen={ui.museOpen}
+              actions={actions}
+            />
+            <MenuButton
+              open={sidebarOut}
+              left={menuLeft}
+              swipe={swiping("sidebar")}
+              openLeft={menuOpenLeft}
+              onClick={() =>
+                docked
+                  ? actions.setSidebar(false)
+                  : ui.chatsOpen
+                    ? actions.setChats(false)
+                    : fits
+                      ? actions.setSidebar(true)
+                      : actions.setChats(true)
+              }
+            />
+            <BrowserButton
+              conversation={conversation}
+              open={ui.viewer !== null}
+              swipe={swiping("viewer")}
+              actions={actions}
+            />
+            {ui.notice && (
+              <p
+                role="status"
+                onClick={() => setUi((u) => ({ ...u, notice: null }))}
+                className="anim-fade-in absolute inset-x-0 bottom-[86px] z-30 mx-auto w-fit max-w-[90%] rounded-[18px] px-4 py-2 text-[13px]"
+                style={{
+                  background: "var(--fill-primary)",
+                  color: "var(--fill-red)",
+                  boxShadow: "var(--shadow-float)",
+                }}
+              >
+                {ui.notice}
+              </p>
+            )}
+            {needsModel && !ui.notice && (
+              <button
+                className="anim-fade-in absolute inset-x-0 bottom-[86px] z-30 mx-auto w-fit max-w-[90%] rounded-full px-4 py-2 text-[13px] font-medium"
+                style={{
+                  background: "var(--fill-primary)",
+                  color: "var(--fill-blue)",
+                  boxShadow: "var(--shadow-float)",
+                }}
+                onClick={() => actions.openSettings("models")}
+              >
+                {t.chat.chooseModel}
+              </button>
+            )}
+            <Composer
+              conversation={conversation}
+              place={
+                ui.chat === MAIN
+                  ? null
+                  : chats.find((c) => c.id === ui.chat)?.title || t.chat.newChat
+              }
+              actions={actions}
+            />
+          </div>
 
-        <MusePanel
-          open={ui.museOpen}
-          conversation={conversation}
-          session={session}
-          mode={ui.viewer ? "floating" : "docked"}
-          actions={actions}
-        />
-        <DrawerSidebar
-          open={ui.chatsOpen && !docked}
-          swipe={swiping("sidebar")}
-          chats={chats}
-          current={ui.chat}
-          left={ui.left}
-          goal={ui.goal}
-          skill={ui.skill}
-          session={session}
-          actions={actions}
-        />
-        <SettingsModal
-          ui={ui.settings}
-          theme={ui.theme}
-          session={session}
-          demo={where.kind === "demo"}
-          actions={actions}
-        />
-        <ExplainerModal
-          conversation={conversation}
-          open={ui.explainer}
-          actions={actions}
-        />
-        <TaskDetailSheet
-          conversation={conversation}
-          open={ui.taskDetail}
-          actions={actions}
-        />
-        <Viewer
-          conversation={conversation}
-          viewer={ui.viewer}
-          swipe={swiping("viewer")}
-          live={where.kind === "server" ? where.live : null}
-          thumb={where.kind === "server" ? where.thumb : null}
-          terminal={where.kind === "server" ? where.terminal : null}
-          onResize={(edge) => {
-            const width = clampViewer(innerWidth - 8 - edge);
-            localStorage.setItem(VIEWER_WIDTH, String(width));
-            setViewerWidth(width);
-          }}
-          actions={actions}
-        />
-      </div>
-      </SessionContext.Provider>
-    </Files.Provider>
+          <MusePanel
+            open={ui.museOpen}
+            conversation={conversation}
+            session={session}
+            mode={ui.viewer ? "floating" : "docked"}
+            actions={actions}
+          />
+          <DrawerSidebar
+            open={ui.chatsOpen && !docked}
+            swipe={swiping("sidebar")}
+            chats={chats}
+            current={ui.chat}
+            left={ui.left}
+            goal={ui.goal}
+            skill={ui.skill}
+            session={session}
+            actions={actions}
+          />
+          <SettingsModal
+            ui={ui.settings}
+            theme={ui.theme}
+            session={session}
+            demo={where.kind === "demo"}
+            actions={actions}
+          />
+          <ExplainerModal
+            conversation={conversation}
+            open={ui.explainer}
+            actions={actions}
+          />
+          <TaskDetailSheet
+            conversation={conversation}
+            open={ui.taskDetail}
+            actions={actions}
+          />
+          <Viewer
+            conversation={conversation}
+            viewer={ui.viewer}
+            swipe={swiping("viewer")}
+            live={where.kind === "server" ? where.live : null}
+            thumb={where.kind === "server" ? where.thumb : null}
+            terminal={where.kind === "server" ? where.terminal : null}
+            onResize={(edge) => {
+              const width = clampViewer(innerWidth - 8 - edge);
+              localStorage.setItem(VIEWER_WIDTH, String(width));
+              setViewerWidth(width);
+            }}
+            actions={actions}
+          />
+          {pin.sheet}
+          {where.kind === "server" && <AccountWatch notify={actions.notify} />}
+        </div>
+        </SessionContext.Provider>
+      </Files.Provider>
+    </PinContext.Provider>
   );
 }

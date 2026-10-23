@@ -1,6 +1,7 @@
 /**
  * Settings (surfaces 7, 9, 10): a page on a phone, a modal with a nav column on
- * a desktop — General (appearance; the password), Models (the user's keys and
+ * a desktop — General (appearance, language), Security (the PIN, the password,
+ * the devices: Security.tsx), Models (the user's keys and
  * the models chosen: Models.tsx), Connections (the server's directory: Connectors.tsx),
  * Permissions (per-site Allow/Ask/Deny), the Vault (SecretStore.tsx), Browser data (the sites the browser keeps
  * the user signed in to), Schedules and the Sandbox (reset it). Modeled on the reference settings sheet.
@@ -17,6 +18,7 @@ import {
   Settings as SettingsIcon,
   Shield,
   Sparkles,
+  LockKeyhole,
   Terminal,
   Vault,
   X,
@@ -36,10 +38,11 @@ import { Models } from "./Models";
 import { Logins } from "./Logins";
 import { Sandbox } from "./Sandbox";
 import { SecretStore } from "./SecretStore";
-import { changePassword, lock } from "../connection.ts";
+import { Security } from "./Security";
 
 const NAV: { id: SettingsSection; icon: React.ReactNode }[] = [
   { id: "general", icon: <SettingsIcon size={18} /> },
+  { id: "security", icon: <LockKeyhole size={18} /> },
   { id: "models", icon: <Sparkles size={18} /> },
   { id: "connectors", icon: <LayoutGrid size={18} /> },
   { id: "permissions", icon: <Shield size={18} /> },
@@ -53,12 +56,9 @@ const NAV: { id: SettingsSection; icon: React.ReactNode }[] = [
 
 function GeneralSection({
   theme,
-  server,
   actions,
 }: {
   theme: Theme;
-  /** there is a server, with a password (not the in-browser demo) */
-  server: boolean;
   actions: Actions;
 }) {
   const t = useT();
@@ -93,7 +93,6 @@ function GeneralSection({
         value={language}
         onPick={setLanguage}
       />
-      {server && <PasswordGroup />}
     </div>
   );
 }
@@ -131,132 +130,6 @@ function OptionList<T extends string>({
         </button>
       ))}
     </div>
-  );
-}
-
-/** The master password: change it (every other device then needs the new one), or lock this device. */
-function PasswordGroup() {
-  const t = useT();
-  const [changing, setChanging] = useState(false);
-  const [current, setCurrent] = useState("");
-  const [next, setNext] = useState("");
-  const [said, setSaid] = useState<{ ok: boolean; text: string } | null>(null);
-  const field = "w-full bg-transparent px-4 py-3 text-[14px] outline-none";
-  const row =
-    "flex w-full items-center justify-between px-4 py-3 text-left text-[14px]";
-  return (
-    <>
-      <p
-        className="mb-2 mt-6 text-[15px] font-semibold"
-        style={{ color: "var(--text-primary)" }}
-      >
-        {t.settings.general.password}
-      </p>
-      <div
-        className="overflow-hidden rounded-xl"
-        style={{ background: "var(--fill-secondary)" }}
-      >
-        {changing ? (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (!current || !next) return;
-              void changePassword(current, next).then((why) => {
-                setSaid(
-                  why
-                    ? { ok: false, text: why }
-                    : {
-                        ok: true,
-                        text: t.settings.general.changed,
-                      },
-                );
-                if (!why) {
-                  setChanging(false);
-                  setCurrent("");
-                  setNext("");
-                }
-              });
-            }}
-          >
-            <input
-              autoFocus
-              type="password"
-              autoComplete="current-password"
-              aria-label={t.settings.general.currentPassword}
-              placeholder={t.settings.general.currentPassword}
-              className={field}
-              style={{ color: "var(--text-primary)" }}
-              value={current}
-              onChange={(e) => setCurrent(e.target.value)}
-            />
-            <input
-              type="password"
-              autoComplete="new-password"
-              aria-label={t.settings.general.newPassword}
-              placeholder={t.settings.general.newPassword}
-              className={field}
-              style={{
-                color: "var(--text-primary)",
-                borderTop: "1px solid var(--fill-divider)",
-              }}
-              value={next}
-              onChange={(e) => setNext(e.target.value)}
-            />
-            <div
-              className="flex justify-end gap-2 px-3 py-2"
-              style={{ borderTop: "1px solid var(--fill-divider)" }}
-            >
-              <Button
-                variant="plain"
-                type="button"
-                onClick={() => setChanging(false)}
-              >
-                {t.common.cancel}
-              </Button>
-              <Button
-                variant="primary"
-                type="submit"
-                disabled={!current || !next}
-              >
-                {t.settings.general.change}
-              </Button>
-            </div>
-          </form>
-        ) : (
-          <button
-            className={row}
-            style={{ color: "var(--text-primary)" }}
-            onClick={() => {
-              setSaid(null);
-              setChanging(true);
-            }}
-          >
-            {t.settings.general.changePassword}
-          </button>
-        )}
-        <button
-          className={row}
-          style={{
-            color: "var(--fill-red)",
-            borderTop: "1px solid var(--fill-divider)",
-          }}
-          onClick={() => void lock()}
-        >
-          {t.settings.general.lockDevice}
-        </button>
-      </div>
-      {said && (
-        <p
-          role={said.ok ? "status" : "alert"}
-          className="mt-2 px-1 text-[13px]"
-          style={{
-            color: said.ok ? "var(--text-secondary)" : "var(--fill-red)",
-          }}
-        >
-          {said.text}
-        </p>
-      )}
-    </>
   );
 }
 
@@ -394,7 +267,7 @@ export function SettingsModal({
           >
             {t.settings.title}
           </p>
-          {NAV.filter((n) => !demo || n.id !== "sandbox").map((n) => (
+          {NAV.filter((n) => !demo || (n.id !== "sandbox" && n.id !== "security")).map((n) => (
             <button
               key={n.id}
               className="flex items-center gap-3 rounded-xl px-3 py-3 text-left text-[16px] font-medium sm:py-2.5 sm:text-[15px]"
@@ -477,6 +350,7 @@ export function SettingsModal({
           {shown === "sandbox" && (
             <Sandbox session={session} onSecrets={() => actions.openSettings("secrets")} />
           )}
+          {shown === "security" && !demo && <Security />}
           {shown === "models" && (
             <Models
               session={session}
@@ -485,7 +359,7 @@ export function SettingsModal({
             />
           )}
           {shown === "general" && (
-            <GeneralSection theme={theme} server={!demo} actions={actions} />
+            <GeneralSection theme={theme} actions={actions} />
           )}
         </div>
       </div>
