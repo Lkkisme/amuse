@@ -9,10 +9,9 @@
 # Used by compose.yaml (production) and compose.dev.yaml (published on localhost for `mise run dev`).
 # More pairs: copy a pair block and add it to AMUSE_BROWSERS in compose.yaml.
 # Images build from auto-browser at a pinned commit (a fork carrying the desktop-resize fix).
-# A managed Chrome policy (the `browser-policy` volume, written by `secrets` below) blocks Amuse's own address in
-# every browser: Amuse never opens its own app, signed in or not (#30). It is one layer, not a guarantee. The server
-# also refuses any request carrying the X-Amuse-Agent mark, which the browsers do not send yet: their pages run in
-# Playwright contexts, where an extension cannot add it.
+# A managed Chrome policy (`browser-policy` below) blocks Amuse's own address in every browser, one extra layer so
+# Amuse does not open its own app by accident (#30). The server also refuses any request carrying the X-Amuse-Agent mark, which the
+# browsers do not send yet: their pages run in Playwright contexts, where an extension cannot add it.
 
 x-node: &node
   build: https://github.com/Microwave-WYB/auto-browser.git#fe9f152c5dd9859b225b6322452b05a709958deb:browser-node
@@ -31,10 +30,11 @@ x-node: &node
     - /home/browser:size=512m,uid=10001,gid=10001
     - /data/downloads:size=512m,uid=10001,gid=10001
   security_opt: [no-new-privileges:true]
-  # the browser is Chrome for Testing (Playwright's), which reads its managed policies here; `secrets` writes that
-  # file, escaping the address in it, before this starts, and this is restarted when it is written again
-  depends_on:
-    secrets: { condition: service_completed_successfully, restart: true }
+  # the browser is Chrome for Testing (Playwright's), which reads its managed policies here
+  configs:
+    - source: browser-policy
+      target: /etc/opt/chrome_for_testing/policies/managed/amuse.json
+      mode: 0444
   healthcheck:
     test: [CMD-SHELL, "test -s /data/profile/browser-ws-endpoint.txt && curl -s --max-time 3 -o /dev/null http://127.0.0.1:9223/ && curl -fsS --max-time 3 http://127.0.0.1:6080/ >/dev/null"]
     interval: 10s
@@ -87,22 +87,19 @@ x-controller-env: &controller-env
   AUTH_STATE_MAX_AGE_HOURS: "720"
 
 services:
-  # first start only: make the secrets that are missing; later starts leave them alone. The Chrome policy the
-  # browsers read is written here every start (the `browser-policy` volume), so a changed address takes effect
+  # first start only: make the secrets that are missing; later starts leave them alone
   secrets:
     image: ${AB_CONTROLLER_IMAGE:-amuse-ab-controller:40ecdf8}
     user: "0"
     read_only: true
     network_mode: none
     restart: "no"
-    environment:
-      AMUSE_PUBLIC_URL: ${AMUSE_PUBLIC_URL:-http://localhost:8080}
-    volumes: [secrets:/secrets, vault-key:/vault-key, handoff-1:/handoff/1, handoff-2:/handoff/2, handoff-3:/handoff/3, browser-policy:/browser-policy]
+    volumes: [secrets:/secrets, vault-key:/vault-key, handoff-1:/handoff/1, handoff-2:/handoff/2, handoff-3:/handoff/3]
     entrypoint:
       - python
       - -c
       - |
-        import base64, json, os, secrets
+        import base64, os, secrets
         def make(name, value, owner, mode):
             path = f"/secrets/{name}"
             try:
@@ -124,12 +121,6 @@ services:
         # (root without capabilities) makes its own session folder beside it and reads the file
         for folder in ("/handoff/1", "/handoff/2", "/handoff/3"):
             os.chmod(folder, 0o1777)
-        # the Chrome policy Amuse's browsers read: the address is escaped as JSON here, because Compose puts an
-        # interpolated value into the file as it is, and a quote in one would leave the file unreadable (Chrome
-        # ignores a policy file that does not parse, and says nothing)
-        os.makedirs("/browser-policy/managed", exist_ok=True)
-        with open("/browser-policy/managed/amuse.json", "w") as policy:
-            json.dump({"URLBlocklist": [os.environ["AMUSE_PUBLIC_URL"], "amuse"]}, policy)
 
   ab-node-1:
     <<: *node
@@ -139,7 +130,7 @@ services:
       PLAYWRIGHT_SERVER_ADVERTISED_HOST: ab-node-1
       NOVNC_ALLOWED_HOSTS: ab-node-1,127.0.0.1,localhost
       NOVNC_ALLOWED_ORIGINS: http://localhost:6080
-    volumes: [profile-1:/data/profile, browser-policy:/etc/opt/chrome_for_testing/policies:ro]
+    volumes: [profile-1:/data/profile]
   ab-controller-1:
     <<: *controller
     networks: [pair-1]
@@ -161,7 +152,7 @@ services:
       PLAYWRIGHT_SERVER_ADVERTISED_HOST: ab-node-2
       NOVNC_ALLOWED_HOSTS: ab-node-2,127.0.0.1,localhost
       NOVNC_ALLOWED_ORIGINS: http://localhost:6080
-    volumes: [profile-2:/data/profile, browser-policy:/etc/opt/chrome_for_testing/policies:ro]
+    volumes: [profile-2:/data/profile]
   ab-controller-2:
     <<: *controller
     networks: [pair-2]
@@ -183,7 +174,7 @@ services:
       PLAYWRIGHT_SERVER_ADVERTISED_HOST: ab-node-3
       NOVNC_ALLOWED_HOSTS: ab-node-3,127.0.0.1,localhost
       NOVNC_ALLOWED_ORIGINS: http://localhost:6080
-    volumes: [profile-3:/data/profile, browser-policy:/etc/opt/chrome_for_testing/policies:ro]
+    volumes: [profile-3:/data/profile]
   ab-controller-3:
     <<: *controller
     networks: [pair-3]
@@ -197,6 +188,12 @@ services:
       TAKEOVER_URL: http://ab-node-3:6080/vnc.html?autoconnect=true
     volumes: [profile-3:/node-profile:ro, controller-3:/data, logins:/data/auth, handoff-3:/data/uploads, secrets:/secrets:ro]
 
+configs:
+  # Amuse's own address, as the user reaches it, and by its service name on the pair networks
+  browser-policy:
+    content: |
+      { "URLBlocklist": ["${AMUSE_PUBLIC_URL:-http://localhost:8080}", "amuse"] }
+
 networks:
   pair-1: { internal: true }
   pair-2: { internal: true }
@@ -207,7 +204,6 @@ networks:
 
 volumes:
   secrets: # made on first start by `secrets`
-  browser-policy: # the Chrome policy Amuse's browsers read; written by `secrets`, with the address escaped as JSON there
   vault-key: # the Vault's key (`docker volume rm` of `secrets` cannot destroy it); its folder is made for amuse by `secrets`; back it up
   logins: # auth profiles (saved logins, encrypted), shared by every controller
   profile-1:
