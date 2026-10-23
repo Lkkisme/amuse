@@ -20,6 +20,15 @@ import {
 
 type Pending = { settle: (raw: unknown) => void; fail: (error: Error) => void };
 
+/** A call the server answered with an error: its words, and its JSON-RPC code (the protocol's `errors`: the PIN's, say). */
+export class CallFailed extends Error {
+  readonly code: number;
+  constructor(message: string, code: number) {
+    super(message);
+    this.code = code;
+  }
+}
+
 export function connect(url: string): Session & { close(): void } {
   const listeners = new Set<(update: Update) => void>();
   const pending = new Map<number, Pending>();
@@ -70,7 +79,7 @@ export function connect(url: string): Session & { close(): void } {
       const entry = typeof response.id === "number" ? pending.get(response.id) : undefined;
       if (!entry || typeof response.id !== "number") return;
       pending.delete(response.id);
-      if ("error" in response) entry.fail(new Error(response.error.message));
+      if ("error" in response) entry.fail(new CallFailed(response.error.message, response.error.code));
       else entry.settle(response.result);
     };
     ws.onclose = () => {

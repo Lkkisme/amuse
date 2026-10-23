@@ -11,19 +11,12 @@ import { WorkspaceError } from "@amuse/core";
 import { worded } from "./descend.ts";
 import { MAX_FILE, workspace } from "./workspace.ts";
 import { memorySent } from "./sent.ts";
-import type { Access } from "./access.ts";
+import { letIn, noPin } from "./testing.ts";
 import { listen } from "./server.ts";
 
 const never: Timers<number> = { set: () => 0, clear: () => {} };
 /** In with the cookie "amuse=s", and only with it. */
-const access: Access = {
-  ready: () => true,
-  setup: async () => "s",
-  login: async () => "s",
-  valid: (session) => session === "s",
-  logout: () => {},
-  change: async () => "s",
-};
+const access = letIn("s", (session) => session === "s");
 
 async function serve() {
   const dir = mkdtempSync(join(tmpdir(), "amuse-files-"));
@@ -32,6 +25,7 @@ async function serve() {
     session: createHost({ ...demoPorts(never), files }, { timers: never }),
     files,
     access,
+    ...noPin,
     port: 0,
     host: "127.0.0.1",
   });
@@ -206,7 +200,7 @@ test("a link to a file, at the end of a path, is refused for read, write, move, 
 
 test("a sent file whose folder or file is swapped for a link is no longer served, read or held", async () => {
   const { dir, secrets, files, untouched } = withSecrets();
-  const server = await listen({ session: createHost({ ...demoPorts(never), files }, { timers: never }), files, access, port: 0, host: "127.0.0.1" });
+  const server = await listen({ session: createHost({ ...demoPorts(never), files }, { timers: never }), files, access, ...noPin, port: 0, host: "127.0.0.1" });
   const get = (id: string) => fetch(`http://127.0.0.1:${server.port}/files/${id}`, { headers: { cookie: "amuse=s" } });
   try {
     const sent = await files.save("report.txt", "text/plain", [text("the report")]);

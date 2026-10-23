@@ -16,10 +16,6 @@ CREATE TABLE access (
   salt text not null,
   hash text not null
 ) strict;
-CREATE TABLE sessions (
-  position integer primary key autoincrement,
-  digest text not null unique
-) strict;
 CREATE TABLE app_rules (
   app text not null,
   kind text not null,
@@ -118,10 +114,39 @@ CREATE TABLE sandbox_cleanup (
   target text not null,
   primary key (kind, target)
 ) strict, without rowid;
+CREATE TABLE pin (
+  id integer primary key check (id = 1),
+  salt text,
+  hash text,
+  used text,
+  later text,
+  wrong integer not null default 0,
+  lockouts integer not null default 0,
+  locked text,
+  minutes integer not null default 5 check (minutes in (1, 5, 15, 30)),
+  check ((salt is null) = (hash is null))
+) strict;
+CREATE TABLE devices (
+  id text primary key,
+  digest text unique,
+  trusted integer not null check (trusted in (0, 1)),
+  asked text,
+  agent text not null,
+  address text not null,
+  at text not null,
+  seen text not null
+) strict, without rowid;
+CREATE TABLE sessions (
+  position integer primary key autoincrement,
+  digest text not null unique,
+  device text not null references devices (id) on delete cascade
+) strict;
+CREATE INDEX sessions_device on sessions (device);
 
 -- Dbmate schema migrations
 INSERT INTO schema_migrations (version) VALUES
   ('20261023100000'),
   ('20261023100100'),
   ('20261023110000'),
-  ('20261023110100');
+  ('20261023110100'),
+  ('20261023120000');

@@ -7,6 +7,8 @@
  *   export [chat]         the chat's journal as JSONL on stdout (the main chat by default): the format the old events.jsonl had
  *   chats                 the chats, with how many events each has
  *   reset-password        forget the master password and every session: the next visit sets a new one
+ *   reset-pin             forget the PIN (a forgotten one) and sign every device out: the next visit asks for a new one
+ *   reset-devices         trust no device (every one lost): every session ends, and the next right password trusts its device
  *   schema                write db/schema.sql from the migrations
  *   restore-secret-files --yes  write keys.json and sandbox-secrets.json back from their sealed copies in the database (to go back to an older Amuse, or to read them)
  *   forget-secret-files --yes   delete those sealed copies, once the Vault is known to hold everything
@@ -18,7 +20,8 @@ import { fileURLToPath } from "node:url";
 import { type Db, MEMORY, StartupError, applied, dataMigrations, describePending, dumpSchema, forgetSecretFiles, KEY_NAME, loadMigrations, migrate, openDatabase, openReadOnly, plan, refuseNewer, restoreSecretFiles, retireOldFiles, revert, snapshot, transaction } from "@amuse/db";
 import { MAIN } from "@amuse/protocol";
 import { z } from "zod";
-import { resetPassword } from "./access.ts";
+import { resetDevices, resetPassword } from "./access.ts";
+import { resetPin } from "./pin.ts";
 import { type Location, locate, openData, openExisting } from "./data.ts";
 import { explain } from "./startup.ts";
 import { exported } from "./journal.ts";
@@ -26,7 +29,7 @@ import { exported } from "./journal.ts";
 const schemaFile = fileURLToPath(new URL("../../db/schema.sql", import.meta.url));
 
 function usage(): never {
-  console.error("usage: amuse-admin [--data <folder>] migrate [--dry-run] | rollback --yes | retire-old-files | export [chat] | chats | reset-password | schema | restore-secret-files --yes | forget-secret-files --yes | reset-vault --yes");
+  console.error("usage: amuse-admin [--data <folder>] migrate [--dry-run] | rollback --yes | retire-old-files | export [chat] | chats | reset-password | reset-pin | reset-devices | schema | restore-secret-files --yes | forget-secret-files --yes | reset-vault --yes");
   return process.exit(2);
 }
 
@@ -61,7 +64,7 @@ async function main(argv: string[]): Promise<void> {
     args.splice(flag, 2);
   }
   const [command, ...rest] = args;
-  if (!command || !["migrate", "rollback", "retire-old-files", "export", "chats", "reset-password", "schema", "restore-secret-files", "forget-secret-files", "reset-vault"].includes(command)) usage();
+  if (!command || !["migrate", "rollback", "retire-old-files", "export", "chats", "reset-password", "reset-pin", "reset-devices", "schema", "restore-secret-files", "forget-secret-files", "reset-vault"].includes(command)) usage();
   if (command === "schema") {
     // from the migrations alone, in a database that is only in memory
     const db = openDatabase(MEMORY);
@@ -160,6 +163,12 @@ async function main(argv: string[]): Promise<void> {
       case "reset-password":
         resetPassword(db);
         return void console.log("The password is forgotten. The next visit sets a new one.");
+      case "reset-pin":
+        resetPin(db);
+        return void console.log("The PIN is forgotten, and every device is signed out. Sign in with the password, and Amuse asks for a new PIN.");
+      case "reset-devices":
+        resetDevices(db);
+        return void console.log("No device is trusted now, and every one is signed out. The next device to sign in with the password is trusted.");
       default:
         usage();
     }

@@ -1,14 +1,18 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { applied, dataMigrations, loadMigrations, migrate, openDatabase, tempFolder } from "@amuse/db";
+import { applied, dataMigrations, loadMigrations, migrate, openDatabase, query, tempFolder } from "@amuse/db";
+import { z } from "zod";
 import { sqliteAccess } from "./access.ts";
+import { sqlitePin } from "./pin.ts";
 import { locate, openData } from "./data.ts";
 
+/** a device as a request shows it */
+const seen = { agent: "test", address: "127.0.0.1" };
 const cli = fileURLToPath(new URL("./admin.ts", import.meta.url));
 const fixture = fileURLToPath(new URL("../../db/fixtures/0.1.0/data", import.meta.url));
 const run = (...args: string[]) => execFileSync("node", [cli, ...args], { encoding: "utf8" });
@@ -32,7 +36,7 @@ test("the dry run lists what is pending and what it touches, and changes nothing
 test("migrate runs them; after it, the dry run has nothing to do", () => {
   const dir = copy();
   run("--data", dir, "migrate");
-  assert.match(run("--data", dir, "migrate", "--dry-run"), /4 migrations applied\nNothing to run\./);
+  assert.match(run("--data", dir, "migrate", "--dry-run"), /5 migrations applied\nNothing to run\./);
   assert.ok(existsSync(join(dir, "events.jsonl.bak")));
 });
 
@@ -54,7 +58,35 @@ test("reset-password forgets the password and the sessions, and the next visit c
   assert.match(run("--data", dir, "reset-password"), /forgotten/);
   const access = sqliteAccess(await openData(locate({ AMUSE_DATA: dir }), () => {}));
   assert.equal(access.ready(), false);
-  assert.ok(await access.setup("a brand new password"));
+  assert.equal((await access.setup("a brand new password", null, seen)).kind, "in");
+});
+
+test("reset-pin forgets the PIN and its lockout and signs every device out; reset-devices trusts none, so the next password trusts its own", async () => {
+  const dir = copy();
+  run("--data", dir, "migrate");
+  const where = locate({ AMUSE_DATA: dir });
+  const before = await openData(where, () => {});
+  const pin = sqlitePin(before);
+  await pin.set("246801");
+  for (let i = 0; i < 5; i++) await pin.check("000000");
+  assert.ok(pin.locked(), "locked after five wrong tries");
+  before.close();
+
+  assert.match(run("--data", dir, "reset-pin"), /PIN is forgotten, and every device is signed out/);
+  const afterPin = await openData(where, () => {});
+  assert.equal(sqlitePin(afterPin).isSet(), false);
+  assert.equal(sqlitePin(afterPin).locked(), null);
+  assert.equal(sqlitePin(afterPin).reminder(), "set");
+  assert.equal(query(afterPin, z.object({ n: z.number() }), "select count(*) as n from sessions")[0]?.n, 0);
+  // the devices are still trusted: a new one waits for them
+  assert.equal((await sqliteAccess(afterPin).login("fixture-password-0.1.0", null, seen))?.kind, "waiting");
+  afterPin.close();
+
+  assert.match(run("--data", dir, "reset-devices"), /No device is trusted now/);
+  const afterDevices = await openData(where, () => {});
+  assert.deepEqual(sqliteAccess(afterDevices).devices(), []);
+  assert.equal((await sqliteAccess(afterDevices).login("fixture-password-0.1.0", null, seen))?.kind, "in", "no one is left to approve: this one is trusted");
+  afterDevices.close();
 });
 
 test("without a data folder, or with an empty one, it says so, and an unknown command is usage", () => {
@@ -92,7 +124,7 @@ test("export, chats and reset-password refuse when migrations are pending, and d
   for (const command of ["export", "chats", "reset-password"]) {
     const result = fails("--data", dir, command);
     assert.equal(result.status, 1, command);
-    assert.match(result.stderr, /3 migrations are pending: run `amuse-admin migrate` first/, command);
+    assert.match(result.stderr, /4 migrations are pending: run `amuse-admin migrate` first/, command);
   }
   const after = openDatabase(join(dir, "amuse.db"));
   assert.deepEqual(applied(after), ["20261023100000"]);
@@ -122,6 +154,10 @@ test("rollback asks for --yes, copies the database first, and never applies what
 test("rollback of a migration with no way back changes nothing and makes no copy", () => {
   const dir = copy();
   run("--data", dir, "migrate");
+  // the PIN and the devices can be undone; the import before them cannot
+  assert.match(run("--data", dir, "rollback", "--yes"), /undid 20261023120000_account_security/);
+  rmSync(join(dir, "backups"), { recursive: true });
+  mkdirSync(join(dir, "backups"));
   const result = fails("--data", dir, "rollback", "--yes");
   assert.equal(result.status, 1);
   assert.match(result.stderr, /has no way back/);

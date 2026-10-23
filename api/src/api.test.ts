@@ -7,19 +7,14 @@ import { createHost, type Timers } from "@amuse/core";
 import { demoPorts, seed } from "@amuse/demo";
 import { type State, apply, empty } from "@amuse/protocol";
 import { connect } from "./client.ts";
-import { type Access, sqliteAccess } from "./access.ts";
+import { sqliteAccess } from "./access.ts";
+import { letIn, noPin } from "./testing.ts";
+import { sqlitePin, unlocks } from "./pin.ts";
 import { migratedDatabase } from "@amuse/db";
 import { listen } from "./server.ts";
 
 /** Lets every request in: for what is not about the way in. */
-const anyone: Access = {
-  ready: () => true,
-  setup: async () => "",
-  login: async () => null,
-  valid: () => true,
-  logout: () => {},
-  change: async () => null,
-};
+const anyone = letIn();
 /** Demo ports with no delays, so the scripted agent answers at once. */
 const instant: Timers<number> = {
   set: (_, fn) => (queueMicrotask(fn), 0),
@@ -34,6 +29,7 @@ before(async () => {
   const server = await listen({
     session: createHost(demoPorts(instant), { seed: seed(), timers: never }),
     access: anyone,
+    ...noPin,
     port: 0,
     host: "127.0.0.1",
   });
@@ -139,6 +135,7 @@ test("a server that comes back without its log resets the client instead of free
   const first = await listen({
     session: createHost(demoPorts(instant), { seed: seed(), timers: never }),
     access: anyone,
+    ...noPin,
     port: 0,
     host: "127.0.0.1",
   });
@@ -155,6 +152,7 @@ test("a server that comes back without its log resets the client instead of free
   const second = await listen({
     session: createHost(demoPorts(instant), { timers: never }),
     access: anyone,
+    ...noPin,
     port: first.port,
     host: "127.0.0.1",
   });
@@ -168,6 +166,7 @@ test("a client that reconnects receives the events it missed", async () => {
   const first = await listen({
     session: host,
     access: anyone,
+    ...noPin,
     port: 0,
     host: "127.0.0.1",
   });
@@ -192,6 +191,7 @@ test("a client that reconnects receives the events it missed", async () => {
   const second = await listen({
     session: host,
     access: anyone,
+    ...noPin,
     port: first.port,
     host: "127.0.0.1",
   });
@@ -206,10 +206,15 @@ test("a client that reconnects receives the events it missed", async () => {
 
 /** A server whose way in is real: a fresh instance, the password not set yet. */
 async function guarded() {
-  const access = sqliteAccess(await migratedDatabase());
+  const db = await migratedDatabase();
+  const access = sqliteAccess(db);
+  const pin = sqlitePin(db);
   const server = await listen({
     session: createHost(demoPorts(instant), { timers: never }),
     access,
+    pin,
+    unlocks: unlocks(pin, access.valid),
+    sensitive: async () => false,
     port: 0,
     host: "127.0.0.1",
   });
@@ -221,6 +226,8 @@ async function guarded() {
       body: JSON.stringify(body),
     });
   const cookieOf = (response: Response) => (response.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+  /** Every cookie a response sets, as a request sends them back. */
+  const jar = (response: Response) => response.headers.getSetCookie().map((c) => c.split(";")[0] ?? "").join("; ");
   const { WebSocket: Ws } = await import("ws");
   const opens = (headers: Record<string, string>, path = "/rpc") =>
     new Promise((resolve) => {
@@ -235,23 +242,26 @@ async function guarded() {
       ws.on("close", (code) => resolve(code));
       ws.on("error", () => resolve("refused"));
     });
-  return { http, post, cookieOf, opens, ends, close: () => server.close() };
+  return { http, post, cookieOf, jar, opens, ends, close: () => server.close() };
 }
 
-test("the first visit sets the master password; then only the password opens a session, an HttpOnly cookie that alone opens the socket", async () => {
-  const { http, post, cookieOf, opens, close } = await guarded();
+test("the first visit sets the master password and the PIN, and trusts its device; then the password opens a session there, an HttpOnly cookie that alone opens the socket", async () => {
+  const { http, post, cookieOf, jar, opens, close } = await guarded();
   try {
     const before = await fetch(`${http}/unlock`);
     assert.equal(before.status, 401);
     assert.deepEqual(await before.json(), { ready: false });
     assert.equal(await opens({}), "refused");
 
-    assert.equal((await post("/setup", { password: "short" })).status, 400);
-    const set = await post("/setup", { password: "correct horse" });
+    assert.equal((await post("/setup", { password: "short", pin: "135790" })).status, 400);
+    assert.equal((await post("/setup", { password: "correct horse", pin: "1357" })).status, 400, "a PIN is six digits");
+    assert.equal((await post("/setup", { password: "correct horse" })).status, 400, "the PIN is set with the password");
+    const set = await post("/setup", { password: "correct horse", pin: "135790" });
     assert.equal(set.status, 204);
     assert.match(set.headers.get("set-cookie") ?? "", /HttpOnly; SameSite=Strict/);
     const first = cookieOf(set);
-    assert.equal((await post("/setup", { password: "someone else" })).status, 400, "set once only");
+    const device = jar(set);
+    assert.equal((await post("/setup", { password: "someone else", pin: "135790" })).status, 400, "set once only");
 
     assert.equal((await fetch(`${http}/unlock`, { headers: { cookie: first } })).status, 204);
     assert.equal(await opens({ cookie: first }), "open");
@@ -261,7 +271,9 @@ test("the first visit sets the master password; then only the password opens a s
     });
 
     assert.equal((await post("/unlock", { password: "wrong one!" })).status, 401);
-    const again = await post("/unlock", { password: "correct horse" });
+    // locked, the trusted device signs in again with the password alone
+    assert.equal((await post("/lock", {}, { cookie: device })).status, 204);
+    const again = await post("/unlock", { password: "correct horse" }, { cookie: device });
     assert.equal(again.status, 204);
     assert.equal(await opens({ cookie: cookieOf(again) }), "open");
   } finally {
@@ -269,11 +281,22 @@ test("the first visit sets the master password; then only the password opens a s
   }
 });
 
-test("changing the password ends every other session; locking ends this one", async () => {
-  const { post, cookieOf, opens, close } = await guarded();
+test("changing the password needs the PIN and ends every other session, the devices staying trusted; locking ends this one", async () => {
+  const { http, post, cookieOf, jar, opens, close } = await guarded();
   try {
-    const mine = cookieOf(await post("/setup", { password: "correct horse" }));
-    const other = cookieOf(await post("/unlock", { password: "correct horse" }));
+    const set = await post("/setup", { password: "correct horse", pin: "135790" });
+    const mine = cookieOf(set);
+    // a second device waits, is approved, and is in on its next poll
+    const asked = await post("/unlock", { password: "correct horse" });
+    assert.equal(asked.status, 202);
+    const otherDevice = jar(asked);
+    const [waiting] = (await (await fetch(`${http}/account`, { headers: { cookie: mine } })).json()).devices.filter((d: { trusted: boolean }) => !d.trusted);
+    assert.equal((await post("/account/devices/approve", { id: waiting.id }, { cookie: mine })).status, 204);
+    const admitted = await fetch(`${http}/unlock`, { headers: { cookie: otherDevice } });
+    assert.equal(admitted.status, 204);
+    const other = cookieOf(admitted);
+    assert.equal(await opens({ cookie: other }), "open");
+
     assert.equal((await post("/password", { current: "wrong one!", next: "battery staple" }, { cookie: mine })).status, 401);
     assert.equal(
       (
@@ -285,13 +308,16 @@ test("changing the password ends every other session; locking ends this one", as
       401,
       "a session is needed",
     );
+    const locked = await post("/password", { current: "correct horse", next: "battery staple" }, { cookie: other });
+    assert.deepEqual([locked.status, (await locked.json()).pin], [403, "locked"], "the PIN first, on that device");
     const changed = await post("/password", { current: "correct horse", next: "battery staple" }, { cookie: mine });
     assert.equal(changed.status, 204);
     const now = cookieOf(changed);
     assert.equal(await opens({ cookie: other }), "refused");
     assert.equal(await opens({ cookie: mine }), "refused");
     assert.equal(await opens({ cookie: now }), "open");
-    assert.equal((await post("/unlock", { password: "correct horse" })).status, 401);
+    assert.equal((await post("/unlock", { password: "correct horse" }, { cookie: otherDevice })).status, 401);
+    assert.equal((await post("/unlock", { password: "battery staple" }, { cookie: otherDevice })).status, 204, "still trusted");
 
     assert.equal((await post("/lock", {}, { cookie: now })).status, 204);
     assert.equal(await opens({ cookie: now }), "refused");
@@ -308,13 +334,13 @@ test("the way in takes JSON from this origin only, and wrong passwords are throt
         await fetch(`${http}/setup`, {
           method: "POST",
           headers: { "content-type": "text/plain" },
-          body: '{"password":"correct horse"}',
+          body: '{"password":"correct horse","pin":"135790"}',
         })
       ).status,
       403,
     );
-    assert.equal((await post("/setup", { password: "correct horse" }, { origin: "https://evil.example" })).status, 403);
-    assert.equal((await post("/setup", { password: "correct horse" })).status, 204);
+    assert.equal((await post("/setup", { password: "correct horse", pin: "135790" }, { origin: "https://evil.example" })).status, 403);
+    assert.equal((await post("/setup", { password: "correct horse", pin: "135790" })).status, 204);
     for (let i = 0; i < 10; i++) assert.equal((await post("/unlock", { password: `wrong ${i}!!` })).status, 401);
     const throttled = await post("/unlock", { password: "correct horse" });
     assert.equal(throttled.status, 429, "even the right one waits");
@@ -326,7 +352,7 @@ test("the way in takes JSON from this origin only, and wrong passwords are throt
 test("a malformed cookie is no session — it can never take the server down", async () => {
   const { post, cookieOf, opens, close } = await guarded();
   try {
-    const good = cookieOf(await post("/setup", { password: "correct horse" }));
+    const good = cookieOf(await post("/setup", { password: "correct horse", pin: "135790" }));
     assert.equal(await opens({ cookie: "amuse=%E0%A4%A" }), "refused");
     assert.equal(await opens({ cookie: "amuse=%" }), "refused");
     assert.equal(await opens({ cookie: "amuse=wrong" }), "refused");
@@ -339,7 +365,7 @@ test("a malformed cookie is no session — it can never take the server down", a
 test("pages from another origin cannot open the sockets, even with a valid session", async () => {
   const { post, cookieOf, opens, http, close } = await guarded();
   try {
-    const cookie = cookieOf(await post("/setup", { password: "correct horse" }));
+    const cookie = cookieOf(await post("/setup", { password: "correct horse", pin: "135790" }));
     assert.equal(await opens({ cookie, origin: "https://evil.example" }), "refused");
     assert.equal(await opens({ cookie, origin: http }), "open"); // same origin
   } finally {
@@ -350,7 +376,7 @@ test("pages from another origin cannot open the sockets, even with a valid sessi
 test("the terminals' socket is the session's and this origin's alone; without a sandbox it says there are none", async () => {
   const { post, cookieOf, ends, http, close } = await guarded();
   try {
-    const cookie = cookieOf(await post("/setup", { password: "correct horse" }));
+    const cookie = cookieOf(await post("/setup", { password: "correct horse", pin: "135790" }));
     assert.equal(await ends({}, "/terminal?cols=80&rows=24"), "refused");
     assert.equal(await ends({ cookie, origin: "https://evil.example" }, "/terminal"), "refused");
     assert.equal(await ends({ cookie, origin: http }, "/terminal?cols=80&rows=24"), 4404);
@@ -360,18 +386,23 @@ test("the terminals' socket is the session's and this origin's alone; without a 
 });
 
 test("speech becomes text for a session, from this origin, audio only; when it cannot, the reason comes back", async () => {
-  const access = sqliteAccess(await migratedDatabase());
+  const db = await migratedDatabase();
+  const access = sqliteAccess(db);
+  const pin = sqlitePin(db);
   const heard: string[] = [];
   const server = await listen({
     session: createHost(demoPorts(instant), { timers: never }),
     access,
+    pin,
+    unlocks: unlocks(pin, access.valid),
+    sensitive: async () => false,
     transcribe: async (audio, type) => (heard.push(`${audio.length} ${type}`), audio.length > 2 ? { text: "hello" } : { reason: "Voice needs a key" }),
     port: 0,
     host: "127.0.0.1",
   });
   const http = `http://127.0.0.1:${server.port}`;
   try {
-    const set = await fetch(`${http}/setup`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: "correct horse" }) });
+    const set = await fetch(`${http}/setup`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: "correct horse", pin: "135790" }) });
     const cookie = (set.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
     const say = (body: Uint8Array<ArrayBuffer>, type: string, headers: Record<string, string> = { cookie }) =>
       fetch(`${http}/transcribe`, { method: "POST", headers: { "content-type": type, ...headers }, body });

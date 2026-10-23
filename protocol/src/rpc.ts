@@ -326,6 +326,10 @@ export const errors = {
   invalidRequest: { code: -32600, message: "Invalid request" },
   methodNotFound: { code: -32601, message: "Method not found" },
   invalidParams: { code: -32602, message: "Invalid params" },
+  /** A sensitive call (api/src/sensitive.ts) on a session the PIN has not unlocked: the client asks for the PIN, then calls again. */
+  pinLocked: { code: -32001, message: "Enter your PIN to do this." },
+  /** A sensitive call before any PIN is set: the client asks for one to be set first. */
+  pinUnset: { code: -32002, message: "Set a PIN first: it authorizes sensitive actions." },
 } as const satisfies Record<string, z.infer<typeof RpcError>>;
 
 export type Request = z.infer<typeof Request>;

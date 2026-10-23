@@ -39,6 +39,8 @@ import { type Ports, Rejected, createHost, noLogins, noSandbox, realTimers } fro
 import type { Entity } from "@amuse/protocol";
 import { type KeyFile, type PiAuth, LOCAL_VOICE, VoiceUnavailable, adoptEnvironment, builtInSkills, piAgent, piBrowserAgent, piKeys, piScheduleRunner, piTaskRunner, providerNames, skillsPort, storeCredentials, transcriber, untrustedRule } from "@amuse/pi";
 import { sqliteAccess } from "./access.ts";
+import { sqlitePin, unlocks } from "./pin.ts";
+import { sensitive } from "./sensitive.ts";
 import { sqliteDefaults } from "./defaults.ts";
 import { listen } from "./server.ts";
 import { sqliteRules } from "./rules.ts";
@@ -74,6 +76,9 @@ const where = await (async () => {
 const dataDir = where.dir;
 const db = await openData(where).catch(stopped);
 const access = sqliteAccess(db);
+/** the PIN that authorizes sensitive actions, and the sessions it unlocked (in memory: a restart locks them) */
+const pin = sqlitePin(db);
+const unlocked = unlocks(pin, access.valid);
 
 /** Amuse's own machine, where there is one: commands run there by the agents, and wiped by the user in Settings */
 const sandboxUrl = process.env["AMUSE_SANDBOX_URL"];
@@ -406,6 +411,9 @@ await listen({
   ...(web ? { web } : {}),
   returned: connector.returned,
   access,
+  pin,
+  unlocks: unlocked,
+  sensitive: (call) => sensitive(call, rules),
   ...(refuse ? { refuse } : {}),
   transcribe: speech,
   port,
