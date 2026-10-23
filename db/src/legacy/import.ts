@@ -13,12 +13,12 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, renameSync, statSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import { type AllRules, noRules } from "@amuse/core";
-import { Attachment, BrowserAction, Chat, MAIN, Permission, type SiteActions, type SiteEntry, ToolKind } from "@amuse/protocol";
 import { z } from "zod";
 import type { Context, Finish } from "../migrations.ts";
 import { type Db, query } from "../open.ts";
+import { type AllRules, Attachment, BrowserAction, Chat, MAIN, Permission, type SiteActions, type SiteEntry, ToolKind, noRules } from "./frozen.ts";
 import { readJournalFile } from "./journal.ts";
+import { retired } from "./old-files.ts";
 import { readRules } from "./rules.ts";
 
 /** A side chat's id as a file name: only ids the host makes (letters, digits, dashes) ever reached the disk. */
@@ -49,13 +49,31 @@ const files = (context: Omit<Context, "db">) => ({
   side: join(context.dataDir, "chats"),
 });
 
-/** What would be imported, in words, without touching anything. */
+/** What would be imported, in words, without touching anything: what the import takes, and what it leaves where it is. */
 export function describeLegacy(context: Omit<Context, "db">): string[] {
   const where = files(context);
-  const side = existsSync(where.side) ? readdirSync(where.side).filter((name) => name.endsWith(".jsonl")).map((name) => join(where.side, name)) : [];
-  const found = [context.journal, where.chats, ...side, where.rules, where.access, where.defaults, where.sent].filter((path) => existsSync(path));
-  if (found.length === 0) return ["no old files to import: a new instance"];
-  return [...found.map((path) => `import ${relative(context.dataDir, path)} (${statSync(path).size} bytes)`), "then rename each of them to <name>.bak (never deleted)"];
+  const say: string[] = [];
+  const size = (path: string) => `import ${relative(context.dataDir, path)} (${statSync(path).size} bytes)`;
+  // the side chats the import takes are the ones chats.json lists, as the import itself takes them
+  let listed: string[] = [];
+  if (existsSync(where.chats)) {
+    try {
+      listed = z.array(Chat).parse(JSON.parse(readFileSync(where.chats, "utf8"))).map((chat) => chat.id).filter((id) => id !== MAIN);
+    } catch {
+      say.push("chats.json cannot be read: the import would stop there");
+    }
+  }
+  const onDisk = existsSync(where.side) ? readdirSync(where.side).filter((name) => name.endsWith(".jsonl")) : [];
+  const taken = listed.map((id) => join(where.side, `${id}.jsonl`)).filter((path) => existsSync(path));
+  const found = [context.journal, where.chats, ...taken, where.rules, where.access, where.defaults, where.sent].filter((path) => existsSync(path));
+  const left = onDisk.filter((name) => !listed.includes(name.slice(0, -".jsonl".length)));
+  if (found.length === 0 && left.length === 0) return ["no old files to import: a new instance"];
+  return [
+    ...found.map(size),
+    ...left.map((name) => `leave chats/${name} where it is (it is not a chat in chats.json)`),
+    ...say,
+    "then rename each file imported to <name>.bak (never deleted)",
+  ];
 }
 
 /** A file's text and what it was, read once. */
@@ -108,14 +126,6 @@ function rulesIn(db: Db): AllRules {
     sites[site] = { never: never === 1, actions };
   }
   return { apps, browser, sites };
-}
-
-/** `path`.bak, or the first of .bak.2, .bak.3 … that is free: an earlier import's file is never written over. */
-function retired(path: string): string {
-  for (let n = 1; ; n++) {
-    const target = n === 1 ? `${path}.bak` : `${path}.bak.${n}`;
-    if (!existsSync(target)) return target;
-  }
 }
 
 export function importLegacy(context: Context): Finish {
@@ -171,10 +181,9 @@ export function importLegacy(context: Context): Finish {
   for (const { chat, path } of journals) {
     if (!existsSync(path)) continue;
     const hash = createHash("sha256");
-    const result = readJournalFile(path, ({ seq, event }) => {
-      const stored = JSON.stringify(event);
-      insertEvent.run(chat, seq, stored);
-      hash.update(eventsLine(seq, stored));
+    const result = readJournalFile(path, (seq, event) => {
+      insertEvent.run(chat, seq, event);
+      hash.update(eventsLine(seq, event));
     });
     seen({ path, bytes: result.bytes, sha256: result.sha256 });
     logs.set(chat, { events: result.events, sha256: hash.digest("hex") });

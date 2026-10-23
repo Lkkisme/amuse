@@ -5,9 +5,10 @@
  */
 import { lstatSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type Hint, StartupError } from "./problem.ts";
+import { type Folder, type Hint, StartupError } from "./problem.ts";
 
 export interface Requirement {
+  folder: Folder;
   path: string;
   /** Make it when it is missing (a folder of ours); else it must already be there (a mount). */
   create: boolean;
@@ -16,8 +17,8 @@ export interface Requirement {
 }
 
 export function preflight(requirements: readonly Requirement[]): void {
-  for (const { path, create, hint } of requirements) {
-    const fail = (trouble: "missing" | "not-a-folder" | "not-writable") => new StartupError({ kind: "folder", path, trouble, hint }, `${path}: ${trouble}`);
+  for (const { folder, path, create, hint } of requirements) {
+    const fail = (trouble: "missing" | "not-a-folder" | "not-writable") => new StartupError({ kind: "folder", folder, path, trouble, hint }, `${path}: ${trouble}`);
     let found = lstatSync(path, { throwIfNoEntry: false });
     if (!found && !create) throw fail("missing");
     if (!found) {

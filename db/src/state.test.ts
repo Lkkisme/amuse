@@ -8,7 +8,8 @@ import { z } from "zod";
 import { dataMigrations } from "./data.ts";
 import { applied, describePending, migrate, plan } from "./migrate.ts";
 import { type Context, loadMigrations } from "./migrations.ts";
-import { MEMORY, openDatabase, query } from "./open.ts";
+import { MEMORY, openDatabase, openReadOnly, query } from "./open.ts";
+import { oldFilesBeside, retireOldFiles } from "./legacy/old-files.ts";
 import { preflight } from "./preflight.ts";
 import { StartupError } from "./problem.ts";
 import { dumpSchema } from "./schema.ts";
@@ -48,7 +49,7 @@ test("the database is opened the one way: WAL, foreign keys, a wait for locks, e
 
 test("the preflight makes the folders it may, and says in values what is wrong with the rest", () => {
   const dir = folder();
-  preflight([{ path: join(dir, "a", "b"), create: true, hint: "data-volume" }]);
+  preflight([{ folder: "data", path: join(dir, "a", "b"), create: true, hint: "data-volume" }]);
   assert.ok(statSync(join(dir, "a", "b")).isDirectory());
   const problem = (requirements: Parameters<typeof preflight>[0]) => {
     try {
@@ -58,14 +59,14 @@ test("the preflight makes the folders it may, and says in values what is wrong w
     }
     return null;
   };
-  assert.deepEqual(problem([{ path: join(dir, "missing"), create: false, hint: "compose-up" }]), { kind: "folder", path: join(dir, "missing"), trouble: "missing", hint: "compose-up" });
+  assert.deepEqual(problem([{ folder: "workspace", path: join(dir, "missing"), create: false, hint: "compose-up" }]), { kind: "folder", folder: "workspace", path: join(dir, "missing"), trouble: "missing", hint: "compose-up" });
   writeFileSync(join(dir, "file"), "");
-  assert.deepEqual(problem([{ path: join(dir, "file"), create: true, hint: "data-volume" }]), { kind: "folder", path: join(dir, "file"), trouble: "not-a-folder", hint: "data-volume" });
+  assert.deepEqual(problem([{ folder: "data", path: join(dir, "file"), create: true, hint: "data-volume" }]), { kind: "folder", folder: "data", path: join(dir, "file"), trouble: "not-a-folder", hint: "data-volume" });
   if (process.getuid?.() !== 0) {
     mkdirSync(join(dir, "locked"));
     chmodSync(join(dir, "locked"), 0o500);
-    assert.deepEqual(problem([{ path: join(dir, "locked"), create: true, hint: "compose-up" }]), { kind: "folder", path: join(dir, "locked"), trouble: "not-writable", hint: "compose-up" });
-    assert.deepEqual(problem([{ path: join(dir, "locked", "inside"), create: true, hint: "compose-up" }]), { kind: "folder", path: join(dir, "locked", "inside"), trouble: "not-writable", hint: "compose-up" });
+    assert.deepEqual(problem([{ folder: "backups", path: join(dir, "locked"), create: true, hint: "compose-up" }]), { kind: "folder", folder: "backups", path: join(dir, "locked"), trouble: "not-writable", hint: "compose-up" });
+    assert.deepEqual(problem([{ folder: "backups", path: join(dir, "locked", "inside"), create: true, hint: "compose-up" }]), { kind: "folder", folder: "backups", path: join(dir, "locked", "inside"), trouble: "not-writable", hint: "compose-up" });
     chmodSync(join(dir, "locked"), 0o700);
   }
 });
@@ -194,4 +195,85 @@ test("what the Secret store will move is not touched", async () => {
   await start(dir);
   for (const name of ["keys.json", "models.json", "sandbox-secrets.json"]) assert.equal(readFileSync(join(dir, name), "utf8"), `{"fake":"${name}"}`);
   assert.deepEqual(readdirSync(dir).filter((n) => n.endsWith(".bak")), []);
+});
+
+test("the old files are kept as they were written: unknown fields stay, and so does the text of each event", async () => {
+  const dir = folder();
+  const lines = [
+    '{"seq":1,"event":{"kind":"activity","activity":null,"fromTheFuture":{"a":[1,2,{"b":null}]}}}',
+    '{"seq": 2, "event": {"kind": "activity", "activity": null}}',
+    '{"seq":3,"event":{"kind":"appended","id":"r-1","text":"caf\\u00e9 \\ud83d\\ude00"}}',
+  ];
+  writeFileSync(join(dir, "events.jsonl"), `${lines.join("\n")}\n`);
+  const { db } = await start(dir);
+  const stored = query(db, z.object({ event: z.string() }), "select event from events order by seq").map((r) => r.event);
+  assert.equal(stored[0], '{"kind":"activity","activity":null,"fromTheFuture":{"a":[1,2,{"b":null}]}}', "as written, nothing dropped");
+  assert.equal(stored[1], '{"kind":"activity","activity":null}', "a line of another shape: the event, written again");
+  assert.equal(stored[2], '{"kind":"appended","id":"r-1","text":"caf\\u00e9 \\ud83d\\ude00"}', "escapes as they were");
+});
+
+test("migration 1 reads the old files as they were at 0.1.0: it imports no live schema, and nothing of core or the protocol", () => {
+  const sources = [fileURLToPath(new URL("../migrations/20261023100100_import_json.ts", import.meta.url)), ...readdirSync(fileURLToPath(new URL("./legacy/", import.meta.url)), { withFileTypes: true }).filter((f) => f.isFile() && f.name.endsWith(".ts") && !f.name.endsWith(".test.ts")).map((f) => join(f.parentPath, f.name))];
+  assert.ok(sources.length >= 5);
+  for (const source of sources) assert.doesNotMatch(readFileSync(source, "utf8"), /from "@amuse\//, source);
+});
+
+test("an old file that is a lone line of garbage or an event of no known kind stops the import", async () => {
+  const dir = folder();
+  writeFileSync(join(dir, "events.jsonl"), `${event(1)}\n{"seq":2,"event":{"kind":"renamed"}}\n`);
+  await assert.rejects(start(dir), /line 2 is not the next event/);
+});
+
+test("old files beside a database that has taken them in are found; they are renamed only if they are exactly what was taken in", async () => {
+  const dir = folder();
+  mkdirSync(join(dir, "chats"));
+  writeFileSync(join(dir, "events.jsonl"), journal(2));
+  writeFileSync(join(dir, "chats.json"), JSON.stringify([chat("main"), chat("c-1")]));
+  writeFileSync(join(dir, "chats", "c-1.jsonl"), journal(1));
+  writeFileSync(join(dir, "chats", "orphan.jsonl"), journal(1));
+  writeFileSync(join(dir, "access.json"), JSON.stringify({ password: { salt: "00", hash: "00" }, sessions: [] }));
+  const { db } = await start(dir);
+  const ctx = context(dir);
+  assert.deepEqual(oldFilesBeside(db, ctx), [], "a finished import leaves none (the orphan is not one of the chats)");
+
+  // a crash between the commit and the rename: the files are back as they were
+  for (const name of ["events.jsonl", "chats.json", "access.json"]) renameSync(join(dir, `${name}.bak`), join(dir, name));
+  renameSync(join(dir, "chats", "c-1.jsonl.bak"), join(dir, "chats", "c-1.jsonl"));
+  assert.deepEqual(oldFilesBeside(db, ctx).sort(), ["access.json", "chats.json", "chats/c-1.jsonl", "events.jsonl"]);
+  // an older version ran and wrote another password, and a file the import never saw
+  writeFileSync(join(dir, "access.json"), JSON.stringify({ password: { salt: "11", hash: "11" }, sessions: [] }));
+  writeFileSync(join(dir, "rules.json"), JSON.stringify({ apps: {}, browser: {}, sites: {} }));
+  const result = retireOldFiles(db, ctx);
+  assert.deepEqual(result.renamed.sort(), ["chats.json", "chats/c-1.jsonl", "events.jsonl"]);
+  assert.deepEqual(result.kept.sort(), ["access.json", "rules.json"], "what differs, or was never imported, is not touched");
+  assert.equal(readFileSync(join(dir, "access.json"), "utf8"), JSON.stringify({ password: { salt: "11", hash: "11" }, sessions: [] }));
+  assert.ok(existsSync(join(dir, "events.jsonl.bak.2")) || existsSync(join(dir, "events.jsonl.bak")));
+});
+
+test("the dry run takes the side chats chats.json lists, and says it leaves the others", async () => {
+  const dir = folder();
+  mkdirSync(join(dir, "chats"));
+  writeFileSync(join(dir, "chats.json"), JSON.stringify([chat("main"), chat("c-1")]));
+  writeFileSync(join(dir, "chats", "c-1.jsonl"), journal(1));
+  writeFileSync(join(dir, "chats", "gone.jsonl"), journal(1));
+  const touches = describePending(plan([], await loadMigrations(dataMigrations)), context(dir)).at(-1)?.touches ?? [];
+  assert.ok(touches.some((t) => t.startsWith("import chats/c-1.jsonl")));
+  assert.ok(touches.includes("leave chats/gone.jsonl where it is (it is not a chat in chats.json)"));
+  assert.ok(!touches.some((t) => t.startsWith("import chats/gone.jsonl")));
+});
+
+test("looking at a database leaves it exactly as it is: no -wal or -shm made, and the server's writes are seen when it runs", async () => {
+  const dir = folder();
+  const { db } = await start(dir);
+  db.close();
+  assert.deepEqual(readdirSync(dir).filter((n) => n.startsWith("amuse.db")), ["amuse.db"]);
+  const look = openReadOnly(join(dir, "amuse.db"));
+  assert.deepEqual(applied(look), ["20261023100000", "20261023100100"]);
+  look.close();
+  assert.deepEqual(readdirSync(dir).filter((n) => n.startsWith("amuse.db")), ["amuse.db"], "nothing made by looking");
+  // a running server: its -wal is there, and what it has written is seen
+  const running = openDatabase(join(dir, "amuse.db"));
+  running.exec("insert into defaults_set (key) values ('memory')");
+  const beside = openReadOnly(join(dir, "amuse.db"));
+  assert.equal(query(beside, z.object({ n: z.number() }), "select count(*) as n from defaults_set")[0]?.n, 1);
 });

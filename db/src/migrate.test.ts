@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { type Context, loadMigrations, parseSql, touchedBy } from "./migrations.ts";
-import { applied, describePending, migrate, plan, revert, snapshot } from "./migrate.ts";
+import { applied, describePending, migrate, plan, prune, revert, snapshot } from "./migrate.ts";
 import { MEMORY, openDatabase, query, transaction } from "./open.ts";
 import { StartupError } from "./problem.ts";
 
@@ -215,3 +215,41 @@ test("a transaction inside another is a savepoint, and a failure undoes only its
   assert.equal(db.isTransaction, false);
 });
 
+
+test("a copy that fails (a full disk) leaves no half file behind, and the start stops saying so", async () => {
+  const dir = folder();
+  const db = openDatabase(join(dir, "amuse.db"));
+  const backups = join(dir, "backups");
+  await assert.rejects(
+    snapshot(db, backups, "pre-migrate", () => new Date("2026-10-23T10:15:00.000Z"), async (_from, to) => {
+      writeFileSync(to, "half of a database");
+      throw new Error("no space left on device");
+    }),
+    /no space left/,
+  );
+  assert.deepEqual(readdirSync(backups), []);
+});
+
+test("only the newest five pre-migrate copies are kept; other copies are not touched", () => {
+  const dir = folder();
+  const names = Array.from({ length: 8 }, (_, i) => `2026-10-2${i}T10-00-00-000Z-pre-migrate.db`);
+  for (const name of [...names, "2026-10-01T10-00-00-000Z-pre-rollback.db", "notes.txt"]) writeFileSync(join(dir, name), "");
+  const gone = prune(dir, "pre-migrate");
+  assert.deepEqual(gone, names.slice(0, 3));
+  assert.deepEqual(readdirSync(dir).sort(), [...names.slice(3), "2026-10-01T10-00-00-000Z-pre-rollback.db", "notes.txt"].sort());
+  assert.deepEqual(prune(dir, "pre-migrate"), [], "nothing more to remove");
+});
+
+test("a migration that fails after SQLite has rolled itself back still says what went wrong", async () => {
+  const dir = migrationsIn({
+    "20260101000000_a.sql": sql("create table t (x integer primary key);\ninsert into t values (1);\ninsert or rollback into t values (1);"),
+  });
+  const db = openDatabase(MEMORY);
+  await assert.rejects(migrate(db, await loadMigrations(dir), { backups: join(dir, "backups"), context: context(dir) }), (error) => {
+    assert.ok(error instanceof StartupError && error.problem.kind === "migration-failed");
+    assert.match(error.problem.message, /UNIQUE constraint failed/);
+    assert.doesNotMatch(error.problem.message, /no transaction is active/);
+    return true;
+  });
+  assert.deepEqual(applied(db), []);
+});

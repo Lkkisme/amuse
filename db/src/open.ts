@@ -3,8 +3,9 @@
  * busy lock, every commit on disk before it returns, and the file the owner's
  * alone (mode 600, as its -wal and -shm files then are).
  */
-import { chmodSync, closeSync, mkdirSync, openSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { dirname } from "node:path";
+import { pathToFileURL } from "node:url";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import type { z } from "zod";
 
@@ -30,6 +31,16 @@ export function openDatabase(path: string): Db {
   }
   db.exec("pragma synchronous = full; pragma foreign_keys = on");
   return db;
+}
+
+/**
+ * To look at a database that exists, and leave it exactly as it is. SQLite makes the -wal and -shm files even for a read-only
+ * connection, so when there is no -wal (nothing is using the database) it is opened immutable, with no files made at all; when
+ * there is one (the server is running), the usual read-only connection sees what the server has written.
+ */
+export function openReadOnly(path: string): Db {
+  if (existsSync(`${path}-wal`)) return new DatabaseSync(path, { readOnly: true });
+  return new DatabaseSync(`${pathToFileURL(path).href}?mode=ro&immutable=1`);
 }
 
 /** Rows as `schema` reads them (a column that is not what the schema says is an error, not a surprise later). */
@@ -61,7 +72,9 @@ export function transaction<T>(db: Db, work: () => T): T {
     db.exec(nested ? `release ${name}` : "commit");
     return result;
   } catch (error) {
-    db.exec(nested ? `rollback to ${name}; release ${name}` : "rollback");
+    // SQLite may have rolled back already (a constraint with ON CONFLICT ROLLBACK, a full disk): then there is nothing to undo, and
+    // asking would replace the error that matters with "no transaction is active"
+    if (db.isTransaction) db.exec(nested ? `rollback to ${name}; release ${name}` : "rollback");
     throw error;
   }
 }

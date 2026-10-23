@@ -7,9 +7,8 @@
  *   deny   never visited
  * Nothing that cannot be read ever makes the rules wider, and none stops the import: see readRules.
  */
-import { type AllRules, defaultBrowser } from "@amuse/core";
-import { BrowserAction, Permission, Site, type SiteActions, type SiteEntry, ToolKind } from "@amuse/protocol";
 import { z } from "zod";
+import { type AllRules, BrowserAction, Permission, Site, type SiteActions, type SiteEntry, ToolKind, defaultBrowser } from "./frozen.ts";
 
 /** The four actions as stored: read leniently, so one bad entry never stops the server (it is dropped, and said). */
 const Actions = z.object({ visit: Permission.optional(), submit: Permission.optional(), download: Permission.optional(), upload: Permission.optional() });

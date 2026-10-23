@@ -7,7 +7,7 @@
  *    it is rolled back and the start stops (earlier ones of this run stay: each was whole).
  * `schema_migrations(version)` is dbmate's own table, so the dbmate CLI can be pointed at the same file in development.
  */
-import { chmodSync, mkdirSync } from "node:fs";
+import { chmodSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { backup } from "node:sqlite";
 import { z } from "zod";
@@ -87,12 +87,29 @@ export interface Report {
 const stamp = (when: Date) => when.toISOString().replace(/[:.]/g, "-");
 
 /** An online copy of the database (the server may be holding it open), mode 600. */
-export async function snapshot(db: Db, directory: string, label: string, now: () => Date = () => new Date()): Promise<string> {
+export async function snapshot(db: Db, directory: string, label: string, now: () => Date = () => new Date(), copy: (from: Db, to: string) => Promise<unknown> = backup): Promise<string> {
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const target = join(directory, `${stamp(now())}-${label}.db`);
-  await backup(db, target);
-  chmodSync(target, 0o600);
+  try {
+    await copy(db, target);
+    chmodSync(target, 0o600);
+  } catch (error) {
+    // what a full disk leaves is half a copy, which must not be taken for a whole one later
+    rmSync(target, { force: true });
+    throw error;
+  }
   return target;
+}
+
+/** How many pre-migrate copies are kept (the newest). */
+export const BACKUPS_KEPT = 5;
+
+/** Remove the oldest copies made by `label`, keeping the newest `keep`: their names start with the time, so they sort by it. */
+export function prune(directory: string, label: string, keep: number = BACKUPS_KEPT): string[] {
+  const copies = readdirSync(directory).filter((name) => name.endsWith(`-${label}.db`)).sort();
+  const gone = copies.slice(0, Math.max(0, copies.length - keep));
+  for (const name of gone) rmSync(join(directory, name), { force: true });
+  return gone;
 }
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -106,6 +123,7 @@ export async function migrate(db: Db, known: readonly Migration[], options: Opti
   if (found.applied.length > 0) {
     try {
       kept = await snapshot(db, options.backups, "pre-migrate", options.now);
+      prune(options.backups, "pre-migrate");
     } catch (error) {
       throw new StartupError({ kind: "backup-failed", message: message(error) }, `could not back up the database: ${message(error)}`);
     }
