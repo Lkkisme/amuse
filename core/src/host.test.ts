@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type Account, type Schedule, type Session, type State, apply, prepend } from "@amuse/protocol";
+import { type Account, type Envelope, type Schedule, type Session, type State, apply, prepend } from "@amuse/protocol";
 import { type AgentIO, type Ports, type Timers, type Turn, createHost, memoryChats, memoryRules, noKeys, noLogins, noSandbox, noWorkspace } from "./index.ts";
 
 /** Ports that do nothing but hand over the AgentIO, so tests can act like an agent. */
@@ -561,10 +561,11 @@ test("a refusal by the user's rule is an approval that ends denied, marked as th
 test("a journal is replayed as it is read, and the host keeps only the latest events to catch a client up", async () => {
   const total = 2500;
   let produced = 0;
-  const events = function* () {
+  const quiet: Envelope["event"] = { kind: "activity", activity: null };
+  const events = function* (): Generator<Envelope> {
     for (let seq = 1; seq <= total; seq++) {
       produced += 1;
-      yield { seq, event: { kind: "activity" as const, activity: null } };
+      yield { seq, event: quiet };
     }
   };
   const base = memoryChats();

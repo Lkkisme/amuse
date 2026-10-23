@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Problem } from "@amuse/db";
-import { catalogs, explain, languageOf, problemPage, serveProblem } from "./startup.ts";
+import type { Hint, Problem } from "@amuse/db";
+import { type Language, catalogs, explain, languageOf, problemPage, serveProblem } from "./startup.ts";
+
+const languages: Language[] = ["en", "zh-CN"];
+const hints: Hint[] = ["compose-up", "data-volume"];
+const troubles: Extract<Problem, { kind: "folder" }>["trouble"][] = ["missing", "not-a-folder", "not-writable"];
 
 /** One of each kind of problem, with sample values: a kind added to Problem does not compile here until it is listed. */
 const samples: { [K in Problem["kind"]]: Extract<Problem, { kind: K }> } = {
@@ -14,21 +18,21 @@ const samples: { [K in Problem["kind"]]: Extract<Problem, { kind: K }> } = {
 
 test("every kind of problem has its words in each language, using what happened", () => {
   for (const problem of Object.values(samples)) {
-    for (const language of ["en", "zh-CN"] as const) {
+    for (const language of languages) {
       const { what, todo } = explain(problem, language);
       assert.ok(what.length > 10 && todo.length > 10, `${problem.kind} in ${language}`);
     }
   }
   const failed = samples["migration-failed"];
-  for (const language of ["en", "zh-CN"] as const) {
+  for (const language of languages) {
     const { what, todo } = explain(failed, language);
     assert.ok(what.includes("20261023100100") && what.includes("import_json") && what.includes("line 3"), language);
     assert.ok(todo.includes("/data/backups/x-pre-migrate.db"), language);
   }
   assert.ok(explain(samples["database-newer"], "en").what.includes("20270101000000"));
   // each hint, each trouble
-  for (const hint of ["compose-up", "data-volume"] as const)
-    for (const trouble of ["missing", "not-a-folder", "not-writable"] as const)
+  for (const hint of hints)
+    for (const trouble of troubles)
       assert.notEqual(explain({ kind: "folder", path: "/p", trouble, hint }, "en").todo, explain({ kind: "folder", path: "/p", trouble, hint: hint === "compose-up" ? "data-volume" : "compose-up" }, "en").todo);
   assert.match(explain(samples.folder, "en").todo, /docker compose up -d/);
   assert.match(explain(samples.folder, "zh-CN").what, /无法写入/);

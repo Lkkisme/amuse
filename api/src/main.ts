@@ -49,6 +49,7 @@ const host = process.env["AMUSE_HOST"] ?? "127.0.0.1";
  * Before anything opens the data: its folders are checked, and the database is opened and migrated (db/). When that cannot
  * be done, this server still answers, with a page that says why and what to do, and nothing else starts.
  */
+const signals: NodeJS.Signals[] = ["SIGINT", "SIGTERM"];
 const where = locate(process.env);
 const dataDir = where.dir;
 const db = await (async () => {
@@ -57,7 +58,7 @@ const db = await (async () => {
   } catch (error) {
     if (!(error instanceof StartupError)) throw error;
     console.error(`amuse could not start: ${error.message}`);
-    for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => process.exit(1));
+    for (const signal of signals) process.once(signal, () => process.exit(1));
     await serveProblem(error.problem, { port, host });
     return await new Promise<never>(() => {});
   }
@@ -369,7 +370,7 @@ await listen({
   port,
   host,
 });
-for (const signal of ["SIGINT", "SIGTERM"] as const)
+for (const signal of signals)
   process.once(signal, () => {
     db.close(); // folds the write-ahead log into the database file
     process.exit(0);
