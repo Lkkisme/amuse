@@ -62,6 +62,12 @@ const first = async (store: SecretStore) => {
   return entry;
 };
 
+/** Wait for `ok` a little at a time: the Vault tries the sandbox again by itself. */
+const until = async (ok: () => boolean): Promise<void> => {
+  for (let tries = 0; tries < 400 && !ok(); tries++) await new Promise((done) => setTimeout(done, 5));
+  assert.ok(ok(), "the sandbox was given what waited for it");
+};
+
 test("an entry keeps plain fields as they are and secret fields sealed, and lists no secret value", async () => {
   const { dir, db, open } = setup();
   const store = open();
@@ -663,6 +669,73 @@ test("a secret removed while the sandbox cannot be reached is removed all the sa
   await restarted.sweep();
   assert.deepEqual([...env.keys(), ...files.keys()], []);
   assert.equal(t.db.prepare("select count(*) as n from sandbox_cleanup").get()?.["n"], 0);
+});
+
+/** A sandbox that cannot be reached at all, or only for `setEnv` and `setFile`; `up` is whether it is back. */
+const unreachable = (sandbox: SandboxClient, up: () => boolean): SandboxClient => {
+  const cannot = () => {
+    if (!up()) throw new SandboxError("The sandbox cannot be reached just now: it may be starting, or stopped.");
+  };
+  return {
+    ...sandbox,
+    setEnv: async (secret) => {
+      cannot();
+      await sandbox.setEnv(secret);
+    },
+    setFile: async (secret) => {
+      cannot();
+      await sandbox.setFile(secret);
+    },
+  };
+};
+
+test("a server that starts before the sandbox is reachable gives it the secrets again once it is up", async () => {
+  const { sandbox, env } = fake();
+  const t = setup();
+  const before = secretStore({ db: t.db, keyPath: t.keyPath, sandbox, warn: () => {} });
+  await before.add({ name: "Cloudflare", note: "", plain: [], secret: [token("cf-fake-token-9876")], uses: [{ kind: "env", field: "token", name: "CF_API_TOKEN" }] });
+  assert.equal(env.get("CF_API_TOKEN"), "cf-fake-token-9876");
+  env.clear(); // the sandbox was recreated with the server, and is not up yet
+  let up = false;
+  const lines: string[] = [];
+  const warnings: string[] = [];
+  const store = secretStore({ db: t.db, keyPath: t.keyPath, sandbox: unreachable(sandbox, () => up), retryMs: 5, log: (m) => void lines.push(m), warn: (m) => void warnings.push(m) });
+  await store.sweep();
+  assert.equal(env.size, 0, "nothing goes in while it cannot be reached");
+  assert.match(warnings.join("\n"), /Cloudflare could not be given to the sandbox again/);
+  up = true;
+  await until(() => env.get("CF_API_TOKEN") === "cf-fake-token-9876");
+  assert.deepEqual(lines, ["The sandbox could not be reached, and has been given its secrets again: Cloudflare $CF_API_TOKEN."]);
+  assert.doesNotMatch(lines.join("\n"), /cf-fake-token/, "the line names what went, never a value");
+  assert.doesNotMatch(warnings.join("\n"), /cf-fake-token/);
+});
+
+test("a sandbox that restarts empty while the server runs is given the secrets again", async () => {
+  const { sandbox, env, files } = fake();
+  let up = true;
+  const flaky = unreachable(sandbox, () => up);
+  const t = setup(flaky);
+  const lines: string[] = [];
+  const store = secretStore({ db: t.db, keyPath: t.keyPath, sandbox: flaky, retryMs: 5, log: (m) => void lines.push(m), warn: () => {} });
+  await store.add({
+    name: "Cloudflare",
+    note: "",
+    plain: [],
+    secret: [token("cf-fake-token-9876")],
+    uses: [{ kind: "env", field: "token", name: "CF_API_TOKEN" }, { kind: "file", field: "token", path: ".c/cf", env: "CF_FILE" }],
+  });
+  assert.equal(env.get("CF_API_TOKEN"), "cf-fake-token-9876");
+  // the sandbox restarts: its home is empty, and it cannot be reached for a moment
+  up = false;
+  await sandbox.reset();
+  await store.again();
+  assert.equal(env.size + files.size, 0, "empty after the restart");
+  up = true;
+  await until(() => env.get("CF_API_TOKEN") === "cf-fake-token-9876" && files.get(".c/cf")?.toString() === "cf-fake-token-9876");
+  assert.equal(env.get("CF_FILE"), "/home/amuse/.c/cf");
+  assert.equal(lines.length, 1, "one line when what waited has gone through");
+  assert.match(lines.join("\n"), /given its secrets again: Cloudflare \$CF_API_TOKEN, Cloudflare file \.c\/cf \(with \$CF_FILE holding its path\)\./);
+  assert.doesNotMatch(lines.join("\n"), /cf-fake-token/);
 });
 
 test("a value that was replaced or removed stays masked until the sandbox's home is emptied, and not after", async () => {

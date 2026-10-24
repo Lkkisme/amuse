@@ -191,6 +191,9 @@ const MAX_LINE = 20_000;
 const RECORD_EVERY_MS = 60_000;
 /** How long a temporary code is remembered, to mask what a terminal shows of it. */
 const CODE_MS = 24 * 3_600_000;
+/** How long the Vault waits before trying a sandbox it could not reach again, at first and at most (it doubles in between). */
+const RETRY_FIRST_MS = 2_000;
+const RETRY_MOST_MS = 60_000;
 
 const unsound = (reason: string) => new Rejected({ kind: "unsound", reason });
 /** What the sandbox could not do, in our words (never what it said). */
@@ -203,7 +206,7 @@ export interface SecretStore extends Secrets, ServiceStore {
   relabel(names: (id: string) => string): Promise<void>;
   /** After a reset emptied the sandbox's home: its variables and files again, as far as they can be (what was waiting to be taken out is gone with the home). */
   again(): Promise<void>;
-  /** When the server starts, and whenever the sandbox may be reachable again: what it could not be told to forget is taken out, and what it should hold but may not is given again. */
+  /** When the server starts, and whenever the sandbox may be reachable again: what it could not be told to forget is taken out, and what it should hold but may not is given again. A sandbox that cannot be reached is tried again by itself, waiting longer each time, and one line says what it was given once it has it all. */
   sweep(): Promise<void>;
   /**
    * Entries made from what was kept before (migration), without the sandbox: the ids of those made, and those left because
@@ -225,6 +228,10 @@ export interface StoreOptions {
   id?: (prefix: string) => string;
   /** for warnings; never given a value */
   warn?: (message: string) => void;
+  /** the one line when what waited for the sandbox has gone through; names only, never a value */
+  log?: (message: string) => void;
+  /** how long to wait before trying a sandbox that could not be reached again, doubled each time up to a minute (2 s; tests make it shorter) */
+  retryMs?: number;
 }
 
 /** What a use takes for itself, to tell the same one. */
@@ -234,7 +241,7 @@ const claim = (use: UseInput | Use): string =>
 /** The bytes a value stands for. */
 const bytesOf = (value: FieldValue): Uint8Array => (value.kind === "text" ? new TextEncoder().encode(value.text) : Buffer.from(value.content, "base64"));
 
-export function secretStore({ db, keyPath, sandbox, now = () => new Date().toISOString(), id = newId, warn = console.warn }: StoreOptions): SecretStore {
+export function secretStore({ db, keyPath, sandbox, now = () => new Date().toISOString(), id = newId, warn = console.warn, log = console.log, retryMs = RETRY_FIRST_MS }: StoreOptions): SecretStore {
   let entries: Kept[] = loadEntries(db);
   const check = queryOne(db, z.object({ sealed: z.string() }), "select sealed from vault_check")?.sealed;
   const seal: Seal = sealer(fileKey(keyPath, entries.some((e) => e.secret.length > 0) || check !== undefined));
@@ -289,6 +296,26 @@ export function secretStore({ db, keyPath, sandbox, now = () => new Date().toISO
   };
   /** The sandbox could not be reached to give things back or to take them out: the Vault gives everything again, and takes out what was left, next time it can. */
   let stale = false;
+  /** Waiting to try the sandbox again, and how long the wait is (it doubles each time, up to the most). */
+  let retry: ReturnType<typeof setTimeout> | undefined;
+  let wait = retryMs;
+  /** What the sandbox could not be reached for, in names only, said once it has it all (never a value). */
+  const waiting = new Set<string>();
+  /**
+   * The sandbox could not be reached for something: the Vault gives it everything it holds again, and takes out what was
+   * left, when it can be. Until then it tries by itself, waiting longer each time: nothing else says when a sandbox that is
+   * starting, or was restarted, is back.
+   */
+  const unreached = (): void => {
+    stale = true;
+    if (retry !== undefined) return;
+    retry = setTimeout(() => {
+      retry = undefined;
+      void store.sweep().catch((error: unknown) => warn(`The sandbox could not be brought up to date with the Vault: ${error instanceof Error ? error.message : "an error"}`));
+    }, wait);
+    retry.unref();
+    wait = Math.min(wait * 2, RETRY_MOST_MS);
+  };
   const commit = (next: Kept[]) => {
     persist(next);
     entries = next;
@@ -376,11 +403,20 @@ export function secretStore({ db, keyPath, sandbox, now = () => new Date().toISO
           await put(e, use);
         } catch (error) {
           all = false;
-          stale = true;
+          waiting.add(`${e.name} ${describeUse(use)}`);
+          unreached();
           warn(`${e.name} could not be given to the sandbox again (${error instanceof Error ? error.message : "an error"}).`);
         }
       }
     return all;
+  };
+
+  /** Everything went through: the waiting starts over, and one line says what the sandbox was given again (names only). */
+  const delivered = (): void => {
+    wait = retryMs;
+    if (waiting.size === 0) return;
+    log(`The sandbox could not be reached, and has been given its secrets again: ${[...waiting].join(", ")}.`);
+    waiting.clear();
   };
 
   /** A variable or file the sandbox could not be told to forget now: written down, to be taken out when it can be reached (names only). */
@@ -430,7 +466,7 @@ export function secretStore({ db, keyPath, sandbox, now = () => new Date().toISO
       retire(about);
       for (const undo of undos.reverse())
         await undo().catch(() => {
-          stale = true;
+          unreached();
         });
       if (stale) warn("A change to the sandbox failed halfway, and the sandbox could not be put back as it was (it could not be reached). The Vault gives it everything it holds again, and takes out what was left, the next time it is reached.");
       throw error;
@@ -706,24 +742,28 @@ export function secretStore({ db, keyPath, sandbox, now = () => new Date().toISO
         retired.length = 0;
         db.exec("delete from sandbox_cleanup");
         stale = false;
-        await redeliver();
+        if (await redeliver()) delivered();
       }),
 
     sweep: () =>
       serial(async () => {
         if (!sandbox) return;
-        const waiting = query(db, z.object({ kind: z.enum(["env", "file"]), target: z.string() }), "select kind, target from sandbox_cleanup order by kind, target");
-        for (const { kind, target } of waiting) {
+        const forgotten = query(db, z.object({ kind: z.enum(["env", "file"]), target: z.string() }), "select kind, target from sandbox_cleanup order by kind, target");
+        for (const { kind, target } of forgotten) {
           try {
             await sandbox.forget(kind === "env" ? { env: target } : { file: target });
             db.prepare("delete from sandbox_cleanup where kind = ? and target = ?").run(kind, target);
           } catch (error) {
             if (!(error instanceof SandboxError)) throw error;
-            warn(`The sandbox cannot be reached just now, so ${waiting.length} thing${waiting.length === 1 ? "" : "s"} to take out of it wait${waiting.length === 1 ? "s" : ""}.`);
+            warn(`The sandbox cannot be reached just now, so ${forgotten.length} thing${forgotten.length === 1 ? "" : "s"} to take out of it wait${forgotten.length === 1 ? "s" : ""}.`);
+            unreached();
             return;
           }
         }
-        if (await redeliver()) stale = false;
+        if (await redeliver()) {
+          stale = false;
+          delivered();
+        }
       }),
 
     serviceKey(service, target, record = true) {
