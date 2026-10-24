@@ -66,7 +66,7 @@ export function ErrorToast({ message, detail, retry, onClose }: Omit<ErrorProps,
           {message}
         </p>
       </div>
-      <Actions message={message} detail={detail} {...(retry ? { retry } : {})} onAct={onClose} onCard className="-mb-1 mt-1 justify-end" />
+      <Actions message={message} detail={detail} {...(retry ? { retry } : {})} onAct={onClose} className="-mb-1 mt-1 justify-end" />
     </div>
   );
 }
