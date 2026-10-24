@@ -5,6 +5,33 @@ The Android application opens the existing Amuse web interface at
 files, settings and live updates as the desktop web client. The phone must be
 able to reach that server, normally through the same Tailscale network.
 The native connection settings accept a different HTTPS origin if needed.
+Version 0.1.5 adds foreground connection recovery and an optional **Tailscale
+automatic connection** setting (enabled by default). It applies only to `.ts.net`
+hosts and IPv4 addresses in `100.64.0.0/10`; ordinary HTTPS servers never trigger
+a Tailscale connection request. The switch is in Connection & Security. Saving
+only this switch preserves device pairing and local biometric keys.
+
+- On entering the foreground, Amuse can ask an installed Tailscale app to connect
+  using its existing login and VPN authorization. An already active VPN, including
+  Tailscale itself, prevents that request. An unknown VPN state also prevents it.
+  Requests have a 30-second cooldown and are never sent by network callbacks.
+- This uses Tailscale's public explicit
+  [`CONNECT_VPN` receiver](https://github.com/tailscale/tailscale-android/blob/main/android/src/main/java/com/tailscale/ipn/IPNReceiver.java).
+  Tailscale's own [worker](https://github.com/tailscale/tailscale-android/blob/main/android/src/main/java/com/tailscale/ipn/StartVPNWorker.java)
+  retains responsibility for account login and Android's VPN authorization. A
+  sent request does not mean the computer is reachable. Amuse does not embed a
+  VPN, read Tailscale credentials, or change always-on VPN or battery settings.
+- A failed main document retries DNS, connection, IO and timeout errors while
+  foregrounded, after 2, 4, 8, 15 and then 30 seconds. Network availability can
+  bring the next attempt forward. Only the failed document is replaced with a
+  fresh GET of the configured home URL; healthy chat pages and POST requests are
+  never replayed. TLS, HTTP and sign-in failures require a manual decision.
+- Retry timers stop on pause, lock, settings, renderer disposal and destruction.
+  The error page displays retry progress, manual reconnect and, when Tailscale is
+  installed for a tailnet server, **Open Tailscale**. Returning normally restores
+  the existing paired session. Initial page loading/error uses a neutral status
+  indicator; green means the document loaded, not an independent RPC health check.
+
 Version 0.1.2 restores an owner-paired device session directly into chat, without
 a password, PIN or biometric prompt. Unpaired devices start at the server PIN
 page with local biometric unlock disabled by default. The user may enable it in Connection & Security. Native

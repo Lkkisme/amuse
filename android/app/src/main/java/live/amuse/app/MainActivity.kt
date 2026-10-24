@@ -3,6 +3,7 @@ package live.amuse.app
 import android.Manifest
 import android.app.KeyguardManager
 import android.content.ContentValues
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -10,11 +11,15 @@ import android.graphics.Color
 import android.hardware.biometrics.BiometricManager
 import android.hardware.biometrics.BiometricPrompt
 import android.net.Uri
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.net.http.SslError
 import android.os.Build
 import android.os.Bundle
 import android.os.CancellationSignal
 import android.os.Environment
+import android.os.SystemClock
 import android.provider.MediaStore
 import android.view.WindowManager
 import android.util.Log
@@ -62,6 +67,14 @@ class MainActivity : ComponentActivity() {
     private var microphoneRequest: PermissionRequest? = null
     private var permissionDialogInFlight = false
     private var microphoneResult: Boolean? = null
+    private val recovery = ConnectionRecovery()
+    private var recoveryJob: Job? = null
+    private var scheduledRetry: ConnectionRecovery.Retry? = null
+    private var webEpoch = 0
+    private var rebuildingForRetry = false
+    private var nextLoadPreservesBackoff = false
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private val tailscaleRequests = TailscaleRequestGate()
     private val picker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val picked = WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data)
         val selection = picked?.filter { it.scheme == "content" }?.toTypedArray()
@@ -92,6 +105,7 @@ class MainActivity : ComponentActivity() {
             .getOrElse { ServerAddress.parse(ServerAddress.DEFAULT) }
         state = state.copy(server = server, deviceSecure = getSystemService(KeyguardManager::class.java).isDeviceSecure,
             useDeviceUnlock = preferences.getBoolean("device_unlock", false), reusableSessionSupported = Build.VERSION.SDK_INT >= 30,
+            autoConnectTailscale = preferences.getBoolean("auto_connect_tailscale", true),
             darkTheme = preferences.getBoolean("dark_theme", false),
             pairedSession = pairedVault.hasSession(server),
             rememberedSession = vault.hasSession(server))
@@ -108,6 +122,7 @@ class MainActivity : ComponentActivity() {
                     onUnlock = ::authenticate, onServerPin = ::useServerPin,
                     onLock = { if (state.pairedSession) forgetSession() else lockSession() },
                     onSettings = {
+                        cancelRecovery()
                         if (state.pickerSuspended) {
                             lockSession()
                             state = state.copy(notice = "已取消本次文件选择。重新登录后可再次选择。")
@@ -116,6 +131,7 @@ class MainActivity : ComponentActivity() {
                     },
                     onCloseSettings = { state = state.copy(settingsVisible = false) },
                     onSaveSettings = ::saveSettings, onForget = ::forgetSession, onRetry = ::retry,
+                    onOpenTailscale = ::openTailscale,
                     onBack = { webView?.let { if (it.canGoBack()) it.goBack() } },
                     onMicrophoneAllow = ::requestMicrophonePermission,
                     onMicrophoneDeny = ::denyMicrophonePermission)
@@ -126,6 +142,9 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         foreground = true
+        refreshTailscaleAvailability()
+        requestTailscaleConnection()
+        observeNetwork()
         val secure = getSystemService(KeyguardManager::class.java).isDeviceSecure
         if (!secure && state.deviceSecure) vault.clear()
         state = state.copy(deviceSecure = secure, rememberedSession = vault.hasSession(state.server),
@@ -144,6 +163,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        stopObservingNetwork()
+        cancelRecovery()
         if (permissionDialogInFlight) {
             // Preserve the requesting renderer only while Android's runtime
             // dialog is open. Recheck foreground, origin and request on return.
@@ -171,6 +192,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        stopObservingNetwork()
+        cancelRecovery()
         cancelAuthentication()
         denyMicrophonePermission()
         releaseWebView(webView)
@@ -362,6 +385,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun lockSession(cancelPrompt: Boolean = true) {
+        cancelRecovery()
         denyMicrophonePermission()
         captureSession()
         captureJob?.cancel()
@@ -401,18 +425,154 @@ class MainActivity : ComponentActivity() {
         state = state.copy(rememberedSession = false, pairedSession = false, notice = "已清除此手机保存的登录。服务器中的聊天仍在。")
     }
 
-    private fun saveSettings(address: String, deviceUnlock: Boolean) {
+    private fun saveSettings(address: String, deviceUnlock: Boolean, autoConnectTailscale: Boolean) {
         val server = try { ServerAddress.parse(address) } catch (error: IllegalArgumentException) {
             state = state.copy(settingsError = error.message); return
         }
         if (server != state.server || deviceUnlock != state.useDeviceUnlock) forgetSession()
-        preferences.edit().putString("server", server.origin).putBoolean("device_unlock", deviceUnlock).apply()
-        state = state.copy(server = server, useDeviceUnlock = deviceUnlock, settingsVisible = false, settingsError = null)
+        cancelRecovery()
+        preferences.edit().putString("server", server.origin).putBoolean("device_unlock", deviceUnlock)
+            .putBoolean("auto_connect_tailscale", autoConnectTailscale).apply()
+        state = state.copy(server = server, useDeviceUnlock = deviceUnlock, autoConnectTailscale = autoConnectTailscale,
+            settingsVisible = false, settingsError = null)
     }
 
     private fun retry() {
-        state = state.copy(connectionError = null, loading = true, progress = 0)
-        webView?.loadUrl(state.server.home)
+        if (!canRecover()) return
+        requestTailscaleConnection()
+        restartFailedPage(automatic = false)
+    }
+
+    private fun currentPage() = ConnectionRecovery.Page(webEpoch, state.server.origin)
+    private fun canRecover() = ConnectionRecovery.Gate(foreground, state.unlocked, state.settingsVisible,
+        state.pickerSuspended, state.authenticating, webView != null, state.connectionError != null).allowed
+
+    private fun cancelRecovery() {
+        recoveryJob?.cancel()
+        recoveryJob = null
+        scheduledRetry = null
+        recovery.cancel()
+        rebuildingForRetry = false
+        nextLoadPreservesBackoff = false
+        state = state.copy(autoRetrySeconds = null, automaticRetryInFlight = false)
+    }
+
+    private fun scheduleRecovery(retry: ConnectionRecovery.Retry?) {
+        if (retry == null) return
+        if (scheduledRetry == retry && recoveryJob?.isActive == true) return
+        recoveryJob?.cancel()
+        scheduledRetry = retry
+        recoveryJob = lifecycleScope.launch {
+            for (seconds in retry.delaySeconds downTo 1) {
+                if (!canRecover() || currentPage() != retry.page) return@launch
+                state = state.copy(autoRetrySeconds = seconds, automaticRetryInFlight = false)
+                delay(1_000)
+            }
+            if (recovery.claim(retry, currentPage(), canRecover())) {
+                recoveryJob = null
+                scheduledRetry = null
+                restartFailedPage(automatic = true)
+            }
+        }
+    }
+
+    private fun restartFailedPage(automatic: Boolean) {
+        if (!canRecover()) return
+        recoveryJob?.cancel()
+        recoveryJob = null
+        scheduledRetry = null
+        rebuildingForRetry = true
+        nextLoadPreservesBackoff = automatic
+        // Recreate only a failed document. Old callbacks cannot clear the new page's error or pairing.
+        webEpoch++
+        releaseWebView(webView)
+        state = state.copy(loading = true, progress = 0, autoRetrySeconds = null,
+            automaticRetryInFlight = automatic, webGeneration = state.webGeneration + 1)
+    }
+
+    private fun observeNetwork() {
+        if (networkCallback != null) return
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            private var validated: Network? = null
+            override fun onAvailable(network: Network) = wake()
+            override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+                if (capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) && validated != network) {
+                    validated = network
+                    wake()
+                } else if (!capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) && validated == network)
+                    validated = null
+            }
+            override fun onLost(network: Network) { if (validated == network) validated = null }
+            private fun wake() { val registered = this; runOnUiThread {
+                if (networkCallback !== registered || !foreground) return@runOnUiThread
+                // This callback never sends CONNECT_VPN or reloads a healthy chat.
+                scheduleRecovery(recovery.wake(currentPage(), canRecover()))
+            } }
+        }
+        runCatching {
+            getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(callback)
+            networkCallback = callback
+        }
+    }
+
+    private fun stopObservingNetwork() {
+        val callback = networkCallback ?: return
+        networkCallback = null
+        runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(callback) }
+    }
+
+    private fun refreshTailscaleAvailability() {
+        state = state.copy(tailscaleInstalled = runCatching {
+            packageManager.getLaunchIntentForPackage(TailscaleConnection.PACKAGE) != null
+        }.getOrDefault(false))
+    }
+
+    private fun activeVpn(): Boolean? = runCatching {
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        val capabilities = connectivity.allNetworks.map { connectivity.getNetworkCapabilities(it) }
+        if (capabilities.any { it == null }) null
+        else capabilities.any { it!!.hasTransport(NetworkCapabilities.TRANSPORT_VPN) }
+    }.getOrNull()
+
+    private fun requestTailscaleConnection() {
+        if (!state.autoConnectTailscale || !foreground || state.settingsVisible || !TailscaleConnection.tailnet(state.server)) return
+        if (!state.tailscaleInstalled) {
+            state = state.copy(tailscaleStatus = "请先安装并登录 Tailscale，再返回 Amuse。")
+            return
+        }
+        val vpn = activeVpn()
+        if (vpn != false) {
+            state = state.copy(tailscaleStatus = if (vpn == true)
+                "手机已有 VPN 连接，Amuse 不会切换。若仍连不上，请打开 Tailscale 检查。"
+                else "暂时无法确认 VPN 状态，请打开 Tailscale 检查连接。")
+            return
+        }
+        if (!tailscaleRequests.claim(SystemClock.elapsedRealtime(), TailscaleConnection.allowed(state.server,
+                state.autoConnectTailscale, foreground, state.tailscaleInstalled, vpn))) return
+        val receiver = ComponentName(TailscaleConnection.PACKAGE, TailscaleConnection.RECEIVER)
+        runCatching {
+            val info = packageManager.getReceiverInfo(receiver, 0)
+            check(info.exported && info.enabled && info.applicationInfo.enabled)
+            sendBroadcast(Intent(TailscaleConnection.CONNECT).setComponent(receiver))
+        }.onSuccess {
+            // The official receiver owns VPN authorization; sending a request is not a successful connection.
+            state = state.copy(tailscaleStatus = "已请求 Tailscale 连接。若首次授权或登录未完成，请打开 Tailscale。")
+        }.onFailure {
+            state = state.copy(tailscaleStatus = "请打开 Tailscale 完成连接，然后返回 Amuse。")
+        }
+    }
+
+    private fun openTailscale() {
+        if (!foreground || !TailscaleConnection.tailnet(state.server)) return
+        val intent = packageManager.getLaunchIntentForPackage(TailscaleConnection.PACKAGE)
+        if (intent == null) {
+            refreshTailscaleAvailability()
+            state = state.copy(tailscaleStatus = "手机上未安装可打开的 Tailscale。")
+            return
+        }
+        runCatching { startActivity(intent) }.onFailure {
+            state = state.copy(tailscaleStatus = "无法打开 Tailscale，请从手机桌面打开。")
+        }
     }
 
     private fun microphoneAllowed(request: PermissionRequest): Boolean =
@@ -452,6 +612,14 @@ class MainActivity : ComponentActivity() {
 
     @Suppress("SetJavaScriptEnabled", "DEPRECATION")
     private fun createWebView(): WebView = WebView(this).apply {
+        val page = ConnectionRecovery.Page(++webEpoch, state.server.origin)
+        val recoveryLoad = rebuildingForRetry
+        recovery.beginPage(page, preserveBackoff = nextLoadPreservesBackoff)
+        rebuildingForRetry = false
+        nextLoadPreservesBackoff = false
+        var navigationFailed = false
+        val owner = this
+        fun current(view: WebView) = view === webView && page == currentPage()
         webView = this
         Log.i("AmuseShell", "WebView created; unlocked=${state.unlocked}; picker=${state.pickerSuspended}")
         setBackgroundColor(if (state.darkTheme) Color.rgb(24, 24, 25) else Color.rgb(252, 252, 252))
@@ -473,7 +641,9 @@ class MainActivity : ComponentActivity() {
         cookies.setAcceptCookie(true)
         cookies.setAcceptThirdPartyCookies(this, false)
         webChromeClient = object : WebChromeClient() {
-            override fun onPermissionRequest(request: PermissionRequest) { runOnUiThread { offerMicrophone(request) } }
+            override fun onPermissionRequest(request: PermissionRequest) { runOnUiThread {
+                if (current(owner)) offerMicrophone(request) else request.deny()
+            } }
             override fun onPermissionRequestCanceled(request: PermissionRequest) {
                 if (request === microphoneRequest) {
                     microphoneRequest = null
@@ -487,9 +657,9 @@ class MainActivity : ComponentActivity() {
                     Log.w("AmuseShell", "Web script error at line ${message.lineNumber()}")
                 return true
             }
-            override fun onProgressChanged(view: WebView, progress: Int) { if (view === webView) state = state.copy(progress = progress) }
+            override fun onProgressChanged(view: WebView, progress: Int) { if (current(view)) state = state.copy(progress = progress) }
             override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
-                if (view !== webView || !state.unlocked) return false
+                if (!current(view) || !state.unlocked) return false
                 if (!state.deviceSecure && state.useDeviceUnlock) {
                     state = state.copy(notice = "请先为手机启用安全锁屏，以便从文件选择器安全返回并上传。")
                     callback.onReceiveValue(null)
@@ -527,15 +697,28 @@ class MainActivity : ComponentActivity() {
                 return true
             }
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
-                if (view !== webView) return
+                if (!current(view)) return
                 denyMicrophonePermission()
                 Log.i("AmuseShell", "Page started; sameOrigin=${state.server.contains(url)}")
                 if (!state.server.contains(url)) { view.stopLoading(); return }
-                state = state.copy(loading = true, progress = 0, connectionError = null)
+                navigationFailed = false
+                recoveryJob?.cancel()
+                recoveryJob = null
+                scheduledRetry = null
+                recovery.beginPage(page, preserveBackoff = true)
+                state = state.copy(loading = true, progress = 0,
+                    connectionError = if (recoveryLoad) state.connectionError else null)
             }
             override fun onPageFinished(view: WebView, url: String) {
-                if (view !== webView || !state.server.contains(url)) return
+                if (!current(view) || !state.server.contains(url)) return
                 state = state.copy(loading = false, progress = 100, canGoBack = view.canGoBack())
+                // WebView also finishes its own error document. Only a navigation without an error is success.
+                if (recovery.finished(page, navigationFailed)) {
+                    recoveryJob?.cancel()
+                    recoveryJob = null
+                    scheduledRetry = null
+                    state = state.copy(connectionError = null, autoRetrySeconds = null, automaticRetryInFlight = false)
+                }
                 Log.i("AmuseShell", "Page finished; progress=${view.progress}; size=${view.width}x${view.height}")
                 pageDiagnostics(view, "finished")
                 view.postDelayed({ pageDiagnostics(view, "after-2s") }, 2_000)
@@ -544,22 +727,37 @@ class MainActivity : ComponentActivity() {
             }
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                 if (request.isForMainFrame) Log.w("AmuseShell", "Page network error; code=${error.errorCode}")
-                if (view === webView && request.isForMainFrame) connectionFailed("暂时连不上你的电脑。请确认电脑在线，并且手机已连接 Tailscale。")
+                if (current(view) && request.isForMainFrame && state.server.contains(request.url.toString())) {
+                    navigationFailed = true
+                    connectionFailed("暂时连不上你的电脑。请确认电脑在线，并检查手机网络。")
+                    val retry = recovery.failed(page, error.errorCode, canRecover())
+                    if (retry == null) cancelRecovery() else scheduleRecovery(retry)
+                }
             }
             override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
+                if (!current(view) || !state.server.contains(request.url.toString())) return
                 if (BuildConfig.SCREEN_PREVIEW) Log.w("AmuseShell", "HTTP error; status=${response.statusCode}; mainFrame=${request.isForMainFrame}")
                 if (response.statusCode == 401 && request.url.path == "/unlock" && state.pairedSession) {
+                    cancelRecovery()
                     pairedVault.clear()
                     state = state.copy(pairedSession = false, notice = "此手机的登录已被电脑撤销，可通过 USB 重新配对。")
                 }
-                if (view === webView && request.isForMainFrame) connectionFailed("服务器暂时无法打开页面（${response.statusCode}）。稍后重试。")
+                if (request.isForMainFrame) {
+                    navigationFailed = true
+                    cancelRecovery()
+                    connectionFailed("服务器暂时无法打开页面（${response.statusCode}）。稍后重试。")
+                }
             }
             override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
                 handler.cancel()
-                if (view === webView) connectionFailed("无法验证服务器证书。请检查服务地址与手机时间，修复证书后再连接。")
+                if (current(view)) {
+                    navigationFailed = true
+                    cancelRecovery()
+                    connectionFailed("无法验证服务器证书。请检查服务地址与手机时间，修复证书后再连接。")
+                }
             }
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
-                if (view === webView) { lockSession(); state = state.copy(notice = "页面进程已退出，请重新解锁连接。") }
+                if (current(view)) { lockSession(); state = state.copy(notice = "页面进程已退出，请重新解锁连接。") }
                 return true
             }
         }
@@ -632,6 +830,12 @@ class MainActivity : ComponentActivity() {
 
     private fun releaseWebView(view: WebView?) {
         if (view == null || view !== webView) return
+        if (rebuildingForRetry) {
+            recoveryJob?.cancel()
+            recoveryJob = null
+            scheduledRetry = null
+        } else cancelRecovery()
+        webEpoch++
         denyMicrophonePermission()
         Log.i("AmuseShell", "WebView released; unlocked=${state.unlocked}; picker=${state.pickerSuspended}")
         webView = null

@@ -12,8 +12,8 @@ android {
         applicationId = "live.amuse.app"
         minSdk = 29
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.1.4"
+        versionCode = 6
+        versionName = "0.1.5"
         // Extra diagnostics for local USB development. Screenshots are allowed
         // in normal and diagnostic builds at the owner's request.
         buildConfigField("boolean", "SCREEN_PREVIEW", providers.gradleProperty("amuse.screenPreview").orElse("false").get().toBoolean().toString())

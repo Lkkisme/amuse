@@ -52,6 +52,11 @@ data class ShellState(
     val loading: Boolean = false,
     val progress: Int = 0,
     val connectionError: String? = null,
+    val autoRetrySeconds: Int? = null,
+    val automaticRetryInFlight: Boolean = false,
+    val autoConnectTailscale: Boolean = true,
+    val tailscaleInstalled: Boolean = false,
+    val tailscaleStatus: String? = null,
     val canGoBack: Boolean = false,
     val webGeneration: Int = 0,
     val microphonePrompt: Boolean = false,
@@ -67,9 +72,10 @@ fun AmuseApp(
     onLock: () -> Unit,
     onSettings: () -> Unit,
     onCloseSettings: () -> Unit,
-    onSaveSettings: (String, Boolean) -> Unit,
+    onSaveSettings: (String, Boolean, Boolean) -> Unit,
     onForget: () -> Unit,
     onRetry: () -> Unit,
+    onOpenTailscale: () -> Unit,
     onBack: () -> Unit,
     onMicrophoneAllow: () -> Unit,
     onMicrophoneDeny: () -> Unit,
@@ -85,7 +91,7 @@ fun AmuseApp(
     Surface(color = MuseSurface, modifier = Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
             if (state.settingsVisible) {
-                SettingsScreen(state, onCloseSettings, onSaveSettings, onForget)
+                SettingsScreen(state, onCloseSettings, onSaveSettings, onForget, onOpenTailscale)
             } else if (!state.unlocked && !state.pickerSuspended) {
                 LockScreen(state, onUnlock, onServerPin, onSettings)
             } else {
@@ -93,8 +99,10 @@ fun AmuseApp(
                     BrandMark(30.dp, 10.dp)
                     Text("Amuse", fontSize = 17.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 8.dp))
                     Spacer(Modifier.weight(1f))
-                    Box(Modifier.size(5.dp).background(MuseGreen, CircleShape))
-                    Text("你的电脑", color = MuseTextSecondary, fontSize = 11.sp, modifier = Modifier.padding(start = 6.dp, end = 4.dp))
+                    val connected = !state.loading && state.connectionError == null
+                    Box(Modifier.size(5.dp).background(if (connected) MuseGreen else MuseTextTertiary, CircleShape))
+                    Text(if (state.connectionError != null) "连接中断" else if (state.loading) "连接中" else "你的电脑",
+                        color = MuseTextSecondary, fontSize = 11.sp, modifier = Modifier.padding(start = 6.dp, end = 4.dp))
                     IconButton(onClick = onLock) { Icon(if (state.pairedSession) Icons.Outlined.Logout else Icons.Outlined.Lock,
                         if (state.pairedSession) "退出本机登录" else "锁定", Modifier.size(20.dp)) }
                     IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, "连接设置", Modifier.size(20.dp)) }
@@ -117,7 +125,7 @@ fun AmuseApp(
                     if (state.pickerSuspended) LockScreen(state, onUnlock, onServerPin, onSettings)
                     else {
                         if (state.loading && state.connectionError == null) LoadingScreen(state)
-                        state.connectionError?.let { DisconnectedScreen(it, state.server.host, onRetry, onSettings) }
+                        state.connectionError?.let { DisconnectedScreen(it, state, onRetry, onSettings, onOpenTailscale) }
                     }
                 }
                 state.notice?.let { Notice(it) }
@@ -199,8 +207,8 @@ private fun LoadingScreen(state: ShellState) {
 }
 
 @Composable
-private fun DisconnectedScreen(message: String, host: String, onRetry: () -> Unit, onSettings: () -> Unit) {
-    Column(Modifier.fillMaxSize().background(MuseSurface).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally,
+private fun DisconnectedScreen(message: String, state: ShellState, onRetry: () -> Unit, onSettings: () -> Unit, onOpenTailscale: () -> Unit) {
+    Column(Modifier.fillMaxSize().background(MuseSurface).verticalScroll(rememberScrollState()).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center) {
         Surface(shape = CircleShape, color = MuseSurfaceElevated) {
             Icon(Icons.Outlined.WifiOff, null, Modifier.padding(22.dp).size(32.dp), tint = MuseTextSecondary)
@@ -208,8 +216,14 @@ private fun DisconnectedScreen(message: String, host: String, onRetry: () -> Uni
         Text("等你的电脑回来", fontSize = 24.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 24.dp))
         Text(message, color = MuseTextSecondary, fontSize = 14.sp, lineHeight = 22.sp,
             textAlign = TextAlign.Center, modifier = Modifier.padding(top = 14.dp))
-        Text(host, color = MuseTextSecondary, fontSize = 11.sp, modifier = Modifier.padding(top = 14.dp))
-        Button(onClick = onRetry, shape = RoundedCornerShape(14.dp), modifier = Modifier.padding(top = 28.dp).height(48.dp)) {
+        Text(state.server.host, color = MuseTextSecondary, fontSize = 11.sp, modifier = Modifier.padding(top = 14.dp))
+        val retryStatus = if (state.loading) "正在重新连接…" else state.autoRetrySeconds?.let { "将在 $it 秒后自动重试" }
+        retryStatus?.let { Text(it, color = MuseTextSecondary, fontSize = 12.sp, modifier = Modifier.padding(top = 12.dp)) }
+        if (state.tailscaleInstalled && live.amuse.app.TailscaleConnection.tailnet(state.server)) {
+            state.tailscaleStatus?.let { Text(it, color = MuseTextSecondary, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 12.dp)) }
+            TextButton(onClick = onOpenTailscale) { Text("打开 Tailscale") }
+        }
+        Button(onClick = onRetry, enabled = !state.loading, shape = RoundedCornerShape(14.dp), modifier = Modifier.padding(top = 18.dp).height(48.dp)) {
             Icon(Icons.Outlined.Refresh, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("重新连接")
         }
         TextButton(onClick = onSettings) { Text("检查连接设置", color = MuseTextSecondary) }
@@ -217,9 +231,10 @@ private fun DisconnectedScreen(message: String, host: String, onRetry: () -> Uni
 }
 
 @Composable
-private fun SettingsScreen(state: ShellState, onBack: () -> Unit, onSave: (String, Boolean) -> Unit, onForget: () -> Unit) {
+private fun SettingsScreen(state: ShellState, onBack: () -> Unit, onSave: (String, Boolean, Boolean) -> Unit, onForget: () -> Unit, onOpenTailscale: () -> Unit) {
     var server by remember(state.server) { mutableStateOf(state.server.origin) }
     var unlock by remember(state.useDeviceUnlock) { mutableStateOf(state.useDeviceUnlock) }
+    var autoConnect by remember(state.autoConnectTailscale) { mutableStateOf(state.autoConnectTailscale) }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().height(60.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Outlined.ArrowBack, "返回") }
@@ -256,8 +271,25 @@ private fun SettingsScreen(state: ShellState, onBack: () -> Unit, onSave: (Strin
                     }, color = MuseTextSecondary, fontSize = 12.sp, lineHeight = 20.sp)
                 }
             }
+            Spacer(Modifier.height(20.dp))
+            Surface(shape = RoundedCornerShape(18.dp), color = MuseSurfaceElevated, contentColor = MuseTextPrimary) {
+                Column(Modifier.padding(18.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.VpnKey, null, Modifier.size(26.dp), tint = MuseTextSecondary)
+                        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                            Text("Tailscale 自动连接", fontSize = 15.sp)
+                            Text("打开 Amuse 时连接你的私人网络", color = MuseTextSecondary, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
+                        }
+                        Switch(checked = autoConnect, onCheckedChange = { autoConnect = it })
+                    }
+                    Text("仅用于 Tailscale 地址；沿用 Tailscale 已有登录和系统授权。手机已有 VPN 时不会切换，请打开 Tailscale 检查。",
+                        color = MuseTextSecondary, fontSize = 12.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 14.dp))
+                    if (state.tailscaleInstalled && live.amuse.app.TailscaleConnection.tailnet(state.server))
+                        TextButton(onClick = onOpenTailscale) { Text("打开 Tailscale") }
+                }
+            }
             Spacer(Modifier.height(24.dp))
-            Button(onClick = { onSave(server, unlock) }, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(15.dp)) {
+            Button(onClick = { onSave(server, unlock, autoConnect) }, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(15.dp)) {
                 Text("保存设置", fontSize = 15.sp)
             }
             OutlinedButton(onClick = onForget, modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(50.dp), shape = RoundedCornerShape(15.dp)) {
