@@ -1,7 +1,7 @@
 /**
  * Composer pill (surface 1): '+' icon left, 'Message' placeholder, mic icon
  * right. While the mic records, the text row is a level meter with the time, a
- * Cancel (✕: throws the take away) and Done. The trailing button exists only when it has a job: send while there
+ * Cancel (✕: throws the take away) and a round stop button. The trailing button exists only when it has a job: send while there
  * is a draft (also while the assistant works: the message reaches it as it
  * goes), stop while it works and there is none; otherwise it is not rendered
  * (Muse shows just the mic).
@@ -321,9 +321,15 @@ export function Composer({ conversation, replying, place, actions }: { conversat
                 </span>
                 <VoiceMeter meter={meter} frozen={voice === "transcribing"} />
                 {voice === "recording" ? (
-                  <Button variant="primary" className="shrink-0 px-5 max-sm:h-11 max-sm:px-6" onClick={() => recording.current?.done()}>
-                    {t.chat.doneDictating}
-                  </Button>
+                  // the same round blue button as send and stop: stop recording, then turn it into text
+                  <button
+                    aria-label={t.chat.doneDictating}
+                    className="flex size-9 shrink-0 items-center justify-center rounded-full"
+                    style={{ background: "var(--fill-blue)", color: "#fff" }}
+                    onClick={() => recording.current?.done()}
+                  >
+                    <Square size={14} fill="currentColor" strokeWidth={0} />
+                  </button>
                 ) : (
                   <span role="status" className="flex shrink-0 items-center gap-1.5 pl-1 pr-3 text-[14px]" style={{ color: "var(--text-secondary)" }}>
                     <LoaderCircle size={16} className="animate-spin" />

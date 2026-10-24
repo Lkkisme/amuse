@@ -13,7 +13,7 @@ export const en = {
     replyingToAmuse: "Replying to Amuse",
     replying: "Replying",
     askingAboutError: "Asking Amuse about this error",
-    askPrefill: "I ran into this — can you take a look?",
+    askPrefill: "I ran into this. Can you take a look?",
     cancelReply: "Cancel reply",
     jumpToQuoted: "Go to the message replied to",
     quoted: {
@@ -46,7 +46,7 @@ export const en = {
     cancelDictating: "Cancel recording",
     doneDictating: "Done",
     turningIntoTextLine: "Turning into text…",
-    cantHearYou: "Can't hear you — check the mic",
+    cantHearYou: "Can't hear you. Check the mic.",
     dictate: "Dictate",
     stop: "Stop",
     send: "Send",
@@ -699,7 +699,7 @@ export const en = {
       lull: "after a conversation goes quiet",
     },
     lastRun: (when: string, outcome: string, summary: string | null) =>
-      `Last run ${when}: ${outcome}${summary ? ` — ${summary}` : ""}`,
+      `Last run ${when}: ${outcome}${summary ? `. ${summary}` : ""}`,
     instructions: "Instructions",
     pause: "Pause",
     resume: "Resume",
