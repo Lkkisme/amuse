@@ -35,11 +35,11 @@ export const Call = z.discriminatedUnion("method", [
   call("session.sync", z.object({ chat: Id, since: Seq.nullable() })),
   /** Up to `limit` of a chat's entities just before feed index `before`, for a state holding only the recent end. */
   call("session.history", z.object({ chat: Id, before: Index, limit: z.int().min(1).max(200) })),
-  /** `timezone`: the device's (Intl), so times are the user's own; `replyTo`: an item (a message of either side, or a card) this answers; `about`: an error the user asks about (what it said, and its technical detail, for the agent only) */
+  /** `timezone`: the device's (Intl), so times are the user's own; `replyTo`: an item (a message of either side, or a card) this answers; `suggested`: the option tapped under a reply (the text sent is that option's); `about`: an error the user asks about (what it said, and its technical detail, for the agent only) */
   call(
     "chat.send",
     z
-      .object({ chat: Id, text: z.string(), timezone: TimeZone, attachments: z.array(Attachment).max(10), replyTo: Id.optional(), about: z.object({ message: z.string().max(500), detail: z.string().max(2000) }).optional() })
+      .object({ chat: Id, text: z.string(), timezone: TimeZone, attachments: z.array(Attachment).max(10), replyTo: Id.optional(), suggested: z.object({ reply: Id, index: z.int().nonnegative() }).optional(), about: z.object({ message: z.string().max(500), detail: z.string().max(2000) }).optional() })
       .refine((p) => p.text.trim() !== "" || p.attachments.length > 0, "Say something or attach a file"),
   ),
   /** Stop the agent's current reply in a chat. */

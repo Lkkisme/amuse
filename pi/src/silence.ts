@@ -24,8 +24,30 @@ export function sayTools(io: () => AgentIO): ToolDefinition[] {
       parameters: Type.Object({ text: Type.String({ description: "The message, as you would write your reply" }) }),
       async execute(_id, { text }) {
         if (!text.trim()) return { content: [{ type: "text", text: "Nothing was sent: the message was empty." }], details: null };
-        io().emit({ kind: "upserted", entity: { kind: "reply", id: newId("r"), at: new Date().toISOString(), text: text.trim(), streaming: false, attachments: [] } });
+        io().emit({ kind: "upserted", entity: { kind: "reply", id: newId("r"), at: new Date().toISOString(), text: text.trim(), streaming: false, attachments: [], suggestions: [], chosen: null } });
         return { content: [{ type: "text", text: "Sent. Go on with what you were doing." }], details: null };
+      },
+    }),
+  ];
+}
+
+/**
+ * `suggest_replies`: short answers to tap under the reply the agent is about to write. They are kept until a reply is
+ * shown (the next one, `say` or the last) and go with it; `offer` is how the turn holds them.
+ */
+export function suggestTools(offer: (options: string[]) => void): ToolDefinition[] {
+  return [
+    defineTool({
+      name: "suggest_replies",
+      label: "Suggest replies",
+      description:
+        "Attach 2 to 4 short answers the user can tap to your next message, which you write right after. Use it only when the next step is clearly one of a few choices (go ahead or not, which of two options). Never on every message, never as a menu, and never when you need the user's own words, a name, a number or details. Each is what the user would say, in their language, a few words, no ending punctuation.",
+      parameters: Type.Object({ options: Type.Array(Type.String({ description: "One short answer, in the user's words" }), { minItems: 2, maxItems: 4 }) }),
+      async execute(_id, { options }) {
+        const clean = [...new Set(options.map((o) => o.trim()).filter(Boolean))].slice(0, 4);
+        if (clean.length < 2) return { content: [{ type: "text", text: "Not attached: give 2 to 4 different options." }], details: null };
+        offer(clean);
+        return { content: [{ type: "text", text: "They will be shown under your next message. Now write it." }], details: null };
       },
     }),
   ];

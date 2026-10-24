@@ -251,7 +251,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
     return {
       // the device's time zone is the user's: times the agent sets and says are on their clock
       // shown at once as sending; one that does not get through comes off the chat (the composer takes it back)
-      send: (text, attachments) => {
+      send: (text, attachments, suggested) => {
         const chat = chatRef.current;
         const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
         const key = `sending-${crypto.randomUUID()}`;
@@ -278,6 +278,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
             text,
             timezone,
             attachments,
+            ...(suggested ? { suggested } : {}),
             ...(quote?.kind === "error"
               ? { about: { message: quote.text, detail: quote.detail ?? "" } }
               : quote

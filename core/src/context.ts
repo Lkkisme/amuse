@@ -67,7 +67,8 @@ export function line(entity: Entity, detail: Detail, zone: string, where: Where 
       const files = attached(entity.attachments, where);
       const said = full ? entity.text : clip(entity.text, 240);
       const replying = entity.quote ? ` (replying to ${quoted(entity.quote)})` : "";
-      return `[${at}] User${replying}: ${said}${files ? `${said ? " " : ""}[attached: ${files}]` : ""}`;
+      const tapped = entity.suggested ? " (tapped one of your suggested replies)" : "";
+      return `[${at}] User${tapped}${replying}: ${said}${files ? `${said ? " " : ""}[attached: ${files}]` : ""}`;
     }
     case "reply": {
       if (!entity.text.trim() && entity.attachments.length === 0) return null;

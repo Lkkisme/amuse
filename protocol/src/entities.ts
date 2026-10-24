@@ -58,6 +58,8 @@ export const Prompt = z.object({
   attachments: z.array(Attachment).default([]),
   /** the item it replies to; null: none (or from before replies) */
   quote: Quote.nullable().default(null),
+  /** sent by tapping one of the options under a reply of Amuse's (its words, as typed, are in `text`) */
+  suggested: z.boolean().default(false),
 });
 
 /** What the agent said, with any files it sent; `streaming` until its last delta has arrived. */
@@ -68,6 +70,10 @@ export const Reply = z.object({
   text: z.string(),
   streaming: z.boolean(),
   attachments: z.array(Attachment).default([]),
+  /** short answers it offers, 2 to 4, tapped to send; empty for none */
+  suggestions: z.array(z.string()).default([]),
+  /** the index in `suggestions` the user tapped; null until one is */
+  chosen: z.int().nonnegative().nullable().default(null),
 });
 
 export const Step = z.object({ label: z.string(), done: z.boolean() });

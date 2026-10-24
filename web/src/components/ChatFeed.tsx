@@ -9,6 +9,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ChevronDown,
+  Check,
   CircleAlert,
   Copy,
   File as FileIcon,
@@ -98,6 +99,7 @@ function EntityView({
   reveal,
   selecting,
   sending,
+  closed,
 }: {
   entity: Entity;
   place: Place;
@@ -110,6 +112,8 @@ function EntityView({
   selecting: boolean;
   /** a message of the user's still on its way */
   sending: boolean;
+  /** the user has written since: a reply's suggestions can no longer be tapped */
+  closed: boolean;
 }) {
   switch (entity.kind) {
     case "prompt":
@@ -123,6 +127,7 @@ function EntityView({
           reveal={reveal}
           selecting={selecting}
           sending={sending}
+          closed={closed}
         />
       );
     case "task":
@@ -553,6 +558,7 @@ function Bubble({
   reveal,
   selecting,
   sending,
+  closed,
 }: {
   item: Message;
   place: Place;
@@ -561,6 +567,7 @@ function Bubble({
   reveal: (id: string) => void;
   selecting: boolean;
   sending: boolean;
+  closed: boolean;
 }) {
   const t = useT();
   const isUser = item.kind === "prompt";
@@ -601,7 +608,7 @@ function Bubble({
           // a line is 46px high, a pill with the 22px corners
           // a long run with no space (a web address) breaks where it must, inside the bubble
           // both fit their words: the user's to a share of the column, Amuse's to the width its cards share (--amuse-width)
-          className={`msg relative ${selecting ? "bubble-selectable" : ""} px-5 py-3 text-[16px] leading-[22px] [overflow-wrap:anywhere] w-fit ${isUser ? "max-w-[88%] sm:max-w-[78%]" : "max-w-(--amuse-width)"}`}
+          className={`msg relative ${selecting ? "bubble-selectable" : ""} px-5 py-3 text-[16px] leading-[22px] [overflow-wrap:anywhere] ${isUser ? "w-fit max-w-[88%] sm:max-w-[78%]" : `max-w-(--amuse-width) ${item.suggestions.length > 0 ? "w-full" : "w-fit"}`}`}
           style={{
             ...corners(isUser ? "user" : "muse", place),
             background: isUser
@@ -620,6 +627,9 @@ function Bubble({
               <RichText text={item.text} />
             </div>
           )}
+          {item.kind === "reply" && item.suggestions.length > 0 && (
+            <Suggestions reply={item} closed={closed || sending} actions={actions} />
+          )}
           <ActionRow
             mine={isUser}
             text={item.text}
@@ -635,6 +645,41 @@ function Bubble({
           {t.chat.sending}
         </span>
       )}
+    </div>
+  );
+}
+
+/**
+ * The answers Amuse offers, in boxes the width of the bubble: dashed while they can be tapped. A tap sends the words as
+ * the user's message; that box turns solid with a check and the rest dim. Once the user has written anything newer
+ * (or one was chosen) none can be tapped.
+ */
+function Suggestions({ reply, closed, actions }: { reply: Reply; closed: boolean; actions: Actions }) {
+  const t = useT();
+  const done = reply.chosen !== null;
+  return (
+    <div role="group" aria-label={t.chat.suggestedReplies} className="mt-3 flex flex-col gap-2">
+      {reply.suggestions.map((text, index) => {
+        const mine = reply.chosen === index;
+        return (
+          <button
+            key={text}
+            type="button"
+            aria-pressed={mine}
+            disabled={done || closed}
+            onClick={() => void actions.send(text, [], { reply: reply.id, index }).catch(() => {})}
+            className={`flex w-full items-center gap-2 rounded-[16px] border-[1.5px] px-4 py-2.5 text-left text-[16px] leading-[22px] outline-offset-2 outline-[color:var(--fill-blue)] focus-visible:outline-2 ${mine ? "border-solid" : "hover-fade border-dashed disabled:opacity-40"}`}
+            style={
+              mine
+                ? { background: "var(--chat-user-bubble)", borderColor: "var(--chat-user-bubble)", color: "var(--chat-user-text)" }
+                : { borderColor: "var(--text-tertiary)", color: "var(--chat-agent-text)" }
+            }
+          >
+            <span className="min-w-0 flex-1">{text}</span>
+            {mine && <Check size={18} strokeWidth={2.5} className="shrink-0" aria-hidden />}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -689,6 +734,8 @@ export function ChatFeed({
     () => [...conversation.entities.filter(shown), ...outgoing.sending],
     [conversation.entities, outgoing.sending],
   );
+  /** where the user last wrote: suggestions above it are closed */
+  const lastWritten = feed.findLastIndex((e) => e.kind === "prompt");
   const sending = useMemo(
     () => new Set(outgoing.sending.map((p) => p.id)),
     [outgoing.sending],
@@ -948,6 +995,7 @@ export function ChatFeed({
                 selecting={selecting === entity.id}
                 reveal={reveal}
                 sending={sending.has(entity.id)}
+                closed={i < lastWritten}
               />
             </div>
           ))}

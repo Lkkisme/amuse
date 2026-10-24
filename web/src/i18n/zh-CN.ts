@@ -45,6 +45,7 @@ export const zhCN = {
     openFile: (name) => `打开 ${name}`,
     deleted: "已删除",
     sending: "发送中…",
+    suggestedReplies: "建议回复",
     newMessages: (count) => `${count} 条新消息`,
     scrollToBottom: "滚动到底部",
     thinking: "Amuse 正在思考",

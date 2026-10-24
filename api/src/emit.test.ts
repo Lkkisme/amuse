@@ -32,7 +32,7 @@ test("what a deleted chat's agent still says goes nowhere: it does not throw, an
   assert.equal(events(db, side.id), 0);
   // the turn's last words, after the chat is gone (the lane's `finally`), and a reply
   assert.doesNotThrow(() => agent.emit({ kind: "activity", activity: null }));
-  assert.doesNotThrow(() => agent.emit({ kind: "upserted", entity: { kind: "reply", id: "r-late", at: "2026-10-23T00:00:00.000Z", text: "too late", streaming: false, attachments: [] } }));
+  assert.doesNotThrow(() => agent.emit({ kind: "upserted", entity: { kind: "reply", id: "r-late", at: "2026-10-23T00:00:00.000Z", text: "too late", streaming: false, attachments: [], suggestions: [], chosen: null } }));
   assert.equal(events(db, side.id), 0);
   assert.deepEqual(sqliteChats(db).load().map((c) => c.id), [MAIN]);
 });
@@ -46,7 +46,7 @@ test("an event the journal cannot take is not recorded, so the next one is numbe
   const agent = held.get(MAIN);
   assert.ok(agent);
   const before = seqs(db, MAIN);
-  const reply = (id: string): Say => ({ kind: "upserted", entity: { kind: "reply", id, at: "2026-10-23T00:00:00.000Z", text: id, streaming: false, attachments: [] } });
+  const reply = (id: string): Say => ({ kind: "upserted", entity: { kind: "reply", id, at: "2026-10-23T00:00:00.000Z", text: id, streaming: false, attachments: [], suggestions: [], chosen: null } });
 
   // another connection holds the write lock; this one does not wait for it
   const other = openDatabase(join(dir, "amuse.db"));

@@ -71,5 +71,5 @@ export async function chat(
   const replies = () => said.flatMap((s) => (s.kind === "upserted" && s.entity.kind === "reply" ? [s.entity.text] : []));
   /** what went wrong, as the cards the chat would show: the turn each was for */
   const failures = () => said.flatMap((s) => (s.kind === "upserted" && s.entity.kind === "failure" ? [s.entity.turn.kind] : []));
-  return { agent, io, faux, conversation, replies, failures, until };
+  return { agent, io, faux, conversation, replies, failures, until, said };
 }

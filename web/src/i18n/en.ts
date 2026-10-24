@@ -31,6 +31,7 @@ export const en = {
     openFile: (name: string) => `Open ${name}`,
     deleted: "Deleted",
     sending: "Sending…",
+    suggestedReplies: "Suggested replies",
     newMessages: (count: number) => (count === 1 ? "1 message" : `${count} messages`),
     scrollToBottom: "Scroll to bottom",
     thinking: "Amuse is thinking",

@@ -59,6 +59,7 @@ export function outgoingIn(
         timezone: o.timezone,
         attachments: o.attachments,
         quote: o.quote,
+        suggested: false,
       });
   }
   return { sending, keys };

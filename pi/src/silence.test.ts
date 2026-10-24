@@ -47,3 +47,31 @@ test("a turn that does not call no_reply replies as before, and a blank reply is
   await until(2);
   assert.deepEqual(replies(), ["Logged in."]);
 });
+
+const asked: Turn = { kind: "message", text: "Can you book it?", attachments: [], quote: null };
+
+test("suggest_replies puts the options on the reply that follows it, and on that one alone", async () => {
+  const { agent, io, until, said } = await chat([
+    fauxAssistantMessage(fauxToolCall("suggest_replies", { options: ["Book it", " Not now ", "Book it"] }), { stopReason: "toolUse" }),
+    fauxAssistantMessage("Shall I book it?"),
+  ]);
+  agent.prompt(asked, io);
+  await until(1);
+  assert.deepEqual(
+    said.flatMap((s) => (s.kind === "upserted" && s.entity.kind === "reply" ? [[s.entity.text, s.entity.suggestions, s.entity.chosen]] : [])),
+    [["Shall I book it?", ["Book it", "Not now"], null]],
+  );
+});
+
+test("suggest_replies with fewer than two different options attaches nothing", async () => {
+  const { agent, io, until, said } = await chat([
+    fauxAssistantMessage(fauxToolCall("suggest_replies", { options: ["Yes", "Yes"] }), { stopReason: "toolUse" }),
+    fauxAssistantMessage("Shall I?"),
+  ]);
+  agent.prompt(asked, io);
+  await until(1);
+  assert.deepEqual(
+    said.flatMap((s) => (s.kind === "upserted" && s.entity.kind === "reply" ? [s.entity.suggestions] : [])),
+    [[]],
+  );
+});

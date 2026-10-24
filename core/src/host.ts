@@ -358,7 +358,7 @@ export const noWorkspace: Workspace = {
 
 /** What wakes the agent: the user's message (with any files), or a note from its background work (not shown as a message). */
 export type Turn =
-  | { kind: "message"; text: string; attachments: Attachment[]; quote: Quote | null }
+  | { kind: "message"; text: string; attachments: Attachment[]; quote: Quote | null; suggested?: boolean }
   | { kind: "note"; text: string }
   /** Not a turn of its own: what the agent reads with its next one, or mid-turn as it works (a browser taken over, or handed back). */
   | { kind: "aside"; text: string };
@@ -805,7 +805,7 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     const { agent } = room;
     switch (effect.kind) {
       case "prompt":
-        return ports.prompt({ kind: "message", text: effect.text, attachments: effect.attachments, quote: effect.quote }, agent);
+        return ports.prompt({ kind: "message", text: effect.text, attachments: effect.attachments, quote: effect.quote, suggested: effect.suggested }, agent);
       case "note":
         return ports.prompt({ kind: "note", text: effect.text }, agent);
       case "interrupt":

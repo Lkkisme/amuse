@@ -80,7 +80,7 @@ export const initialUi: Ui = {
 /** Everything a component can ask for: protocol calls and UI changes. */
 export interface Actions {
   /** say something in the chat on screen, with any files already uploaded; fails when it did not get through */
-  send(text: string, attachments: Attachment[]): Promise<void>;
+  send(text: string, attachments: Attachment[], suggested?: { reply: string; index: number }): Promise<void>;
   /** start replying to an item of Amuse's in the chat on screen, or (null) stop; the next message goes with it */
   reply(quote: Quote | null): void;
   stop(): void;

@@ -6,7 +6,7 @@ import { errorQuote, quoteOf, quoted } from "./quote.ts";
 const at = "2026-10-20T08:00:00Z";
 
 test("a reply is quoted by its words, flattened and clipped; with only a file, by the file's name", () => {
-  const reply = (text: string): Entity => ({ kind: "reply", id: "r1", at, text, streaming: false, attachments: [{ id: "f-1", name: "plan.pdf", type: "application/pdf", size: 10, path: "user/plan.pdf" }] });
+  const reply = (text: string): Entity => ({ kind: "reply", id: "r1", at, text, streaming: false, attachments: [{ id: "f-1", name: "plan.pdf", type: "application/pdf", size: 10, path: "user/plan.pdf" }], suggestions: [], chosen: null });
   assert.deepEqual(quoteOf(reply("Shall I\n book it?")), { id: "r1", kind: "reply", text: "Shall I book it?", state: null });
   assert.equal(quoteOf(reply(""))?.text, "plan.pdf");
   const long = quoteOf(reply("word ".repeat(200)));
@@ -22,7 +22,7 @@ test("a card is quoted by its title and state; a running schedule says so", () =
 });
 
 test("the user's own message is quoted by its words; the exchanges between agents are not quotable", () => {
-  assert.deepEqual(quoteOf({ kind: "prompt", id: "p1", at, text: "hi", timezone: "UTC", attachments: [], quote: null }), { id: "p1", kind: "prompt", text: "hi", state: null });
+  assert.deepEqual(quoteOf({ kind: "prompt", id: "p1", at, text: "hi", timezone: "UTC", attachments: [], quote: null, suggested: false }), { id: "p1", kind: "prompt", text: "hi", state: null });
   assert.equal(quoteOf({ kind: "instruction", id: "i1", at, run: "b1", title: "Log in", text: "more" }), null);
 });
 

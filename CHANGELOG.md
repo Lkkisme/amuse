@@ -17,6 +17,7 @@ What changed in each release of Amuse, for the people who run it. The format fol
 - **The PIN is optional, and `amuse-admin reset-pin` leaves it off.** A reset no longer asks for a new PIN on the next visit: the PIN is off until you set one in Settings › Security, where a **Use a PIN** switch turns it on and off (the password, and the PIN there is). (#66)
 
 ### Added
+- Amuse can offer a few short answers under its message when the next step is one of a few clear choices. Tap one to send it as your reply: it turns solid with a check and the others dim. Once you write something else, they stop being tappable.
 - A built-in daily schedule, Tidy terminals, closes the shared terminals nobody is using (idle shells untouched for a day, and the tabs they leave empty), and never one where something is running. Pause or change it in Schedules like any other.
 - Amuse closes the terminals it opened for a task once the task is done, keeping only what still runs for you.
 - While you dictate, the message box becomes a level meter: bars scroll by as you speak, with the time (`0:07`), a ✕ that throws the recording away and the round stop button, which stops and turns it into text. While it turns into text the stop button spins, and the ✕ still lets you give up if the speech service is slow. If it hears nothing for the first few seconds it says so, and keeps recording. (#50)
