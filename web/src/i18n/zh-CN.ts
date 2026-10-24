@@ -306,9 +306,9 @@ export const zhCN = {
       destructive: "删除权限",
     },
     kindLines: {
-      read: (app) => `读取 ${app} 内容`,
-      write: (app) => `更改 ${app} 内容`,
-      destructive: (app) => `在 ${app} 中删除或取消`,
+      read: "读取内容",
+      write: "更改内容",
+      destructive: "删除或取消",
     },
     connectTitle: "连接你的服务",
     connectHelp:

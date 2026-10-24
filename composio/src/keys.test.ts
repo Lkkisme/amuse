@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Rejected } from "@amuse/core";
 import { memoryRules } from "@amuse/core";
-import { CannotLink, ComposioError, NoComposioKey, type Toolkit, accessOf, composio, ownOAuthOnly, schemeSummary } from "./client.ts";
+import { CannotLink, ComposioError, NoComposioKey, type Toolkit, accessOf, composio, offeredInDirectory, schemeSummary } from "./client.ts";
 import { composioDirectory } from "./directory.ts";
 import { composioSaid } from "./said.ts";
 
@@ -221,22 +221,27 @@ test("the directory tells the app how an app connects, and passes a key on", asy
   assert.equal(calls.at(-1)?.path, "/api/v3.1/connected_accounts");
 });
 
-test("only a toolkit whose every way in is your own OAuth app is left out; anything unknown stays", () => {
-  assert.equal(ownOAuthOnly(["OAUTH2"], []), true);
-  assert.equal(ownOAuthOnly(["OAUTH1", "S2S_OAUTH2"], []), true);
-  assert.equal(ownOAuthOnly(["OAUTH2"], ["OAUTH2"]), false, "Composio manages that login");
-  assert.equal(ownOAuthOnly(["OAUTH2", "API_KEY"], []), false, "it takes a key");
-  assert.equal(ownOAuthOnly(["DCR_OAUTH"], []), false, "not a scheme to hide on: Composio's docs list cloudflare_mcp as managed");
-  assert.equal(ownOAuthOnly(["SAML"], []), false, "a scheme Amuse does not know");
-  assert.equal(ownOAuthOnly([], []), false, "nothing known about it at all");
+test("only what Amuse can connect is offered; anything it cannot make sense of stays", () => {
+  assert.equal(offeredInDirectory(["OAUTH2"], ["OAUTH2"]), true, "Composio hosts that login");
+  assert.equal(offeredInDirectory(["OAUTH2", "API_KEY"], ["OAUTH2"]), true);
+  assert.equal(offeredInDirectory(["API_KEY"], []), true, "a key Amuse can ask for on a card");
+  assert.equal(offeredInDirectory(["BEARER_TOKEN"], []), true);
+  assert.equal(offeredInDirectory(["OAUTH2"], []), false, "your own OAuth app: the page could only say it cannot be connected");
+  assert.equal(offeredInDirectory(["OAUTH1", "S2S_OAUTH2"], []), false);
+  assert.equal(offeredInDirectory(["DCR_OAUTH"], []), false, "grafana_cloud_mcp and cloudflare_mcp: the MCP toolkits the owner found listed");
+  assert.equal(offeredInDirectory(["BASIC"], []), false, "mixpanel: Amuse has no basic-auth form");
+  assert.equal(offeredInDirectory(["NO_AUTH"], []), false);
+  assert.equal(offeredInDirectory([], []), true, "nothing known about it at all: kept, and logged once when it is opened");
 });
 
-test("an own-OAuth-app toolkit is not offered in the directory; the rest are, as Composio lists them", async () => {
+test("the directory offers what Amuse can connect: Composio's login, a key, or an unknown; not the rest", async () => {
   const { client } = fakeComposio(fakes);
   const directory = composioDirectory({ ...client, toolkits: async () => list }, { userId: "owner", rules: memoryRules() });
   const offered = async (query: string) => (await directory.search(query, null)).apps.map((a) => a.id);
-  assert.deepEqual(await offered("twitter"), []);
-  assert.deepEqual(await offered(""), ["gmail", "cloudflare", "cloudflare_api_key", "cloudflare_mcp", "workday_raas", "mystery"]);
+  assert.deepEqual(await offered("twitter"), [], "your own OAuth app");
+  assert.deepEqual(await offered("mcp"), [], "DCR_OAUTH: the MCP toolkits the owner found listed");
+  assert.deepEqual(await offered("workday"), ["workday_raas"], "the sibling that takes a key is offered");
+  assert.deepEqual(await offered(""), ["gmail", "cloudflare", "cloudflare_api_key", "workday_raas", "mystery"]);
 });
 
 test("the agent hears a toolkit cannot be connected here, and which sibling takes a key instead", async () => {

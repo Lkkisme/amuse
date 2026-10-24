@@ -170,7 +170,7 @@ export interface Toolkit {
   description: string;
   logo: string | null;
   categories: string[];
-  /** the schemes it supports, and which of them Composio manages (see `ownOAuthOnly`) */
+  /** the schemes it supports, and which of them Composio manages (see `offeredInDirectory`) */
   schemes: string[];
   managedSchemes: string[];
 }
@@ -187,19 +187,20 @@ export type Access =
 /** The schemes a key or a bearer token is pasted for: one secret field, which a card can ask for. */
 const keyed = new Set(["API_KEY", "BEARER_TOKEN"]);
 
-/** The schemes whose login is the user's own OAuth app: Composio does not host those. */
-const ownOAuth = new Set(["OAUTH1", "OAUTH2", "S2S_OAUTH2"]);
-
 /** Whether any of these schemes is one a key or a token is pasted for. */
 export const takesKey = (schemes: readonly string[]): boolean => schemes.some((scheme) => keyed.has(scheme.toUpperCase()));
 
 /**
- * Whether a toolkit's only way in is the user's own OAuth app, which Amuse cannot set up: true only when that is
- * positively so — every scheme is one of those and Composio manages none. A scheme Amuse does not know, a key or a
- * token, or anything Composio manages keeps the toolkit: an unclassified one stays visible.
+ * Whether the directory offers a toolkit: Composio hosts one of its logins, or it takes a key or a token Amuse can
+ * ask for on a card. Anything else — your own OAuth app (the user would register it and paste its client id and
+ * secret), a DCR_OAUTH or service-account scheme, basic auth, no auth at all — could only answer "cannot be
+ * connected here", so it is left out of the list and the search. A toolkit whose schemes the list does not carry
+ * at all stays visible (and is logged once when it is opened), so a change at Composio's end cannot quietly hide a
+ * service that works.
  */
-export const ownOAuthOnly = (schemes: readonly string[], managed: readonly string[]): boolean =>
-  schemes.length > 0 && managed.length === 0 && schemes.every((scheme) => ownOAuth.has(scheme.toUpperCase()));
+export const offeredInDirectory = (schemes: readonly string[], managed: readonly string[]): boolean =>
+  schemes.length === 0 || managed.length > 0 || takesKey(schemes);
+
 
 /**
  * One field of a key toolkit's card, as Composio describes it. A secret is one Composio marks `is_secret`, or whose

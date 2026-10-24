@@ -295,9 +295,9 @@ export const en = {
       destructive: "Delete permissions",
     },
     kindLines: {
-      read: (app: string) => `Read ${app} content`,
-      write: (app: string) => `Change ${app} content`,
-      destructive: (app: string) => `Delete or cancel in ${app}`,
+      read: "Read content",
+      write: "Change content",
+      destructive: "Delete or cancel",
     },
     connectTitle: "Connect your services",
     connectHelp:

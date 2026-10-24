@@ -6,7 +6,7 @@
  */
 import { type AppDirectory, type Rules, kinds, permissionOf } from "@amuse/core";
 import type { Account, AccountStatus, App } from "@amuse/protocol";
-import { CannotLink, type Composio, type Toolkit, ownOAuthOnly, takesKey } from "./client.ts";
+import { CannotLink, type Composio, type Toolkit, offeredInDirectory, takesKey } from "./client.ts";
 
 /** How long the fetched list is good for. */
 const FRESH_MS = 12 * 60 * 60_000;
@@ -70,8 +70,8 @@ export function composioDirectory(
 
   return {
     async search(query, cursor) {
-      // an own-OAuth-app toolkit cannot be connected here at all, so it is not offered; an unclassified one stays
-      const all = (await toolkits()).filter((t) => !ownOAuthOnly(t.schemes, t.managedSchemes));
+      // only what Amuse can connect is offered: Composio's own login, or a key it can ask for on a card
+      const all = (await toolkits()).filter((t) => offeredInDirectory(t.schemes, t.managedSchemes));
       const words = query.toLowerCase().split(/\s+/).filter(Boolean);
       // a stable sort keeps the order of use within each score
       const found = words.length === 0 ? all : all.map((t) => ({ t, s: score(t, words) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s).map((x) => x.t);
