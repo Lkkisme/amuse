@@ -443,7 +443,7 @@ export function seed(): Entity[] {
       text: "Connect Google Sheets and I'll put the exhibit list into your trip planner.",
       streaming: false,
       attachments: [],
-      suggestions: ["Connect it now", "Skip the spreadsheet"],
+      suggestions: ["Connect it now", "Skip the spreadsheet", "Remind me tomorrow"],
       chosen: null,
     },
   ];

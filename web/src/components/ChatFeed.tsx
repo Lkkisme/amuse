@@ -604,11 +604,11 @@ function Bubble({
           ref={bubble}
           // in selection mode the press is the phone's own, and the bubble says so
           {...(selecting ? { "data-selecting": "" } : press.handlers)}
-          // 16px text on 22px lines; 12px above and below (15px to the eye, with the leading) to 20px at the sides, 4:3;
-          // a line is 46px high, a pill with the 22px corners
+          // 16px text on 22px lines, 14px of padding on every side (so a box inside, 14px from the bubble's edges, has the
+          // corner 22 - 14 = 8px, concentric); a line is 50px high, a pill with the 22px corners
           // a long run with no space (a web address) breaks where it must, inside the bubble
           // both fit their words: the user's to a share of the column, Amuse's to the width its cards share (--amuse-width)
-          className={`msg relative ${selecting ? "bubble-selectable" : ""} px-5 py-3 text-[16px] leading-[22px] [overflow-wrap:anywhere] ${isUser ? "w-fit max-w-[88%] sm:max-w-[78%]" : `max-w-(--amuse-width) ${item.suggestions.length > 0 ? "w-full" : "w-fit"}`}`}
+          className={`msg relative ${selecting ? "bubble-selectable" : ""} p-3.5 text-[16px] leading-[22px] [overflow-wrap:anywhere] ${isUser ? "w-fit max-w-[88%] sm:max-w-[78%]" : `max-w-(--amuse-width) ${item.suggestions.length > 0 ? "w-full" : "w-fit"}`}`}
           style={{
             ...corners(isUser ? "user" : "muse", place),
             background: isUser
@@ -657,8 +657,8 @@ function Bubble({
 function Suggestions({ reply, closed, place, actions }: { reply: Reply; closed: boolean; place: Place; actions: Actions }) {
   const t = useT();
   const done = reply.chosen !== null;
-  // the bubble's 12px (py-3) padding under the last box, inside its corner: the boxes' radius is concentric with it
-  const round = concentric(bottomRound(place), 12);
+  // the bubble's 14px (p-3.5) padding is the boxes' inset at the sides and the bottom: their radius is the corner's minus it
+  const round = concentric(bottomRound(place), 14);
   return (
     <div role="group" aria-label={t.chat.suggestedReplies} className="mt-3 flex flex-col gap-2">
       {reply.suggestions.map((text, index) => {
@@ -671,21 +671,25 @@ function Suggestions({ reply, closed, place, actions }: { reply: Reply; closed: 
             aria-pressed={mine}
             disabled={done || closed}
             onClick={() => void actions.send(text, [], { reply: reply.id, index }).catch(() => {})}
-            className={`flex w-full items-center gap-2 px-4 py-2.5 text-left text-[16px] leading-[22px] outline-offset-2 outline-[color:var(--fill-blue)] focus-visible:outline-2 ${mine ? "border-2 border-solid py-[9px] font-medium" : still ? "border border-solid" : "hover-fade border-[1.5px] border-dashed"}`}
+            // 48px high; the check is 20px, so its distance to the top, bottom and right edge is (48 - 20) / 2 = 14px,
+            // 12.5px of padding inside the 1.5px border
+            className={`flex min-h-12 w-full items-center gap-2 border-[1.5px] py-2.5 pl-4 pr-[12.5px] text-left text-[16px] leading-[22px] outline-offset-2 outline-[color:var(--fill-blue)] focus-visible:outline-2 ${mine ? "border-solid font-medium" : still ? "border-solid" : "hover-fade border-dashed"}`}
             style={{
               borderRadius: round,
-              borderColor: mine ? "var(--text-primary)" : still ? "var(--fill-divider)" : "var(--text-tertiary)",
+              borderColor: mine ? "var(--text-secondary)" : "var(--text-tertiary)",
               background: "var(--fill-card-button)",
-              color: mine ? "var(--text-primary)" : still ? "var(--text-tertiary)" : "var(--chat-agent-text)",
+              color: mine ? "var(--text-primary)" : "var(--chat-agent-text)",
+              // the ones not chosen recede
+              opacity: still ? 0.4 : 1,
             }}
           >
             <span className="min-w-0 flex-1">{text}</span>
             {mine && (
               <span
-                className="flex size-[22px] shrink-0 items-center justify-center rounded-full"
-                style={{ background: "var(--text-primary)", color: "var(--fill-secondary)" }}
+                className="flex size-5 shrink-0 items-center justify-center rounded-full"
+                style={{ background: "var(--text-secondary)", color: "var(--fill-card-button)" }}
               >
-                <Check size={14} strokeWidth={3} aria-hidden />
+                <Check size={12} strokeWidth={3} aria-hidden />
               </span>
             )}
           </button>
