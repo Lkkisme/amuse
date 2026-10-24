@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Entity } from "@amuse/protocol";
-import { quoteOf, quoted } from "./quote.ts";
+import { errorQuote, quoteOf, quoted } from "./quote.ts";
 
 const at = "2026-10-20T08:00:00Z";
 
@@ -31,4 +31,14 @@ test("the agent reads a quoted card by its kind, id, title and state, and a quot
   assert.equal(quoted({ id: "r1", kind: "reply", text: "Shall I book it?", state: null }), 'your message "Shall I book it?"');
   assert.equal(quoted({ id: "b1", kind: "browser", text: "Look at the aquarium", state: "working" }), 'your browser task card b1 "Look at the aquarium" (working)');
   assert.equal(quoted({ id: "x1", kind: "failure", text: "", state: "open" }), 'your "could not reply" card x1 (open)');
+});
+
+test("the agent reads a quoted error with its technical detail, and a client's credentials never reach it", () => {
+  const quote = errorQuote("e1", { message: "Voice needs a key", detail: "code: transcribe_no_key; feature: voice transcription; token: ghp_abcdefghijklmnopqrstuvwx" });
+  assert.equal(quote.kind, "error");
+  assert.equal(quote.text, "Voice needs a key");
+  assert.ok(!JSON.stringify(quote).includes("ghp_abcdefghijklmnop"));
+  const said = quoted(quote);
+  assert.match(said, /an error Amuse showed them \("Voice needs a key"; technical detail, not shown to them: code: transcribe_no_key; feature: voice transcription; token: <redacted>\)/);
+  assert.match(quoted({ id: "e2", kind: "error", text: "x", state: null }), /technical detail, not shown to them: none/);
 });

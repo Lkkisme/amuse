@@ -7,9 +7,10 @@ import { Globe, KeyRound, Shapes } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { PlainInput, SecretInput, Session } from "@amuse/protocol";
 import { useT } from "../i18n/react.ts";
+import { useFail } from "../ask.tsx";
 import { type Kind, KINDS, toValue, typedSecret } from "../secrets.ts";
 import { Button } from "./Button";
-import { Alert, Box, BoxRow, NoteRow, Page, groupClass } from "./SecretFields";
+import { Box, BoxRow, NoteRow, Page, groupClass } from "./SecretFields";
 
 const ICONS: Record<Kind, LucideIcon> = { key: KeyRound, login: Globe, custom: Shapes };
 
@@ -54,7 +55,7 @@ function Filling({ kind, session, onBack, onAdded }: { kind: Kind; session: Sess
   const [secret, setSecret] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const failed = useFail();
 
   // what each kind keeps, under the names Amuse reads
   const secretName = { key: "key", login: "password", custom: "secret" }[kind];
@@ -67,9 +68,8 @@ function Filling({ kind, session, onBack, onAdded }: { kind: Kind; session: Sess
     const plain: PlainInput[] = kind === "login" ? [{ name: "username", role: "username", value: { kind: "text", text: username } }] : [];
     const secrets: SecretInput[] = [{ name: secretName, role: kind === "login" ? "password" : null, value: secretValue }];
     setBusy(true);
-    setError(null);
     session.call("secrets.add", { name: name.trim(), note, plain, secret: secrets, uses: [] }).then(onAdded, (e: unknown) => {
-      setError(e instanceof Error ? e.message : String(e));
+      failed(e, "Vault › add an entry", save);
       setBusy(false);
     });
   };
@@ -93,7 +93,6 @@ function Filling({ kind, session, onBack, onAdded }: { kind: Kind; session: Sess
         </BoxRow>
         {kind === "custom" && <NoteRow value={note} onChange={setNote} />}
       </ul>
-      <Alert message={error} />
       {(unnamed || unfilled) && (name !== "" || secret !== "") && (
         <p className="mt-4 px-1 text-[13px]" style={{ color: "var(--text-secondary)" }}>
           {unnamed ? t.secrets.problem.name : t.secrets.problem.value}

@@ -42,3 +42,39 @@ test("a dropped connection does not stand once a call has gone through; a refusa
   assert.equal(wordsFor(after.list, t), "no such app", "a call the server refused still stands");
   assert.equal(wordsFor(after.page, t), grafana.message);
 });
+
+test("a refused command is said in the user's language, never as the rule's own English; the raw text is kept for the agent", async () => {
+  const { CallFailed } = await import("@amuse/api/client");
+  const { Rejected } = await import("@amuse/core");
+  const { catalogOf } = await import("./i18n/language.ts");
+  const { rawOf } = await import("./shown.ts");
+  const en = catalogOf("en");
+  const zh = catalogOf("zh-CN");
+  // over the wire (a CallFailed carrying the rejection) and in the demo (the host's own Rejected)
+  const wire = new CallFailed("cannot stop from stopped", -32000, { kind: "invalid", action: "stop", from: "stopped" });
+  const demo = new Rejected({ kind: "invalid", action: "stop", from: "stopped" });
+  for (const error of [wire, demo]) {
+    assert.equal(wordsFor(error, en), en.rejected.invalid);
+    assert.equal(wordsFor(error, zh), zh.rejected.invalid);
+    assert.ok(!/cannot stop from stopped/.test(wordsFor(error, en) ?? ""));
+    assert.match(rawOf(error), /cannot stop from stopped/);
+  }
+  for (const rejection of [
+    { kind: "notFound", entity: "reply", id: "r9" },
+    { kind: "gone", id: "b1" },
+    { kind: "notRunning", id: "b1" },
+    { kind: "noChat", id: "c9" },
+    { kind: "noFile", id: "f1" },
+    { kind: "mainChat" },
+  ] as const) {
+    const said = new Rejected(rejection);
+    assert.equal(wordsFor(said, zh), zh.rejected[rejection.kind]);
+    assert.ok(!/\b(r9|b1|c9|f1)\b/.test(wordsFor(said, en) ?? ""), "no ids in the user's words");
+  }
+  // an unsound rule carries a sentence of its own: shown in English, replaced in Chinese
+  const unsound = new CallFailed("There is already an entry called Gmail.", -32000, { kind: "unsound", reason: "There is already an entry called Gmail." });
+  assert.equal(wordsFor(unsound, en), "There is already an entry called Gmail.");
+  assert.equal(wordsFor(unsound, zh), zh.rejected.unsound(""));
+  // anything else keeps its words
+  assert.equal(wordsFor(new Error("boom"), en), "boom");
+});

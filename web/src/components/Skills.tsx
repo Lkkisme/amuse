@@ -15,6 +15,8 @@ import { reason } from "./Goals";
 import { RichText } from "./markdown";
 import { Sheet } from "./Sheet";
 import { useT } from "../i18n/react.ts";
+import { detailOf, useFail } from "../ask.tsx";
+import { ErrorState } from "./Errors";
 
 export function Skills({
   session,
@@ -255,11 +257,12 @@ export function SkillPage({
   }, [session, name, origin]);
   useEffect(() => load(), [load]);
 
+  const failed = useFail();
   const remove = () => {
     setBusy(true);
     session
       .call("skills.remove", { name })
-      .then(onBack, (e: unknown) => setError(reason(e)))
+      .then(onBack, (e: unknown) => failed(e, `Skills › remove ${name}`, remove))
       .finally(() => {
         setBusy(false);
         setRemoving(false);
@@ -286,13 +289,15 @@ export function SkillPage({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-8">
         {error && (
-          <p
-            role="alert"
-            className="mb-3 text-[14px]"
-            style={{ color: "var(--fill-red)" }}
-          >
-            {error}
-          </p>
+          <ErrorState
+            title={t.ask.loadTitle}
+            message={error}
+            detail={detailOf(`Skills › ${name}`, "", "skills_get_failed")}
+            retry={() => {
+              setError(null);
+              load();
+            }}
+          />
         )}
         {!skill || !shown ? (
           !error && <div className="skeleton h-8 w-3/5 rounded-[10px]" />

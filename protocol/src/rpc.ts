@@ -35,11 +35,11 @@ export const Call = z.discriminatedUnion("method", [
   call("session.sync", z.object({ chat: Id, since: Seq.nullable() })),
   /** Up to `limit` of a chat's entities just before feed index `before`, for a state holding only the recent end. */
   call("session.history", z.object({ chat: Id, before: Index, limit: z.int().min(1).max(200) })),
-  /** `timezone`: the device's (Intl), so times are the user's own; `replyTo`: an item (a message of either side, or a card) this answers */
+  /** `timezone`: the device's (Intl), so times are the user's own; `replyTo`: an item (a message of either side, or a card) this answers; `about`: an error the user asks about (what it said, and its technical detail, for the agent only) */
   call(
     "chat.send",
     z
-      .object({ chat: Id, text: z.string(), timezone: TimeZone, attachments: z.array(Attachment).max(10), replyTo: Id.optional() })
+      .object({ chat: Id, text: z.string(), timezone: TimeZone, attachments: z.array(Attachment).max(10), replyTo: Id.optional(), about: z.object({ message: z.string().max(500), detail: z.string().max(2000) }).optional() })
       .refine((p) => p.text.trim() !== "" || p.attachments.length > 0, "Say something or attach a file"),
   ),
   /** Stop the agent's current reply in a chat. */
@@ -336,7 +336,8 @@ export const Request = z.object({
   params: z.unknown(),
 });
 
-export const RpcError = z.object({ code: z.int(), message: z.string() });
+/** `data`: for a rejected command, the rejection itself (`{ kind, … }`, core/src/decide.ts), so a client can say it in its own words. */
+export const RpcError = z.object({ code: z.int(), message: z.string(), data: z.unknown().optional() });
 
 export const Response = z.union([
   z.object({ jsonrpc: z.literal("2.0"), id: RpcId, result: z.unknown() }),
@@ -352,6 +353,8 @@ export const errors = {
   methodNotFound: { code: -32601, message: "Method not found" },
   invalidParams: { code: -32602, message: "Invalid params" },
   /** A sensitive call (api/src/sensitive.ts) on a session the PIN has not unlocked: the client asks for the PIN, then calls again. */
+  /** A command the rules refused (core's `Rejection`): `data` says which, `message` is English for the agent's tools and logs. */
+  rejected: { code: -32000, message: "Rejected" },
   pinLocked: { code: -32001, message: "Enter your PIN to do this." },
   /** A sensitive call before any PIN is set: the client asks for one to be set first. */
   pinUnset: { code: -32002, message: "Set a PIN first: it authorizes sensitive actions." },

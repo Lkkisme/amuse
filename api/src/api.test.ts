@@ -91,7 +91,7 @@ test("bad frames get the JSON-RPC error they deserve", async () => {
     {
       jsonrpc: "2.0",
       id: 4,
-      error: { code: -32000, message: "cannot handBack from completed" },
+      error: { code: -32000, message: "cannot handBack from completed", data: { kind: "invalid", action: "handBack", from: "completed" } },
     },
   );
 });

@@ -9,6 +9,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ChevronDown,
+  CircleAlert,
   Copy,
   File as FileIcon,
   Reply as ReplyArrow,
@@ -529,9 +530,14 @@ function QuoteChip({
         background: "var(--fill-secondary)",
         color: "var(--text-secondary)",
       }}
-      onClick={() => reveal(quote.id)}
+      // an error has no place in the feed to go to
+      onClick={() => quote.kind !== "error" && reveal(quote.id)}
     >
-      <ReplyArrow size={14} className="mt-0.5 shrink-0" />
+      {quote.kind === "error" ? (
+        <CircleAlert size={14} className="mt-0.5 shrink-0" />
+      ) : (
+        <ReplyArrow size={14} className="mt-0.5 shrink-0" />
+      )}
       <span className="line-clamp-2 [overflow-wrap:anywhere]">
         {quoteLine(quote, t)}
       </span>

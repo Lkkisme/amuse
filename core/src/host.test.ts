@@ -760,3 +760,18 @@ test("a reply to a card reaches the agent with the card quoted, and the recorded
   assert.deepEqual(recorded.quote, quote);
   await assert.rejects(host.call("chat.send", { chat: "main", text: "and this", timezone: "UTC", attachments: [], replyTo: "gone" }), /not found/);
 });
+
+test("a message about an error reaches the agent with the error and its detail, and the recorded message keeps them", async () => {
+  const turns: Turn[] = [];
+  const { ports } = capture();
+  const host = createHost({ ...ports, prompt: (turn, agent) => (turns.push(turn), ports.prompt(turn, agent)) }, { timers: manualTime("2026-10-20T08:00:00Z").timers });
+  const about = { message: "Voice needs a key", detail: "code: transcribe_no_key; feature: voice transcription" };
+  const { id } = await host.call("chat.send", { chat: "main", text: "I ran into this", timezone: "UTC", attachments: [], about });
+  const turn = turns.at(-1);
+  assert.ok(turn?.kind === "message" && turn.quote?.kind === "error");
+  assert.deepEqual([turn.quote.text, turn.quote.detail], [about.message, about.detail]);
+  const { entities } = await host.call("session.history", { chat: "main", before: 100, limit: 100 });
+  const recorded = entities.find((e) => e.id === id);
+  assert.ok(recorded?.kind === "prompt" && recorded.quote?.kind === "error");
+  assert.equal(recorded.quote.text, about.message);
+});

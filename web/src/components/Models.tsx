@@ -18,6 +18,9 @@ import { Button } from "./Button";
 import { KeyLine, KeyLogin, type TestState, useKeyTests } from "./KeyLogin";
 import { Sheet } from "./Sheet";
 import { useT } from "../i18n/react.ts";
+import { wordsOf } from "../shown.ts";
+import { detailOf, useFail } from "../ask.tsx";
+import { ErrorBanner, ErrorState } from "./Errors";
 
 const label = "mb-2 mt-6 px-1 text-[13px] font-medium";
 const group = "divide-y divide-[var(--fill-divider)] rounded-[18px] px-4";
@@ -44,30 +47,26 @@ export function Models({
     () =>
       session.call("keys.list", {}).then(
         (s) => setState(s),
-        (e: unknown) => setError(e instanceof Error ? e.message : String(e)),
+        (e: unknown) => setError(wordsOf(e)),
       ),
     [session],
   );
   useEffect(() => void load(), [load]);
-  const fail = (e: unknown) =>
-    setError(e instanceof Error ? e.message : String(e));
+  /** a change that did not go through is a toast (the page itself is fine); `error` is only for a page that could not load */
+  const failed = useFail();
   const choose = (role: ModelRole, model: string | null) => {
-    setError(null);
-    session.call("models.choose", { role, model }).then(load, fail);
+    session.call("models.choose", { role, model }).then(load, (e: unknown) => failed(e, "Settings › Models › choose a model", () => choose(role, model)));
   };
   const think = (role: ModelRole, level: ThinkingLevel) => {
-    setError(null);
-    session.call("models.think", { role, level }).then(load, fail);
+    session.call("models.think", { role, level }).then(load, (e: unknown) => failed(e, "Settings › Models › thinking level", () => think(role, level)));
   };
   const voice = (provider: string | null) => {
-    setError(null);
-    session.call("models.voice", { provider }).then(load, fail);
+    session.call("models.voice", { provider }).then(load, (e: unknown) => failed(e, "Settings › Models › voice", () => voice(provider)));
   };
   const forget = (provider: KeyProvider) => {
-    setError(null);
     clear(provider.id);
     onView(null);
-    session.call("keys.logout", { provider: provider.id }).then(load, fail);
+    session.call("keys.logout", { provider: provider.id }).then(load, (e: unknown) => failed(e, `Settings › Models › remove the key for ${provider.id}`, () => forget(provider)));
   };
 
   const providers = state?.providers.filter((p) => p.use === "models") ?? [];
@@ -115,6 +114,17 @@ export function Models({
       </ProviderPage>
     );
 
+  const retryLoad = () => {
+    setError(null);
+    void load();
+  };
+  // the list could not load: the page says so in place of its content
+  if (error !== null && state === null)
+    return (
+      <div className="flex-1 overflow-y-auto px-5 pb-6 sm:px-6">
+        <ErrorState title={t.ask.loadTitle} message={error} detail={detailOf("Settings › Models", "keys", "keys_list_failed")} retry={retryLoad} />
+      </div>
+    );
   return (
     <div className="flex-1 overflow-y-auto px-5 pb-6 sm:px-6">
       <p
@@ -123,16 +133,9 @@ export function Models({
       >
         {t.models.intro}
       </p>
-      {error && (
-        <p
-          role="alert"
-          className="mt-2 text-[13px]"
-          style={{ color: "var(--fill-red)" }}
-        >
-          {error}
-        </p>
+      {error !== null && state !== null && (
+        <ErrorBanner message={error} detail={detailOf("Settings › Models", "keys", "keys_list_failed")} retry={retryLoad} />
       )}
-
       {mine.length > 0 && state && (
         <>
           {/* each role a group of its own, a row for each thing chosen and what it is: provider, model, thinking */}
@@ -184,7 +187,7 @@ export function Models({
           </div>
           {/* the browser on the chat's model, which cannot do its work */}
           {state.browser === null && state.chat !== null && models.find((m) => m.id === state.chat)?.images === false && (
-            <p className="mt-2 px-1 text-[13px] leading-snug" style={{ color: "var(--fill-red)" }}>
+            <p className="mt-2 px-1 text-[13px] leading-snug" style={{ color: "var(--text-secondary)" }}>
               {t.models.browserBlind}
             </p>
           )}
@@ -284,7 +287,6 @@ export function Models({
             current={state.voice.local}
             onClose={() => setOwnVoice(false)}
             onSave={(service) => {
-              setError(null);
               return session.call("models.localVoice", { service }).then(
                 () => {
                   setOwnVoice(false);
@@ -585,7 +587,7 @@ function LocalVoiceSheet({
     service: { url: string; model: string; key: string | null } | null,
   ) =>
     onSave(service).catch((e: unknown) =>
-      setProblem(e instanceof Error ? e.message : String(e)),
+      setProblem(wordsOf(e)),
     );
   const field = "w-full bg-transparent px-4 py-3.5 text-[16px] outline-none";
   return (

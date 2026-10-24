@@ -37,11 +37,13 @@ export const Attachment = z.object({
 export const Quote = z.object({
   /** the entity replied to */
   id: Id,
-  kind: z.enum(["prompt", "reply", "task", "approval", "connection", "secret", "browser", "schedule", "failure"]),
+  kind: z.enum(["prompt", "reply", "task", "approval", "connection", "secret", "browser", "schedule", "failure", "error"]),
   /** what a message said, or what a card is about (its title), clipped; may be empty */
   text: z.string(),
   /** a card's state when replied to ("paused", "pending"); null for a reply */
   state: z.string().nullable(),
+  /** an error quoted: its technical detail (code, feature, provider, time), for the agent only; never shown */
+  detail: z.string().optional(),
 });
 
 /** What the user said, and where they were: their device's time zone, which is the user's time zone from then on. */

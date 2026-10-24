@@ -20,7 +20,8 @@ import type { Actions } from "../ui.ts";
 import { busy } from "../view.ts";
 import { useFiles } from "../files.ts";
 import { useT } from "../i18n/react.ts";
-import { quoteLine } from "../reply.ts";
+import { askLine, quoteLine } from "../reply.ts";
+import { detailOf } from "../ask.tsx";
 
 /** A file on its way: uploading, up (its attachment), or failed (why). */
 interface Pending {
@@ -39,6 +40,7 @@ const MAX_HEIGHT = 166;
 export function Composer({ conversation, replying, place, actions }: { conversation: State; replying: Quote | null; place: string | null; actions: Actions }) {
   const t = useT();
   const working = busy(conversation);
+  const asking = replying?.kind === "error";
   const files = useFiles();
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState<Pending[]>([]);
@@ -98,7 +100,10 @@ export function Composer({ conversation, replying, place, actions }: { conversat
           const said: unknown = await response.json().catch(() => null);
           const field = (key: string) => (typeof said === "object" && said !== null && key in said ? String(Reflect.get(said, key)) : "");
           if (response.ok && field("text")) setDraft((d) => (d.trim() ? `${d.trim()} ${field("text")}` : field("text")));
-          else actions.notify(field("reason") || (response.ok ? t.chat.nothingHeard : t.chat.notTranscribed));
+          else {
+            const summary = field("reason") || (response.ok ? t.chat.nothingHeard : t.chat.notTranscribed);
+            actions.notify(summary, { detail: detailOf("voice transcription", "transcription provider", `transcribe_http_${response.status}`), retry: () => void listen() });
+          }
         })
         .catch(() => actions.notify(t.common.serverUnreachable))
         .finally(() => setVoice("idle"));
@@ -138,6 +143,15 @@ export function Composer({ conversation, replying, place, actions }: { conversat
       return list.filter((p) => p.key !== key);
     });
 
+  // asking Amuse about an error: the line is ready (words of the user's own stay), and the box is theirs to add to
+  useEffect(() => {
+    if (!asking) return;
+    setDraft((d) => askLine(d, t.chat.askPrefill));
+    const el = box.current;
+    el?.focus();
+    el?.setSelectionRange(el.value.length, el.value.length);
+  }, [asking, replying?.id, t]);
+
   const submit = () => {
     if (!sendable) return;
     const text = draft.trim();
@@ -169,10 +183,10 @@ export function Composer({ conversation, replying, place, actions }: { conversat
         >
           {replying && (
             <div className="mb-1.5 flex items-center gap-2 pl-3 pr-1 pt-1">
-              <span className="w-[3px] self-stretch rounded-full" style={{ background: "var(--fill-blue)" }} />
+              <span className="w-[3px] self-stretch rounded-full" style={{ background: asking ? "var(--icon-secondary)" : "var(--fill-blue)" }} />
               <span className="min-w-0 flex-1">
-                <span className="block text-[12px] font-semibold" style={{ color: "var(--fill-blue)" }}>
-                  {replying.kind === "prompt" ? t.chat.replying : t.chat.replyingToAmuse}
+                <span className="block text-[12px] font-semibold" style={{ color: asking ? "var(--text-secondary)" : "var(--fill-blue)" }}>
+                  {asking ? t.chat.askingAboutError : replying.kind === "prompt" ? t.chat.replying : t.chat.replyingToAmuse}
                 </span>
                 <span className="block truncate text-[13px] leading-[18px]" style={{ color: "var(--text-secondary)" }}>
                   {quoteLine(replying, t)}

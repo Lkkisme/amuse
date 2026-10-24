@@ -130,6 +130,7 @@ export const calls: Call[] = [
   { method: "session.history", params: { chat: "main", before: 40, limit: 20 } },
   { method: "chat.send", params: { chat: "main", text: "hi", timezone: "Asia/Shanghai", attachments: [] } },
   { method: "chat.send", params: { chat: "main", text: "change this one", timezone: "Asia/Shanghai", attachments: [], replyTo: "s1" } },
+  { method: "chat.send", params: { chat: "main", text: "I ran into this", timezone: "Asia/Shanghai", attachments: [], about: { message: "Voice needs a key", detail: "feature: voice transcription; time: 2026-10-24T09:00:00Z" } } },
   { method: "chat.stop", params: { chat: "main" } },
   { method: "chat.retry", params: { id: "x1" } },
   { method: "chats.list", params: {} },

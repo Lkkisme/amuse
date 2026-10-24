@@ -83,6 +83,14 @@ test("a reply names the item it answers: the words of a message, or a card's kin
   );
 });
 
+test("a message about an error reaches the agent with the error and the technical detail the user never saw", () => {
+  const asked: Entity = { kind: "prompt", id: "p1", at, text: "I ran into this", timezone: "UTC", attachments: [], quote: { id: "e1", kind: "error", text: "Voice needs a key", state: null, detail: "code: transcribe_no_key; feature: voice transcription" } };
+  assert.match(
+    context(stateOf(asked)),
+    /^\[2026-10-20 08:00\] User \(replying to an error Amuse showed them \("Voice needs a key"; technical detail, not shown to them: code: transcribe_no_key; feature: voice transcription\)[^)]*\): I ran into this$/,
+  );
+});
+
 test("a sent file is told where it is now, or that it was deleted", () => {
   const file = (id: string, name: string) => ({ id, name, type: "image/png", size: 1024, path: `user/media_library/${name}` });
   const sent: Entity = { kind: "prompt", id: "p1", at, text: "", timezone: "UTC", attachments: [file("f-1", "a.png"), file("f-2", "b.png")], quote: null };

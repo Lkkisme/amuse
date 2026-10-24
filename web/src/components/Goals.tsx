@@ -9,10 +9,11 @@ import type { Goal, Session } from "@amuse/protocol";
 import { Button } from "./Button";
 import { Sheet } from "./Sheet";
 import { useT } from "../i18n/react.ts";
+import { wordsOf } from "../shown.ts";
+import { useFail } from "../ask.tsx";
 import { activeLocale } from "../i18n/language.ts";
 
-export const reason = (e: unknown) =>
-  e instanceof Error ? e.message : String(e);
+export const reason = wordsOf;
 
 export function Goals({
   session,
@@ -199,22 +200,20 @@ function AddGoal({
   const [title, setTitle] = useState("");
   const [about, setAbout] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const failed = useFail();
   // a fresh form each time it opens (not on closing: the sheet animates out with what it held)
   useEffect(() => {
     if (!open) return;
     setTitle("");
     setAbout("");
-    setError(null);
   }, [open]);
   const add = () => {
     setBusy(true);
-    setError(null);
     session
       .call("goals.add", { title: title.trim(), about: about.trim() })
       .then(
         () => onAdded(),
-        (e: unknown) => setError(reason(e)),
+        (e: unknown) => failed(e, "Goals › add a goal", add),
       )
       .finally(() => setBusy(false));
   };
@@ -268,15 +267,6 @@ function AddGoal({
             onChange={(e) => setAbout(e.target.value)}
           />
         </div>
-        {error && (
-          <p
-            role="alert"
-            className="mt-2 text-[13px]"
-            style={{ color: "var(--fill-red)" }}
-          >
-            {error}
-          </p>
-        )}
         <Button
           variant="primary"
           size="lg"

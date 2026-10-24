@@ -332,3 +332,12 @@ test("a refusal by the user's rule is one record however often the agent retries
   // a refusal that was recorded is never a card to answer
   assert.ok(refusals(s).every((e) => e.kind === "approval" && e.status === "denied" && !e.remember));
 });
+
+test("chat.send with about quotes an error as the user read it, and keeps its detail for the agent, redacted", () => {
+  const about = { message: "Voice needs a key", detail: "feature: voice; provider: OpenAI; error: 401 Bearer abcdefghijklmnop sk-abcdefghijklmnopqrstuv" };
+  const d = decide(stateOf(said), { method: "chat.send", params: { chat: "main", text: "I ran into this", timezone: "UTC", attachments: [], about } }, ctx);
+  assert.ok(d.ok);
+  const quote = { id: "e1", kind: "error", text: "Voice needs a key", state: null, detail: "feature: voice; provider: OpenAI; error: 401 Bearer <redacted> <redacted>" };
+  assert.deepEqual(d.effects, [{ kind: "prompt", text: "I ran into this", attachments: [], quote }]);
+  assert.deepEqual(d.changes, [{ kind: "upserted", entity: { kind: "prompt", id: "p1", at, text: "I ran into this", timezone: "UTC", attachments: [], quote } }]);
+});

@@ -12,6 +12,8 @@ export const en = {
     selectText: "Select text",
     replyingToAmuse: "Replying to Amuse",
     replying: "Replying",
+    askingAboutError: "Asking Amuse about this error",
+    askPrefill: "I ran into this — can you take a look?",
     cancelReply: "Cancel reply",
     jumpToQuoted: "Go to the message replied to",
     quoted: {
@@ -24,6 +26,7 @@ export const en = {
       browser: "Browser task",
       schedule: "Scheduled task",
       failure: "Couldn't reply",
+      error: "Error",
     },
     openFile: (name: string) => `Open ${name}`,
     deleted: "Deleted",
@@ -277,6 +280,25 @@ export const en = {
   },
   /** "Amuse's computer": where the agent's commands run; `name` is the assistant's. */
   computer: (name: string) => `${name}'s computer`,
+  /** What a refused command says to the user (core's rejections) */
+  rejected: {
+    notFound: "That isn't there any more.",
+    gone: "That browser has closed.",
+    notRunning: "That task is no longer running.",
+    noChat: "That chat doesn't exist any more.",
+    noFile: "That file didn't finish uploading. Add it again.",
+    mainChat: "The main chat can't be renamed or deleted.",
+    invalid: "That has already changed, so it can't be done now. Try again.",
+    /** the rule's own sentence (English: what is wrong), as it is */
+    unsound: (reason: string) => reason || "That can't be done.",
+    other: "That couldn't be done. Try again.",
+  },
+  ask: {
+    action: "Ask Amuse",
+    retry: "Retry",
+    loadTitle: "Can't load this page",
+    connectionsTitle: "Can't load connections",
+  },
   common: {
     add: "Add",
     serverUnreachable: "The server cannot be reached.",

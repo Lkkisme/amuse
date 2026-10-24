@@ -125,16 +125,6 @@ export function Box({
   );
 }
 
-/** What went wrong, in the server's words. */
-export function Alert({ message }: { message: string | null }) {
-  if (!message) return null;
-  return (
-    <p role="alert" className="mt-3 px-1 text-[13px]" style={{ color: "var(--fill-red)" }}>
-      {message}
-    </p>
-  );
-}
-
 /** A small text button in a field's row or a form: blue, red for what takes something away, or plain for Cancel. */
 export function TextButton({
   children,

@@ -13,13 +13,14 @@ import type { AtRiskFolder, Session } from "@amuse/protocol";
 import { Button } from "./Button";
 import { ConfirmSheet } from "./ConfirmSheet";
 import { useT } from "../i18n/react.ts";
+import { useFail } from "../ask.tsx";
 import { computerName } from "../secrets.ts";
 
 export function Sandbox({ session }: { session: Session }) {
   const t = useT();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const failed = useFail();
   const [done, setDone] = useState(false);
   const [atRisk, setAtRisk] = useState<AtRiskFolder[]>([]);
 
@@ -35,13 +36,12 @@ export function Sandbox({ session }: { session: Session }) {
 
   const reset = () => {
     setBusy(true);
-    setError(null);
     setDone(false);
     session
       .call("sandbox.reset", {})
       .then(
         () => setDone(true),
-        (e: unknown) => setError(e instanceof Error ? e.message : String(e)),
+        (e: unknown) => failed(e, "Settings › Computer › reset", reset),
       )
       .finally(() => {
         setBusy(false);
@@ -57,15 +57,6 @@ export function Sandbox({ session }: { session: Session }) {
       >
         {t.sandbox.description(computerName(t))}
       </p>
-      {error && (
-        <p
-          role="alert"
-          className="mt-2 text-[13px]"
-          style={{ color: "var(--fill-red)" }}
-        >
-          {error}
-        </p>
-      )}
       {done && (
         <p
           role="status"

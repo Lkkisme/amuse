@@ -22,8 +22,10 @@ import {
 import { ACTIONS, mergedEntry, summary } from "../browserRules.ts";
 import { Button } from "./Button";
 import { ActionSelect, PermissionSelect } from "./PermissionSelect";
+import { ErrorBanner, ErrorState } from "./Errors";
 import { Sheet } from "./Sheet";
 import { useFailure } from "../failure.ts";
+import { detailOf, useFail } from "../ask.tsx";
 import { useT } from "../i18n/react.ts";
 import { wordsFor } from "../shown.ts";
 
@@ -131,6 +133,7 @@ export function SitePermissions({
 
   const t = useT();
   const said = setError;
+  const failed = useFail();
   const load = useCallback(
     () =>
       Promise.all([
@@ -148,7 +151,7 @@ export function SitePermissions({
     setError(null);
     session
       .call("browser.permit", { action, permission })
-      .then(load, (e: unknown) => (said(e), load()));
+      .then(load, (e: unknown) => (failed(e, "Settings › Permissions › browser rule", () => setting(action, permission)), load()));
   };
   const permit = (site: string, rule: SiteEntry | null) => {
     setError(null);
@@ -163,7 +166,7 @@ export function SitePermissions({
     });
     return session
       .call("sites.permit", { site, rule })
-      .then(load, (e: unknown) => (said(e), load()));
+      .then(load, (e: unknown) => (failed(e, `Settings › Permissions › rule for ${site}`, () => void permit(site, rule)), load()));
   };
   const cancel = () => {
     setDraft("");
@@ -183,6 +186,10 @@ export function SitePermissions({
     cancel();
   };
   const open = rules?.find((r) => r.site === editing) ?? null;
+  const retryLoad = () => {
+    setError(null);
+    void load();
+  };
 
   return (
     <div className="flex-1 overflow-y-auto px-5 pb-6 sm:px-6">
@@ -193,13 +200,11 @@ export function SitePermissions({
         {t.permissions.description}
       </p>
       {wordsFor(error, t) && !adding && (
-        <p
-          role="alert"
-          className="mt-2 text-[13px]"
-          style={{ color: "var(--fill-red)" }}
-        >
-          {wordsFor(error, t)}
-        </p>
+        rules === null ? (
+          <ErrorState title={t.ask.loadTitle} message={wordsFor(error, t) ?? ""} detail={detailOf("Settings › Permissions", "", "rules_load_failed")} retry={retryLoad} />
+        ) : (
+          <ErrorBanner message={wordsFor(error, t) ?? ""} detail={detailOf("Settings › Permissions", "", "rules_load_failed")} retry={retryLoad} />
+        )
       )}
 
       <p

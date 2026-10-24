@@ -27,7 +27,7 @@ import type {
   When,
   Needs,
 } from "@amuse/protocol";
-import { quoteOf } from "./quote.ts";
+import { errorQuote, quoteOf } from "./quote.ts";
 import { APPROVAL_TTL_MS, GRACE_MS, MAX_SCHEDULES, check, later, nextRun, standing } from "./schedule.ts";
 
 /** The same refusal (what, and where) again within this long is the same record. */
@@ -250,11 +250,12 @@ function closeQuestions(state: State, run: string): { changes: Change[]; effects
 type Rules = { [M in CommandMethod]: (state: State, params: Params[M], ctx: Context) => Decision<Outputs[M]> };
 
 const rules: Rules = {
-  "chat.send": (state, { text, timezone, attachments, replyTo }, ctx) => {
+  "chat.send": (state, { text, timezone, attachments, replyTo, about }, ctx) => {
     // an item of Amuse's, quoted as it is now
     const replied = replyTo === undefined ? undefined : state.entities.find((e) => e.id === replyTo);
     if (replyTo !== undefined && !replied) return reject({ kind: "notFound", entity: "reply", id: replyTo });
-    const quote = replied ? quoteOf(replied) : null;
+    // an error the user asks about: what it said (shown) and its technical detail (the agent's)
+    const quote = about ? errorQuote(ctx.id("e"), about) : replied ? quoteOf(replied) : null;
     if (replyTo !== undefined && !quote) return reject({ kind: "unsound", reason: "that cannot be replied to" });
     const id = ctx.id("p");
     return ok([upsert({ kind: "prompt", id, at: ctx.now, text, timezone, attachments, quote })], [{ kind: "prompt", text, attachments, quote }], { id });

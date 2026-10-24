@@ -26,9 +26,12 @@ type Pending = { settle: (raw: unknown) => void; fail: (error: Error) => void };
  */
 export class CallFailed extends Error {
   readonly code: number;
-  constructor(message: string, code: number) {
+  /** a rejected command's rejection (`{ kind, … }`), for a client to say in its own words */
+  readonly data: unknown;
+  constructor(message: string, code: number, data?: unknown) {
     super(message);
     this.code = code;
+    this.data = data;
   }
 }
 
@@ -130,7 +133,7 @@ export function connect(url: string, options: ConnectOptions = {}): Session & { 
       const entry = typeof response.id === "number" ? pending.get(response.id) : undefined;
       if (!entry || typeof response.id !== "number") return;
       pending.delete(response.id);
-      if ("error" in response) entry.fail(new CallFailed(response.error.message, response.error.code));
+      if ("error" in response) entry.fail(new CallFailed(response.error.message, response.error.code, response.error.data));
       else entry.settle(response.result);
     };
     ws.onclose = () => {

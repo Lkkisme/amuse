@@ -9,7 +9,10 @@ import { CalendarClock } from "lucide-react";
 import type { Needs, Schedule, Session } from "@amuse/protocol";
 import { moment, outcomeLabel, repeats, scheduleState } from "../schedules.ts";
 import { Button } from "./Button";
+import { ErrorBanner, ErrorState } from "./Errors";
 import { useT } from "../i18n/react.ts";
+import { wordsOf } from "../shown.ts";
+import { detailOf, useFail } from "../ask.tsx";
 
 type Control = "pause" | "resume" | "cancel";
 
@@ -21,7 +24,7 @@ export function Schedules({ session }: { session: Session }) {
     () =>
       session.call("schedules.list", {}).then(
         ({ schedules }) => setSchedules(schedules),
-        (e: unknown) => setError(e instanceof Error ? e.message : String(e)),
+        (e: unknown) => setError(wordsOf(e)),
       ),
     [session],
   );
@@ -40,13 +43,15 @@ export function Schedules({ session }: { session: Session }) {
       }),
     [session, load],
   );
+  const failed = useFail();
   const control = (id: string, action: Control) => {
-    setError(null);
     session
       .call("schedule.control", { id, action })
-      .then(load, (e: unknown) =>
-        setError(e instanceof Error ? e.message : String(e)),
-      );
+      .then(load, (e: unknown) => failed(e, `Settings › Schedules › ${action}`, () => control(id, action)));
+  };
+  const retryLoad = () => {
+    setError(null);
+    void load();
   };
   const standing =
     schedules?.filter((s) => s.status === "active" || s.status === "paused") ??
@@ -60,6 +65,13 @@ export function Schedules({ session }: { session: Session }) {
       >
         {t.schedule.description}
       </p>
+      {error !== null && (
+        schedules === null ? (
+          <ErrorState title={t.ask.loadTitle} message={error} detail={detailOf("Settings › Schedules", "", "schedules_list_failed")} retry={retryLoad} />
+        ) : (
+          <ErrorBanner message={error} detail={detailOf("Settings › Schedules", "", "schedules_list_failed")} retry={retryLoad} />
+        )
+      )}
       {schedules && standing.length === 0 && (
         <p
           className="mt-6 text-center text-[14px]"
@@ -69,15 +81,7 @@ export function Schedules({ session }: { session: Session }) {
         </p>
       )}
       {standing.length > 0 && <List schedules={standing} control={control} />}
-      {error && (
-        <p
-          role="alert"
-          className="mt-2 text-[13px]"
-          style={{ color: "var(--fill-red)" }}
-        >
-          {error}
-        </p>
-      )}
+
     </div>
   );
 }
