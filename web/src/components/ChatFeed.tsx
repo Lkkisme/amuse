@@ -671,10 +671,11 @@ function Suggestions({ reply, closed, place, actions }: { reply: Reply; closed: 
             aria-pressed={mine}
             disabled={done || closed}
             onClick={() => void actions.send(text, [], { reply: reply.id, index }).catch(() => {})}
-            className={`flex w-full items-center gap-2 border-solid px-4 py-2.5 text-left text-[16px] leading-[22px] outline-offset-2 outline-[color:var(--fill-blue)] focus-visible:outline-2 ${mine ? "border-2 py-[9px] font-medium" : still ? "border" : "hover-fade border-[1.5px] border-dashed"}`}
+            className={`flex w-full items-center gap-2 px-4 py-2.5 text-left text-[16px] leading-[22px] outline-offset-2 outline-[color:var(--fill-blue)] focus-visible:outline-2 ${mine ? "border-2 border-solid py-[9px] font-medium" : still ? "border border-solid" : "hover-fade border-[1.5px] border-dashed"}`}
             style={{
               borderRadius: round,
               borderColor: mine ? "var(--text-primary)" : still ? "var(--fill-divider)" : "var(--text-tertiary)",
+              background: "var(--fill-card-button)",
               color: mine ? "var(--text-primary)" : still ? "var(--text-tertiary)" : "var(--chat-agent-text)",
             }}
           >
@@ -1049,7 +1050,7 @@ export function ChatFeed({
               aria-label={t.chat.scrollToBottom}
               className="absolute bottom-[86px] left-1/2 z-30 flex size-9 -translate-x-1/2 items-center justify-center rounded-full"
               style={{
-                background: "var(--fill-primary)",
+                background: "var(--fill-card-button)",
                 color: "var(--icon-primary)",
                 boxShadow: "var(--shadow-float)",
               }}
