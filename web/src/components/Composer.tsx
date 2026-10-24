@@ -87,9 +87,9 @@ export function Composer({ conversation, replying, place, actions }: { conversat
   const [quiet, setQuiet] = useState(false);
   // leaving the page lets go of the mic and drops the take
   useEffect(() => () => recording.current?.cancel(), []);
-  // Escape throws the take away
+  // Escape throws the take away, or stops turning it into text
   useEffect(() => {
-    if (voice !== "recording") return;
+    if (voice === "idle") return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && recording.current?.cancel();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -145,8 +145,18 @@ export function Composer({ conversation, replying, place, actions }: { conversat
       recording.current = null;
       if (discarded) return setVoice("idle");
       setVoice("transcribing");
+      // a slow speech service can be given up on: ✕ stops waiting and keeps nothing
+      const waiting = new AbortController();
+      const turning = {
+        done: () => {},
+        cancel: () => {
+          waiting.abort();
+          setVoice("idle");
+        },
+      };
+      recording.current = turning;
       const audio = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
-      fetch("/transcribe", { method: "POST", headers: { "content-type": audio.type }, body: audio })
+      fetch("/transcribe", { method: "POST", headers: { "content-type": audio.type }, body: audio, signal: waiting.signal })
         .then(async (response) => {
           const said: unknown = await response.json().catch(() => null);
           const field = (key: string) => (typeof said === "object" && said !== null && key in said ? String(Reflect.get(said, key)) : "");
@@ -156,8 +166,13 @@ export function Composer({ conversation, replying, place, actions }: { conversat
             actions.notify(summary, { detail: detailOf("voice transcription", "transcription provider", `transcribe_http_${response.status}`), retry: () => void listen() });
           }
         })
-        .catch(() => actions.notify(t.common.serverUnreachable))
-        .finally(() => setVoice("idle"));
+        .catch(() => {
+          if (!waiting.signal.aborted) actions.notify(t.common.serverUnreachable);
+        })
+        .finally(() => {
+          if (recording.current === turning) recording.current = null;
+          setVoice("idle");
+        });
     };
     const stopRecorder = () => {
       if (recorder.state === "inactive") return;
@@ -304,18 +319,14 @@ export function Composer({ conversation, replying, place, actions }: { conversat
                 </div>
               )}
               <div className="flex min-h-[44px] items-center gap-2 sm:min-h-[36px]">
-                {voice === "recording" ? (
-                  <button
-                    aria-label={t.chat.cancelDictating}
-                    className="hover-fade flex size-11 shrink-0 items-center justify-center rounded-full sm:size-9"
-                    style={{ color: "var(--icon-secondary)" }}
-                    onClick={() => recording.current?.cancel()}
-                  >
-                    <X size={20} />
-                  </button>
-                ) : (
-                  <span className="w-3 shrink-0" />
-                )}
+                <button
+                  aria-label={t.chat.cancelDictating}
+                  className="hover-fade flex size-11 shrink-0 items-center justify-center rounded-full sm:size-9"
+                  style={{ color: "var(--icon-secondary)" }}
+                  onClick={() => recording.current?.cancel()}
+                >
+                  <X size={20} />
+                </button>
                 <span className="min-w-[2.5rem] shrink-0 text-[15px] tabular-nums" style={{ color: voice === "recording" ? "var(--text-primary)" : "var(--text-tertiary)" }}>
                   {time}
                 </span>
@@ -331,9 +342,14 @@ export function Composer({ conversation, replying, place, actions }: { conversat
                     <Square size={14} fill="currentColor" strokeWidth={0} />
                   </button>
                 ) : (
-                  <span role="status" className="flex shrink-0 items-center gap-1.5 pl-1 pr-3 text-[14px]" style={{ color: "var(--text-secondary)" }}>
-                    <LoaderCircle size={16} className="animate-spin" />
-                    {t.chat.turningIntoTextLine}
+                  // the same button, turning while the take becomes text
+                  <span
+                    role="status"
+                    aria-label={t.chat.turningIntoTextLine}
+                    className="flex size-9 shrink-0 items-center justify-center rounded-full"
+                    style={{ background: "var(--fill-blue)", color: "#fff" }}
+                  >
+                    <LoaderCircle size={18} className="animate-spin" />
                   </span>
                 )}
               </div>
