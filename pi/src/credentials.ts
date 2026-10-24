@@ -136,7 +136,7 @@ export function fileCredentials(path: string): KeyFile {
 }
 
 /** The providers whose key also serves speech to text (voice.ts). */
-export const SPEECH_PROVIDERS = ["openai", "groq", "fireworks"];
+export const SPEECH_PROVIDERS = ["openai", "groq"];
 /** Where the key of the user's own speech server is kept, among the credentials. */
 export const LOCAL_VOICE = "local-voice";
 

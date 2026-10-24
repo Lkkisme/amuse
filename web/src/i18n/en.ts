@@ -395,7 +395,7 @@ export const en = {
     ownServer: "Your own server",
     notSet: "Not set up",
     voiceHelp:
-      "Turns what you say into the mic into text. Automatic uses the first of OpenAI, Groq and Fireworks you have a key for, then your own server; with your own server, recordings stay on your machines.",
+      "Turns what you say into the mic into text. Automatic uses the first of OpenAI and Groq you have a key for, then your own server; with your own server, recordings stay on your machines.",
     yourProviders: "Your providers",
     providers: "Providers",
     addProvider: "Add a provider",

@@ -401,7 +401,7 @@ export const zhCN = {
     needsKey: "需要一个密钥，或你自己的服务器",
     ownServer: "你自己的服务器",
     notSet: "未设置",
-    voiceHelp: "将你对着麦克风说的话转为文字。“自动”会依次使用你已设置密钥的 OpenAI、Groq 和 Fireworks 中的第一个，再用你自己的服务器；若使用自己的服务器，录音会留在你自己的机器上。",
+    voiceHelp: "将你对着麦克风说的话转为文字。“自动”会依次使用你已设置密钥的 OpenAI、Groq 中的第一个，再用你自己的服务器；若使用自己的服务器，录音会留在你自己的机器上。",
     yourProviders: "你的服务商",
     providers: "服务商",
     addProvider: "添加服务商",

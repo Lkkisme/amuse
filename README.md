@@ -62,7 +62,7 @@ device lock. It does not require a separate model API or chat database.
 
 ## Voice
 
-The mic turns what you say into text with OpenAI, Groq or Fireworks (your key), or a speech
+The mic turns what you say into text with OpenAI or Groq (your key), or a speech
 server you run yourself (any OpenAI-style `/v1/audio/transcriptions`, e.g. faster-whisper-server):
 Settings › Models › Voice. Run it in Docker beside Amuse and give its service name as the address;
 on the host outside Docker it is `host.docker.internal`, which a host firewall (ufw) may block for

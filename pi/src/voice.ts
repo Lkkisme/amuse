@@ -1,7 +1,7 @@
 /**
  * Voice: what the user says into the mic, as text for the composer. A
  * provider's speech-to-text does it (an OpenAI-style /audio/transcriptions),
- * with the user's own key: OpenAI, Groq or Fireworks, the first one set up.
+ * with the user's own key: OpenAI or Groq, the first one set up.
  * Pi does not do speech; this is the one place outside it that calls a
  * provider, and it reads the key from the user's keys like Pi does.
  */
@@ -14,8 +14,6 @@ import { redact } from "./redact.ts";
 export const voiceServices = [
   { provider: "openai", name: "OpenAI (GPT-4o mini Transcribe)", url: "https://api.openai.com/v1/audio/transcriptions", model: "gpt-4o-mini-transcribe" },
   { provider: "groq", name: "Groq (Whisper large v3 turbo)", url: "https://api.groq.com/openai/v1/audio/transcriptions", model: "whisper-large-v3-turbo" },
-  // Fireworks serves speech from a host of its own, not its API's (which answers 401 there)
-  { provider: "fireworks", name: "Fireworks (Whisper v3 turbo)", url: "https://audio-turbo.us-virginia-1.direct.fireworks.ai/v1/audio/transcriptions", model: "whisper-v3-turbo" },
 ];
 
 /** Speech cannot be turned into text: why, in words for the user. */
@@ -72,6 +70,6 @@ export function transcriber(
       const text = typeof said === "object" && said !== null && "text" in said && typeof said.text === "string" ? said.text : "";
       return text.trim();
     }
-    throw new VoiceUnavailable("Voice needs a key for OpenAI, Groq or Fireworks, or your own speech server: set one up in Settings › Models.");
+    throw new VoiceUnavailable("Voice needs a key for OpenAI or Groq, or your own speech server: set one up in Settings › Models.");
   };
 }
