@@ -458,3 +458,13 @@ body {
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
 }
+
+/* A box that scrolls without showing a scrollbar on touch screens, where the finger scrolls it and its fade shows there is more */
+@media (pointer: coarse) {
+  .touch-no-scrollbar {
+    scrollbar-width: none;
+  }
+  .touch-no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}

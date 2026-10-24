@@ -196,7 +196,7 @@ export function Composer({ conversation, place, actions }: { conversation: State
             <textarea
               ref={box}
               rows={1}
-              className={`min-w-0 flex-1 resize-none bg-transparent py-[7px] text-[15px] leading-[22px] outline-none ${files ? "" : "pl-3"}`}
+              className={`touch-no-scrollbar min-w-0 flex-1 resize-none bg-transparent py-[7px] text-[15px] leading-[22px] outline-none ${files ? "" : "pl-3"}`}
               style={{ color: "var(--text-primary)", maxHeight: MAX_HEIGHT, maskImage: fade, WebkitMaskImage: fade }}
               onScroll={look}
               placeholder={place ? t.chat.messageIn(place) : t.chat.message}
