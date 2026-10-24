@@ -344,10 +344,24 @@
     opacity: 1;
   }
 }
-/* Touch: no row; a long press on the bubble opens its menu (ChatFeed), whose Select text opens its words in a sheet
-   to select from as the phone does anywhere */
+/* Touch: no row; a long press on the bubble opens its menu (ChatFeed), whose Select text hands the bubble's words
+   to the phone's own selection */
 @media (hover: none) {
   .msg-actions { display: none; }
+}
+
+/* A bubble whose words are being selected (ChatFeed, Select text): the phone's own selection works in it, and a faint
+   outline says so until a tap elsewhere ends it */
+.bubble-selectable {
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
+  outline: 2px solid color-mix(in srgb, var(--fill-blue) 40%, transparent);
+  outline-offset: 3px;
+}
+.bubble-selectable * {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 /* The item a tapped quote went to (ChatFeed): a blue wash that fades */

@@ -20,7 +20,6 @@ import { quoteOf, size } from "@amuse/core";
 import { useFiles } from "../files.ts";
 import type { Actions } from "../ui.ts";
 import { useT } from "../i18n/react.ts";
-import { Sheet } from "./Sheet";
 import { useLongPress } from "../longPress.ts";
 import { quoteLine } from "../reply.ts";
 import { thinking, time } from "../view.ts";
@@ -96,6 +95,7 @@ function EntityView({
   actions,
   onMenu,
   reveal,
+  selecting,
   sending,
 }: {
   entity: Entity;
@@ -105,6 +105,8 @@ function EntityView({
   onMenu: (menu: Menu) => void;
   /** scroll to an item and mark it (a quote was tapped) */
   reveal: (id: string) => void;
+  /** its words are selectable in the bubble (Select text) */
+  selecting: boolean;
   /** a message of the user's still on its way */
   sending: boolean;
 }) {
@@ -118,6 +120,7 @@ function EntityView({
           onMenu={onMenu}
           actions={actions}
           reveal={reveal}
+          selecting={selecting}
           sending={sending}
         />
       );
@@ -191,7 +194,7 @@ function Replyable({
 }) {
   const quote = quoteOf(entity);
   const { handlers } = useLongPress((point, item) => {
-    if (quote) onMenu({ text: quote.text, quote, mine: false, words: null, opened: Date.now(), point, item });
+    if (quote) onMenu({ text: quote.text, quote, mine: false, select: null, opened: Date.now(), point, item });
   });
   return (
     // the cards inside are `w-full` up to --amuse-width themselves: the cap is here once, not on both (a percentage of a percentage)
@@ -272,8 +275,8 @@ type Menu = {
   quote: Quote | null;
   /** the user's own bubble (on the right) */
   mine: boolean;
-  /** a message's words, to read and select in a sheet (the phone's own selection, which the press took over); null for a card */
-  words: { text: string; markdown: boolean } | null;
+  /** the message whose words can be selected in its bubble (the phone's own selection, which the press took over); null for a card */
+  select: string | null;
   /** when it opened (ms): the tap that ends the long press is not a tap outside it (the browser may send one) */
   opened: number;
   point: { x: number; y: number };
@@ -297,14 +300,14 @@ function MessageMenu({
   menu: Menu | null;
   onClose: () => void;
   onReply: (quote: Quote) => void;
-  onSelect: (words: { text: string; markdown: boolean }) => void;
+  onSelect: (id: string) => void;
 }) {
   const t = useT();
   const card = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(0);
   useLayoutEffect(() => setHeight(card.current?.offsetHeight ?? 0), [menu]);
   if (!menu) return null;
-  const { text, quote, mine, words, point, item } = menu;
+  const { text, quote, mine, select, point, item } = menu;
   // over the item, not on its selected words: above it, else below it, from the side of whoever said it;
   // an item too tall for either has it where the finger was
   const rect = item.getBoundingClientRect();
@@ -369,12 +372,12 @@ function MessageMenu({
             <Copy size={18} /> {t.chat.copy}
           </button>
         )}
-        {words && (
+        {select && (
           <button
             role="menuitem"
             className={row}
             style={{ color: "var(--text-primary)" }}
-            onClick={act(() => onSelect(words))}
+            onClick={act(() => onSelect(select))}
           >
             <TextCursor size={18} /> {t.chat.selectText}
           </button>
@@ -542,6 +545,7 @@ function Bubble({
   onMenu,
   actions,
   reveal,
+  selecting,
   sending,
 }: {
   item: Message;
@@ -549,6 +553,7 @@ function Bubble({
   onMenu: (menu: Menu) => void;
   actions: Actions;
   reveal: (id: string) => void;
+  selecting: boolean;
   sending: boolean;
 }) {
   const t = useT();
@@ -556,10 +561,19 @@ function Bubble({
   const bubble = useRef<HTMLDivElement>(null);
   /** what a reply to this starts from; none for a message the server does not have yet */
   const quote = sending ? null : quoteOf(item);
-  const words = () => (item.text.trim() === "" ? null : { text: item.text, markdown: !isUser });
+  // entering selection mode selects the whole text at once, so the phone shows its handles and its copy menu
+  useEffect(() => {
+    const words = selecting ? bubble.current?.querySelector("[data-words]") : null;
+    if (!words) return;
+    const range = document.createRange();
+    range.selectNodeContents(words);
+    getSelection()?.removeAllRanges();
+    getSelection()?.addRange(range);
+  }, [selecting]);
+  const select = item.text.trim() === "" ? null : item.id;
   // a long press on a message opens the menu: Reply and Copy (words already selected by the phone are the phone's)
   const press = useLongPress((point, el) => {
-    onMenu({ text: item.text, quote, mine: isUser, words: words(), opened: Date.now(), point, item: el });
+    onMenu({ text: item.text, quote, mine: isUser, select, opened: Date.now(), point, item: el });
   });
   const { attachments } = item;
   return (
@@ -575,12 +589,13 @@ function Bubble({
       {(item.text !== "" || attachments.length === 0) && (
         <div
           ref={bubble}
-          {...press.handlers}
+          // in selection mode the press is the phone's own, and the bubble says so
+          {...(selecting ? { "data-selecting": "" } : press.handlers)}
           // 16px text on 22px lines; 12px above and below (15px to the eye, with the leading) to 20px at the sides, 4:3;
           // a line is 46px high, a pill with the 22px corners
           // a long run with no space (a web address) breaks where it must, inside the bubble
           // both fit their words: the user's to a share of the column, Amuse's to the width its cards share (--amuse-width)
-          className={`msg relative px-5 py-3 text-[16px] leading-[22px] [overflow-wrap:anywhere] w-fit ${isUser ? "max-w-[88%] sm:max-w-[78%]" : "max-w-(--amuse-width)"}`}
+          className={`msg relative ${selecting ? "bubble-selectable" : ""} px-5 py-3 text-[16px] leading-[22px] [overflow-wrap:anywhere] w-fit ${isUser ? "max-w-[88%] sm:max-w-[78%]" : "max-w-(--amuse-width)"}`}
           style={{
             ...corners(isUser ? "user" : "muse", place),
             background: isUser
@@ -676,9 +691,24 @@ export function ChatFeed({
   const total = conversation.earlier + conversation.entities.length;
   /** the item whose menu is open (touch: a long press on a message or card) */
   const [menu, setMenu] = useState<Menu | null>(null);
-  /** a message's words open in a sheet to select from (it stays mounted while the sheet closes) */
-  const [reading, setReading] = useState<{ text: string; markdown: boolean } | null>(null);
-  const [readingOpen, setReadingOpen] = useState(false);
+  /** the message whose words are selectable in its bubble (Select text), until a tap elsewhere or a scroll takes it away */
+  const [selecting, setSelecting] = useState<string | null>(null);
+  const leaveSelecting = () => {
+    setSelecting(null);
+    if (getSelection()?.anchorNode && scrollRef.current?.contains(getSelection()?.anchorNode ?? null)) getSelection()?.removeAllRanges();
+  };
+  const openMenu = (next: Menu) => {
+    setSelecting(null);
+    setMenu(next);
+  };
+  useEffect(() => {
+    if (selecting === null) return;
+    const away = (e: PointerEvent) => {
+      if (!(e.target instanceof Element && e.target.closest("[data-selecting]"))) leaveSelecting();
+    };
+    document.addEventListener("pointerdown", away, true);
+    return () => document.removeEventListener("pointerdown", away, true);
+  }, [selecting]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -791,6 +821,12 @@ export function ChatFeed({
     const el = scrollRef.current;
     if (!el) return;
     fetchOlder();
+    // the bubble being selected has scrolled out of view
+    if (selecting !== null) {
+      const own = el.querySelector(`[data-entity="${CSS.escape(selecting)}"]`)?.getBoundingClientRect();
+      const view = el.getBoundingClientRect();
+      if (!own || own.bottom < view.top || own.top > view.bottom) leaveSelecting();
+    }
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
     const near = distance < 80;
     setFar(distance > JUMP_BUTTON_DISTANCE);
@@ -902,7 +938,8 @@ export function ChatFeed({
                 }}
                 thumb={thumb}
                 actions={actions}
-                onMenu={setMenu}
+                onMenu={openMenu}
+                selecting={selecting === entity.id}
                 reveal={reveal}
                 sending={sending.has(entity.id)}
               />
@@ -964,23 +1001,8 @@ export function ChatFeed({
         menu={menu}
         onClose={() => setMenu(null)}
         onReply={actions.reply}
-        onSelect={(words) => {
-          setReading(words);
-          setReadingOpen(true);
-        }}
+        onSelect={setSelecting}
       />
-      <Sheet open={readingOpen} onClose={() => setReadingOpen(false)} wide>
-        <div
-          className="overflow-y-auto px-6 pb-8 pt-14 text-[16px] leading-[24px] [overflow-wrap:anywhere] select-text"
-          style={{ color: "var(--text-primary)" }}
-        >
-          {reading?.markdown ? (
-            <RichText text={reading.text} />
-          ) : (
-            <span className="whitespace-pre-wrap">{reading?.text}</span>
-          )}
-        </div>
-      </Sheet>
     </div>
   );
 }
