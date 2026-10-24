@@ -428,8 +428,8 @@ function Bubble({
           // 16px text on 22px lines; 12px above and below (15px to the eye, with the leading) to 20px at the sides, 4:3;
           // a line is 46px high, a pill with the 22px corners
           // a long run with no space (a web address) breaks where it must, inside the bubble
-          // the user's fits its words, to a share of the column; Amuse's takes the whole column, as its cards do
-          className={`msg relative px-5 py-3 text-[16px] leading-[22px] [overflow-wrap:anywhere] ${isUser ? "w-fit max-w-[88%] sm:max-w-[78%]" : "w-full"}`}
+          // the user's fits its words, to a share of the column; Amuse's fits them too, up to the whole column
+          className={`msg relative px-5 py-3 text-[16px] leading-[22px] [overflow-wrap:anywhere] ${isUser ? "w-fit max-w-[88%] sm:max-w-[78%]" : "w-fit max-w-full"}`}
           style={{
             ...corners(isUser ? "user" : "muse", place),
             background: isUser

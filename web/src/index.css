@@ -327,9 +327,12 @@
     padding-left: 0;
     padding-right: 8px;
   }
-  /* Amuse's bubble fills the column: with no margin beside it to hold the strip, it sits in the
-     bubble's lower corner instead (and the feed does not scroll sideways) */
+  /* Amuse's bubble can fill the column: with no margin beside it to hold the strip, it sits in the
+     bubble's lower corner instead (and the feed does not scroll sideways), in room the bubble keeps for it */
   @media (max-width: 1299px) {
+    .msg:has(.msg-actions-wide) {
+      padding-right: 44px;
+    }
     .msg-actions-wide {
       top: auto;
       bottom: 4px;
