@@ -53,7 +53,7 @@ export async function saveBrowserShot(files: Workspace | undefined, browsers: Br
   const view = await browsers.look(task).catch(() => null);
   if (!view) return say(`There is no browser open for ${task}.`);
   const png = await browsers.screenshot(task).catch(() => null);
-  const path = await keepPicture(files, "screenshots", view.title, png, at);
+  const path = await keepPicture(files, view.title, png, at);
   if (!path) return say(`Could not save a picture of ${view.url}${files ? "" : ": no files are kept here"}.`);
   return say(`Saved a picture of ${view.url} as ${path}. Send it to the user with \`send_file\`.`);
 }

@@ -1,7 +1,7 @@
 /**
  * Files kept in the workspace for the user, apart from what the agent writes for itself: what a page
- * downloaded (downloads/), a picture of a page (screenshots/), and an image a page showed (images/).
- * Each is named so the user can read it, and none is ever written over something that is there.
+ * downloaded (downloads/), and a picture of a page (screenshots/). Each is named so the user can read
+ * it, and none is ever written over something that is there.
  */
 import type { Workspace } from "@amuse/core";
 import { extname } from "node:path";
@@ -41,16 +41,10 @@ export function pictureName(title: string, at: Date): string {
 }
 
 /** Keep `png` as a picture of `title`; its path, or null when there is nowhere to keep it or it could not be written. */
-export async function keepPicture(
-  files: Workspace | undefined,
-  folder: "screenshots" | "images",
-  title: string,
-  png: Uint8Array | null,
-  at: Date,
-): Promise<string | null> {
+export async function keepPicture(files: Workspace | undefined, title: string, png: Uint8Array | null, at: Date): Promise<string | null> {
   if (!files || !png) return null;
   try {
-    const path = await freePath(files, folder, pictureName(title, at));
+    const path = await freePath(files, "screenshots", pictureName(title, at));
     await files.write(path, png, false);
     return path;
   } catch {

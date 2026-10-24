@@ -38,7 +38,7 @@ To put a file into a file input, use upload_file with one of the files you were 
 When the task is done, or cannot be done, call finish with a short result in the user's language.
 Tell Amuse about a real milestone with tell_main (you are signed in, a module is done, something blocks you): one short line, sparingly, not for every step; it reaches the user's assistant, which passes on what the user needs.
 When the user asked to see something, or what you have is proof worth keeping (a confirmation, a score, a certificate, a plan), save it with \`screenshot\` (the page, or one element by its ref) and say where the file is in your result; not for every step.
-To keep an image a page shows, use \`save_image\` with its ref: never hunt for the site's download button for it. What the page shows is kept as a picture, at the size it shows it.
+To keep an image a page shows (a gallery, a photo, a floor plan), \`screenshot\` that element with its ref: never hunt for the site's download button. What is kept is the picture as the page shows it, at the size it shows it.
 Give every tool call a short \`status\` in the user's language (e.g. "Opening the login page", "Filling in the search box"); the user sees it while the step runs.`;
 
 /** How many steps a run takes in one stretch before it pauses and reports to Amuse (budget.ts). */
@@ -257,7 +257,7 @@ export interface Frame {
  * is the page's own move), and nothing leaves the machine, so no approval is asked for it — unlike a download
  * the site itself makes (keepDownloads).
  */
-export async function keepPictureOf(run: Frame, ref: string | null, note: string | undefined, folder: "screenshots" | "images", at = new Date()): Promise<Text> {
+export async function keepPictureOf(run: Frame, ref: string | null, note: string | undefined, at = new Date()): Promise<Text> {
   const { workspace, browsers, browser } = run;
   const of = note?.trim() || (ref ? "that element" : "the page");
   let png: Uint8Array | null;
@@ -269,14 +269,9 @@ export async function keepPictureOf(run: Frame, ref: string | null, note: string
     return text(`Could not take a picture: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`);
   }
   if (!png) return text(`Nothing of ${of} is on the visible page. Scroll to it, look at the page again, and take it once more.`);
-  const path = await keepPicture(workspace, folder, note?.trim() || browser.title, png, at);
+  const path = await keepPicture(workspace, note?.trim() || browser.title, png, at);
   if (!path) return text("Could not keep the picture: no files are kept here.");
-  // what is kept of an image is what the page shows: the controller offers no way to run a script in the page, so its own file is out of reach
-  const kept =
-    folder === "images"
-      ? `Kept a picture of ${of} as ${path}: this browser cannot fetch the file itself, so it is what the page shows, at the size it shows it.`
-      : `Saved a picture of ${of} as ${path}.`;
-  return text(`${kept} Mention it in your result, or with tell_main, so Amuse can send it to the user.`);
+  return text(`Saved a picture of ${of} as ${path}. Mention it in your result, or with tell_main, so Amuse can send it to the user.`);
 }
 
 function runTools(run: Run): ToolDefinition[] {
@@ -383,9 +378,9 @@ function runTools(run: Run): ToolDefinition[] {
   };
   const unsaid = () => text("A consequential step needs `what` and `why` for the user's approval card, in their words. Call again with both.");
   /** A picture is not a step (nothing in the browser changes), but the page may be scrolled to what is in it: not while the user has the browser. */
-  const picture = async (ref: string | null, note: string | undefined, folder: "screenshots" | "images") => {
+  const picture = async (ref: string | null, note: string | undefined) => {
     if (run.held && (await untilStopped(run, run.held.promise)) === "stopped") return stoppedText();
-    return keepPictureOf(run, ref, note, folder);
+    return keepPictureOf(run, ref, note);
   };
 
   return [
@@ -506,28 +501,14 @@ function runTools(run: Run): ToolDefinition[] {
       name: "screenshot",
       label: "Save a picture of the page",
       description:
-        "Save a picture of the page as it is now as a PNG in the workspace (screenshots/), and get its path. Use it when the user asked to see something, or for proof (a confirmation, a score, a certificate) — not routinely. With `ref`, exactly that element (a table, a chart, a certificate panel) instead of the whole page. Tell Amuse where the file is, in your result or with tell_main. Nothing in the browser changes.",
+        "Save a picture of the page as it is now as a PNG in the workspace (screenshots/), and get its path. Use it when the user asked to see something, or for proof (a confirmation, a score, a certificate) — not routinely. With `ref`, exactly that element instead of the whole page: a table, a chart, a certificate panel, or an image a page shows (a gallery, a photo, a floor plan), kept as the page shows it — never hunt for the site's download button for one. Tell Amuse where the file is, in your result or with tell_main. Nothing in the browser changes.",
       parameters: Type.Object({
         status,
         ref: Type.Optional(Type.String({ description: "The ref of one element to picture instead of the whole page, e.g. e12" })),
-        note: Type.Optional(Type.String({ description: "One short line, in the user's language, saying what the picture is of (e.g. 'the confirmation page')" })),
+        note: Type.Optional(Type.String({ description: "One short line, in the user's language, saying what the picture is of (e.g. 'the confirmation page', 'floor plan 3')" })),
       }),
       async execute(_, { ref, note }) {
-        return picture(ref ?? null, note, "screenshots");
-      },
-    }),
-    defineTool({
-      name: "save_image",
-      label: "Keep an image from the page",
-      description:
-        "Keep an image a page shows (a gallery, a photo, a floor plan, a chart) as a file in the workspace (images/), and get its path: tell Amuse where it is, in your result or with tell_main. Use it for an image, instead of hunting for a download button. What is kept is the picture as the page shows it, at the size it shows it.",
-      parameters: Type.Object({
-        status,
-        ref: Type.String({ description: "The ref of the image, e.g. e12" }),
-        note: Type.Optional(Type.String({ description: "One short line, in the user's language, saying which image it is (e.g. 'floor plan 3')" })),
-      }),
-      async execute(_, { ref, note }) {
-        return picture(ref, note, "images");
+        return picture(ref ?? null, note);
       },
     }),
     defineTool({
@@ -579,7 +560,6 @@ function runTools(run: Run): ToolDefinition[] {
 const browserLabels: Record<string, string> = {
   observe: "Looking at the page",
   screenshot: "Saving a picture",
-  save_image: "Keeping an image",
   click: "Clicking",
   type: "Filling form",
   press: "Pressing a key",

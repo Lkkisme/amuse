@@ -81,20 +81,20 @@ test("a picture of the page is saved under screenshots/ with its path, never ove
 
 test("the browser agent is told where its picture is, so it can pass it on; a ref it cannot picture is refused", async () => {
   const { files, kept } = keeping();
-  const said = await keepPictureOf(run(files, png), null, "the confirmation page", "screenshots", at);
+  const said = await keepPictureOf(run(files, png), null, "the confirmation page", at);
   assert.equal(
     told(said),
     "Saved a picture of the confirmation page as screenshots/the-confirmation-page-20261021-080000.png. Mention it in your result, or with tell_main, so Amuse can send it to the user.",
   );
   assert.deepEqual(kept["screenshots/the-confirmation-page-20261021-080000.png"], png);
   // an element, by a ref of the run's own page
-  const element = await keepPictureOf(run(files, png), "e3", undefined, "screenshots", at);
+  const element = await keepPictureOf(run(files, png), "e3", undefined, at);
   assert.match(told(element), /^Saved a picture of that element as screenshots\/shape-training-20261021-080000\.png/);
   // a ref the look never gave: nothing is written, and the agent is told to look again
-  const stale = await keepPictureOf(run(files, null, new StaleRef("e9")), "e9", undefined, "screenshots", at);
+  const stale = await keepPictureOf(run(files, null, new StaleRef("e9")), "e9", undefined, at);
   assert.match(told(stale), /^That ref is not on the page any more\. Look at the page again/);
   // nothing of it on the visible page (the browser gave no picture): scroll to it and look again
-  const off = await keepPictureOf(run(files, null), "e3", undefined, "screenshots", at);
+  const off = await keepPictureOf(run(files, null), "e3", undefined, at);
   assert.match(told(off), /^Nothing of that element is on the visible page\. Scroll to it, look at the page again/);
   assert.deepEqual(Object.keys(kept).sort(), [
     "screenshots/shape-training-20261021-080000.png",
@@ -102,14 +102,16 @@ test("the browser agent is told where its picture is, so it can pass it on; a re
   ]);
 });
 
-test("an image a page shows is kept under images/, with what the page shows said plainly", async () => {
+test("an image a page shows is kept by picturing that element, as the page shows it", async () => {
   const { files, kept } = keeping();
-  const said = await keepPictureOf(run(files, png), "e7", "floor plan 3", "images", at);
-  assert.match(told(said), /^Kept a picture of floor plan 3 as images\/floor-plan-3-20261021-080000\.png: this browser cannot fetch the file itself/);
-  assert.match(told(said), /Mention it in your result, or with tell_main/);
-  assert.deepEqual(kept["images/floor-plan-3-20261021-080000.png"], png);
+  const said = await keepPictureOf(run(files, png), "e7", "floor plan 3", at);
+  assert.equal(
+    told(said),
+    "Saved a picture of floor plan 3 as screenshots/floor-plan-3-20261021-080000.png. Mention it in your result, or with tell_main, so Amuse can send it to the user.",
+  );
+  assert.deepEqual(kept["screenshots/floor-plan-3-20261021-080000.png"], png);
   // nowhere to keep it (no workspace): said so, and nothing is invented
-  assert.match(told(await keepPictureOf(run(undefined, png), "e7", undefined, "images", at)), /^Could not keep the picture: no files are kept here\.$/);
+  assert.match(told(await keepPictureOf(run(undefined, png), "e7", undefined, at)), /^Could not keep the picture: no files are kept here\.$/);
 });
 
 test("a picture is named after what it is of and when it was taken", () => {

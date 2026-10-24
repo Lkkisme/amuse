@@ -66,7 +66,7 @@ export function workspaceTools(io: () => AgentIO, files: Workspace, { send = tru
       name: "list_files",
       label: "Look through your files",
       description:
-        "List a folder of your workspace (\"\" for the top): user/ has what the user sent (pictures and videos in user/media_library/), downloads/ what the browser downloaded, screenshots/ the pictures of pages you and the browser tasks saved, images/ the images kept from pages; the rest is yours to organize.",
+        "List a folder of your workspace (\"\" for the top): user/ has what the user sent (pictures and videos in user/media_library/), downloads/ what the browser downloaded, screenshots/ the pictures of pages you and the browser tasks saved; the rest is yours to organize.",
       parameters: Type.Object({ status, folder: Type.Optional(Type.String()) }),
       async execute(_, { folder }) {
         try {
