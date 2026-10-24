@@ -35,7 +35,7 @@ import {
   TaskCard,
 } from "./cards";
 import { RichText, linked } from "./markdown";
-import { type Place, type Side, bottomRound, concentric, corners } from "./shape.ts";
+import { BUBBLE, BUBBLE_PAD, type Place, type Side, bottomRound, concentric, corners } from "./shape.ts";
 
 type Message = Prompt | Reply;
 type Thumb = ((id: string) => string) | null;
@@ -604,13 +604,13 @@ function Bubble({
           ref={bubble}
           // in selection mode the press is the phone's own, and the bubble says so
           {...(selecting ? { "data-selecting": "" } : press.handlers)}
-          // 16px text on 22px lines, 14px of padding on every side (so a box inside, 14px from the bubble's edges, has the
-          // corner 22 - 14 = 8px, concentric); a line is 50px high, a pill with the 22px corners
+          // 16px text on 22px lines, 12px of padding on every side: a line is 46px high, a full pill with BUBBLE's 23px
+          // corners, and a box inside, 12px from the bubble's edges, has the corner 23 - 12 = 11px, concentric
           // a long run with no space (a web address) breaks where it must, inside the bubble
           // both fit their words: the user's to a share of the column, Amuse's to the width its cards share (--amuse-width)
-          className={`msg relative ${selecting ? "bubble-selectable" : ""} p-3.5 text-[16px] leading-[22px] [overflow-wrap:anywhere] ${isUser ? "w-fit max-w-[88%] sm:max-w-[78%]" : `max-w-(--amuse-width) ${item.suggestions.length > 0 ? "w-full" : "w-fit"}`}`}
+          className={`msg relative ${selecting ? "bubble-selectable" : ""} p-3 text-[16px] leading-[22px] [overflow-wrap:anywhere] ${isUser ? "w-fit max-w-[88%] sm:max-w-[78%]" : `max-w-(--amuse-width) ${item.suggestions.length > 0 ? "w-full" : "w-fit"}`}`}
           style={{
-            ...corners(isUser ? "user" : "muse", place),
+            ...corners(isUser ? "user" : "muse", place, BUBBLE),
             background: isUser
               ? "var(--chat-user-bubble)"
               : "var(--fill-secondary)",
@@ -657,8 +657,8 @@ function Bubble({
 function Suggestions({ reply, closed, place, actions }: { reply: Reply; closed: boolean; place: Place; actions: Actions }) {
   const t = useT();
   const done = reply.chosen !== null;
-  // the bubble's 14px (p-3.5) padding is the boxes' inset at the sides and the bottom: their radius is the corner's minus it
-  const round = concentric(bottomRound(place), 14);
+  // the bubble's 12px (p-3) padding is the boxes' inset at the sides and the bottom: their radius is the corner's minus it
+  const round = concentric(bottomRound(place, BUBBLE), BUBBLE_PAD);
   return (
     <div role="group" aria-label={t.chat.suggestedReplies} className="mt-3 flex flex-col gap-2">
       {reply.suggestions.map((text, index) => {
