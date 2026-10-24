@@ -421,10 +421,10 @@ export function Composer({ conversation, replying, place, actions }: { conversat
                 aria-disabled={!secure}
                 title={secure ? undefined : t.chat.voiceNeedsHttps}
                 className={`flex size-9 shrink-0 items-center justify-center rounded-full ${secure ? "hover-fade" : "opacity-40"}`}
-                style={{ color: "var(--icon-secondary)" }}
+                style={{ color: "var(--icon-primary)" }}
                 onClick={() => void listen()}
               >
-                <Mic size={19} />
+                <Mic size={20} />
               </button>
             )}
             {trailing && (
