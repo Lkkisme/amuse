@@ -148,6 +148,8 @@ interface Run {
   url: string;
   /** set when the run's page had gone and another was taken up (or opened): what to tell the agent, once */
   note: string | null;
+  /** set when the browser itself was found gone: its session is not asked anything again */
+  lost: boolean;
   /** ref → controller id, for the latest look only */
   current: Map<string, string>;
   /** ref → where it is on the page, for the latest look only (what a picture of one element is cut from) */
@@ -214,7 +216,7 @@ export function browserPool(
   /** Take a node for a run adopted again: it is not free any more. */
   const adopt = (id: string, node: Node, session: string) => {
     free.splice(free.indexOf(node), 1);
-    runs.set(id, { node, session, url: "", note: null, current: new Map(), boxes: new Map(), refs: new Map(), taken: new Set(), forgotten: new Set() });
+    runs.set(id, { node, session, url: "", note: null, lost: false, current: new Map(), boxes: new Map(), refs: new Map(), taken: new Set(), forgotten: new Set() });
   };
   /** Where each of the page's elements is now, by ref: what a picture of one element is cut from. */
   const boxesOf = (r: Run, o: Observation): Map<string, Box> => {
@@ -270,29 +272,45 @@ export function browserPool(
     return r.boxes.get(ref) ?? null;
   };
   /**
+   * The run's browser is gone (its page and the browser with it, or a browser nothing can be opened in again): the run
+   * is marked lost, so nothing asks its session anything again.
+   */
+  const gone = (r: Run): BrowserLost => {
+    r.lost = true;
+    return new BrowserLost("Its browser is gone: the page was closed, or the browser with it.");
+  };
+  /**
    * The run's page had gone (the user closed its tab, a reload replaced it, it crashed): take up the session's most
    * recent page, or open a fresh one in the same browser (its cookies and the sign-in stay) at the last URL the run
    * was on. False when the page is still there, so the failure was something else. Throws BrowserLost when the
-   * browser itself is gone.
+   * browser itself is gone: nothing can be taken up in it, and it is not asked again.
    */
   const recover = async (r: Run): Promise<boolean> => {
     const pages = await r.node.controller.pages(r.session).catch(() => {
-      throw new BrowserLost("Its browser is gone: the page was closed, or the browser with it.");
+      throw gone(r);
     });
     if (pages.some((page) => page.active)) return false;
     const last = pages.at(-1);
     if (last) {
-      await r.node.controller.activatePage(r.session, last.index);
+      await r.node.controller.activatePage(r.session, last.index).catch(() => {
+        throw gone(r);
+      });
       r.note = `The page this task was on was closed; it is on another page of the same browser now (${last.url}).`;
     } else {
       const url = /^https?:/.test(r.url) ? r.url : null;
-      await r.node.controller.openPage(r.session, url);
+      await r.node.controller.openPage(r.session, url).catch(() => {
+        throw gone(r);
+      });
       r.note = url ? `The page this task was on was closed; a new one is open at ${url}.` : "The page this task was on was closed; a new one is open.";
     }
     return true;
   };
-  /** A call on the run's page, with the recovery above: a page that is gone is taken up again, and the call is made once more. */
+  /**
+   * A call on the run's page, with the recovery above: a page that is gone is taken up again, and the call is made once
+   * more. A run whose browser was found gone is not called at all: the task ends, and the preview poller with it.
+   */
   const onPage = async <T>(r: Run, call: () => Promise<T>): Promise<T> => {
+    if (r.lost) throw gone(r);
     try {
       return await call();
     } catch (error) {
@@ -380,6 +398,7 @@ export function browserPool(
           session,
           url,
           note: null,
+          lost: false,
           current: new Map(),
           boxes: new Map(),
           refs: new Map(),

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type AgentIO, type Workspace, WorkspaceError, memoryRules, noWorkspace } from "@amuse/core";
-import type { Browsers } from "@amuse/browser";
+import { BrowserLost, ControllerError, browserPool, type Browsers, type Controller } from "@amuse/browser";
 import { Browser } from "@amuse/protocol";
 import { ended, failedTask, lostBrowser, needsTheUser, pauseTimedOut, pausedAtBudget, piBrowserAgent, startedTask, stoppedByUser } from "./browser-agent.ts";
 import { freePath } from "./kept-files.ts";
@@ -200,6 +200,71 @@ test("a browser the pool says is gone ends the task as a failure, and the chat h
   assert.equal(told.content[0]?.text, `${why} The task has ended.`);
   // a run with no way to end (a browser already let go) says nothing more
   assert.equal(lostBrowser({ lost: null }, why).content[0]?.text, `${why} The task has ended.`);
+});
+
+/**
+ * A browser whose Chromium is gone while the controller still has its session (its node restarted): the session's page
+ * list comes back empty, and nothing can be opened in it. Every call it makes is counted in `log`.
+ */
+function chromiumGone(log: string[]): Controller {
+  const closed = () => new ControllerError("POST /sessions/s1/tabs/open failed (500): BrowserContext.new_page: Browser closed", 500);
+  return {
+    create: async () => "s1",
+    observe: async () => {
+      throw new ControllerError("POST /sessions/s1/observe failed (500): Target page, context or browser has been closed", 500);
+    },
+    act: async () => {
+      throw closed();
+    },
+    screenshot: async () => {
+      log.push("screenshot");
+      throw closed();
+    },
+    saveProfile: async () => {},
+    profileSites: async () => [],
+    forgetProfileSite: async () => {},
+    clearSessionSite: async () => {},
+    delete: async () => {},
+    live: async () => ["s1"],
+    downloads: async () => [],
+    artifact: async () => new Uint8Array(),
+    pages: async () => {
+      log.push("pages");
+      return [];
+    },
+    activatePage: async () => {
+      log.push("activate");
+      throw closed();
+    },
+    openPage: async () => {
+      log.push("open");
+      throw closed();
+    },
+  };
+}
+
+test("a browser whose Chromium is gone is lost once: the task ends, and neither the preview nor the agent calls it again", async () => {
+  const log: string[] = [];
+  const browsers = browserPool([{ name: "n1", controller: chromiumGone(log), vnc: "ws://n1/websockify" }], { desktop: async () => {} });
+  await browsers.open("b-1", "https://a.example/");
+  // the card's preview polls the run's page: the page is closed, the browser has none left, and opening one fails
+  assert.equal(await browsers.screenshot("b-1"), null, "a preview that cannot be had is no error");
+  assert.deepEqual(log.filter((line) => line === "pages"), ["pages"], "the session's pages are asked once");
+  assert.deepEqual(log.filter((line) => line === "open"), ["open"], "a page is opened once, and never tried again");
+  // the agent's look ends the run through the failure path, which wakes the chat once
+  const said: string[] = [];
+  const run = { lost: (note: string) => void said.push(note) };
+  const ended = await browsers.look("b-1").then(
+    () => null,
+    (error: unknown) => (error instanceof BrowserLost ? lostBrowser(run, error.message) : null),
+  );
+  assert.ok(ended, "the run is lost, not answered as an ordinary failure");
+  assert.deepEqual(said, ["Its browser is gone: the page was closed, or the browser with it."], "the task ends once, as a failure");
+  // the run is remembered as lost: what is left of the preview, and the agent, reach nothing
+  const asked = [...log];
+  assert.equal(await browsers.screenshot("b-1"), null);
+  await assert.rejects(browsers.look("b-1"), BrowserLost);
+  assert.deepEqual(log, asked, "the dead session is not called again");
 });
 
 test("the user stopping a browser task, or closing its browser, is one note that does not wake the chat", () => {
