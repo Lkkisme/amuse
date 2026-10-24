@@ -15,6 +15,10 @@ export class ControllerError extends Error {
 
 const Session = z.object({ id: z.string().regex(/^[\w-]+$/), status: z.string(), live: z.boolean() });
 
+/** Where an element is on the page, in the page's own pixels (a picture of it is cut from the page's screenshot). */
+export const Box = z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() });
+export type Box = z.infer<typeof Box>;
+
 export const Element = z.object({
   element_id: z.string(),
   tag: z.string().nullable().default(null),
@@ -24,6 +28,7 @@ export const Element = z.object({
   href: z.string().nullable().default(null),
   disabled: z.boolean().nullable().default(null),
   checked: z.boolean().nullable().default(null),
+  bbox: Box.nullable().default(null),
 });
 export type Element = z.infer<typeof Element>;
 

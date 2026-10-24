@@ -303,7 +303,8 @@ export class WorkspaceError extends Error {}
 /**
  * Muse's workspace: a folder of real files that Muse and the user share.
  * What the user sends lands in user/ (pictures and videos in
- * user/media_library/), the browser's downloads in downloads/, and the rest
+ * user/media_library/), the browser's downloads in downloads/, pictures of
+ * pages in screenshots/, images kept from pages in images/, and the rest
  * is Muse's own. Paths are relative to the workspace and never leave it.
  * A file sent in the chat is an attachment: an id the chat keeps, pointing
  * at the file where it is now (nowhere, once deleted).

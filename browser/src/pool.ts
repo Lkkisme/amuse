@@ -10,12 +10,14 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import {
+  type Box,
   type Controller,
   ControllerError,
   type Element,
   type Observation,
 } from "./controller.ts";
 import { type Size, fitted, resize, standard } from "./desktop.ts";
+import { cropPng, pngSize } from "./png.ts";
 
 export interface Node {
   name: string;
@@ -93,7 +95,13 @@ export interface Browsers {
   ): Promise<void>;
   look(run: string): Promise<PageView>;
   step(run: string, step: Step): Promise<void>;
-  screenshot(run: string): Promise<Uint8Array | null>;
+  /**
+   * A picture of the run's page, or — with `ref`, a ref the run's latest look gave — of exactly that
+   * element: the page's screenshot cut to the element's box. An element off the visible page is
+   * scrolled to first (the page moves, as any step does). Null when there is no browser, no picture,
+   * or nothing of the element on it; an unknown ref is refused (StaleRef).
+   */
+  screenshot(run: string, ref?: string): Promise<Uint8Array | null>;
   /** Keep this run's logins for later runs (the user just held the browser). */
   remember(run: string): Promise<void>;
   /** The sites logins are kept for (shared by every browser), with how many cookies. */
@@ -142,6 +150,8 @@ interface Run {
   note: string | null;
   /** ref → controller id, for the latest look only */
   current: Map<string, string>;
+  /** ref → where it is on the page, for the latest look only (what a picture of one element is cut from) */
+  boxes: Map<string, Box>;
   /** controller id → ref, stable for the run so an element keeps its ref */
   refs: Map<string, string>;
   /** downloads already handed over */
@@ -204,7 +214,16 @@ export function browserPool(
   /** Take a node for a run adopted again: it is not free any more. */
   const adopt = (id: string, node: Node, session: string) => {
     free.splice(free.indexOf(node), 1);
-    runs.set(id, { node, session, url: "", note: null, current: new Map(), refs: new Map(), taken: new Set(), forgotten: new Set() });
+    runs.set(id, { node, session, url: "", note: null, current: new Map(), boxes: new Map(), refs: new Map(), taken: new Set(), forgotten: new Set() });
+  };
+  /** Where each of the page's elements is now, by ref: what a picture of one element is cut from. */
+  const boxesOf = (r: Run, o: Observation): Map<string, Box> => {
+    const boxes = new Map<string, Box>();
+    for (const e of o.interactables) {
+      const ref = r.refs.get(e.element_id);
+      if (ref && e.bbox) boxes.set(ref, e.bbox);
+    }
+    return boxes;
   };
   const viewOf = (r: Run, o: Observation): PageView => {
     r.current = new Map();
@@ -227,12 +246,28 @@ export function browserPool(
         disabled: e.disabled === true,
       };
     });
+    r.boxes = boxesOf(r, o);
     return { url: o.url, title: o.title, text: o.text_excerpt ?? "", elements, ...(note ? { note } : {}) };
   };
   const target = (r: Run, ref: string) => {
     const id = r.current.get(ref);
     if (!id) throw new StaleRef(ref);
     return id;
+  };
+  /**
+   * An element that is not on the visible page is scrolled to: the box it has then, or null when the page
+   * will not move. The scroll is the page's own (the same as the agent's scroll step), and the run looks at
+   * the page again after it, so its refs and boxes are the ones the page has now.
+   */
+  const bringIntoView = async (r: Run, ref: string, box: Box, view: number): Promise<Box | null> => {
+    const by = Math.round(box.y < 0 ? box.y : box.y + box.height - view);
+    if (by === 0) return null;
+    const moved = await onPage(r, () => r.node.controller.act(r.session, { name: "scroll", body: { delta_x: 0, delta_y: by } })).catch(() => null);
+    if (!moved) return null;
+    const seen = await onPage(r, () => r.node.controller.observe(r.session)).catch(() => null);
+    if (!seen) return null;
+    viewOf(r, seen);
+    return r.boxes.get(ref) ?? null;
   };
   /**
    * The run's page had gone (the user closed its tab, a reload replaced it, it crashed): take up the session's most
@@ -268,8 +303,15 @@ export function browserPool(
   /** Act; refs are retired when the step moved the page somewhere else. */
   const act = async (r: Run, action: Parameters<Controller["act"]>[1]) => {
     const { before, after } = await onPage(r, () => r.node.controller.act(r.session, action));
-    if (after) r.url = after.url;
-    if (after && before !== after.url) r.current = new Map();
+    if (!after) return;
+    r.url = after.url;
+    if (before !== after.url) {
+      r.current = new Map();
+      r.boxes = new Map();
+    } else {
+      // the same page: the step's own observation says where its elements are now
+      r.boxes = boxesOf(r, after);
+    }
   };
 
   return {
@@ -339,6 +381,7 @@ export function browserPool(
           url,
           note: null,
           current: new Map(),
+          boxes: new Map(),
           refs: new Map(),
           taken: new Set(),
           forgotten: new Set(),
@@ -405,11 +448,21 @@ export function browserPool(
           });
       }
     },
-    async screenshot(id) {
+    async screenshot(id, ref) {
       const r = runs.get(id);
-      return r
-        ? onPage(r, () => r.node.controller.screenshot(r.session)).catch(() => null)
-        : null;
+      if (!r) return null;
+      const png = await onPage(r, () => r.node.controller.screenshot(r.session)).catch(() => null);
+      if (!png || !ref) return png;
+      const box = r.boxes.get(ref);
+      if (!box) throw new StaleRef(ref);
+      const cut = cropPng(png, box);
+      if (cut) return cut;
+      // nothing of it is on the visible page: bring it there, and take the page as it is then
+      const view = pngSize(png);
+      const at = view && (await bringIntoView(r, ref, box, view.height));
+      if (!at) return null;
+      const again = await onPage(r, () => r.node.controller.screenshot(r.session)).catch(() => null);
+      return again && cropPng(again, at);
     },
     async remember(id) {
       const r = run(id);

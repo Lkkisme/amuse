@@ -386,7 +386,7 @@ export function agentTools(cfg: PiConfig, io: () => AgentIO, heard: () => boolea
   return [
     // with memory, memory_search looks in the chats as recall did, and in memory/ too
     ...tools(io, cfg.rules, { files: cfg.files, appsSetup: cfg.appsSetup, appsFit: cfg.appsFit }).filter((t) => !(cfg.files && t.name === "recall")),
-    ...(cfg.browsers ? browserReadTools(cfg, cfg.browsers) : []),
+    ...(cfg.browsers ? browserReadTools(cfg, cfg.browsers, cfg.files) : []),
     ...(cfg.files ? [...memoryReadTools(io, cfg.files), ...memoryWriteTools(io, cfg.files)] : []),
     ...skillTools(cfg.skills ?? [], cfg.files),
     ...(cfg.about ? aboutTools(cfg.about) : []),

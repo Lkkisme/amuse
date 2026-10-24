@@ -3,6 +3,8 @@ import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { crc32, deflateSync } from "node:zlib";
+import { pngSize } from "./png.ts";
 import {
   type Action,
   type BrowserSessions,
@@ -22,6 +24,38 @@ const sizes =
   async (vnc: string, { width, height }: Size) =>
     void log.push(`${vnc} ${width}x${height}`);
 
+/** A PNG of `width`×`height` black pixels: what the fake controller's page screenshot is (a crop is read by its size). */
+function png(width: number, height: number): Uint8Array {
+  const head = new Uint8Array(13);
+  const view = new DataView(head.buffer);
+  view.setUint32(0, width);
+  view.setUint32(4, height);
+  head[8] = 8;
+  head[9] = 2;
+  const chunk = (kind: string, body: Uint8Array) => {
+    const out = new Uint8Array(body.length + 12);
+    const at = new DataView(out.buffer);
+    at.setUint32(0, body.length);
+    for (let i = 0; i < 4; i++) out[4 + i] = kind.charCodeAt(i);
+    out.set(body, 8);
+    at.setUint32(8 + body.length, crc32(out.subarray(4, 8 + body.length)));
+    return out;
+  };
+  const parts = [
+    new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", head),
+    chunk("IDAT", new Uint8Array(deflateSync(new Uint8Array((width * 3 + 1) * height)))),
+    chunk("IEND", new Uint8Array(0)),
+  ];
+  const out = new Uint8Array(parts.reduce((total, part) => total + part.length, 0));
+  let at = 0;
+  for (const part of parts) {
+    out.set(part, at);
+    at += part.length;
+  }
+  return out;
+}
+
 /**
  * A controller over a scripted page: a link and a search box, both pages share ids. `sessions`
  * holds the sessions it has live (the same set given to a second controller is a restart), and
@@ -38,6 +72,10 @@ interface Desktop {
   restarted?: boolean;
   /** a step that fails for its own reason, with the page still there */
   refuses?: Error;
+  /** a picture below the fold, where the page has one (its y on the page, unscrolled) */
+  below?: number;
+  /** how far the page itself has been scrolled (a scroll step moves it, and the boxes with it) */
+  scrolled?: number;
 }
 
 function fakeController(log: string[] = [], sessions = new Set<string>(), desktop: Desktop = { pages: [{ url: "https://a.example/" }], active: 0 }): Controller {
@@ -55,6 +93,7 @@ function fakeController(log: string[] = [], sessions = new Set<string>(), deskto
         href: "https://b.example/",
         disabled: false,
         checked: null,
+        bbox: { x: 0, y: 0, width: 40, height: 20 },
       },
       {
         element_id: "op-box",
@@ -65,7 +104,23 @@ function fakeController(log: string[] = [], sessions = new Set<string>(), deskto
         href: null,
         disabled: false,
         checked: null,
+        bbox: { x: 10, y: 20, width: 100, height: 30 },
       },
+      ...(desktop.below === undefined
+        ? []
+        : [
+            {
+              element_id: "op-plan",
+              tag: "img",
+              role: "img",
+              label: "Floor plan",
+              type: null,
+              href: null,
+              disabled: false,
+              checked: null,
+              bbox: { x: 5, y: desktop.below - (desktop.scrolled ?? 0), width: 120, height: 80 },
+            },
+          ]),
     ],
   });
   /** What the controller answers when the session, or the browser, is not there. */
@@ -99,10 +154,11 @@ function fakeController(log: string[] = [], sessions = new Set<string>(), deskto
       log.push(`${action.name} ${JSON.stringify(action.body)}`);
       const before = current.url;
       if (action.name === "navigate") current.url = action.body.url;
+      if (action.name === "scroll") desktop.scrolled = (desktop.scrolled ?? 0) + action.body.delta_y;
       if (action.name === "click" && action.body.element_id === "op-link") current.url = "https://b.example/";
       return { before, after: page() };
     },
-    screenshot: async () => onPage(() => new Uint8Array([1, 2, 3])),
+    screenshot: async () => onPage(() => png(320, 240)),
     saveProfile: async () => void log.push("save"),
     profileSites: async () => [{ site: "facebook.com", cookies: 3 }],
     forgetProfileSite: async (_, site) => void log.push(`forget ${site}`),
@@ -165,6 +221,53 @@ test("refs come from the latest look; a page change retires them; unknown refs a
   const again = await pool.look("r1");
   assert.equal(again.elements[1]?.ref, "e2"); // the same element keeps its ref
   await pool.step("r1", { kind: "type", ref: "e2", text: "x", submit: false });
+});
+
+test("a picture of one element is the page's screenshot cut to its box; a ref no look gave is refused", async () => {
+  const pool = browserPool(
+    [{ name: "n1", controller: fakeController(), vnc: "ws://n1/websockify" }],
+    { desktop: sizes() },
+  );
+  await pool.open("r1", "https://a.example/");
+  await pool.look("r1");
+  const whole = await pool.screenshot("r1");
+  assert.ok(whole);
+  assert.deepEqual(pngSize(whole), { width: 320, height: 240 }, "with no ref, the page itself");
+  const box = await pool.screenshot("r1", "e2");
+  assert.ok(box);
+  assert.deepEqual(pngSize(box), { width: 100, height: 30 }, "with one, exactly that element's box");
+  await assert.rejects(pool.screenshot("r1", "e9"), StaleRef);
+  assert.equal(await pool.screenshot("r9"), null, "a browser that is not open has no picture");
+});
+
+test("an element below the fold is scrolled to before its picture is taken", async () => {
+  const log: string[] = [];
+  const pool = browserPool(
+    [
+      {
+        name: "n1",
+        controller: fakeController(log, new Set(), {
+          pages: [{ url: "https://a.example/" }],
+          active: 0,
+          below: 500,
+        }),
+        vnc: "ws://n1/websockify",
+      },
+    ],
+    { desktop: sizes() },
+  );
+  await pool.open("r1", "https://a.example/");
+  const view = await pool.look("r1");
+  const plan = view.elements.find((e) => e.label === "Floor plan");
+  assert.ok(plan);
+  const shot = await pool.screenshot("r1", plan.ref);
+  assert.ok(shot);
+  assert.deepEqual(pngSize(shot), { width: 120, height: 80 }, "the element's own box, after the page was scrolled to it");
+  assert.deepEqual(
+    log.filter((line) => line.startsWith("scroll")),
+    ['scroll {"delta_x":0,"delta_y":340}'],
+    "scrolled by what it took to bring it on the page",
+  );
 });
 
 test("typing nothing clears the field; submit presses Enter; navigate checks the URL", async () => {

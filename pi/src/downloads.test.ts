@@ -3,7 +3,8 @@ import { test } from "node:test";
 import { type AgentIO, type Workspace, WorkspaceError, memoryRules, noWorkspace } from "@amuse/core";
 import type { Browsers } from "@amuse/browser";
 import { Browser } from "@amuse/protocol";
-import { freePath, ended, failedTask, lostBrowser, needsTheUser, pauseTimedOut, pausedAtBudget, piBrowserAgent, startedTask, stoppedByUser } from "./browser-agent.ts";
+import { ended, failedTask, lostBrowser, needsTheUser, pauseTimedOut, pausedAtBudget, piBrowserAgent, startedTask, stoppedByUser } from "./browser-agent.ts";
+import { freePath } from "./kept-files.ts";
 
 /** A workspace where these paths are files, and these are links the workspace will not look at. */
 function holding(files: string[], links: string[]): Workspace {
