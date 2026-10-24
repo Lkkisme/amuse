@@ -20,6 +20,7 @@ import type { Actions } from "../ui.ts";
 import { busy } from "../view.ts";
 import { useFiles } from "../files.ts";
 import { useT } from "../i18n/react.ts";
+import { VoiceInput, type VoicePhase } from "../voice-input.ts";
 
 /** A file on its way: uploading, up (its attachment), or failed (why). */
 interface Pending {
@@ -69,61 +70,62 @@ export function Composer({ conversation, place, actions }: { conversation: State
   useEffect(() => () => previews.current.forEach((url) => URL.revokeObjectURL(url)), []);
 
   // the mic: recorded here, turned into text on the server (with the user's own key), put in the draft to edit
-  const [voice, setVoice] = useState<"idle" | "recording" | "transcribing">("idle");
-  const recorder = useRef<MediaRecorder | null>(null);
-  useEffect(() => () => {
-    const recording = recorder.current;
-    if (!recording) return;
-    // Leaving this chat releases its microphone without posting into another chat's draft.
-    recording.onstop = null;
-    if (recording.state !== "inactive") recording.stop();
-    recording.stream.getTracks().forEach((track) => track.stop());
-    recorder.current = null;
+  const [voice, setVoice] = useState<VoicePhase>("idle");
+  const voiceInput = useRef<VoiceInput | null>(null);
+  const voiceUi = useRef({ t, actions });
+  voiceUi.current = { t, actions };
+  useEffect(() => {
+    const input = new VoiceInput({
+      acquire: () => navigator.mediaDevices.getUserMedia({ audio: true }),
+      record: (stream) => new MediaRecorder(stream),
+      transcribe: async (audio, signal) => {
+        const { t } = voiceUi.current;
+        let response: Response;
+        try {
+          response = await fetch("/transcribe", { method: "POST", headers: { "content-type": audio.type }, body: audio, signal });
+        } catch { throw new Error(t.common.serverUnreachable); }
+        const said: unknown = await response.json().catch(() => null);
+        const field = (key: string) => (typeof said === "object" && said !== null && key in said ? String(Reflect.get(said, key)) : "");
+        if (response.ok && field("text")) return field("text");
+        throw new Error(field("reason") || (response.ok ? t.chat.nothingHeard : t.chat.notTranscribed));
+      },
+      phase: setVoice,
+      text: (text) => setDraft((draft) => (draft.trim() ? `${draft.trim()} ${text}` : text)),
+      error: (stage, error) => {
+        const { t, actions } = voiceUi.current;
+        actions.notify(stage === "permission" ? t.chat.micNotAllowed : stage === "recording" ? t.localVoice.cannotStart :
+          error instanceof Error ? error.message : t.common.serverUnreachable);
+      },
+    });
+    voiceInput.current = input;
+    const pause = () => input.pause();
+    const resume = () => { if (document.visibilityState !== "hidden") input.resume(); };
+    const visibility = () => document.visibilityState === "hidden" ? pause() : resume();
+    visibility();
+    document.addEventListener("visibilitychange", visibility);
+    window.addEventListener("pagehide", pause);
+    window.addEventListener("pageshow", resume);
+    window.addEventListener("amuse:pause", pause);
+    window.addEventListener("amuse:resume", resume);
+    return () => {
+      document.removeEventListener("visibilitychange", visibility);
+      window.removeEventListener("pagehide", pause);
+      window.removeEventListener("pageshow", resume);
+      window.removeEventListener("amuse:pause", pause);
+      window.removeEventListener("amuse:resume", resume);
+      input.dispose();
+      if (voiceInput.current === input) voiceInput.current = null;
+    };
   }, []);
   // browsers keep the mic from pages on plain http: there the mic is off, and says why
   const secure = window.isSecureContext && !!navigator.mediaDevices?.getUserMedia;
   const canRecord = typeof MediaRecorder !== "undefined";
-  const listen = async () => {
+  const listen = () => {
     if (!secure) return actions.notify(t.chat.voiceNeedsHttpsHelp);
     if (!canRecord) return actions.notify(t.localVoice.unsupported);
-    let stream: MediaStream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch {
-      return actions.notify(t.chat.micNotAllowed);
-    }
-    let recording: MediaRecorder;
-    try {
-      recording = new MediaRecorder(stream);
-    } catch {
-      stream.getTracks().forEach((track) => track.stop());
-      return actions.notify(t.localVoice.cannotStart);
-    }
-    const chunks: Blob[] = [];
-    recording.ondataavailable = (e) => chunks.push(e.data);
-    recording.onstop = () => {
-      stream.getTracks().forEach((t) => t.stop());
-      recorder.current = null;
-      setVoice("transcribing");
-      const audio = new Blob(chunks, { type: recording.mimeType || "audio/webm" });
-      fetch("/transcribe", { method: "POST", headers: { "content-type": audio.type }, body: audio })
-        .then(async (response) => {
-          const said: unknown = await response.json().catch(() => null);
-          const field = (key: string) => (typeof said === "object" && said !== null && key in said ? String(Reflect.get(said, key)) : "");
-          if (response.ok && field("text")) setDraft((d) => (d.trim() ? `${d.trim()} ${field("text")}` : field("text")));
-          else actions.notify(field("reason") || (response.ok ? t.chat.nothingHeard : t.chat.notTranscribed));
-        })
-        .catch(() => actions.notify(t.common.serverUnreachable))
-        .finally(() => setVoice("idle"));
-    };
-    recorder.current = recording;
-    recording.start();
-    setVoice("recording");
+    return voiceInput.current?.listen();
   };
-  const stopListening = () => {
-    const recording = recorder.current;
-    if (recording && recording.state !== "inactive") recording.stop();
-  };
+  const stopListening = () => voiceInput.current?.stop();
 
   const ready = pending.flatMap((p) => (p.state.kind === "ready" ? [p.state.attachment] : []));
   const uploading = pending.some((p) => p.state.kind === "uploading");
