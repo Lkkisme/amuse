@@ -4,6 +4,7 @@
  * loudly at the boundary instead of leaking `undefined` inward.
  */
 import { z } from "zod";
+import type { GivenField, KeyField } from "@amuse/protocol";
 
 export const composioBase = "https://backend.composio.dev/api/v3";
 /** Composio's docs give the toolkit, auth config and connected account endpoints used for keys under v3.1. */
@@ -52,7 +53,7 @@ const noFields = { required: [], optional: [] };
  * config and its connected account ask for. Read leniently throughout: a response that leaves a group out is not a
  * failure, and the label is `displayName` on the wire (`display_name` is read too, in case a version sends it so).
  */
-const AuthField = z.looseObject({ name: z.string(), displayName: z.string().optional(), display_name: z.string().optional() });
+const AuthField = z.looseObject({ name: z.string(), displayName: z.string().optional(), display_name: z.string().optional(), is_secret: z.boolean().optional() });
 const Fields = z.object({ required: z.array(AuthField).default([]), optional: z.array(AuthField).default([]) }).default(noFields);
 const ToolkitAuth = z.object({
   name: z.string().default(""),
@@ -174,10 +175,13 @@ export interface Toolkit {
   managedSchemes: string[];
 }
 
-/** How a toolkit is connected: Composio hosts the login (`managed`), the user brings one key (`key`), or neither works. */
+/**
+ * How a toolkit is connected: Composio hosts the login (`managed`), the user brings credentials of their own
+ * (`key`: one field, or several — Cloudflare's global key and the account email), or neither works.
+ */
 export type Access =
   | { kind: "managed"; name: string }
-  | { kind: "key"; name: string; mode: string; field: string; label: string }
+  | { kind: "key"; name: string; mode: string; fields: KeyField[] }
   | { kind: "unsupported"; name: string };
 
 /** The schemes a key or a bearer token is pasted for: one secret field, which a card can ask for. */
@@ -197,6 +201,20 @@ export const takesKey = (schemes: readonly string[]): boolean => schemes.some((s
 export const ownOAuthOnly = (schemes: readonly string[], managed: readonly string[]): boolean =>
   schemes.length > 0 && managed.length === 0 && schemes.every((scheme) => ownOAuth.has(scheme.toUpperCase()));
 
+/**
+ * One field of a key toolkit's card, as Composio describes it. A secret is one Composio marks `is_secret`, or whose
+ * name says so (`generic_api_key`, `bearer_token`, `password`): those are typed as passwords. The rest — an email, an
+ * account id, a subdomain — are plain.
+ */
+const keyFieldOf = (field: z.infer<typeof AuthField>): KeyField => ({
+  name: field.name,
+  label: field.displayName || field.display_name || field.name,
+  secret: field.is_secret === true || /key|token|secret|password/i.test(field.name),
+});
+
+/** What a key toolkit is called in a message about it: its one field's label, or none when it takes several. */
+const saidField = (fields: KeyField[]): string | null => (fields.length === 1 ? (fields[0]?.label ?? null) : null);
+
 /** Read a toolkit's auth schemes: Composio's own login wins; else a key or token that is the only thing asked for. */
 export function accessOf(toolkit: unknown): Access {
   const parsed = ToolkitAuth.parse(toolkit);
@@ -205,9 +223,10 @@ export function accessOf(toolkit: unknown): Access {
   for (const scheme of parsed.auth_config_details) {
     const mode = scheme.mode.toUpperCase();
     if (!keyed.has(mode)) continue;
-    const [field, ...more] = scheme.fields.connected_account_initiation.required;
-    if (field && more.length === 0 && scheme.fields.auth_config_creation.required.length === 0)
-      return { kind: "key", name, mode, field: field.name, label: field.displayName || field.display_name || field.name };
+    const fields = scheme.fields.connected_account_initiation.required.map(keyFieldOf);
+    // a key or a token, with whatever the account needs alongside it (an email, a subdomain): none of it is asked
+    // for when the auth config is made
+    if (fields.length > 0 && scheme.fields.auth_config_creation.required.length === 0) return { kind: "key", name, mode, fields };
   }
   return { kind: "unsupported", name };
 }
@@ -234,7 +253,7 @@ export interface Composio {
    * Connect `toolkit` with the user's own `key`. Composio holds it from here (Amuse keeps it nowhere) and checks it
    * with the provider where it can; throws CannotLink("rejected") when the provider turns it down.
    */
-  linkWithKey(toolkit: string, userId: string, key: string): Promise<void>;
+  linkWithKey(toolkit: string, userId: string, values: GivenField[]): Promise<void>;
   /** A hosted link where the user authorizes `toolkit`; the account it will create. */
   link(toolkit: string, userId: string, callbackUrl?: string): Promise<{ url: string; account: string }>;
   status(account: string): Promise<AccountStatus>;
@@ -336,23 +355,29 @@ export function composio(apiKey: string, http: typeof fetch = fetch): Composio {
 
   return {
     access: readAccess,
-    async linkWithKey(toolkit, userId, key) {
+    async linkWithKey(toolkit, userId, values) {
       const access = await readAccess(toolkit);
       if (access.kind === "managed") throw new CannotLink("managed", access.name);
       if (access.kind === "unsupported") throw new CannotLink("unsupported", access.name);
+      const val: Record<string, string> = {};
+      for (const field of access.fields) {
+        const given = values.find((v) => v.name === field.name)?.value;
+        if (!given) throw new CannotLink("key", access.name, field.label); // asked for again, by the name the provider gives it
+        val[field.name] = given;
+      }
       const config = await keyAuthConfig(toolkit, access.name, access.mode);
-      // Composio holds the key from here: Amuse does not store it (no file, no database, no log), it only passes it on
-      const state = { authScheme: access.mode, val: { [access.field]: key } };
+      // Composio holds these from here: Amuse stores none of them (no file, no database, no log), it only passes them on
+      const state = { authScheme: access.mode, val };
       try {
         await call(z.unknown(), "/connected_accounts", { base: keyBase, method: "POST", body: { auth_config: { id: config }, connection: { user_id: userId, state } } });
       } catch (error) {
-        if (error instanceof ComposioError && error.rejected) throw new CannotLink("rejected", access.name, access.label);
+        if (error instanceof ComposioError && error.rejected) throw new CannotLink("rejected", access.name, saidField(access.fields));
         throw error;
       }
     },
     async link(toolkit, userId, callbackUrl) {
       const access = await readAccess(toolkit);
-      if (access.kind === "key") throw new CannotLink("key", access.name, access.label);
+      if (access.kind === "key") throw new CannotLink("key", access.name, saidField(access.fields));
       if (access.kind === "unsupported") throw new CannotLink("unsupported", access.name);
       const body = { auth_config_id: await authConfig(toolkit), user_id: userId, ...(callbackUrl ? { callback_url: callbackUrl } : {}) };
       const created = await call(Link, "/connected_accounts/link", { method: "POST", body });
@@ -458,7 +483,7 @@ export function keyedComposio(key: () => string | null, http: typeof fetch = fet
   };
   return {
     access: async (toolkit) => (await client()).access(toolkit),
-    linkWithKey: async (toolkit, userId, key) => (await client()).linkWithKey(toolkit, userId, key),
+    linkWithKey: async (toolkit, userId, values) => (await client()).linkWithKey(toolkit, userId, values),
     link: async (toolkit, userId, callbackUrl) => (await client()).link(toolkit, userId, callbackUrl),
     status: async (account) => (await client()).status(account),
     connected: async (toolkit, userId) => (await client()).connected(toolkit, userId),

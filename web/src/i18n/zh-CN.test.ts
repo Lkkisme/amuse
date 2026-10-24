@@ -21,6 +21,7 @@ const samples: Record<string, unknown[]> = {
   "schedule.state.next": ["Tomorrow, 8:00"],
   "schedule.lastRun": ["Today, 8:00", "Reported", "Sample summary"],
   "connections.noMatch": ["Sample"],
+  "connections.keyIntro": ["Cloudflare"],
   "connections.optionsFor": ["Sample"],
   "connections.kindLines.read": ["Sample"],
   "connections.kindLines.write": ["Sample"],

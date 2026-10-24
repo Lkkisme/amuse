@@ -311,7 +311,7 @@ export const en = {
       copyKey: "Under API Keys, copy the key (it starts with ak_)",
     },
     addKey: "Add Composio key",
-    keyIntro: (app: string, label: string) => `${app} needs your own ${label}. Paste it to connect.`,
+    keyIntro: (app: string) => `${app} needs credentials of your own: fill them in to connect.`,
     keyNote: "It goes to Composio, which holds it. Amuse does not keep it, and Amuse never sees it.",
     keyChecking: "Checking…",
   },

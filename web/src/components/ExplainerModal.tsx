@@ -108,10 +108,10 @@ function ExplainerBody({ req, open, actions }: { req: Connection; open: boolean;
             <div className="mt-3.5">
               <KeyConnect
                 app={req.title}
-                label={access.label}
+                fields={access.fields}
                 size="lg"
-                connect={async (key) => {
-                  await actions.connectKey(provider, key);
+                connect={async (values) => {
+                  await actions.connectKey(provider, values);
                   close();
                 }}
               />

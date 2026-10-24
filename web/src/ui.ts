@@ -2,7 +2,7 @@
  * UI-only state: which panels are open and what they show. Server state is
  * the conversation (session.ts); this never duplicates it, only ids into it.
  */
-import { type App, type AppAccess, type Attachment, type KeyProvider, MAIN, type SecretAnswer, type SkillOrigin } from "@amuse/protocol";
+import { type App, type AppAccess, type Attachment, type GivenField, type KeyProvider, MAIN, type SecretAnswer, type SkillOrigin } from "@amuse/protocol";
 
 export type SettingsSection = "general" | "security" | "models" | "connectors" | "permissions" | "logins" | "secrets" | "schedules" | "sandbox";
 
@@ -82,10 +82,10 @@ export interface Actions {
   answerSecret(id: string, answer: SecretAnswer | null): Promise<void>;
   openExplainer(connectionId: string | null): void;
   connect(connectionId: string): void;
-  /** how an app is connected: a hosted link, or the user's own key */
+  /** how an app is connected: a hosted link, or credentials of the user's own (one field, or several) */
   appAccess(app: string): Promise<AppAccess>;
-  /** connect an app with the user's own key (typed by them, passed on to Composio, kept nowhere); fails, in words, when it did not go through */
-  connectKey(app: string, key: string): Promise<void>;
+  /** connect an app with those credentials (typed by them, passed on to Composio, kept nowhere); fails, in words, when it did not go through */
+  connectKey(app: string, values: GivenField[]): Promise<void>;
   /** null: whichever browser is newest (or none, said so) */
   openViewer(browserId: string | null): void;
   closeViewer(): void;

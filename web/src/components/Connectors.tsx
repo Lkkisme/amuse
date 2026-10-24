@@ -12,6 +12,7 @@ import type {
   Account,
   App,
   AppAccess,
+  GivenField,
   KindRule,
   Permission,
   Session,
@@ -152,8 +153,8 @@ export function Connectors({
   }, [session, viewingId, askedAgain]);
   useEffect(() => setAccess(null), [viewingId]);
   /** the key goes to the server and on to Composio, nowhere else; then the accounts are read again */
-  const connectKey = async (app: string, key: string) => {
-    await session.call("apps.connectKey", { app, key });
+  const connectKey = async (app: string, values: GivenField[]) => {
+    await session.call("apps.connectKey", { app, values });
     await loadAccounts();
   };
   const disconnect = (ids: string[]) => {
@@ -306,7 +307,7 @@ function AppPage({
   busy: string | null;
   access: AppAccess | null;
   error: React.ReactNode;
-  onConnectKey: (key: string) => Promise<void>;
+  onConnectKey: (values: GivenField[]) => Promise<void>;
   onBack: () => void;
   onConnect: () => void;
   onDisconnect: (accounts: string[]) => void;
@@ -377,7 +378,7 @@ function AppPage({
       {accounts.length === 0 ? (
         access?.kind === "key" ? (
           <div className="mt-5">
-            <KeyConnect app={app.name} label={access.label} connect={onConnectKey} />
+            <KeyConnect app={app.name} fields={access.fields} connect={onConnectKey} />
           </div>
         ) : (
           <div className="mt-5 flex justify-center">
@@ -485,7 +486,7 @@ function AppPage({
       )}
       {accounts.length > 0 && access?.kind === "key" && (
         <div className="mt-4">
-          <KeyConnect app={app.name} label={access.label} connect={onConnectKey} />
+          <KeyConnect app={app.name} fields={access.fields} connect={onConnectKey} />
         </div>
       )}
       {rules && rules.length > 0 && (

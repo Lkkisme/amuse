@@ -27,6 +27,7 @@ import {
   type Envelope,
   type Failure,
   type Handlers,
+  type GivenField,
   type Params,
   type Reply,
   type Results,
@@ -363,8 +364,8 @@ export interface AppDirectory {
   connect(app: string): Promise<string>;
   /** How `app` is connected: a hosted link, or the user's own key. */
   access(app: string): Promise<AppAccess>;
-  /** Connect `app` with the user's own key; the connector passes it on and keeps nothing. */
-  connectKey(app: string, key: string): Promise<void>;
+  /** Connect `app` with the credentials the user typed (one field, or several); the connector passes them on and keeps nothing. */
+  connectKey(app: string, values: GivenField[]): Promise<void>;
   /**
    * When `app` cannot be connected here at all: the words for the agent, naming a toolkit of the same service that
    * takes a key or a token instead, where there is one; null when it can be connected.
@@ -1050,8 +1051,8 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
     },
     "apps.connect": async ({ app }) => ({ url: await ports.apps.connect(app) }),
     "apps.access": async ({ app }) => ({ access: await ports.apps.access(app) }),
-    "apps.connectKey": async ({ app, key }) => {
-      await ports.apps.connectKey(app, key);
+    "apps.connectKey": async ({ app, values }) => {
+      await ports.apps.connectKey(app, values);
       // a Connect card waiting for this app is settled now, and the agent told
       settleConnections(await ports.apps.accounts());
       return null;

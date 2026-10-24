@@ -5,7 +5,7 @@
  * Live browser pixels are not JSON-RPC; they stream on their own channel.
  */
 import { z } from "zod";
-import { Account, App, AppAccess, BrowserAction, BrowserRule, KindRule, Permission, Site, SiteEntry, SiteRule, ToolKind } from "./apps.ts";
+import { Account, App, AppAccess, BrowserAction, BrowserRule, GivenField, KindRule, Permission, Site, SiteEntry, SiteRule, ToolKind } from "./apps.ts";
 import { Approval, Attachment, Id, Resolution, Schedule, TimeZone } from "./entities.ts";
 import { FieldName, PlainInput, SecretAnswer, SecretEntry, SecretInput, Use, UseInput } from "./secrets.ts";
 import { Envelope, Index, Page, Seq, State } from "./events.ts";
@@ -67,7 +67,7 @@ export const Call = z.discriminatedUnion("method", [
   /** How `app` is connected: a hosted link, or the user's own key. */
   call("apps.access", z.object({ app: Id })),
   /** Connect `app` with the user's own key, typed in the app; Composio holds it, Amuse keeps it nowhere. */
-  call("apps.connectKey", z.object({ app: Id, key: z.string().min(1).max(4096) })),
+  call("apps.connectKey", z.object({ app: Id, values: z.array(GivenField).min(1) })),
   call("apps.disconnect", z.object({ account: Id })),
   /** What the agent may do with an app: reading, changing, destroying (its tools sorted by their own hints). */
   call("apps.permissions", z.object({ app: Id })),

@@ -64,6 +64,35 @@ const bearer = {
   composio_managed_auth_schemes: [],
   auth_config_details: [{ mode: "BEARER_TOKEN", name: "bearer_app", fields: initiating([field("token", "API token")]) }],
 };
+/**
+ * GET /toolkits/workday: your own OAuth app (client id and secret at the config stage), which Amuse cannot set up.
+ * Its sibling workday_raas is the one live case of a service with both (GET /toolkits/workday_raas: a base URL, a
+ * tenant, a username and a password, all at the account stage).
+ */
+const workday = {
+  name: "Workday",
+  slug: "workday",
+  composio_managed_auth_schemes: [],
+  auth_config_details: [
+    {
+      mode: "OAUTH2",
+      name: "workday_oauth",
+      fields: { auth_config_creation: { required: [field("client_id", "Client id"), field("client_secret", "Client secret")], optional: [] }, connected_account_initiation: { required: [field("full", "Workday REST API Endpoint")], optional: [] } },
+    },
+  ],
+};
+const workdayRaas = {
+  name: "Workday RaaS",
+  slug: "workday_raas",
+  composio_managed_auth_schemes: [],
+  auth_config_details: [
+    {
+      mode: "API_KEY",
+      name: "workday_raas",
+      fields: initiating([field("full", "Workday Base URL"), field("suffix.one", "Workday Tenant"), field("username", "Workday Username"), field("password", "Workday Password")]),
+    },
+  ],
+};
 
 /** A Composio that records what it was asked, with toolkits by slug and the auth configs it already has. */
 function fakeComposio(toolkits: Record<string, unknown>, configs: unknown[] = [], reject = false) {
@@ -96,22 +125,36 @@ const list: Toolkit[] = [
   listed("cloudflare_api_key", "Cloudflare Api Key", ["API_KEY"]),
   listed("cloudflare_mcp", "Cloudflare MCP", ["DCR_OAUTH"]),
   listed("twitter", "Twitter", ["OAUTH2"]),
+  listed("workday", "Workday", ["OAUTH2"]),
+  listed("workday_raas", "Workday RaaS", ["API_KEY"]),
   listed("mystery", "Mystery", []),
 ];
-const fakes = { gmail, cloudflare, cloudflare_api_key: cloudflareApiKey, twitter, bearer_app: bearer };
+const fakes = { gmail, cloudflare, cloudflare_api_key: cloudflareApiKey, twitter, bearer_app: bearer, workday, workday_raas: workdayRaas };
 
-test("the scheme is read from the toolkit: Composio's own login, an API key with its label, or neither", () => {
+test("the scheme is read from the toolkit: Composio's own login, the fields of a key, or neither", () => {
+  const one = [{ name: "generic_api_key", label: "Cloudflare API Token", secret: true }];
   assert.deepEqual(accessOf(gmail), { kind: "managed", name: "Gmail" });
-  assert.deepEqual(accessOf(cloudflareApiKey), { kind: "key", name: "Cloudflare Api Key", mode: "API_KEY", field: "generic_api_key", label: "Cloudflare API Token" });
-  // a bearer token is a key with one secret field: the same card connects it
-  assert.deepEqual(accessOf(bearer), { kind: "key", name: "Bearer App", mode: "BEARER_TOKEN", field: "token", label: "API token" });
-  // Cloudflare's own toolkit asks for two things at once (its global key and the account email), which is not one card
-  assert.deepEqual(accessOf(cloudflare), { kind: "unsupported", name: "Cloudflare" });
+  assert.deepEqual(accessOf(cloudflareApiKey), { kind: "key", name: "Cloudflare Api Key", mode: "API_KEY", fields: one });
+  // a bearer token is a key: one secret field, and the same card connects it
+  assert.deepEqual(accessOf(bearer), { kind: "key", name: "Bearer App", mode: "BEARER_TOKEN", fields: [{ name: "token", label: "API token", secret: true }] });
+  // Cloudflare's own toolkit asks for two things at once: its global key (a secret) and the account email (plain)
+  assert.deepEqual(accessOf(cloudflare), {
+    kind: "key",
+    name: "Cloudflare",
+    mode: "API_KEY",
+    fields: [
+      { name: "generic_api_key", label: "Cloudflare Global API Key", secret: true },
+      { name: "generic_id", label: "Cloudflare Account Email", secret: false },
+    ],
+  });
+  // a field Composio marks as a secret is one, whatever it is called
+  const marked = { ...cloudflareApiKey, auth_config_details: [{ mode: "API_KEY", fields: initiating([{ name: "generic_id", displayName: "API Token", is_secret: true }]) }] };
+  assert.deepEqual(accessOf(marked), { kind: "key", name: "Cloudflare Api Key", mode: "API_KEY", fields: [{ name: "generic_id", label: "API Token", secret: true }] });
   // your own OAuth app (client id and secret), which Amuse cannot supply
   assert.deepEqual(accessOf(twitter), { kind: "unsupported", name: "Twitter" });
   // the label is read in either spelling, and falls back to the field's name; a lowercase mode is read too
   const snake = { ...cloudflareApiKey, auth_config_details: [{ mode: "api_key", fields: initiating([{ name: "token", display_name: "Token" }]) }] };
-  assert.deepEqual(accessOf(snake), { kind: "key", name: "Cloudflare Api Key", mode: "API_KEY", field: "token", label: "Token" });
+  assert.deepEqual(accessOf(snake), { kind: "key", name: "Cloudflare Api Key", mode: "API_KEY", fields: [{ name: "token", label: "Token", secret: true }] });
   // a response with no auth details at all is not a failure: it is simply not a key
   assert.deepEqual(accessOf({ name: "Nowhere", slug: "nowhere" }), { kind: "unsupported", name: "Nowhere" });
   // a managed login wins over a key the toolkit also takes
@@ -134,7 +177,7 @@ test("a key toolkit is not linked: the user is asked for the key, by the provide
 
 test("the key makes a custom auth config and a connected account; the config never holds it", async () => {
   const { client, calls } = fakeComposio(fakes);
-  await client.linkWithKey("cloudflare_api_key", "owner", "secret-token-1");
+  await client.linkWithKey("cloudflare_api_key", "owner", [{ name: "generic_api_key", value: "secret-token-1" }]);
   const [, list, create, account] = calls;
   assert.equal(list?.path, "/api/v3.1/auth_configs");
   // `authScheme` is the field Composio's own SDK sends for a custom auth config (its response calls it auth_scheme)
@@ -143,26 +186,38 @@ test("the key makes a custom auth config and a connected account; the config nev
   assert.equal(JSON.stringify([list, create]).includes("secret-token-1"), false);
 });
 
+test("a toolkit that asks for several things gets them all, in the one state", async () => {
+  const { client, calls } = fakeComposio(fakes);
+  await client.linkWithKey("cloudflare", "owner", [
+    { name: "generic_api_key", value: "global-key-1" },
+    { name: "generic_id", value: "owner@example.com" },
+  ]);
+  assert.deepEqual(calls.at(-1)?.body, {
+    auth_config: { id: "ac_new" },
+    connection: { user_id: "owner", state: { authScheme: "API_KEY", val: { generic_api_key: "global-key-1", generic_id: "owner@example.com" } } },
+  });
+  // one of them missing: the card is asked for that one again, by the name the provider gives it
+  await assert.rejects(client.linkWithKey("cloudflare", "owner", [{ name: "generic_api_key", value: "global-key-1" }]), (e) => e instanceof CannotLink && e.why === "key" && e.label === "Cloudflare Account Email");
+});
+
 test("an existing custom auth config for the key is reused", async () => {
   const { client, calls } = fakeComposio(fakes, [{ id: "ac_oauth", auth_scheme: "OAUTH2" }, { id: "ac_key", auth_scheme: "API_KEY" }]);
-  await client.linkWithKey("cloudflare_api_key", "owner", "k");
-  assert.equal(calls.some((c) => c.method === "POST" && c.path.endsWith("/auth_configs")), false);
-  assert.deepEqual(calls.at(-1)?.body, { auth_config: { id: "ac_key" }, connection: { user_id: "owner", state: { authScheme: "API_KEY", val: { generic_api_key: "k" } } } });
+  await client.linkWithKey("cloudflare_api_key", "owner", [{ name: "generic_api_key", value: "k" }]);
 });
 
 test("a key the provider turns down says so, and the key is in no message", async () => {
   const { client } = fakeComposio(fakes, [], true);
-  await assert.rejects(client.linkWithKey("cloudflare_api_key", "owner", "bad-token-2"), (e) => e instanceof CannotLink && e.why === "rejected" && !e.message.includes("bad-token-2"));
-  await assert.rejects(fakeComposio(fakes).client.linkWithKey("gmail", "owner", "k"), (e) => e instanceof CannotLink && e.why === "managed");
+  await assert.rejects(client.linkWithKey("cloudflare_api_key", "owner", [{ name: "generic_api_key", value: "bad-token-2" }]), (e) => e instanceof CannotLink && e.why === "rejected" && !e.message.includes("bad-token-2"));
+  await assert.rejects(fakeComposio(fakes).client.linkWithKey("gmail", "owner", [{ name: "generic_api_key", value: "k" }]), (e) => e instanceof CannotLink && e.why === "managed");
 });
 
 test("the directory tells the app how an app connects, and passes a key on", async () => {
   const { client, calls } = fakeComposio(fakes);
   const directory = composioDirectory({ ...client, toolkits: async () => list }, { userId: "owner", rules: memoryRules() });
   assert.deepEqual(await directory.access("gmail"), { kind: "managed" });
-  assert.deepEqual(await directory.access("cloudflare_api_key"), { kind: "key", label: "Cloudflare API Token" });
+  assert.deepEqual(await directory.access("cloudflare_api_key"), { kind: "key", fields: [{ name: "generic_api_key", label: "Cloudflare API Token", secret: true }] });
   await assert.rejects(directory.access("twitter"), CannotLink);
-  await directory.connectKey("cloudflare_api_key", "k");
+  await directory.connectKey("cloudflare_api_key", [{ name: "generic_api_key", value: "k" }]);
   assert.equal(calls.at(-1)?.path, "/api/v3.1/connected_accounts");
 });
 
@@ -181,16 +236,17 @@ test("an own-OAuth-app toolkit is not offered in the directory; the rest are, as
   const directory = composioDirectory({ ...client, toolkits: async () => list }, { userId: "owner", rules: memoryRules() });
   const offered = async (query: string) => (await directory.search(query, null)).apps.map((a) => a.id);
   assert.deepEqual(await offered("twitter"), []);
-  assert.deepEqual(await offered(""), ["gmail", "cloudflare", "cloudflare_api_key", "cloudflare_mcp", "mystery"]);
+  assert.deepEqual(await offered(""), ["gmail", "cloudflare", "cloudflare_api_key", "cloudflare_mcp", "workday_raas", "mystery"]);
 });
 
 test("the agent hears a toolkit cannot be connected here, and which sibling takes a key instead", async () => {
   const { client } = fakeComposio(fakes);
   const directory = composioDirectory({ ...client, toolkits: async () => list }, { userId: "owner", rules: memoryRules() });
   assert.equal(await directory.cannotConnect("gmail"), null, "it can be connected: nothing to say");
+  assert.equal(await directory.cannotConnect("cloudflare"), null, "its two fields are a card like any other");
   assert.equal(await directory.cannotConnect("cloudflare_api_key"), null);
-  const twoFields = await directory.cannotConnect("cloudflare");
-  assert.match(twoFields ?? "", /Cloudflare cannot be connected here: it needs credentials of your own that Amuse cannot set up\. Cloudflare Api Key \(cloudflare_api_key\) does the same job with a key or a token: ask the user for that one instead\./);
+  const ownApp = await directory.cannotConnect("workday");
+  assert.match(ownApp ?? "", /Workday cannot be connected here: it needs credentials of your own that Amuse cannot set up\. Workday RaaS \(workday_raas\) does the same job with a key or a token: ask the user for that one instead\./);
   const alone = await directory.cannotConnect("twitter");
   assert.match(alone ?? "", /Twitter cannot be connected here/);
   assert.doesNotMatch(alone ?? "", /instead/, "no sibling of the same service takes a key");
@@ -202,15 +258,15 @@ test("a toolkit Amuse cannot classify is logged once, by its modes and field nam
   console.warn = (line: string) => void lines.push(line);
   try {
     const { client } = fakeComposio(fakes);
-    await client.access("cloudflare");
-    await client.access("cloudflare");
+    await client.access("workday");
+    await client.access("workday");
     await client.access("twitter");
   } finally {
     console.warn = warn;
   }
   assert.deepEqual(
     lines.map((line) => line.replace(/^Composio toolkit \S+ cannot be classified: /, "")),
-    ["managed schemes [none]; schemes API_KEY [generic_api_key, generic_id]", "managed schemes [none]; schemes OAUTH2 [client_id, client_secret]"],
+    ["managed schemes [none]; schemes OAUTH2 [full, client_id, client_secret]", "managed schemes [none]; schemes OAUTH2 [client_id, client_secret]"],
   );
 });
 

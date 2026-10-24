@@ -133,7 +133,7 @@ export const calls: Call[] = [
   { method: "apps.accounts", params: {} },
   { method: "apps.connect", params: { app: "gmail" } },
   { method: "apps.access", params: { app: "cloudflare" } },
-  { method: "apps.connectKey", params: { app: "cloudflare", key: "example-key-not-real" } },
+  { method: "apps.connectKey", params: { app: "cloudflare", values: [{ name: "generic_api_key", value: "example-key-not-real" }] } },
   { method: "apps.disconnect", params: { account: "ca_1" } },
   { method: "apps.permissions", params: { app: "gmail" } },
   { method: "apps.permit", params: { app: "gmail", kind: "write", permission: "ask" } },

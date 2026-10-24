@@ -95,9 +95,9 @@ export function composioDirectory(
     async access(appId) {
       const access = await client.access(appId);
       if (access.kind === "unsupported") throw new CannotLink("unsupported", access.name);
-      return access.kind === "key" ? { kind: "key", label: access.label } : { kind: "managed" };
+      return access.kind === "key" ? { kind: "key", fields: access.fields } : { kind: "managed" };
     },
-    connectKey: (appId, key) => client.linkWithKey(appId, options.userId, key),
+    connectKey: (appId, values) => client.linkWithKey(appId, options.userId, values),
     async cannotConnect(appId) {
       const access = await client.access(appId);
       if (access.kind !== "unsupported") return null;

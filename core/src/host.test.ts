@@ -504,9 +504,9 @@ test("an app that takes the user's key connects with it, and the Connect card wa
       apps: {
         ...ports.apps,
         accounts: async () => accounts,
-        access: async () => ({ kind: "key", label: "API Token" }),
-        connectKey: async (_app, key) => {
-          keys.push(key);
+        access: async () => ({ kind: "key", fields: [{ name: "generic_api_key", label: "API Token", secret: true }] }),
+        connectKey: async (_app, values) => {
+          keys.push(...values.map((v) => v.value));
           accounts.push({ id: "ca_1", app: cloudflare, label: null, status: "active", since: new Date().toISOString() });
         },
       },
@@ -518,8 +518,8 @@ test("an app that takes the user's key connects with it, and the Connect card wa
   assert.ok(agent);
   const card = agent.act({ kind: "connect", provider: "cloudflare", title: "Cloudflare" });
   assert.ok(card.ok);
-  assert.deepEqual(await host.call("apps.access", { app: "cloudflare" }), { access: { kind: "key", label: "API Token" } });
-  await host.call("apps.connectKey", { app: "cloudflare", key: "token-123" });
+  assert.deepEqual(await host.call("apps.access", { app: "cloudflare" }), { access: { kind: "key", fields: [{ name: "generic_api_key", label: "API Token", secret: true }] } });
+  await host.call("apps.connectKey", { app: "cloudflare", values: [{ name: "generic_api_key", value: "token-123" }] });
   assert.deepEqual(keys, ["token-123"]);
   const { entities } = await host.call("session.history", { chat: "main", before: 100, limit: 100 });
   const settled = entities.find((e) => e.id === card.id);
