@@ -37,12 +37,43 @@ export class CallFailed extends Error {
  * socket with it). Its own kind, so a page says it in the user's language instead of showing "disconnected".
  */
 export class Dropped extends Error {
-  constructor() {
-    super("the connection dropped");
+  constructor(message = "the connection dropped") {
+    super(message);
   }
 }
 
-export function connect(url: string): Session & { close(): void; resume(): void } {
+/**
+ * Calls that must not go twice: a drop may have come after the server acted on them, and doing them again would
+ * send the message twice, answer the card again, or start another task. Every other call is a read or a write that
+ * leaves the same state when repeated (a permission, a model), and is sent again once after the reconnect.
+ */
+const once = new Set<Method>([
+  "chat.send",
+  "chat.retry",
+  "chats.create",
+  "approval.resolve",
+  "connection.begin",
+  "browser.open",
+  "schedule.control",
+  "apps.connect",
+  "apps.connectKey",
+  "goals.add",
+  "secret.answer",
+  "secrets.add",
+  "keys.login",
+  "keys.answer",
+  "sandbox.reset",
+]);
+
+export interface ConnectOptions {
+  /** the words for a call lost to a drop, in the user's language (what a page shows as it is) */
+  unreachable?: () => string;
+  /** how long a repeatable call waits for the reconnect, in ms, before it says the server cannot be reached */
+  patience?: number;
+}
+
+export function connect(url: string, options: ConnectOptions = {}): Session & { close(): void; resume(): void } {
+  const { unreachable = () => "the connection dropped", patience = 15_000 } = options;
   const listeners = new Set<(update: Update) => void>();
   const pending = new Map<number, Pending>();
   const outbox: string[] = [];
@@ -54,6 +85,8 @@ export function connect(url: string): Session & { close(): void; resume(): void 
   let closed = false;
   /** the retry that is waiting, so coming back can take it up now instead */
   let waiting: ReturnType<typeof setTimeout> | null = null;
+  /** calls waiting for a socket that is up, to be sent again */
+  const rejoin = new Set<() => void>();
 
   const deliver = (chat: string, envelope: Envelope) => {
     if (envelope.seq <= (lastSeq.get(chat) ?? 0)) return;
@@ -77,6 +110,7 @@ export function connect(url: string): Session & { close(): void; resume(): void 
       const resumed = retry > 0;
       retry = 0;
       outbox.splice(0).forEach((frame) => ws.send(frame));
+      rejoin.forEach((go) => go());
       if (resumed) {
         void call("chats.list", {}).then((r) => chats(r.chats));
         for (const [chat, since] of lastSeq)
@@ -102,7 +136,7 @@ export function connect(url: string): Session & { close(): void; resume(): void 
     ws.onclose = () => {
       if (socket !== ws) return; // we let this one go ourselves: its close is not the connection dropping
       socket = null;
-      for (const entry of pending.values()) entry.fail(new Dropped());
+      for (const entry of pending.values()) entry.fail(new Dropped(unreachable()));
       pending.clear();
       // what waited to go out has failed with them: sent later, a message the user takes back would arrive anyway
       outbox.length = 0;
@@ -133,7 +167,32 @@ export function connect(url: string): Session & { close(): void; resume(): void 
     open();
   };
 
+  /** Resolves once a socket is up, rejects as Dropped when none comes within `patience`. */
+  const reconnected = () =>
+    new Promise<void>((resolve, reject) => {
+      if (socket?.readyState === WebSocket.OPEN) return resolve();
+      const go = () => {
+        clearTimeout(timer);
+        rejoin.delete(go);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        rejoin.delete(go);
+        reject(new Dropped(unreachable()));
+      }, patience);
+      rejoin.add(go);
+      resume();
+    });
+
+  /** A call; one lost to a drop that is safe to repeat waits for the reconnect and goes once more. */
   function call<M extends Method>(method: M, params: Params[M]): Promise<Results[M]> {
+    return send(method, params).catch((error: unknown) => {
+      if (!(error instanceof Dropped) || once.has(method) || closed) throw error;
+      return reconnected().then(() => send(method, params));
+    });
+  }
+
+  function send<M extends Method>(method: M, params: Params[M]): Promise<Results[M]> {
     const id = ++nextId;
     const frame = JSON.stringify({ jsonrpc: "2.0", id, method, params });
     return new Promise<Results[M]>((resolve, reject) => {

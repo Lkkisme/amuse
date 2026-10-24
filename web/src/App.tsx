@@ -63,7 +63,7 @@ const openSession = (
   ask: Ask,
 ): { session: Session; close: () => void; resume: () => void } => {
   if (where.kind === "server") {
-    const remote = connect(where.rpc);
+    const remote = connect(where.rpc, { unreachable: () => activeT().common.serverUnreachable });
     return { session: pinGuarded(remote, ask), close: () => remote.close(), resume: () => remote.resume() };
   }
   return {

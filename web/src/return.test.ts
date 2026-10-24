@@ -55,7 +55,7 @@ test("a page that comes back reconnects, says the drop in the app's words, and g
 
     // the user switches to another app and the browser freezes the page: the socket goes, with a call in flight
     at.quiet(true);
-    const lost = session.call("apps.accounts", {});
+    const lost = session.call("chats.create", {});
     at.drop();
     let failure: unknown = null;
     await lost.catch((e: unknown) => void (failure = e));
