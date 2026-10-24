@@ -42,9 +42,11 @@ export function Sheet({
         className={`${closing ? "anim-fade-out" : "anim-fade-in"} absolute inset-0 bg-black/50`}
         onClick={onClose}
       />
+      {/* 92% of this full-height layer is the same height in a browser, where 92vh is the large viewport;
+          the app's WebView reports 0 for the height viewport units, which would collapse the sheet. */}
       <div
         onAnimationEnd={onAnimationEnd}
-        className={`${closing ? "anim-modal-out" : "anim-modal-in"} relative flex max-h-[92vh] w-full ${wide ? "max-w-xl" : "max-w-sm"} flex-col overflow-hidden rounded-t-[28px] sm:rounded-[28px]`}
+        className={`${closing ? "anim-modal-out" : "anim-modal-in"} relative flex max-h-[max(92vh,92%)] w-full ${wide ? "max-w-xl" : "max-w-sm"} flex-col overflow-hidden rounded-t-[28px] sm:rounded-[28px]`}
         style={{
           background: "var(--chat-background)",
           boxShadow: "var(--shadow-sheet)",

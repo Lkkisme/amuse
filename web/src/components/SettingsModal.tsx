@@ -217,6 +217,8 @@ export function SettingsModal({
     </Button>
   );
   return (
+    // sm:h-[max(72vh,72%)]: the same height in a browser (72% of this full-height layer), and a real
+    // height in the app's WebView, which reports 0 for the height viewport units.
     <div
       className={`fixed inset-0 z-[80] flex justify-center sm:items-center sm:p-4 ${closing ? "pointer-events-none" : ""}`}
     >
@@ -226,7 +228,7 @@ export function SettingsModal({
       />
       <div
         onAnimationEnd={onAnimationEnd}
-        className={`${closing ? "anim-settings-out" : "anim-settings-in"} relative flex h-full w-full flex-col overflow-hidden sm:h-[72vh] sm:max-h-[620px] sm:max-w-3xl sm:flex-row sm:rounded-[28px]`}
+        className={`${closing ? "anim-settings-out" : "anim-settings-in"} relative flex h-full w-full flex-col overflow-hidden sm:h-[max(72vh,72%)] sm:max-h-[620px] sm:max-w-3xl sm:flex-row sm:rounded-[28px]`}
         style={{
           background: "var(--chat-background)",
           boxShadow: "var(--shadow-sheet)",

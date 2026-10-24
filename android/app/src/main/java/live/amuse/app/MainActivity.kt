@@ -59,9 +59,7 @@ class MainActivity : ComponentActivity() {
         pickedFiles = WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data)
             ?.filter { it.scheme == "content" }?.toTypedArray()
         pickerReturned = true
-        if (state.pickerSuspended) {
-            if (!state.useDeviceUnlock) resumePicker()
-        } else deliverFiles()
+        if (state.pickerSuspended) resumePicker() else deliverFiles()
     }
     private val recordAudio = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         permissionDialogInFlight = false
@@ -114,7 +112,7 @@ class MainActivity : ComponentActivity() {
         pendingUnlock?.let { pendingUnlock = null; finishUnlock(it.second, it.first) }
         microphoneResult?.let { microphoneResult = null; finishMicrophonePermission(it) }
         webView?.onResume()
-        if (state.pickerSuspended && !state.useDeviceUnlock) resumePicker()
+        if (state.pickerSuspended) resumePicker()
         openSavedSession()
     }
 
@@ -228,7 +226,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openSavedSession() {
-        if (foreground && state.configured && state.cookiesReady && !state.settingsVisible && !state.useDeviceUnlock && !state.unlocked)
+        // Never while the picker is out: resuming it is resumePicker's job, and a second unlock would
+        // rebuild the page and lose the files the picker just handed back.
+        if (foreground && state.configured && state.cookiesReady && !state.settingsVisible && !state.useDeviceUnlock &&
+            !state.pickerSuspended && !state.unlocked)
             finishUnlock(null, generation)
     }
 
@@ -279,12 +280,12 @@ class MainActivity : ComponentActivity() {
         cookies.removeAllCookies { cookies.flush(); cookiesReady() }
     }
 
+    /** The system picker covers the page for a moment: keep the session, and hand the chosen files back when it closes. */
     private fun suspendForPicker() {
         pausedCookie = SessionCookie.extract(cookies.getCookie(state.server.home))
         captureJob?.cancel(); captureJob = null
         webView?.onPause()
         state = state.copy(unlocked = false, pickerSuspended = true, loading = false)
-        if (state.useDeviceUnlock) cookies.removeAllCookies { cookies.flush() }
     }
 
     private fun resumePicker() {
@@ -295,6 +296,15 @@ class MainActivity : ComponentActivity() {
         if (!pickerReturned || !foreground || !state.unlocked) return
         fileCallback?.onReceiveValue(pickedFiles)
         fileCallback = null; pickedFiles = null; pickerReturned = false
+    }
+
+    /** A new page, the same session: the cookies are the session, and only signing out ends it. */
+    private fun reloadPage() {
+        captureJob?.cancel(); captureJob = null
+        denyMicrophonePermission()
+        fileCallback?.onReceiveValue(null); fileCallback = null; pickedFiles = null; pickerReturned = false
+        releaseWebView(webView)
+        state = state.copy(loading = true, pickerSuspended = false, webGeneration = state.webGeneration + 1)
     }
 
     private fun forgetSession() {
@@ -413,7 +423,11 @@ class MainActivity : ComponentActivity() {
                 if (view === webView) connectionFailed("The server certificate could not be verified. Check its address, certificate and your device clock.")
             }
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
-                if (view === webView) { lockSession(); state = state.copy(notice = "The web page stopped. Reconnect to continue."); openSavedSession() }
+                if (view === webView) {
+                    if (state.useDeviceUnlock) lockSession() else reloadPage()
+                    state = state.copy(notice = "The web page stopped. Reconnect to continue.")
+                    openSavedSession()
+                }
                 return true
             }
         }
