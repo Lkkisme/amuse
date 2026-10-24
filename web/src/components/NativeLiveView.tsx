@@ -6,6 +6,7 @@ import { TouchSurface } from "./TouchSurface";
 import { useT } from "../i18n/react.ts";
 import { activeT } from "../i18n/language.ts";
 import { changedViewport, contained, frameFits, frameOf, nativeFrameHasResolution, type Frame } from "../native-frames.ts";
+import { retryViewerClose, viewerRecovery } from "../socket-recovery.ts";
 
 type Generation = string | number;
 type Size = { width: number; height: number };
@@ -136,6 +137,13 @@ export function NativeLiveView({ url, interactive, onFit, initialSize, renderCon
   };
   const currentRelease = useRef(releaseInput);
   currentRelease.current = releaseInput;
+  const recovery = useRef<ReturnType<typeof viewerRecovery> | null>(null);
+
+  useEffect(() => {
+    const controller = viewerRecovery(() => setAttempt((value) => value + 1), () => currentRelease.current());
+    recovery.current = controller;
+    return () => { controller.close(); if (recovery.current === controller) recovery.current = null; };
+  }, [url]);
 
   useEffect(() => {
     const client = new WebSocket(url);
@@ -152,7 +160,7 @@ export function NativeLiveView({ url, interactive, onFit, initialSize, renderCon
     // At most one frame is decoded and one newer frame waits. Incoming frames replace the waiting one.
     let pending: { blob: Blob; metadata: Frame } | null = null;
     let frameMetadata: Frame | null = null;
-    const fail = (message: string) => {
+    const fail = (message: string, retryable = false) => {
       if (left || failed) return;
       failed = true;
       ready.current = null;
@@ -160,9 +168,10 @@ export function NativeLiveView({ url, interactive, onFit, initialSize, renderCon
       clearTimeout(timeout);
       setProblem(message);
       setState("failed");
+      recovery.current?.fail(retryable);
       client.close();
     };
-    const timeout = setTimeout(() => fail(activeT().localBrowser.readyTimeout), 12_000);
+    const timeout = setTimeout(() => fail(activeT().localBrowser.readyTimeout, true), 12_000);
     const draw = async () => {
       if (decoding || !pending || left || failed) return;
       const frame = pending;
@@ -194,6 +203,7 @@ export function NativeLiveView({ url, interactive, onFit, initialSize, renderCon
     };
     client.onmessage = ({ data }: MessageEvent<unknown>) => {
       if (left || failed) return;
+      recovery.current?.message();
       if (typeof data === "string") {
         let value: unknown;
         try { value = JSON.parse(data); } catch { return fail(activeT().localBrowser.invalidMessage); }
@@ -213,6 +223,7 @@ export function NativeLiveView({ url, interactive, onFit, initialSize, renderCon
           setMetadata(next);
           if (!editingAddress.current) setAddress(next.url);
           clearTimeout(timeout);
+          recovery.current?.ready();
           setState("live");
         } else if (typeof value === "object" && value !== null && "type" in value && value.type === "error") {
           const reason = "message" in value ? value.message : "error" in value ? value.error : "reason" in value ? value.reason : null;
@@ -227,8 +238,9 @@ export function NativeLiveView({ url, interactive, onFit, initialSize, renderCon
         void draw();
       }
     };
-    client.onerror = () => fail(activeT().localBrowser.connectionFailed);
-    client.onclose = () => fail(activeT().localBrowser.connectionClosed);
+    // The close status distinguishes a temporary link failure from auth/protocol rejection.
+    client.onerror = () => {};
+    client.onclose = ({ code }) => fail(activeT().localBrowser.connectionClosed, retryViewerClose(code));
     return () => {
       currentRelease.current();
       left = true;
@@ -421,7 +433,7 @@ export function NativeLiveView({ url, interactive, onFit, initialSize, renderCon
         {state === "connecting" && <div className="skeleton absolute inset-0" aria-label={t.viewer.keyConnecting} />}
         {state === "failed" && <div role="alert" className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center" style={{ background: "var(--bg-secondary)" }}>
           <p className="max-w-xs text-[14px]" style={{ color: "var(--text-secondary)" }}>{problem}</p>
-          <button type="button" className="h-10 rounded-full px-5 text-[14px] font-semibold text-white" style={{ background: "var(--fill-blue)" }} onClick={() => setAttempt((value) => value + 1)}>{t.localBrowser.retry}</button>
+          <button type="button" className="h-10 rounded-full px-5 text-[14px] font-semibold text-white" style={{ background: "var(--fill-blue)" }} onClick={() => recovery.current?.manual()}>{t.localBrowser.retry}</button>
         </div>}
         {controls && <TouchSurface screen={box} mode={trackpad ? "trackpad" : zoom ? "pan" : "touch"} />}
       </div>

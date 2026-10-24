@@ -15,6 +15,7 @@ import { SquareTerminal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/react.ts";
 import type { Messages } from "../i18n/en.ts";
+import { retryViewerClose, viewerRecovery } from "../socket-recovery.ts";
 
 /** Ctrl and Alt held for the next key typed on the phone's keyboard (or the next key of the row). */
 type Mods = { ctrl: boolean; alt: boolean };
@@ -72,6 +73,15 @@ export function TerminalView({
   const [phase, setPhase] = useState<Phase>("opening");
   // a new connection each time the user opens it again
   const [attempt, setAttempt] = useState(0);
+  const recovery = useRef<ReturnType<typeof viewerRecovery> | null>(null);
+  const showing = useRef(visible);
+  showing.current = visible;
+  useEffect(() => {
+    const controller = viewerRecovery(() => setAttempt((n) => n + 1), () => hold(NONE), () => showing.current);
+    recovery.current = controller;
+    return () => { controller.close(); if (recovery.current === controller) recovery.current = null; };
+  }, [url]);
+  useEffect(() => { if (visible) recovery.current?.wake(); }, [visible]);
 
   useEffect(() => {
     const el = box.current;
@@ -102,10 +112,21 @@ export function TerminalView({
 
     const ws = new WebSocket(url(term.cols, term.rows));
     ws.binaryType = "arraybuffer";
+    let left = false;
+    const timeout = setTimeout(() => {
+      if (left || ws.readyState === WebSocket.OPEN) return;
+      ws.onclose = null;
+      ws.close();
+      setPhase({ closed: 1006 });
+      recovery.current?.fail();
+    }, 12_000);
     const send = (bytes: Uint8Array) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(bytes);
     };
     ws.onopen = () => {
+      if (left) return;
+      clearTimeout(timeout);
+      recovery.current?.ready();
       setPhase("open");
       // the size it was opened at may be out of date (it was hidden, or the window moved)
       fitted();
@@ -114,9 +135,16 @@ export function TerminalView({
       );
     };
     ws.onmessage = (event) => {
+      if (left) return;
+      recovery.current?.message();
       if (event.data instanceof ArrayBuffer) term.write(new Uint8Array(event.data));
     };
-    ws.onclose = (event) => setPhase({ closed: event.code });
+    ws.onclose = (event) => {
+      if (left) return;
+      clearTimeout(timeout);
+      setPhase({ closed: event.code });
+      recovery.current?.fail(retryViewerClose(event.code));
+    };
     // what is typed, with Ctrl or Alt from the row for one key (a key: one character, not a mouse report or a paste)
     const type = (data: string) => {
       const mods = held.current;
@@ -138,6 +166,8 @@ export function TerminalView({
     const observer = new ResizeObserver(fitted);
     observer.observe(el);
     return () => {
+      left = true;
+      clearTimeout(timeout);
       observer.disconnect();
       typed.dispose();
       binary.dispose();
@@ -183,7 +213,7 @@ export function TerminalView({
               <button
                 className="hover-fade mt-3 h-10 rounded-full px-4 text-[15px] font-medium"
                 style={{ background: "#3a3a3c", color: "#f2f2f7" }}
-                onClick={() => setAttempt((n) => n + 1)}
+                onClick={() => recovery.current?.manual()}
               >
                 {t.viewer.openAgain}
               </button>
