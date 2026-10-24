@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Ran, type SandboxClient, SandboxError } from "@amuse/sandbox";
-import { CHAT_LIMITS, sandboxActions, sandboxTools } from "./sandbox.ts";
+import { sandboxActions, sandboxTools } from "./sandbox.ts";
 
 const ran = (over: Partial<Ran> = {}): Ran => ({ output: "", cut: 0, exitCode: 0, signal: null, timedOut: false, ...over });
 
@@ -13,7 +13,12 @@ function fake(answers: { ran?: Ran; fail?: string } = {}) {
   };
   const sandbox: SandboxClient = {
     run: async (request) => (asked.push(request), refuse(), answers.ran ?? ran()),
+    start: async () => assert.fail("a helper does not start jobs"),
+    jobOutput: async () => assert.fail("a helper does not start jobs"),
+    stopJobs: async () => assert.fail("a helper does not start jobs"),
+    waitJob: async () => assert.fail("a helper does not start jobs"),
     reset: async () => {},
+    atRisk: async () => [],
     typeSecret: async () => {},
     setEnv: async () => {},
     setFile: async () => {},
@@ -68,19 +73,15 @@ test("what the sandbox says about a refusal reaches the agent only as untrusted 
   );
 });
 
-test("the chat agent's commands are short: 30 seconds unless it says, never more than a minute, and longer work goes to a task", async () => {
+test("a helper waits for its commands: two minutes unless it says, ten at most, and longer work goes to a terminal", async () => {
   const { sandbox, asked } = fake({ ran: ran({ exitCode: null, timedOut: true }) });
-  const act = sandboxActions(sandbox, CHAT_LIMITS);
-  assert.match(await act.run({ command: "npm install" }), /stopped after 30 seconds.*start_task/);
-  assert.match(await act.run({ command: "make", timeout: 600 }), /stopped after 60 seconds/);
+  const act = sandboxActions(sandbox);
+  assert.match(await act.run({ command: "npm install" }), /stopped after 120 seconds.*terminal/);
+  assert.match(await act.run({ command: "make", timeout: 6000 }), /stopped after 600 seconds/);
   assert.deepEqual(asked, [
-    { command: "npm install", timeout: 30 },
-    { command: "make", timeout: 60 },
+    { command: "npm install", timeout: 120 },
+    { command: "make", timeout: 600 },
   ]);
-  const [tool] = sandboxTools(sandbox, CHAT_LIMITS);
-  assert.match(JSON.stringify(tool?.parameters), /"maximum":60/);
-  // helpers may wait as before
-  const helper = fake();
-  await sandboxActions(helper.sandbox).run({ command: "make" });
-  assert.deepEqual(helper.asked, [{ command: "make", timeout: 120 }]);
+  const [tool] = sandboxTools(sandbox);
+  assert.match(JSON.stringify(tool?.parameters), /"maximum":600/);
 });

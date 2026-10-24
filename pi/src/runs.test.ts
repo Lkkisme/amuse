@@ -14,6 +14,8 @@ function run() {
     act: () => ({ ok: true, id: "x" }),
     decision: async () => ({ verdict: "denied", remember: false }),
     report: () => {},
+    mention: () => {},
+    running: () => "",
     context: () => "",
     recall: () => "",
     time: () => ({ now: "2026-10-20T08:00:00Z", timezone: "UTC" }),

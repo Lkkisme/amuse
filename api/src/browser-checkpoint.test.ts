@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { migratedNow } from "@amuse/db";
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -49,5 +51,43 @@ test("a malformed complete journal line fails without editing history or writing
     assert.deepEqual(readFileSync(journalPath), before);
     assert.equal(readdirSync(directory).includes("native"), false);
     assert.equal(readBrowserJournal(join(directory, "absent.jsonl")).seq, 0);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("SQLite checkpoint reads committed live WAL and both chats without migration or legacy replay", () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), "amuse-browser-checkpoint-")));
+  const data = join(directory, "data"), native = join(directory, "native");
+  const db = migratedNow(data);
+  try {
+    db.exec("pragma wal_autocheckpoint = 0");
+    const insertChat = db.prepare("insert into chats (id, title, at, updated) values (?, ?, ?, ?) on conflict(id) do update set title=excluded.title, at=excluded.at, updated=excluded.updated");
+    const insertEvent = db.prepare("insert into events (chat, seq, event) values (?, ?, ?)");
+    for (const [chat, items] of [["main", [browser("wal-held"), browser("working", "working")]], ["side-db", [browser("wal-side", "idle")]]] as const) {
+      insertChat.run(chat, chat, at, at);
+      for (const raw of lines([...items]).trim().split("\n")) {
+        const envelope = JSON.parse(raw) as Envelope;
+        insertEvent.run(chat, envelope.seq, JSON.stringify(envelope.event));
+      }
+    }
+    // The old file is deliberately both stale and invalid: a DB must never fall back to it.
+    const journalPath = join(data, "events.jsonl"); writeFileSync(journalPath, "invalid stale legacy data\n");
+    const files = ["amuse.db", "amuse.db-wal"].map((name) => join(data, name));
+    const digest = () => files.map((file) => createHash("sha256").update(readFileSync(file)).digest("hex"));
+    const before = digest();
+    const checkpoint = snapshotBrowsers({ journalPath, directory: native });
+    assert.deepEqual(checkpoint.browsers.map((item) => [item.chat, item.browser.id, item.seq]), [["main", "wal-held", 2], ["side-db", "wal-side", 1]]);
+    assert.deepEqual(digest(), before, "checkpoint never writes the database or committed live WAL; SQLite may update shared-memory reader marks");
+    assert.equal(readFileSync(journalPath, "utf8"), "invalid stale legacy data\n");
+  } finally { db.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("an unreadable SQLite source fails instead of resurrecting a valid legacy browser", () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), "amuse-browser-checkpoint-")));
+  try {
+    const journalPath = join(directory, "events.jsonl");
+    writeFileSync(journalPath, lines([browser("stale-legacy")]));
+    writeFileSync(join(directory, "amuse.db"), "damaged");
+    assert.throws(() => snapshotBrowsers({ journalPath, directory: join(directory, "native") }));
+    assert.equal(readdirSync(directory).includes("native"), false);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });

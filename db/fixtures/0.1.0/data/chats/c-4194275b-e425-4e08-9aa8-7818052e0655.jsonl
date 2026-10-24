@@ -1,0 +1,24 @@
+{"seq":1,"event":{"kind":"upserted","entity":{"kind":"prompt","id":"p-b579556f-2ba3-4952-baff-311f522f5cb4","at":"2026-10-23T13:09:00.404Z","text":"A side thought about the garden","timezone":"UTC","attachments":[]},"index":0}}
+{"seq":2,"event":{"kind":"activity","activity":{"kind":"responding","label":null}}}
+{"seq":3,"event":{"kind":"upserted","entity":{"kind":"reply","id":"r-e304e718-4b95-4380-bac4-a2590227b4a2","at":"2026-10-23T13:09:01.811Z","text":"Got","streaming":true,"attachments":[]},"index":1}}
+{"seq":4,"event":{"kind":"appended","id":"r-e304e718-4b95-4380-bac4-a2590227b4a2","text":" it"}}
+{"seq":5,"event":{"kind":"appended","id":"r-e304e718-4b95-4380-bac4-a2590227b4a2","text":" —"}}
+{"seq":6,"event":{"kind":"appended","id":"r-e304e718-4b95-4380-bac4-a2590227b4a2","text":" **\"A"}}
+{"seq":7,"event":{"kind":"appended","id":"r-e304e718-4b95-4380-bac4-a2590227b4a2","text":" side"}}
+{"seq":8,"event":{"kind":"appended","id":"r-e304e718-4b95-4380-bac4-a2590227b4a2","text":" thought"}}
+{"seq":9,"event":{"kind":"appended","id":"r-e304e718-4b95-4380-bac4-a2590227b4a2","text":" about"}}
+{"seq":10,"event":{"kind":"appended","id":"r-e304e718-4b95-4380-bac4-a2590227b4a2","text":" the"}}
+{"seq":11,"event":{"kind":"appended","id":"r-e304e718-4b95-4380-bac4-a2590227b4a2","text":" garden\"**."}}
+{"seq":12,"event":{"kind":"appended","id":"r-e304e718-4b95-4380-bac4-a2590227b4a2","text":" I'll"}}
+{"seq":13,"event":{"kind":"appended","id":"r-e304e718-4b95-4380-bac4-a2590227b4a2","text":" take"}}
+{"seq":14,"event":{"kind":"appended","id":"r-e304e718-4b95-4380-bac4-a2590227b4a2","text":" that"}}
+{"seq":15,"event":{"kind":"appended","id":"r-e304e718-4b95-4380-bac4-a2590227b4a2","text":" from"}}
+{"seq":16,"event":{"kind":"appended","id":"r-e304e718-4b95-4380-bac4-a2590227b4a2","text":" here"}}
+{"seq":17,"event":{"kind":"appended","id":"r-e304e718-4b95-4380-bac4-a2590227b4a2","text":" and"}}
+{"seq":18,"event":{"kind":"appended","id":"r-e304e718-4b95-4380-bac4-a2590227b4a2","text":" post"}}
+{"seq":19,"event":{"kind":"appended","id":"r-e304e718-4b95-4380-bac4-a2590227b4a2","text":" updates"}}
+{"seq":20,"event":{"kind":"appended","id":"r-e304e718-4b95-4380-bac4-a2590227b4a2","text":" in"}}
+{"seq":21,"event":{"kind":"appended","id":"r-e304e718-4b95-4380-bac4-a2590227b4a2","text":" this"}}
+{"seq":22,"event":{"kind":"appended","id":"r-e304e718-4b95-4380-bac4-a2590227b4a2","text":" chat."}}
+{"seq":23,"event":{"kind":"upserted","entity":{"kind":"reply","id":"r-e304e718-4b95-4380-bac4-a2590227b4a2","at":"2026-10-23T13:09:03.212Z","text":"Got it — **\"A side thought about the garden\"**. I'll take that from here and post updates in this chat.","streaming":false,"attachments":[]},"index":1}}
+{"seq":24,"event":{"kind":"activity","activity":null}}

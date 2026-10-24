@@ -16,16 +16,18 @@ import type {
   Failure,
   Params,
   Question,
+  Quote,
   Resolution,
   RunOutcome,
   Schedule,
-  SecretDestination,
+  SecretAsk,
   State,
   Task,
   TaskStatus,
   When,
   Needs,
 } from "@amuse/protocol";
+import { quoteOf } from "./quote.ts";
 import { APPROVAL_TTL_MS, GRACE_MS, MAX_SCHEDULES, check, later, nextRun, standing } from "./schedule.ts";
 
 /** The same refusal (what, and where) again within this long is the same record. */
@@ -52,7 +54,7 @@ export function place(state: State, change: Change): Event {
 
 /** Work for the ports once the changes are recorded. */
 export type Effect =
-  | { kind: "prompt"; text: string; attachments: Attachment[] }
+  | { kind: "prompt"; text: string; attachments: Attachment[]; quote: Quote | null }
   /** wake the chat's agent again with a note it could not answer before */
   | { kind: "note"; text: string }
   | { kind: "interrupt" }
@@ -98,7 +100,7 @@ export type AgentAction =
   /** Hand a browser task to the browser port; it starts working at once. `instructions`: the user's ask in full; `files`: workspace files it may upload. */
   | { kind: "browse"; title: string; url: string; instructions: string; files: string[] }
   /** Ask the user to approve a consequential step before taking it; `remember`: the answer may become a rule. */
-  | { kind: "ask"; action: string; target: string; detail: string; remember: boolean; app?: string | null }
+  | { kind: "ask"; action: string; target: string; detail: string; remember: boolean; app?: string | null; lasting?: boolean }
   /** Record that the user's own rule refused a step, without asking: an approval that ends denied by the rule (their Approvals list shows it). */
   | { kind: "refuse"; action: string; target: string; detail: string; app?: string | null }
   /** A browser run's progress, from the agent driving it. */
@@ -124,10 +126,10 @@ export type AgentAction =
   | { kind: "schedule"; title: string; instructions: string; when: When; needs?: Needs | null; preset?: boolean; goal?: string | null }
   /** Cancel a schedule for good. */
   | { kind: "unschedule"; id: string }
-  /** Ask the user for a credential for the sandbox, on a card (the value goes from there to the sandbox, never through here). */
-  | { kind: "askSecret"; name: string; why: string; deliver: SecretDestination }
-  /** A credential request was answered (by the server, once the value is where it was to go). */
-  | { kind: "secretAnswered"; id: string; outcome: "provided" | "declined" }
+  /** Ask the user for a secret on a card: a temporary code for a terminal, or a long-term secret for the Vault (the value goes from there to where it is kept or typed, never through here). */
+  | { kind: "askSecret"; name: string; why: string; deliver: SecretAsk }
+  /** A secret request was answered (by the server, once the value is where it was to go). */
+  | { kind: "secretAnswered"; id: string; outcome: "provided" | "declined"; hint?: string | null }
   /** One every instance starts with takes its instructions as this version of Amuse words them (they ship with it, like the built-in skills). */
   | { kind: "revisePreset"; title: string; instructions: string }
   /** A schedule's run has ended, and how. */
@@ -181,7 +183,7 @@ type BrowserAction = Params["browser.control"]["action"];
 type ScheduleAction = Params["schedule.control"]["action"];
 
 /** A job is on: the browser was given one, and it has not ended. */
-const onJob = (b: Browser) => b.instructions !== "" && b.result === null;
+export const onJob = (b: Browser) => b.instructions !== "" && b.result === null;
 
 /** Browser transitions (Muse): where each action may start, and where it lands (handing back: to the job, or idle). */
 const browserMoves: Record<BrowserAction, { from: readonly BrowserStatus[]; to: (b: Browser) => BrowserStatus }> = {
@@ -248,9 +250,14 @@ function closeQuestions(state: State, run: string): { changes: Change[]; effects
 type Rules = { [M in CommandMethod]: (state: State, params: Params[M], ctx: Context) => Decision<Outputs[M]> };
 
 const rules: Rules = {
-  "chat.send": (_, { text, timezone, attachments }, ctx) => {
+  "chat.send": (state, { text, timezone, attachments, replyTo }, ctx) => {
+    // an item of Amuse's, quoted as it is now
+    const replied = replyTo === undefined ? undefined : state.entities.find((e) => e.id === replyTo);
+    if (replyTo !== undefined && !replied) return reject({ kind: "notFound", entity: "reply", id: replyTo });
+    const quote = replied ? quoteOf(replied) : null;
+    if (replyTo !== undefined && !quote) return reject({ kind: "unsound", reason: "that cannot be replied to" });
     const id = ctx.id("p");
-    return ok([upsert({ kind: "prompt", id, at: ctx.now, text, timezone, attachments })], [{ kind: "prompt", text, attachments }], { id });
+    return ok([upsert({ kind: "prompt", id, at: ctx.now, text, timezone, attachments, quote })], [{ kind: "prompt", text, attachments, quote }], { id });
   },
 
   "chat.retry": (state, { id }) => {
@@ -262,7 +269,7 @@ const rules: Rules = {
     // the user's latest message, as they sent it
     const last = state.entities.findLast((e): e is Extract<Entity, { kind: "prompt" }> => e.kind === "prompt");
     if (!last) return reject({ kind: "notFound", entity: "prompt", id });
-    return ok([tried], [{ kind: "prompt", text: last.text, attachments: last.attachments }], null);
+    return ok([tried], [{ kind: "prompt", text: last.text, attachments: last.attachments, quote: last.quote }], null);
   },
 
   "chat.stop": (state) => {
@@ -366,10 +373,10 @@ const agentRules: AgentRules = {
     const id = ctx.id("c");
     return ok([upsert({ kind: "connection", id, at: ctx.now, provider, title, status: "pending" })], [], { id });
   },
-  ask: (_, { action, target, detail, remember, app = null }, ctx) => {
+  ask: (_, { action, target, detail, remember, app = null, lasting = false }, ctx) => {
     const id = ctx.id("a");
     const expires = later(ctx.now, APPROVAL_TTL_MS);
-    return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, remember, status: "pending", expires, app, always: false, byRule: false })], [], { id });
+    return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, remember, status: "pending", expires, app, always: false, byRule: false, lasting })], [], { id });
   },
   refuse: (state, { action, target, detail, app = null }, ctx) => {
     const now = Date.parse(ctx.now);
@@ -382,7 +389,7 @@ const agentRules: AgentRules = {
     const last = lately.at(-1);
     if (last && lately.length >= MOST_REFUSALS_PER_HOUR) return ok([], [], { id: last.id });
     const id = ctx.id("a");
-    return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, remember: false, status: "denied", expires: ctx.now, app, always: false, byRule: true })], [], { id });
+    return ok([upsert({ kind: "approval", id, at: ctx.now, action, target, detail, remember: false, status: "denied", expires: ctx.now, app, always: false, byRule: true, lasting: false })], [], { id });
   },
   schedule: (state, { title, instructions, when, needs = null, preset = false, goal = null }, ctx) => {
     if (standing(state).length >= MAX_SCHEDULES) return reject({ kind: "unsound", reason: `there are already ${MAX_SCHEDULES} schedules; cancel one first` });
@@ -398,11 +405,13 @@ const agentRules: AgentRules = {
     const id = ctx.id("k");
     return ok([upsert({ kind: "secret", id, at: ctx.now, name, why, deliver, status: "pending" })], [], { id });
   },
-  secretAnswered: (state, { id, outcome }) => {
+  secretAnswered: (state, { id, outcome, hint = null }) => {
     const request = find(state, "secret", id);
     if (!request) return reject({ kind: "notFound", entity: "secret", id });
     if (request.status !== "pending") return ok([], [], { id });
-    return ok([upsert({ ...request, status: outcome })], [], { id });
+    // a key's card keeps the end of the key that was added
+    const deliver = request.deliver.kind === "key" ? { ...request.deliver, hint } : request.deliver;
+    return ok([upsert({ ...request, deliver, status: outcome })], [], { id });
   },
   revisePreset: (state, { title, instructions }) => {
     const preset = state.entities.find((e): e is Schedule => e.kind === "schedule" && e.preset && e.title === title && (e.status === "active" || e.status === "paused"));

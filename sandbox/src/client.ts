@@ -8,7 +8,27 @@
  * `detail`, to be shown only as untrusted text.
  */
 import type { z } from "zod";
-import { DEFAULT_TIMEOUT, Failure, type Forget, Nothing, Ran, type Run, type SecretEnv, type SecretFile, type SecretTyped, TERMINAL_PATH } from "./protocol.ts";
+import {
+  type AtRiskFolder,
+  AtRiskFolders,
+  DEFAULT_TIMEOUT,
+  Failure,
+  type Forget,
+  HANDOFF_SECONDS,
+  JOB_LIFETIME,
+  type JobRef,
+  JobState,
+  JobStates,
+  Nothing,
+  Ran,
+  type Run,
+  type SecretEnv,
+  type SecretFile,
+  type SecretTyped,
+  type Start,
+  type StopJobs,
+  TERMINAL_PATH,
+} from "./protocol.ts";
 
 /** A request the sandbox could not do, or could not be asked: why, in words of our own. */
 export class SandboxError extends Error {
@@ -23,8 +43,22 @@ export class SandboxError extends Error {
 export interface SandboxClient {
   /** Run a command to completion; `signal` ends it early (the command is stopped). */
   run(request: Run, signal?: AbortSignal): Promise<Ran>;
+  /**
+   * Run a command as a job of a chat: the answer comes when it ends, or after the hand-off wait (at once for a background one),
+   * with it still `running`. `signal` ends it early while it is waited for (the command is stopped); once handed off it
+   * goes on, until it ends or is stopped.
+   */
+  start(request: Start, signal?: AbortSignal): Promise<JobState>;
+  /** A job of the chat as it stands now. */
+  jobOutput(job: JobRef): Promise<JobState>;
+  /** Stop a job of the chat, or every one of them; each answer is how the job stands once it has ended. */
+  stopJobs(request: StopJobs): Promise<JobState[]>;
+  /** Wait for a job of the chat to end (it ends at the latest at its lifetime), and say how it did. */
+  waitJob(job: JobRef): Promise<JobState>;
   /** Stop everything and empty the home folder back to its skeleton; the workspace stays. */
   reset(): Promise<void>;
+  /** Folders in the home folder, outside the workspace, that a reset would delete: what the user may want kept. */
+  atRisk(): Promise<AtRiskFolder[]>;
   /** Type a credential into a terminal of herdr's, with Enter after it (a CLI waiting for a code). */
   typeSecret(secret: SecretTyped): Promise<void>;
   /** Keep a credential as an environment variable every command gets. */
@@ -98,7 +132,12 @@ export function sandboxClient(
   };
   return {
     run: (run, signal) => call("POST", "/run", Ran, (run.timeout ?? DEFAULT_TIMEOUT) * 1000 + margin, run, signal),
+    start: (job, signal) => call("POST", "/jobs", JobState, (job.background ? 0 : HANDOFF_SECONDS) * 1000 + margin, job, signal),
+    jobOutput: (job) => call("POST", "/jobs/output", JobState, quick, job),
+    stopJobs: async (request) => (await call("POST", "/jobs/stop", JobStates, quick, request)).jobs,
+    waitJob: (job) => call("POST", "/jobs/wait", JobState, JOB_LIFETIME * 1000 + margin, job),
     reset: async () => void (await call("POST", "/reset", Nothing, quick)),
+    atRisk: async () => (await call("GET", "/at-risk", AtRiskFolders, quick)).folders,
     typeSecret: async (secret) => void (await call("POST", "/secrets/type", Nothing, quick, secret)),
     setEnv: async (secret) => void (await call("POST", "/secrets/env", Nothing, quick, secret)),
     setFile: async (secret) => void (await call("POST", "/secrets/file", Nothing, quick, secret)),

@@ -7,7 +7,7 @@
  * goals and the skill review may tell the user something, and only when it
  * concerns them.
  */
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { type Db, query, transaction } from "@amuse/db";
 import type { DefaultSchedule, Defaults } from "@amuse/pi";
 import { z } from "zod";
 
@@ -91,21 +91,15 @@ export const defaultSchedules: DefaultSchedule[] = [
   },
 ];
 
-/** What was set up before keys: all four of the first defaults. */
-const first = ["memory", "people", "reflection", "wrap-up"];
-
-const Marker = z.object({ done: z.boolean().optional(), set: z.array(z.string()).optional() });
-
-/** Which defaults were set up, kept in `path` (a run of the server, a new device: still once each). */
-export function fileDefaults(path: string): Defaults {
+/** Which defaults were set up, kept in the database (a run of the server, a new device: still once each). */
+export function sqliteDefaults(db: Db): Defaults {
   return {
     schedules: defaultSchedules,
-    setUp: () => {
-      if (!existsSync(path)) return [];
-      const marker = Marker.safeParse(JSON.parse(readFileSync(path, "utf8")));
-      if (!marker.success) return [];
-      return marker.data.set ?? (marker.data.done ? first : []);
-    },
-    markSetUp: (keys) => writeFileSync(path, JSON.stringify({ set: keys }, null, 2), { mode: 0o600 }),
+    setUp: () => query(db, z.object({ key: z.string() }), "select key from defaults_set order by key").map((row) => row.key),
+    markSetUp: (keys) =>
+      transaction(db, () => {
+        db.exec("delete from defaults_set");
+        for (const key of new Set(keys)) db.prepare("insert into defaults_set (key) values (?)").run(key);
+      }),
   };
 }

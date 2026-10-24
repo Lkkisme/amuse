@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
-import { createHost, memoryRules, noKeys, noLogins, noSandbox, noWorkspace, type Ports } from "@amuse/core";
+import { createHost, memoryRules, noKeys, noLogins, noSandbox, noSecrets, noWorkspace, type Ports } from "@amuse/core";
 import { paseoBridge } from "./paseo.ts";
 import { connectPaseo, type PaseoAgent, type PaseoClientEvent, type PaseoDirectoryPage, type PaseoTimeline, type PaseoTimelineEntry } from "./paseo-client.ts";
 
@@ -251,8 +251,8 @@ test("supported SDK recovery restores thirteen original sessions and settles bri
   const ports: Ports = {
     prompt: () => { throw new Error("This recovery must never start a model or replay a prompt."); },
     interrupt: () => {}, title: async () => "unused", browse: () => {}, job: () => {}, task: () => {}, schedule: () => {}, browser: () => {}, approval: () => {}, stopTask: () => {}, fit: () => {}, connect: async () => "",
-    apps: { search: async () => ({ apps: [], cursor: null }), accounts: async () => [], connect: async () => "", disconnect: async () => {}, permissions: async () => [], permit: async () => {} },
-    rules: memoryRules(), keys: noKeys, files: noWorkspace, logins: noLogins, sandbox: noSandbox,
+    apps: { access: async () => ({ kind: "managed" }), cannotConnect: async () => null, connectKey: async () => { throw new Error("No key connection in this fixture."); }, search: async () => ({ apps: [], cursor: null }), accounts: async () => [], connect: async () => "", disconnect: async () => {}, permissions: async () => [], permit: async () => {} },
+    rules: memoryRules(), keys: noKeys, files: noWorkspace, logins: noLogins, sandbox: noSandbox, secrets: noSecrets,
   };
   const host = createHost(ports);
   const path = join(f.config.home, "bridge.json");

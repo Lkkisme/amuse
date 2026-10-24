@@ -5,17 +5,14 @@
  * Live browser pixels are not JSON-RPC; they stream on their own channel.
  */
 import { z } from "zod";
-import { Account, App, BrowserAction, BrowserRule, KindRule, Permission, Site, SiteEntry, SiteRule, ToolKind } from "./apps.ts";
-import { Approval, Attachment, Id, Resolution, Schedule, SecretDestination, TimeZone } from "./entities.ts";
+import { Account, App, AppAccess, BrowserAction, BrowserRule, GivenField, KindRule, Permission, Site, SiteEntry, SiteRule, ToolKind } from "./apps.ts";
+import { Approval, Attachment, Id, Resolution, Schedule, TimeZone } from "./entities.ts";
+import { FieldName, PlainInput, SecretAnswer, SecretEntry, SecretInput, Use, UseInput } from "./secrets.ts";
 import { Envelope, Index, Page, Seq, State } from "./events.ts";
 import { Chat, Push } from "./chats.ts";
 import { Goal, GoalNote, GoalStatus } from "./goals.ts";
 import { SkillInfo, SkillOrigin } from "./skills.ts";
-import { KeyTest, KeysState, LocalVoice, LoginStep, ModelRef, ModelRole, ThinkingLevel } from "./keys.ts";
-
-/** A credential given for the sandbox, as it is listed: never its value. */
-export const SecretInfo = z.object({ id: Id, name: z.string(), deliver: SecretDestination, at: z.string() });
-export type SecretInfo = z.infer<typeof SecretInfo>;
+import { KeyTest, KeyWay, KeysState, LocalVoice, LoginStep, ModelRef, ModelRole, ThinkingLevel } from "./keys.ts";
 
 const call = <M extends string, P extends z.ZodObject>(method: M, params: P) =>
   z.object({ method: z.literal(method), params });
@@ -31,6 +28,18 @@ export const BackendStatus = z.object({
   capabilities: z.array(z.string()),
 });
 export type BackendStatus = z.infer<typeof BackendStatus>;
+/**
+ * A folder in the sandbox's home folder, outside the workspace, that a reset would delete: something the user
+ * may have put there themselves, and may want kept. What the daemon answers is not taken for trusted, so it is
+ * checked here too.
+ */
+export const AtRiskFolder = z.object({
+  /** where it is, from the home folder ("myapp") */
+  path: z.string(),
+  /** it holds a `.git`: a repository of code */
+  repository: z.boolean(),
+});
+export type AtRiskFolder = z.infer<typeof AtRiskFolder>;
 
 export const Call = z.discriminatedUnion("method", [
   /** Catch up on a chat from `since` (null: from nothing). */
@@ -39,11 +48,11 @@ export const Call = z.discriminatedUnion("method", [
   call("session.history", z.object({ chat: Id, before: Index, limit: z.int().min(1).max(200) })),
   /** The connected execution backend, selected model and available tool capabilities. */
   call("backend.status", z.object({})),
-  /** `timezone`: the device's (Intl), so times are the user's own */
+  /** `timezone`: the device's (Intl), so times are the user's own; `replyTo`: an item (a message of either side, or a card) this answers */
   call(
     "chat.send",
     z
-      .object({ chat: Id, text: z.string(), timezone: TimeZone, attachments: z.array(Attachment).max(10) })
+      .object({ chat: Id, text: z.string(), timezone: TimeZone, attachments: z.array(Attachment).max(10), replyTo: Id.optional() })
       .refine((p) => p.text.trim() !== "" || p.attachments.length > 0, "Say something or attach a file"),
   ),
   /** Stop the agent's current reply in a chat. */
@@ -81,6 +90,10 @@ export const Call = z.discriminatedUnion("method", [
   call("apps.accounts", z.object({})),
   /** Start connecting `app`: returns the provider's hosted auth link. */
   call("apps.connect", z.object({ app: Id })),
+  /** How `app` is connected: a hosted link, or the user's own key. */
+  call("apps.access", z.object({ app: Id })),
+  /** Connect `app` with the user's own key, typed in the app; Composio holds it, Amuse keeps it nowhere. */
+  call("apps.connectKey", z.object({ app: Id, values: z.array(GivenField).min(1) })),
   call("apps.disconnect", z.object({ account: Id })),
   /** What the agent may do with an app: reading, changing, destroying (its tools sorted by their own hints). */
   call("apps.permissions", z.object({ app: Id })),
@@ -109,11 +122,25 @@ export const Call = z.discriminatedUnion("method", [
   call("goals.get", z.object({ id: z.string().min(1).max(100) })),
   /** Add a goal: what the user wants, and anything more about it. */
   call("goals.add", z.object({ title: z.string().trim().min(1).max(200), about: z.string().max(4000) })),
-  /** Answer a request for a credential: its value (taken to the sandbox, never kept in the chat), or null to decline. */
-  call("secret.answer", z.object({ id: Id, value: z.string().min(1).max(200_000).nullable() })),
-  /** The credentials given for the sandbox: what and where, never their values. */
+  /** Answer a card that asks for a secret: the code (typed into its terminal, kept nowhere), or the fields of a long-term secret (kept in the Vault); null declines. */
+  call("secret.answer", z.object({ id: Id, answer: SecretAnswer.nullable() })),
+  /** The Vault: every entry, plain fields in full, secret fields never. */
   call("secrets.list", z.object({})),
-  /** Take a credential back: from the sandbox too. */
+  /** Add an entry, with the uses (the user's own word for them). */
+  call("secrets.add", z.object({ name: z.string().trim().min(1).max(100), note: z.string().max(2000), plain: z.array(PlainInput).max(20), secret: z.array(SecretInput).min(1).max(20), uses: z.array(UseInput).max(20) })),
+  /** Change an entry's name, its note and its plain fields (the whole list: one left out is taken away, unless it has uses). */
+  call("secrets.edit", z.object({ id: Id, name: z.string().trim().min(1).max(100), note: z.string().max(2000), plain: z.array(PlainInput).max(20) })),
+  /** Set a secret field: a new one is added, one of that name has its value replaced (never read back). */
+  call("secrets.setSecret", z.object({ id: Id, field: SecretInput })),
+  /** One secret field's value, as text, for the user to see or copy (the Vault's only way to read a secret back; a sign-in's tokens are refused). */
+  call("secrets.reveal", z.object({ id: Id, field: FieldName })),
+  /** Take a secret field away, with its uses; an entry keeps at least one. */
+  call("secrets.removeSecret", z.object({ id: Id, name: FieldName })),
+  /** Add a use to an entry. */
+  call("secrets.use", z.object({ id: Id, use: UseInput })),
+  /** Take a use away (from the sandbox too). */
+  call("secrets.unuse", z.object({ id: Id, use: Id })),
+  /** Remove an entry, with its uses (from the sandbox too). */
   call("secrets.remove", z.object({ id: Id })),
   /** Every skill: the user's first, then the built-in ones. */
   call("skills.list", z.object({})),
@@ -125,10 +152,12 @@ export const Call = z.discriminatedUnion("method", [
   call("goals.update", z.object({ id: z.string().min(1).max(100), status: GoalStatus.optional(), muted: z.boolean().optional() })),
   /** The providers there are for keys, which are set up, the models they offer and the ones chosen. */
   call("keys.list", z.object({})),
-  /** Start setting up a provider's key: its first prompt (or done/failed). */
-  call("keys.login", z.object({ provider: z.string().min(1).max(100) })),
-  /** Answer a sign-in's prompt: the next one (or done/failed). */
+  /** Start setting up a provider: with its key (the default), or by signing in with the user's account there. Its first step. */
+  call("keys.login", z.object({ provider: z.string().min(1).max(100), way: KeyWay.optional() })),
+  /** Answer a sign-in's prompt: the next step. */
   call("keys.answer", z.object({ login: z.string().min(1).max(100), value: z.string().max(8192) })),
+  /** A sign-in's next step once the user has finished on the provider's page; after about 20 seconds without one, the step as it stands. */
+  call("keys.wait", z.object({ login: z.string().min(1).max(100) })),
   call("keys.cancel", z.object({ login: z.string().min(1).max(100) })),
   /** Try a provider's key: one short request with it (a model of theirs; the apps' directory for Composio). */
   call("keys.test", z.object({ provider: z.string().min(1).max(100) })),
@@ -145,6 +174,8 @@ export const Call = z.discriminatedUnion("method", [
   call("models.localVoice", z.object({ service: LocalVoice.extend({ key: z.string().max(8192).nullable() }).nullable() })),
   /** Stop what runs in the sandbox and wipe its home folder; the workspace is kept, and system-wide installs stay until the container is recreated. */
   call("sandbox.reset", z.object({})),
+  /** Folders in the sandbox's home folder, outside the workspace, that a reset would delete: what the confirmation names, so work kept there can be moved out first. */
+  call("sandbox.atRisk", z.object({})),
 ]);
 
 export type Call = z.infer<typeof Call>;
@@ -179,6 +210,8 @@ export const results = {
   "apps.search": z.object({ apps: z.array(App), cursor: z.string().nullable() }),
   "apps.accounts": z.object({ accounts: z.array(Account) }),
   "apps.connect": z.object({ url: z.url() }),
+  "apps.access": z.object({ access: AppAccess }),
+  "apps.connectKey": done,
   "apps.disconnect": done,
   "apps.permissions": z.object({ rules: z.array(KindRule) }),
   "apps.permit": done,
@@ -194,7 +227,14 @@ export const results = {
   "goals.add": Goal,
   "goals.update": done,
   "secret.answer": done,
-  "secrets.list": z.object({ secrets: z.array(SecretInfo) }),
+  "secrets.list": z.object({ entries: z.array(SecretEntry) }),
+  "secrets.add": z.object({ id: Id }),
+  "secrets.edit": done,
+  "secrets.setSecret": done,
+  "secrets.reveal": z.object({ value: z.string() }),
+  "secrets.removeSecret": done,
+  "secrets.use": z.object({ use: Use }),
+  "secrets.unuse": done,
   "secrets.remove": done,
   "skills.list": z.object({ skills: z.array(SkillInfo) }),
   "skills.get": z.object({ skill: SkillInfo, body: z.string(), files: z.array(z.string()) }),
@@ -202,6 +242,7 @@ export const results = {
   "keys.list": KeysState,
   "keys.login": LoginStep,
   "keys.answer": LoginStep,
+  "keys.wait": LoginStep,
   "keys.cancel": done,
   "keys.test": KeyTest,
   "keys.logout": done,
@@ -210,6 +251,7 @@ export const results = {
   "models.voice": done,
   "models.localVoice": done,
   "sandbox.reset": done,
+  "sandbox.atRisk": z.object({ folders: z.array(AtRiskFolder) }),
 } satisfies Record<Method, z.ZodType>;
 
 export type Params = { [C in Call as C["method"]]: C["params"] };
@@ -242,6 +284,8 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "apps.search": (raw) => results["apps.search"].parse(raw),
   "apps.accounts": (raw) => results["apps.accounts"].parse(raw),
   "apps.connect": (raw) => results["apps.connect"].parse(raw),
+  "apps.access": (raw) => results["apps.access"].parse(raw),
+  "apps.connectKey": (raw) => results["apps.connectKey"].parse(raw),
   "apps.disconnect": (raw) => results["apps.disconnect"].parse(raw),
   "apps.permissions": (raw) => results["apps.permissions"].parse(raw),
   "apps.permit": (raw) => results["apps.permit"].parse(raw),
@@ -258,6 +302,13 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "goals.update": (raw) => results["goals.update"].parse(raw),
   "secret.answer": (raw) => results["secret.answer"].parse(raw),
   "secrets.list": (raw) => results["secrets.list"].parse(raw),
+  "secrets.add": (raw) => results["secrets.add"].parse(raw),
+  "secrets.edit": (raw) => results["secrets.edit"].parse(raw),
+  "secrets.setSecret": (raw) => results["secrets.setSecret"].parse(raw),
+  "secrets.reveal": (raw) => results["secrets.reveal"].parse(raw),
+  "secrets.removeSecret": (raw) => results["secrets.removeSecret"].parse(raw),
+  "secrets.use": (raw) => results["secrets.use"].parse(raw),
+  "secrets.unuse": (raw) => results["secrets.unuse"].parse(raw),
   "secrets.remove": (raw) => results["secrets.remove"].parse(raw),
   "skills.list": (raw) => results["skills.list"].parse(raw),
   "skills.get": (raw) => results["skills.get"].parse(raw),
@@ -265,6 +316,7 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "keys.list": (raw) => results["keys.list"].parse(raw),
   "keys.login": (raw) => results["keys.login"].parse(raw),
   "keys.answer": (raw) => results["keys.answer"].parse(raw),
+  "keys.wait": (raw) => results["keys.wait"].parse(raw),
   "keys.cancel": (raw) => results["keys.cancel"].parse(raw),
   "keys.test": (raw) => results["keys.test"].parse(raw),
   "keys.logout": (raw) => results["keys.logout"].parse(raw),
@@ -273,6 +325,7 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "models.voice": (raw) => results["models.voice"].parse(raw),
   "models.localVoice": (raw) => results["models.localVoice"].parse(raw),
   "sandbox.reset": (raw) => results["sandbox.reset"].parse(raw),
+  "sandbox.atRisk": (raw) => results["sandbox.atRisk"].parse(raw),
 };
 
 /** What a server implements: one function per method. */
@@ -313,6 +366,10 @@ export const errors = {
   invalidRequest: { code: -32600, message: "Invalid request" },
   methodNotFound: { code: -32601, message: "Method not found" },
   invalidParams: { code: -32602, message: "Invalid params" },
+  /** A sensitive call (api/src/sensitive.ts) on a session the PIN has not unlocked: the client asks for the PIN, then calls again. */
+  pinLocked: { code: -32001, message: "Enter your PIN to do this." },
+  /** A sensitive call before any PIN is set: the client asks for one to be set first. */
+  pinUnset: { code: -32002, message: "Set a PIN first: it authorizes sensitive actions." },
 } as const satisfies Record<string, z.infer<typeof RpcError>>;
 
 export type Request = z.infer<typeof Request>;

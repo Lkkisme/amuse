@@ -1,128 +1,99 @@
 import assert from "node:assert/strict";
-import { createHash, scryptSync } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { test } from "node:test";
-import { fileAccess, pairDeviceSession, PasswordRejected } from "./access.ts";
+import { migratedDatabase, query } from "@amuse/db";
+import { z } from "zod";
+import { ASK_MS, resetDevices, sqliteAccess } from "./access.ts";
 
-test("owner USB pairing adds a hashed revocable session without changing the password", async () => {
-  const { path, access, cleanup } = fresh();
-  try {
-    const existing = await access.setup("owner password");
-    const before = JSON.parse(readFileSync(path, "utf8"));
-    const device = pairDeviceSession(path);
-    assert.match(device, /^[A-Za-z0-9_-]{43}$/);
-    const reloaded = fileAccess(path);
-    assert.ok(reloaded.valid(device));
-    assert.ok(reloaded.valid(existing));
-    const after = JSON.parse(readFileSync(path, "utf8"));
-    assert.deepEqual(after.password, before.password);
-    assert.equal(after.sessions.length, before.sessions.length + 1);
-    assert.equal(readFileSync(path, "utf8").includes(device), false);
-    await reloaded.change("owner password", "owner replacement");
-    assert.equal(reloaded.valid(device), false, "changing the owner credential revokes paired devices too");
-  } finally { cleanup(); }
+const phone = { agent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Safari/604.1", address: "100.64.0.7" };
+const laptop = { agent: "Mozilla/5.0 (X11; Linux x86_64) Chrome/141.0 Safari/537.36", address: "100.64.0.8" };
+const clock = () => {
+  let at = Date.parse("2026-11-01T09:00:00Z");
+  return { now: () => at, pass: (ms: number) => void (at += ms) };
+};
+
+test("the device that sets the password is trusted; another one with the right password only waits, until a trusted one approves it", async () => {
+  const db = await migratedDatabase();
+  const access = sqliteAccess(db);
+  const first = await access.setup("correct horse", null, laptop);
+  assert.ok(first.kind === "in" && first.device, "a session, and the device's own cookie");
+  assert.equal(access.valid(first.session), true);
+
+  assert.equal(await access.login("wrong horse", null, phone), null);
+  const asked = await access.login("correct horse", null, phone);
+  assert.ok(asked?.kind === "waiting" && asked.device);
+  assert.equal(access.waiting(asked.device), true);
+  assert.equal(access.admitted(asked.device, phone), null, "not before it is approved");
+  const waiting = access.devices().find((d) => d.waiting);
+  assert.deepEqual(waiting && { agent: waiting.agent, address: waiting.address, trusted: waiting.trusted }, { ...phone, trusted: false });
+
+  assert.equal(access.approve(waiting?.id ?? ""), true);
+  const admitted = access.admitted(asked.device, phone);
+  assert.ok(admitted?.kind === "in" && access.valid(admitted.session));
+  assert.equal(access.admitted(asked.device, phone), null, "once");
+  // from now on the password is enough on it
+  const again = await access.login("correct horse", asked.device, phone);
+  assert.equal(again?.kind, "in");
 });
 
-test("USB pairing cannot silently initialize an unconfigured instance", () => {
-  const { path, cleanup } = fresh();
-  try { assert.throws(() => pairDeviceSession(path)); } finally { cleanup(); }
+test("a device turned away, or one that asked too long ago, is not let in; the waiting list is kept short", async () => {
+  const db = await migratedDatabase();
+  const time = clock();
+  const access = sqliteAccess(db, { now: time.now });
+  await access.setup("correct horse", null, laptop);
+  const denied = await access.login("correct horse", null, phone);
+  const deniedId = access.devices().find((d) => d.waiting)?.id ?? "";
+  access.deny(deniedId);
+  assert.equal(access.approve(deniedId), false);
+  assert.equal(access.waiting(denied?.device ?? null), false);
+
+  const late = await access.login("correct horse", null, phone);
+  time.pass(ASK_MS);
+  assert.equal(access.waiting(late?.device ?? null), false);
+  assert.deepEqual(access.devices().filter((d) => d.waiting), [], "an old ask is not shown");
+  assert.equal(access.approve(query(db, z.object({ id: z.string() }), "select id from devices where trusted = 0")[0]?.id ?? ""), false);
+
+  for (let i = 0; i < 30; i++) await access.login("correct horse", null, { agent: `bot ${i}`, address: "203.0.113.9" });
+  assert.equal(query(db, z.object({ n: z.number() }), "select count(*) as n from devices where trusted = 0")[0]?.n, 20);
 });
 
-function fresh() {
-  const directory = mkdtempSync(join(tmpdir(), "amuse-pin-"));
-  const path = join(directory, "access.json");
-  return { path, access: fileAccess(path), cleanup: () => rmSync(directory, { recursive: true, force: true }) };
-}
-
-const rejected = ["", "0", "01", "012", "01234", "012345", "0123456", "abcd", "12a4", "１２３４", "123\n", "1234\n", "1234\r\n", " 123", "123 "];
-
-test("setup rejects short credentials except an exact four ASCII digit PIN", async () => {
-  const { path, access, cleanup } = fresh();
-  try {
-    for (const password of rejected) {
-      await assert.rejects(access.setup(password), PasswordRejected, JSON.stringify(password));
-      assert.equal(access.ready(), false, "a rejected setup does not set the credential");
-    }
-    const session = await access.setup("0123");
-    assert.ok(access.valid(session));
-    const reopened = fileAccess(path);
-    assert.ok(reopened.valid(session), "sessions retain the existing persistent format");
-    assert.notEqual(await reopened.login("0123"), null, "a leading zero survives hashing and reopening");
-    assert.equal(await reopened.login("123"), null);
-    assert.equal(await reopened.login("０１２３"), null);
-    await assert.rejects(reopened.setup("4567"), PasswordRejected, "setup cannot replace an existing PIN");
-  } finally {
-    cleanup();
-  }
+test("revoking a device ends its sessions; locking one does not untrust it; with none trusted the next password trusts its device", async () => {
+  const db = await migratedDatabase();
+  const access = sqliteAccess(db);
+  const first = await access.setup("correct horse", null, laptop);
+  assert.ok(first.kind === "in" && first.device);
+  access.logout(first.session);
+  const back = await access.login("correct horse", first.device, laptop);
+  assert.ok(back?.kind === "in", "a locked trusted device signs in again with the password alone");
+  const mine = access.devices()[0]?.id ?? "";
+  access.revoke(mine);
+  assert.equal(access.valid(back.session), false);
+  // no device is trusted any more: the next right password trusts its own, as the first visit did
+  const next = await access.login("correct horse", null, phone);
+  assert.equal(next?.kind, "in");
+  resetDevices(db);
+  assert.deepEqual(access.devices(), []);
+  assert.equal(next?.kind === "in" && access.valid(next.session), false);
 });
 
-test("invalid replacements leave the credential and all sessions intact", async () => {
-  const { path, access, cleanup } = fresh();
-  try {
-    const session = await access.setup("legacy password");
-    const before = readFileSync(path, "utf8");
-    for (const next of rejected) {
-      await assert.rejects(access.change("legacy password", next), PasswordRejected, JSON.stringify(next));
-      assert.equal(readFileSync(path, "utf8"), before, "a rejected change does not rewrite the store");
-      assert.ok(access.valid(session));
-    }
-    assert.notEqual(await access.login("legacy password"), null);
-  } finally {
-    cleanup();
-  }
-});
+test("a session from before devices were known gets its device's cookie once, and changing the password keeps the devices", async () => {
+  const db = await migratedDatabase();
+  const access = sqliteAccess(db);
+  const first = await access.setup("correct horse", null, laptop);
+  assert.ok(first.kind === "in");
+  assert.deepEqual(access.deviceOf(first.session)?.cookie, null, "it has one already");
+  // as the migration leaves a session that was open before
+  db.exec("update devices set digest = null");
+  const claimed = access.deviceOf(first.session);
+  assert.ok(claimed?.cookie);
+  assert.equal(access.deviceOf(first.session)?.cookie, null, "made once");
+  assert.equal((await access.login("correct horse", claimed.cookie, laptop))?.kind, "in", "the cookie is the trusted device's");
 
-test("an existing scrypt password store can migrate to a PIN and revokes every prior session", async () => {
-  const { path, cleanup } = fresh();
-  try {
-    const salt = Buffer.alloc(16, 1);
-    const priorSession = "existing-session";
-    writeFileSync(path, JSON.stringify({
-      password: {
-        salt: salt.toString("hex"),
-        hash: scryptSync("old password", salt, 64, { N: 2 ** 15, r: 8, p: 1, maxmem: 64 * 1024 ** 2 }).toString("hex"),
-      },
-      sessions: [createHash("sha256").update(priorSession).digest("hex")],
-    }));
-    const access = fileAccess(path);
-    assert.ok(access.ready());
-    assert.ok(access.valid(priorSession), "opening an existing store preserves its sessions");
-    const other = await access.login("old password");
-    assert.notEqual(other, null, "the preexisting password still opens a session");
-    assert.equal(await access.change("wrong password", "0123"), null);
-    assert.ok(access.valid(priorSession), "a wrong current credential cannot revoke sessions");
-    const next = await access.change("old password", "0123");
-    assert.notEqual(next, null);
-    assert.ok(access.valid(next!));
-    assert.equal(access.valid(priorSession), false);
-    assert.equal(access.valid(other!), false);
-    assert.equal(await access.login("old password"), null);
-    assert.notEqual(await access.login("0123"), null);
-    const reopened = fileAccess(path);
-    assert.equal(await reopened.login("old password"), null);
-    assert.notEqual(await reopened.login("0123"), null);
-    const stored = JSON.parse(readFileSync(path, "utf8"));
-    assert.deepEqual(Object.keys(stored).sort(), ["password", "sessions"]);
-    assert.deepEqual(Object.keys(stored.password).sort(), ["hash", "salt"]);
-    assert.match(stored.password.salt, /^[0-9a-f]{32}$/);
-    assert.match(stored.password.hash, /^[0-9a-f]{128}$/);
-    assert.ok(stored.sessions.every((session: string) => /^[0-9a-f]{64}$/.test(session)));
-  } finally {
-    cleanup();
-  }
-});
-
-test("eight character legacy passwords remain accepted for setup and change", async () => {
-  const { access, cleanup } = fresh();
-  try {
-    await access.setup("abcd1234");
-    assert.notEqual(await access.login("abcd1234"), null);
-    assert.notEqual(await access.change("abcd1234", "abcdefgh"), null);
-    assert.equal(await access.login("abcd1234"), null);
-    assert.notEqual(await access.login("abcdefgh"), null);
-  } finally {
-    cleanup();
-  }
+  const other = await access.login("correct horse", claimed.cookie, laptop);
+  assert.ok(other?.kind === "in");
+  assert.equal(await access.change(first.session, "wrong horse", "battery staple"), null);
+  const changed = await access.change(first.session, "correct horse", "battery staple");
+  assert.ok(changed && access.valid(changed));
+  assert.equal(access.valid(other.session), false, "every other session ends");
+  assert.equal(access.devices().length, 1, "the device stays trusted");
+  assert.equal(await access.matches("battery staple"), true);
 });

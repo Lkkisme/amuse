@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {test} from "node:test";
 import {createHost,type Timers} from "@amuse/core";
 import {demoPorts} from "@amuse/demo";
-import type {Access} from "./access.ts";
+import {letIn,noPin} from "./testing.ts";
 import {listen} from "./server.ts";
 import {localServicesStatus} from "./local-services-status.ts";
 import type {LocalSearchConfig} from "./local-search.ts";
@@ -27,10 +27,10 @@ test("wrong service identities and remote health URLs are unavailable",async()=>
  assert.equal(requests,1);
 });
 const timers:Timers<number>={set:()=>0,clear:()=>{}};
-const access:Access={ready:()=>true,setup:async()=>"",login:async()=>null,valid:(token)=>token==="owner",logout:()=>{},change:async()=>null};
+const access=letIn("owner",(token)=>token==="owner");
 test("local service status requires owner cookie, same origin and GET",async(t)=>{
  let reads=0;const status=localServicesStatus(()=>null,null);
- const server=await listen({session:createHost(demoPorts(timers),{timers}),access,port:0,host:"127.0.0.1",serviceStatus:async()=>{reads++;return status();}});t.after(()=>server.close());
+ const server=await listen({session:createHost(demoPorts(timers),{timers}),access,...noPin,port:0,host:"127.0.0.1",serviceStatus:async()=>{reads++;return status();}});t.after(()=>server.close());
  const url=`http://127.0.0.1:${server.port}/local-services`;
  assert.equal((await fetch(url)).status,401);
  assert.equal((await fetch(url,{headers:{cookie:"amuse=owner",origin:"https://foreign.example"}})).status,403);

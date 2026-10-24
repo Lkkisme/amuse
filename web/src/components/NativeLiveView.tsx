@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, RotateCw } from "lucide-react";
 import { keys } from "../remote-keys.ts";
 import { TouchSurface } from "./TouchSurface";
+import { Button } from "./Button";
 import { useT } from "../i18n/react.ts";
 import { activeT } from "../i18n/language.ts";
 import { changedViewport, contained, frameFits, frameOf, nativeFrameHasResolution, type Frame } from "../native-frames.ts";
@@ -433,7 +434,7 @@ export function NativeLiveView({ url, interactive, onFit, initialSize, renderCon
         {state === "connecting" && <div className="skeleton absolute inset-0" aria-label={t.viewer.keyConnecting} />}
         {state === "failed" && <div role="alert" className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center" style={{ background: "var(--bg-secondary)" }}>
           <p className="max-w-xs text-[14px]" style={{ color: "var(--text-secondary)" }}>{problem}</p>
-          <button type="button" className="h-10 rounded-full px-5 text-[14px] font-semibold text-white" style={{ background: "var(--fill-blue)" }} onClick={() => recovery.current?.manual()}>{t.localBrowser.retry}</button>
+          <Button variant="primary" onClick={() => recovery.current?.manual()}>{t.localBrowser.retry}</Button>
         </div>}
         {controls && <TouchSurface screen={box} mode={trackpad ? "trackpad" : zoom ? "pan" : "touch"} />}
       </div>

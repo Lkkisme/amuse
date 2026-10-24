@@ -1,8 +1,10 @@
 package live.amuse.app
 
 import java.net.URI
+import java.util.Locale
 
 /** Only an HTTPS origin can receive the server session, never an arbitrary page URL. */
+@ConsistentCopyVisibility
 data class ServerAddress private constructor(val origin: String, val host: String, val port: Int) {
     val home: String get() = "$origin/"
 
@@ -14,7 +16,8 @@ data class ServerAddress private constructor(val origin: String, val host: Strin
     }.getOrDefault(false)
 
     companion object {
-        const val DEFAULT = "https://lkk.tail988ed4.ts.net:8443"
+        // Placeholder only. It cannot become a connection target before explicit setup.
+        const val EXAMPLE = "https://amuse.example.com"
 
         fun parse(value: String): ServerAddress {
             val uri = runCatching { URI(value.trim()) }.getOrElse {
@@ -25,13 +28,20 @@ data class ServerAddress private constructor(val origin: String, val host: Strin
             require(uri.rawQuery == null && uri.rawFragment == null && (uri.rawPath.isNullOrEmpty() || uri.rawPath == "/")) {
                 "只填写服务地址和端口，不要附加页面路径、参数或片段。"
             }
+            require(!uri.rawAuthority.endsWith(":")) { "端口不能为空。" }
             require(uri.port == -1 || uri.port in 1..65535) { "端口必须介于 1 与 65535。" }
-            val host = uri.host.lowercase()
+            val host = uri.host.lowercase(Locale.ROOT)
             val port = if (uri.port == -1) 443 else uri.port
             val authorityHost = if (host.contains(":") && !host.startsWith("[")) "[$host]" else host
             return ServerAddress("https://$authorityHost${if (port == 443) "" else ":$port"}", host, port)
         }
     }
+}
+
+object ServerConfiguration {
+    /** Only missing legacy configuration may fall back to an already origin-bound vault. */
+    fun resolve(saved: String?, paired: ServerAddress?, biometric: ServerAddress?): ServerAddress? =
+        if (saved != null) runCatching { ServerAddress.parse(saved) }.getOrNull() else paired ?: biometric
 }
 
 /** Extract only Amuse's opaque session; PIN values are never handled by native code. */

@@ -3,18 +3,15 @@ import { createConnection } from "node:net";
 import { test } from "node:test";
 import { createHost, type Timers } from "@amuse/core";
 import { demoPorts } from "@amuse/demo";
-import type { Access } from "./access.ts";
+import { letIn, noPin } from "./testing.ts";
 import { listen } from "./server.ts";
 
 const timers: Timers<number> = { set: () => 0, clear: () => {} };
-const anyone: Access = {
-  ready: () => true, setup: async () => "", login: async () => null,
-  valid: () => true, logout: () => {}, change: async () => null,
-};
+const anyone = letIn();
 const upgrade = "GET /rpc HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n";
 
 test("a malformed WebSocket frame closes only its connection and the server keeps serving", async (t) => {
-  const server = await listen({ session: createHost(demoPorts(timers), { timers }), access: anyone, port: 0, host: "127.0.0.1" });
+  const server = await listen({ session: createHost(demoPorts(timers), { timers }), access: anyone, ...noPin, port: 0, host: "127.0.0.1" });
   t.after(() => server.close());
   await new Promise<void>((resolve, reject) => {
     const socket = createConnection(server.port, "127.0.0.1", () => socket.write(upgrade));
@@ -33,7 +30,7 @@ test("a malformed WebSocket frame closes only its connection and the server keep
 });
 
 test("resetting rejected upgrades cannot take down the HTTP listener", async (t) => {
-  const server = await listen({ session: createHost(demoPorts(timers), { timers }), access: { ...anyone, valid: () => false }, port: 0, host: "127.0.0.1" });
+  const server = await listen({ session: createHost(demoPorts(timers), { timers }), access: { ...anyone, valid: () => false }, ...noPin, port: 0, host: "127.0.0.1" });
   t.after(() => server.close());
   await Promise.all(Array.from({ length: 20 }, () => new Promise<void>((resolve) => {
     const socket = createConnection(server.port, "127.0.0.1", () => {

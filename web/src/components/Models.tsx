@@ -1,8 +1,8 @@
 /**
  * Settings › Models: the model Muse chats with, the one that works in the
  * browser (it must see pictures; the chat's unless chosen), among those of the providers set up with
- * the user's own API keys; the providers set up (only the end of a key
- * shows), each with a page of its own to test, replace or remove its key; and
+ * the user's own API keys or account sign-ins; the providers set up (only the end of a key
+ * shows), each with a page of its own to test, replace or remove its key (or sign in again, or out); and
  * every other one to add.
  */
 import { type ReactNode, useCallback, useEffect, useState } from "react";
@@ -14,6 +14,7 @@ import type {
   Session,
   ThinkingLevel,
 } from "@amuse/protocol";
+import { Button } from "./Button";
 import { KeyLine, KeyLogin, type TestState, useKeyTests } from "./KeyLogin";
 import { Sheet } from "./Sheet";
 import { useT } from "../i18n/react.ts";
@@ -327,7 +328,12 @@ export function Models({
                     >
                       {p.name}
                     </span>
-                    <KeyLine hint={p.hint} test={tests[p.id]} brief />
+                    <KeyLine
+                      hint={p.hint}
+                      way={p.way}
+                      test={tests[p.id]}
+                      brief
+                    />
                   </span>
                   <ChevronRight
                     size={16}
@@ -423,6 +429,8 @@ function ProviderPage({
   children: React.ReactNode;
 }) {
   const t = useT();
+  // signed in with the user's account: there is no key, and removing it signs out
+  const signedIn = provider.way === "account";
   const row =
     "hover-fade w-full py-3.5 text-left text-[15px] disabled:opacity-50";
   return (
@@ -466,7 +474,7 @@ function ProviderPage({
         className="mt-5 rounded-[18px] px-4 py-3"
         style={{ background: "var(--fill-secondary)" }}
       >
-        <KeyLine hint={provider.hint} test={test} />
+        <KeyLine hint={provider.hint} way={provider.way} test={test} />
       </div>
       <ul
         className={`${group} mt-3`}
@@ -479,7 +487,7 @@ function ProviderPage({
             style={{ color: "var(--fill-blue)" }}
             onClick={onTest}
           >
-            {t.keys.testKey}
+            {signedIn ? t.keys.testSignIn : t.keys.testKey}
           </button>
         </li>
         <li>
@@ -488,7 +496,7 @@ function ProviderPage({
             style={{ color: "var(--fill-blue)" }}
             onClick={onReplace}
           >
-            {t.keys.replaceKey}
+            {signedIn ? t.keys.signInAgain : t.keys.replaceKey}
           </button>
         </li>
         <li>
@@ -497,7 +505,7 @@ function ProviderPage({
             style={{ color: "var(--fill-red)" }}
             onClick={onRemove}
           >
-            {t.keys.removeKey}
+            {signedIn ? t.keys.signOut : t.keys.removeKey}
           </button>
         </li>
       </ul>
@@ -646,10 +654,11 @@ function LocalVoiceSheet({
             {problem}
           </p>
         )}
-        <button
+        <Button
+          variant="primary"
+          size="lg"
+          className="mt-6"
           disabled={!url.trim() || !model.trim()}
-          className="mt-6 h-12 w-full rounded-full text-[16px] font-semibold text-white disabled:opacity-40"
-          style={{ background: "var(--fill-blue)" }}
           onClick={() =>
             void save({
               url: url.trim(),
@@ -659,23 +668,21 @@ function LocalVoiceSheet({
           }
         >
           {t.models.save}
-        </button>
+        </Button>
         {current && (
-          <button
-            className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
-            style={{ color: "var(--fill-red)" }}
+          <Button
+            variant="plain"
+            size="lg"
+            tone="danger"
+            className="mt-2"
             onClick={() => void save(null)}
           >
             {t.common.remove}
-          </button>
+          </Button>
         )}
-        <button
-          className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
-          style={{ color: "var(--text-primary)" }}
-          onClick={onClose}
-        >
+        <Button variant="plain" size="lg" className="mt-2" onClick={onClose}>
           {t.common.cancel}
-        </button>
+        </Button>
       </div>
     </Sheet>
   );

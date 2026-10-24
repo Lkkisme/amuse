@@ -166,3 +166,20 @@ test("credential helper runs without UI and passes no secret in process argument
   writeFileSync(join(directory, "credential"), `process.stderr.write('${token}');process.exit(4);`);
   await assert.rejects(() => gitCredential({ executable: process.execPath, cwd: directory }), (error: Error) => !error.message.includes(token) && error.message.includes("No existing GitHub"));
 });
+
+test("local managed-access discovery and refusing typed credentials never read or write a credential", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "amuse-local-access-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const statePath = join(directory, "state.json");
+  let lookups = 0;
+  const local = localGitHub({ statePath, rules: memoryRules(), credential: async () => { lookups++; throw new Error("must not read"); } });
+  assert.deepEqual(await local.directory.access(LOCAL_GITHUB_APP), { kind: "managed" });
+  assert.equal(await local.directory.cannotConnect(LOCAL_GITHUB_APP), null);
+  const secret = "fixture-key-never-accepted";
+  await assert.rejects(local.directory.connectKey(LOCAL_GITHUB_APP, [{ name: "token", value: secret }]), (error: unknown) => error instanceof Error && /existing Git login/.test(error.message) && !error.message.includes(secret));
+  await assert.rejects(local.directory.access("gmail"), /local-github connection/);
+  await assert.rejects(local.directory.cannotConnect("gmail"), /local-github connection/);
+  await assert.rejects(local.directory.connectKey("gmail", []), /local-github connection/);
+  assert.equal(lookups, 0);
+  assert.throws(() => readFileSync(statePath));
+});

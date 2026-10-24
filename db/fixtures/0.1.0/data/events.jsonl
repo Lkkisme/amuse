@@ -1,0 +1,61 @@
+{"seq":1,"event":{"kind":"upserted","entity":{"kind":"prompt","id":"p-seed1","at":"2026-10-23T12:36:54.378Z","text":"Check the school-trip email and research exhibits at the aquarium","timezone":"America/Los_Angeles","attachments":[]},"index":0}}
+{"seq":2,"event":{"kind":"upserted","entity":{"kind":"reply","id":"r-seed1","at":"2026-10-23T12:37:54.385Z","text":"I found the trip email, opened it, and pulled together the exhibit options. Here's the plan I'm following:","streaming":false,"attachments":[]},"index":1}}
+{"seq":3,"event":{"kind":"upserted","entity":{"kind":"task","id":"t-seed1","at":"2026-10-23T12:37:54.385Z","title":"Aquarium trip research","status":"working","instructions":"Research the aquarium exhibits for the school trip","result":null,"steps":[{"label":"Open the trip email","done":true},{"label":"List exhibit options","done":true},{"label":"Check opening hours","done":false},{"label":"Summarize for the reply","done":false}]},"index":2}}
+{"seq":4,"event":{"kind":"upserted","entity":{"kind":"prompt","id":"p-seed2","at":"2026-10-23T12:39:54.385Z","text":"Book the table for Friday","timezone":"America/Los_Angeles","attachments":[]},"index":3}}
+{"seq":5,"event":{"kind":"upserted","entity":{"kind":"approval","id":"a-seed1","at":"2026-10-23T12:39:54.385Z","action":"Send email","target":"restaurant@example.com","detail":"Reserve a table for 4, Friday 7pm. Draft ready for your review.","remember":true,"status":"pending","expires":"2026-10-23T13:38:54.385Z","app":"gmail","always":false,"byRule":false},"index":4}}
+{"seq":6,"event":{"kind":"upserted","entity":{"kind":"browser","id":"b-seed1","at":"2026-10-23T12:40:54.385Z","title":"Monterey Bay Aquarium exhibits","url":"https://mbayaq.org/exhibits","status":"completed","instructions":"List the current exhibits","result":"Found 12 exhibits; the kelp forest feeding is at 11:30.","step":null,"live":false,"outcome":null,"files":[]},"index":5}}
+{"seq":7,"event":{"kind":"upserted","entity":{"kind":"prompt","id":"p-seed3","at":"2026-10-23T13:03:54.385Z","text":"Also check the tide schedule, and log in to the trip portal for me","timezone":"America/Los_Angeles","attachments":[]},"index":6}}
+{"seq":8,"event":{"kind":"upserted","entity":{"kind":"browser","id":"b-seed2","at":"2026-10-23T13:03:54.385Z","title":"Check the tide schedule","url":"https://tidesandcurrents.noaa.gov/stationhome","status":"working","instructions":"Check Saturday's low tide at Monterey","result":null,"step":null,"live":true,"outcome":null,"files":[]},"index":7}}
+{"seq":9,"event":{"kind":"upserted","entity":{"kind":"browser","id":"b-seed3","at":"2026-10-23T13:04:54.385Z","title":"Log in to the trip portal","url":"https://portal.example.edu/login","status":"needs_you","instructions":"Log in to the trip portal and open the itinerary","result":null,"step":null,"live":true,"outcome":null,"files":[]},"index":8}}
+{"seq":10,"event":{"kind":"upserted","entity":{"kind":"reply","id":"r-seed2","at":"2026-10-23T13:04:54.385Z","text":"The portal is asking for your login. Take control, sign in, then tap **Done** and I'll pick it up from there.","streaming":false,"attachments":[]},"index":9}}
+{"seq":11,"event":{"kind":"upserted","entity":{"kind":"connection","id":"c-seed1","at":"2026-10-23T13:05:54.385Z","provider":"googlesheets","title":"Google Sheets","status":"pending"},"index":10}}
+{"seq":12,"event":{"kind":"upserted","entity":{"kind":"reply","id":"r-seed3","at":"2026-10-23T13:05:54.385Z","text":"Connect Google Sheets and I'll put the exhibit list into your trip planner.","streaming":false,"attachments":[]},"index":11}}
+{"seq":13,"event":{"kind":"upserted","entity":{"kind":"prompt","id":"p-97c42d7d-5cbf-4551-b15a-d629651af3da","at":"2026-10-23T13:08:54.387Z","text":"Hello Amuse, remember that I like tea.","timezone":"UTC","attachments":[{"id":"f-d2f4cd4e-fcd7-4dce-9c6b-b132aabf7efd","name":"cat.jpg","type":"image/jpeg","size":8,"path":"user/media_library/cat.jpg"}]},"index":12}}
+{"seq":14,"event":{"kind":"activity","activity":{"kind":"responding","label":null}}}
+{"seq":15,"event":{"kind":"upserted","entity":{"kind":"reply","id":"r-aafc4dfd-d69a-464a-8c27-75b1c682bada","at":"2026-10-23T13:08:55.793Z","text":"Got","streaming":true,"attachments":[]},"index":13}}
+{"seq":16,"event":{"kind":"appended","id":"r-aafc4dfd-d69a-464a-8c27-75b1c682bada","text":" it"}}
+{"seq":17,"event":{"kind":"appended","id":"r-aafc4dfd-d69a-464a-8c27-75b1c682bada","text":" —"}}
+{"seq":18,"event":{"kind":"appended","id":"r-aafc4dfd-d69a-464a-8c27-75b1c682bada","text":" **\"Hello"}}
+{"seq":19,"event":{"kind":"appended","id":"r-aafc4dfd-d69a-464a-8c27-75b1c682bada","text":" Amuse,"}}
+{"seq":20,"event":{"kind":"appended","id":"r-aafc4dfd-d69a-464a-8c27-75b1c682bada","text":" remember"}}
+{"seq":21,"event":{"kind":"appended","id":"r-aafc4dfd-d69a-464a-8c27-75b1c682bada","text":" that"}}
+{"seq":22,"event":{"kind":"appended","id":"r-aafc4dfd-d69a-464a-8c27-75b1c682bada","text":" I"}}
+{"seq":23,"event":{"kind":"appended","id":"r-aafc4dfd-d69a-464a-8c27-75b1c682bada","text":" like"}}
+{"seq":24,"event":{"kind":"appended","id":"r-aafc4dfd-d69a-464a-8c27-75b1c682bada","text":" tea.\"**."}}
+{"seq":25,"event":{"kind":"appended","id":"r-aafc4dfd-d69a-464a-8c27-75b1c682bada","text":" I'll"}}
+{"seq":26,"event":{"kind":"appended","id":"r-aafc4dfd-d69a-464a-8c27-75b1c682bada","text":" take"}}
+{"seq":27,"event":{"kind":"appended","id":"r-aafc4dfd-d69a-464a-8c27-75b1c682bada","text":" that"}}
+{"seq":28,"event":{"kind":"appended","id":"r-aafc4dfd-d69a-464a-8c27-75b1c682bada","text":" from"}}
+{"seq":29,"event":{"kind":"appended","id":"r-aafc4dfd-d69a-464a-8c27-75b1c682bada","text":" here"}}
+{"seq":30,"event":{"kind":"appended","id":"r-aafc4dfd-d69a-464a-8c27-75b1c682bada","text":" and"}}
+{"seq":31,"event":{"kind":"appended","id":"r-aafc4dfd-d69a-464a-8c27-75b1c682bada","text":" post"}}
+{"seq":32,"event":{"kind":"appended","id":"r-aafc4dfd-d69a-464a-8c27-75b1c682bada","text":" updates"}}
+{"seq":33,"event":{"kind":"appended","id":"r-aafc4dfd-d69a-464a-8c27-75b1c682bada","text":" in"}}
+{"seq":34,"event":{"kind":"appended","id":"r-aafc4dfd-d69a-464a-8c27-75b1c682bada","text":" this"}}
+{"seq":35,"event":{"kind":"appended","id":"r-aafc4dfd-d69a-464a-8c27-75b1c682bada","text":" chat."}}
+{"seq":36,"event":{"kind":"upserted","entity":{"kind":"reply","id":"r-aafc4dfd-d69a-464a-8c27-75b1c682bada","at":"2026-10-23T13:08:57.264Z","text":"Got it — **\"Hello Amuse, remember that I like tea.\"**. I'll take that from here and post updates in this chat.","streaming":false,"attachments":[]},"index":13}}
+{"seq":37,"event":{"kind":"activity","activity":null}}
+{"seq":38,"event":{"kind":"upserted","entity":{"kind":"prompt","id":"p-f82c6904-1ee7-4a0b-8354-90e625f963dd","at":"2026-10-23T13:09:06.419Z","text":"Thanks, that is all for today.","timezone":"UTC","attachments":[]},"index":14}}
+{"seq":39,"event":{"kind":"activity","activity":{"kind":"responding","label":null}}}
+{"seq":40,"event":{"kind":"upserted","entity":{"kind":"reply","id":"r-9f91c716-27d5-4ead-a63a-6f0aa0e74bb9","at":"2026-10-23T13:09:07.826Z","text":"Got","streaming":true,"attachments":[]},"index":15}}
+{"seq":41,"event":{"kind":"appended","id":"r-9f91c716-27d5-4ead-a63a-6f0aa0e74bb9","text":" it"}}
+{"seq":42,"event":{"kind":"appended","id":"r-9f91c716-27d5-4ead-a63a-6f0aa0e74bb9","text":" —"}}
+{"seq":43,"event":{"kind":"appended","id":"r-9f91c716-27d5-4ead-a63a-6f0aa0e74bb9","text":" **\"Thanks,"}}
+{"seq":44,"event":{"kind":"appended","id":"r-9f91c716-27d5-4ead-a63a-6f0aa0e74bb9","text":" that"}}
+{"seq":45,"event":{"kind":"appended","id":"r-9f91c716-27d5-4ead-a63a-6f0aa0e74bb9","text":" is"}}
+{"seq":46,"event":{"kind":"appended","id":"r-9f91c716-27d5-4ead-a63a-6f0aa0e74bb9","text":" all"}}
+{"seq":47,"event":{"kind":"appended","id":"r-9f91c716-27d5-4ead-a63a-6f0aa0e74bb9","text":" for"}}
+{"seq":48,"event":{"kind":"appended","id":"r-9f91c716-27d5-4ead-a63a-6f0aa0e74bb9","text":" today.\"**."}}
+{"seq":49,"event":{"kind":"appended","id":"r-9f91c716-27d5-4ead-a63a-6f0aa0e74bb9","text":" I'll"}}
+{"seq":50,"event":{"kind":"appended","id":"r-9f91c716-27d5-4ead-a63a-6f0aa0e74bb9","text":" take"}}
+{"seq":51,"event":{"kind":"appended","id":"r-9f91c716-27d5-4ead-a63a-6f0aa0e74bb9","text":" that"}}
+{"seq":52,"event":{"kind":"appended","id":"r-9f91c716-27d5-4ead-a63a-6f0aa0e74bb9","text":" from"}}
+{"seq":53,"event":{"kind":"appended","id":"r-9f91c716-27d5-4ead-a63a-6f0aa0e74bb9","text":" here"}}
+{"seq":54,"event":{"kind":"appended","id":"r-9f91c716-27d5-4ead-a63a-6f0aa0e74bb9","text":" and"}}
+{"seq":55,"event":{"kind":"appended","id":"r-9f91c716-27d5-4ead-a63a-6f0aa0e74bb9","text":" post"}}
+{"seq":56,"event":{"kind":"appended","id":"r-9f91c716-27d5-4ead-a63a-6f0aa0e74bb9","text":" updates"}}
+{"seq":57,"event":{"kind":"appended","id":"r-9f91c716-27d5-4ead-a63a-6f0aa0e74bb9","text":" in"}}
+{"seq":58,"event":{"kind":"appended","id":"r-9f91c716-27d5-4ead-a63a-6f0aa0e74bb9","text":" this"}}
+{"seq":59,"event":{"kind":"appended","id":"r-9f91c716-27d5-4ead-a63a-6f0aa0e74bb9","text":" chat."}}
+{"seq":60,"event":{"kind":"upserted","entity":{"kind":"reply","id":"r-9f91c716-27d5-4ead-a63a-6f0aa0e74bb9","at":"2026-10-23T13:09:09.227Z","text":"Got it — **\"Thanks, that is all for today.\"**. I'll take that from here and post updates in this chat.","streaming":false,"attachments":[]},"index":15}}
+{"seq":61,"event":{"kind":"activity","activity":null}}

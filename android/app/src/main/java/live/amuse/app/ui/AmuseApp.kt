@@ -35,7 +35,8 @@ import live.amuse.app.ServerAddress
 import live.amuse.app.ui.theme.*
 
 data class ShellState(
-    val server: ServerAddress = ServerAddress.parse(ServerAddress.DEFAULT),
+    val server: ServerAddress = ServerAddress.parse(ServerAddress.EXAMPLE),
+    val configured: Boolean = false,
     val darkTheme: Boolean = false,
     val unlocked: Boolean = false,
     val pickerSuspended: Boolean = false,
@@ -82,7 +83,7 @@ fun AmuseApp(
     onMicrophoneAllow: () -> Unit,
     onMicrophoneDeny: () -> Unit,
 ) {
-    BackHandler(state.settingsVisible || (state.unlocked && state.canGoBack && !state.pageSuspended && !state.deviceLocked)) {
+    BackHandler((state.settingsVisible && state.configured) || (state.unlocked && state.canGoBack && !state.pageSuspended && !state.deviceLocked)) {
         if (state.settingsVisible) onCloseSettings() else onBack()
     }
     if (state.microphonePrompt) AlertDialog(onDismissRequest = onMicrophoneDeny,
@@ -186,10 +187,10 @@ private fun LockScreen(state: ShellState, onUnlock: () -> Unit, onPin: () -> Uni
                 shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().height(56.dp)) {
                 Icon(if (nativeUnlock) Icons.Outlined.Fingerprint else Icons.Outlined.Dialpad, null, modifier = Modifier.size(23.dp))
                 Spacer(Modifier.width(10.dp))
-                Text(if (state.authenticating) "正在验证…" else if (nativeUnlock) "指纹或设备解锁" else "输入服务器 PIN", fontSize = 15.sp)
+                Text(if (state.authenticating) "正在验证…" else if (nativeUnlock) "指纹或设备解锁" else "登录服务器", fontSize = 15.sp)
             }
-            if (nativeUnlock) TextButton(onClick = onPin, enabled = state.cookiesReady && !state.authenticating) { Text("重新输入服务器 PIN", color = MuseTextSecondary, fontSize = 12.sp) }
-            Text(if (state.rememberedSession) "本机验证后，安全恢复已保存的登录。" else "首次连接需输入服务器的四位 PIN。",
+            if (nativeUnlock) TextButton(onClick = onPin, enabled = state.cookiesReady && !state.authenticating) { Text("改用服务器登录", color = MuseTextSecondary, fontSize = 12.sp) }
+            Text(if (state.rememberedSession) "本机验证后，安全恢复已保存的登录。" else "首次连接请使用服务器网页登录。",
                 color = MuseTextTertiary, fontSize = 11.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 10.dp))
             state.notice?.let { Notice(it) }
         }
@@ -239,13 +240,13 @@ private fun DisconnectedScreen(message: String, state: ShellState, onRetry: () -
 
 @Composable
 private fun SettingsScreen(state: ShellState, onBack: () -> Unit, onSave: (String, Boolean, Boolean) -> Unit, onForget: () -> Unit, onOpenTailscale: () -> Unit) {
-    var server by remember(state.server) { mutableStateOf(state.server.origin) }
+    var server by remember(state.server, state.configured) { mutableStateOf(if (state.configured) state.server.origin else "") }
     var unlock by remember(state.useDeviceUnlock) { mutableStateOf(state.useDeviceUnlock) }
     var autoConnect by remember(state.autoConnectTailscale) { mutableStateOf(state.autoConnectTailscale) }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().height(60.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.Outlined.ArrowBack, "返回") }
-            Text("连接与安全", fontSize = 19.sp, fontWeight = FontWeight.Medium)
+            if (state.configured) IconButton(onClick = onBack) { Icon(Icons.Outlined.ArrowBack, "返回") }
+            Text(if (state.configured) "连接与安全" else "欢迎使用 Amuse", fontSize = 19.sp, fontWeight = FontWeight.Medium)
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(24.dp)) {
             Text("你的电脑，始终是同一处", fontSize = 26.sp, lineHeight = 34.sp, fontWeight = FontWeight.Medium)
@@ -253,10 +254,11 @@ private fun SettingsScreen(state: ShellState, onBack: () -> Unit, onSave: (Strin
                 fontSize = 14.sp, lineHeight = 22.sp, modifier = Modifier.padding(top = 12.dp, bottom = 30.dp))
             Text("服务地址", fontSize = 13.sp, color = MuseTextSecondary)
             OutlinedTextField(value = server, onValueChange = { server = it }, singleLine = true,
+                placeholder = { Text(ServerAddress.EXAMPLE) },
                 modifier = Modifier.fillMaxWidth().padding(top = 10.dp), shape = RoundedCornerShape(14.dp),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 leadingIcon = { Icon(Icons.Outlined.Https, null) }, isError = state.settingsError != null,
-                supportingText = { Text(state.settingsError ?: "填写 HTTPS 地址；手机和电脑需在同一 Tailscale 网络。") })
+                supportingText = { Text(state.settingsError ?: "填写你的 HTTPS 服务地址；若通过私人网络访问，请保持相应 VPN 连接。") })
             Spacer(Modifier.height(26.dp))
             Surface(shape = RoundedCornerShape(18.dp), color = MuseSurfaceElevated, contentColor = MuseTextPrimary) {
                 Column(Modifier.padding(18.dp)) {
@@ -271,10 +273,10 @@ private fun SettingsScreen(state: ShellState, onBack: () -> Unit, onSave: (Strin
                     HorizontalDivider(Modifier.padding(vertical = 18.dp), color = MaterialTheme.colorScheme.outlineVariant)
                     Text(when {
                         state.pairedSession -> "此手机已与电脑配对，打开即可继续，无需密码或指纹。清除本机登录可取消自动登录。"
-                        !state.deviceSecure -> "请先在手机设置中启用安全锁屏。当前每次打开都需要服务器 PIN。"
-                        !unlock -> "关闭后不保留可复用登录，每次打开需输入服务器 PIN。"
-                        !state.reusableSessionSupported -> "Android 10 支持系统门禁；每次打开仍需服务器 PIN。Android 11 及以上可安全恢复登录。"
-                        else -> "首次使用服务器 PIN 登录；以后通过系统验证恢复登录。离开应用自动锁定。"
+                        !state.deviceSecure -> "请先在手机设置中启用安全锁屏。服务器登录由网页处理。"
+                        !unlock -> "关闭后使用服务器登录；已配对的手机可安全恢复免密会话。"
+                        !state.reusableSessionSupported -> "Android 10 支持系统门禁；重开后需服务器登录。Android 11 及以上可安全恢复登录。"
+                        else -> "首次通过服务器网页登录；以后通过系统验证恢复登录。离开应用自动锁定。"
                     }, color = MuseTextSecondary, fontSize = 12.sp, lineHeight = 20.sp)
                 }
             }
@@ -297,12 +299,12 @@ private fun SettingsScreen(state: ShellState, onBack: () -> Unit, onSave: (Strin
             }
             Spacer(Modifier.height(24.dp))
             Button(onClick = { onSave(server, unlock, autoConnect) }, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(15.dp)) {
-                Text("保存设置", fontSize = 15.sp)
+                Text(if (state.configured) "保存设置" else "连接服务器", fontSize = 15.sp)
             }
-            OutlinedButton(onClick = onForget, modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(50.dp), shape = RoundedCornerShape(15.dp)) {
+            if (state.configured) OutlinedButton(onClick = onForget, modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(50.dp), shape = RoundedCornerShape(15.dp)) {
                 Icon(Icons.Outlined.Logout, null, Modifier.size(19.dp)); Spacer(Modifier.width(8.dp)); Text("清除本机登录")
             }
-            Text("四位 PIN 用于服务器登录；指纹验证只在这部手机上完成。", color = MuseTextSecondary, fontSize = 11.sp,
+            Text("服务器密码由网页处理；指纹验证只在这部手机上完成。", color = MuseTextSecondary, fontSize = 11.sp,
                 textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 24.dp))
             Text("Amuse for Android · ${BuildConfig.VERSION_NAME}", color = MuseTextSecondary, fontSize = 11.sp,
                 textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 12.dp))

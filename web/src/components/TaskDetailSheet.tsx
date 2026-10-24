@@ -3,6 +3,7 @@
  * shell: bottom sheet on mobile, centered on sm+): status, every step, and
  * Stop while the task is still running.
  */
+import { Button } from "./Button";
 import { RichText } from "./markdown";
 import { CircleCheck } from "lucide-react";
 import type { State } from "@amuse/protocol";
@@ -127,19 +128,17 @@ export function TaskDetailSheet({
         )}
 
         {running && (
-          <button
-            className="hover-fade mt-6 h-10 w-full rounded-full text-[15px] font-medium"
-            style={{
-              background: "var(--fill-secondary)",
-              color: "var(--fill-red)",
-            }}
+          <Button
+            size="lg"
+            tone="danger"
+            className="mt-6"
             onClick={() => {
               actions.stopTask(task.id);
               close();
             }}
           >
             {t.task.stop}
-          </button>
+          </Button>
         )}
       </div>
     </Sheet>

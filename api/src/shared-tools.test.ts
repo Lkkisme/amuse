@@ -7,20 +7,21 @@ import { test, type TestContext } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { type Ports, createHost, memoryRules, noKeys, noLogins, noSandbox } from "@amuse/core";
+import { type Ports, createHost, memoryRules, noKeys, noLogins, noSandbox, noSecrets } from "@amuse/core";
 import type { Apps } from "@amuse/pi";
 import { createBrowserMcp, type BrowserMcp, type BrowserMcpActions } from "./browser-mcp.ts";
 import { sharedAmuseTools, type ToolContext } from "./shared-tools.ts";
 import { workspace } from "./workspace.ts";
+import { memorySent } from "./sent.ts";
 
 async function setup(t: TestContext, apps?: Apps) {
   const dir = mkdtempSync(join(tmpdir(), "amuse-shared-tools-"));
   t.after(() => { assert.equal(dirname(dir), resolve(tmpdir())); rmSync(dir, { recursive: true, force: true }); });
-  const files = workspace(join(dir, "workspace"), join(dir, "sent.json"));
+  const files = workspace(join(dir, "workspace"), memorySent(), dir);
   const rules = memoryRules();
-  const ports: Ports = { files, rules, keys: noKeys, logins: noLogins, sandbox: noSandbox,
+  const ports: Ports = { files, rules, keys: noKeys, logins: noLogins, sandbox: noSandbox, secrets: noSecrets,
     prompt: () => {}, interrupt: () => {}, title: async () => "", browse: () => {}, job: () => {}, task: () => {}, schedule: () => {}, browser: () => {}, approval: () => {}, stopTask: () => {}, fit: () => {}, connect: async () => "",
-    apps: { search: async () => ({ apps: [], cursor: null }), accounts: async () => [], connect: async () => "", disconnect: async () => {}, permissions: async () => [], permit: async () => {} },
+    apps: { access: async () => ({ kind: "managed" }), cannotConnect: async () => null, connectKey: async () => { throw new Error("No key connection in this fixture."); }, search: async () => ({ apps: [], cursor: null }), accounts: async () => [], connect: async () => "", disconnect: async () => {}, permissions: async () => [], permit: async () => {} },
   };
   const host = createHost(ports, { clock: { now: () => "2026-10-21T08:00:00Z" }, timers: { set: () => 0, clear: () => {} } });
   const other = await host.call("chats.create", {});

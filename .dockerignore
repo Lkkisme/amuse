@@ -11,3 +11,4 @@ artifacts
 .env.*
 *.apk
 *.xapk
+db/fixtures

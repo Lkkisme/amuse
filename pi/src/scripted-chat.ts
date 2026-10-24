@@ -14,7 +14,7 @@ import { sessionOn } from "./session.ts";
  */
 export async function chat(
   responses: FauxResponseStep[],
-  { tools = [], opened, files, schedules = [] }: { tools?: ToolDefinition[]; opened?: (session: AgentSession) => void; files?: Workspace; schedules?: Schedule[] } = {},
+  { tools = [], opened, files, schedules = [], live = "" }: { tools?: ToolDefinition[]; opened?: (session: AgentSession) => void; files?: Workspace; schedules?: Schedule[]; live?: string } = {},
 ) {
   const models = await ModelRuntime.create({ authPath: join(mkdtempSync(join(tmpdir(), "amuse-auth-")), "auth.json"), modelsPath: null, refreshOnCreate: false });
   const faux = fauxProvider({ provider: "faux", models: [{ id: "scripted" }] });
@@ -41,6 +41,8 @@ export async function chat(
     act: () => ({ ok: true, id: "x" }),
     decision: async () => ({ verdict: "denied", remember: false }),
     report: () => {},
+    mention: () => {},
+    running: () => live,
     context: () => conversation.join("\n"),
     recall: () => "",
     time: () => ({ now: "2026-10-21T08:00:00Z", timezone: "UTC" }),
@@ -54,8 +56,8 @@ export async function chat(
     system: "You are a test.",
     ...(files ? { files } : {}),
     rules: memoryRules(),
-    open: async (system, own) => {
-      const made = await sessionOn(models, faux.getModel(), system, [...own, ...tools]);
+    open: async (system, own, caching) => {
+      const made = await sessionOn(models, faux.getModel(), system, [...own, ...tools], { caching });
       opened?.(made.session);
       return made;
     },

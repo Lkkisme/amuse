@@ -10,22 +10,33 @@
 import { Monitor, PanelRightClose, X } from "lucide-react";
 import type { State } from "@amuse/protocol";
 import type { Actions } from "../ui.ts";
+import type { Swipe } from "../useSwipe.ts";
 import { browserLook, pillBrowser } from "../view.ts";
 import { useT } from "../i18n/react.ts";
 
-export function BrowserButton({ conversation, open, actions }: { conversation: State; open: boolean; actions: Actions }) {
+export function BrowserButton({ conversation, open, swipe, actions }: { conversation: State; open: boolean; swipe: Swipe | null; actions: Actions }) {
   const t = useT();
+  // while a swipe moves the viewer, the button goes over it and turns into the close button by how open it is
+  // (`--swipe`, useSwipe.ts), as the ☰ button does with the sidebar
+  const following = swipe?.panel === "viewer" && (swipe.phase === "drag" || swipe.phase === "settle");
   const run = pillBrowser(conversation);
   const meta = run && !open ? browserLook(run, t) : null;
   const waiting = run?.status === "waiting" || run?.status === "needs_you";
-  const icon = "absolute transition-all duration-200 ease-out";
+  const icon = `absolute ${following ? (swipe.phase === "settle" ? "swipe-settle" : "transition-none") : "transition-all duration-200 ease-out"}`;
+  const closeIcon = following
+    ? { opacity: "var(--swipe)", transform: "rotate(calc((1 - var(--swipe)) * -90deg)) scale(calc(0.6 + 0.4 * var(--swipe)))" }
+    : { opacity: open ? 1 : 0, transform: open ? "none" : "rotate(-90deg) scale(0.6)" };
+  const monitorIcon = following
+    ? { opacity: "calc(1 - var(--swipe))", transform: "rotate(calc(var(--swipe) * 90deg)) scale(calc(1 - 0.4 * var(--swipe)))" }
+    : { opacity: open ? 0 : 1, transform: open ? "rotate(90deg) scale(0.6)" : "none" };
 
   return (
     <button
       aria-label={open ? t.viewer.closeBrowser : meta ? t.viewer.browserWith(meta.label) : t.viewer.browser}
       aria-expanded={open}
       // above the viewer while open; under what covers the chat (the Muse page on a phone) while not
-      className={`${open ? "z-[60]" : "z-30"} fixed top-3 flex size-11 items-center justify-center rounded-full`}
+      data-swipe="viewer"
+      className={`${open || following ? "z-[60]" : "z-30"} fixed top-3 flex size-11 items-center justify-center rounded-full`}
       style={{
         // the viewer's corner, or the chat's (what the right side takes, plus 12px: App.tsx sets --right-room)
         right: open ? 12 : "calc(var(--right-room) + 12px)",
@@ -36,10 +47,10 @@ export function BrowserButton({ conversation, open, actions }: { conversation: S
       }}
       onClick={() => (open ? actions.closeViewer() : actions.openViewer(run?.id ?? null))}
     >
-      <Monitor size={20} className={icon} style={{ opacity: open ? 0 : 1, transform: open ? "rotate(90deg) scale(0.6)" : "none" }} />
+      <Monitor size={20} className={icon} style={monitorIcon} />
       {/* the viewer is a side panel from lg up (collapse it), a full screen below (close it) */}
-      <PanelRightClose size={20} className={`${icon} hidden lg:block`} style={{ opacity: open ? 1 : 0, transform: open ? "none" : "rotate(-90deg) scale(0.6)" }} />
-      <X size={20} className={`${icon} lg:hidden`} style={{ opacity: open ? 1 : 0, transform: open ? "none" : "rotate(-90deg) scale(0.6)" }} />
+      <PanelRightClose size={20} className={`${icon} hidden lg:block`} style={closeIcon} />
+      <X size={20} className={`${icon} lg:hidden`} style={closeIcon} />
       {meta &&
         (waiting ? (
           <span

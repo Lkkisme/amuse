@@ -14,13 +14,18 @@ import { useChats, useConversation } from "./session.ts";
 import { applyTheme, storedTheme } from "./theme.ts";
 import { activeT } from "./i18n/language.ts";
 import { useT } from "./i18n/react.ts";
+import { resumeOnReturn } from "./return.ts";
 import { Files, serverFiles } from "./files.ts";
 import { Unlock } from "./components/Unlock";
 import { type Actions, type Ui, initialUi } from "./ui.ts";
-import { viewerTabs } from "./view.ts";
+import { pillBrowser, viewerTabs } from "./view.ts";
 import { type Outgoing, outgoingIn } from "./outgoing.ts";
 import { flyAvatar, transition, travels } from "./transition.ts";
 import { close, useBack } from "./back.ts";
+import { useSwipe } from "./useSwipe.ts";
+import { type Ask, pinGuarded } from "./pin.ts";
+import { PinContext, usePinSheet } from "./components/PinSheet";
+import { AccountWatch } from "./components/AccountWatch";
 
 /** the width the user dragged the viewer to (only that is kept; the default follows the window) */
 const VIEWER_WIDTH = "amuse.viewerDragged";
@@ -43,22 +48,29 @@ import {
 import { Composer } from "./components/Composer";
 import { ExplainerModal } from "./components/ExplainerModal";
 import { SettingsModal } from "./components/SettingsModal";
+import { SessionContext } from "./sessionContext.ts";
 import { TaskDetailSheet } from "./components/TaskDetailSheet";
 import { BrowserButton } from "./components/BrowserButton";
 import { MenuButton, TopBar } from "./components/TopBar";
 import { Viewer } from "./components/Viewer";
 
-/** A session and how to let go of it (a socket must be closed, or it reconnects forever). */
+/**
+ * A session and how to let go of it (a socket must be closed, or it reconnects forever), and how to take the
+ * connection up again at once when the page comes back (a phone's browser freezes it in the background).
+ * On a server, a sensitive call the server holds for the PIN asks for it (`ask`), then goes again.
+ */
 const openSession = (
   where: Connection,
-): { session: Session; close: () => void } => {
+  ask: Ask,
+): { session: Session; close: () => void; resume: () => void } => {
   if (where.kind === "server") {
-    const remote = connect(where.rpc);
-    return { session: remote, close: () => remote.close() };
+    const remote = connect(where.rpc, { unreachable: () => activeT().common.serverUnreachable });
+    return { session: pinGuarded(remote, ask), close: () => remote.close(), resume: () => remote.resume() };
   }
   return {
     session: createHost(demoPorts(realTimers), { seed: seed() }),
     close: () => {},
+    resume: () => {},
   };
 };
 
@@ -79,7 +91,7 @@ export default function App() {
     </main>
   );
   return where.kind === "locked" ? (
-    <Unlock ready={where.ready} />
+    <Unlock ready={where.ready} waiting={where.waiting} />
   ) : (
     <Chat where={where} />
   );
@@ -87,8 +99,11 @@ export default function App() {
 
 function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
   const t = useT();
-  const [link, setLink] = useState(() => openSession(where));
-  const { session } = link;
+  const pin = usePinSheet();
+  const [link, setLink] = useState(() => openSession(where, pin.ask));
+  const { session, resume } = link;
+  // a page that comes back after the browser froze it (a phone in the background) takes its socket up at once
+  useEffect(() => resumeOnReturn(resume), [resume]);
   const chats = useChats(session);
   // the look this device was left in
   const [ui, setUi] = useState<Ui>(() => ({
@@ -150,6 +165,10 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
   /** the chat on screen, for actions made once (sending goes where the user is now) */
   const chatRef = useRef(ui.chat);
   chatRef.current = ui.chat;
+  /** what the next message replies to: the quote bar's item, if it is this chat's */
+  const replying = ui.replying?.chat === ui.chat ? ui.replying.quote : null;
+  const replyingRef = useRef(replying);
+  replyingRef.current = replying;
   // the chat on screen was deleted (here or on another device): back to the main chat
   useEffect(() => {
     if (chats.length > 0 && !chats.some((c) => c.id === ui.chat))
@@ -191,11 +210,10 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
   /** the sidebar is out, docked or over the chat */
   const sidebarOut = docked || ui.chatsOpen;
   // ☰ sits in the sidebar's top right while it is out (4px in from its edge), else at the chat's top left
-  // (on a phone the sidebar is a page of its own: the screen's top right)
+  // (on a phone the sidebar is a page of its own: the screen's top right, where it turns into the close X)
   const drawerWidth = width >= 768 ? SIDEBAR_WIDTH : width;
-  const menuLeft = sidebarOut
-    ? (width >= 768 ? SIDEBAR_INSET : 0) + drawerWidth - 4 - 44
-    : 12;
+  const menuOpenLeft = (width >= 768 ? SIDEBAR_INSET : 0) + drawerWidth - 4 - 44;
+  const menuLeft = sidebarOut ? menuOpenLeft : 12;
   // once there is room to dock it, the sidebar is no longer a drawer over the chat
   useEffect(() => {
     if (docked) setUi((u) => (u.chatsOpen ? { ...u, chatsOpen: false } : u));
@@ -245,6 +263,9 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         const chat = chatRef.current;
         const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
         const key = `sending-${crypto.randomUUID()}`;
+        // the reply goes with this message and leaves the bar; a message that does not get through takes it back
+        const quote = replyingRef.current;
+        patch((u) => ({ ...u, replying: null }));
         setOutgoing((list) => [
           ...list,
           {
@@ -252,6 +273,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
             chat,
             text,
             attachments,
+            quote,
             at: new Date().toISOString(),
             timezone,
             sent: null,
@@ -259,7 +281,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           },
         ]);
         return session
-          .call("chat.send", { chat, text, timezone, attachments })
+          .call("chat.send", { chat, text, timezone, attachments, ...(quote ? { replyTo: quote.id } : {}) })
           .then(
             ({ id }) =>
               setOutgoing((list) =>
@@ -267,6 +289,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
               ),
             (error: unknown) => {
               setOutgoing((list) => list.filter((o) => o.key !== key));
+              if (quote) patch((u) => (u.replying ? u : { ...u, replying: { chat, quote } }));
               const reason =
                 error instanceof Error ? error.message : String(error);
               patch((u) => ({
@@ -280,10 +303,12 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
             },
           );
       },
+      reply: (quote) =>
+        patch((u) => ({ ...u, replying: quote ? { chat: chatRef.current, quote } : null })),
       stop: () => call("chat.stop", { chat: chatRef.current }),
       retry: (id) => call("chat.retry", { id }),
-      answerSecret: async (id, value) =>
-        void (await session.call("secret.answer", { id, value })),
+      answerSecret: async (id, answer) =>
+        void (await session.call("secret.answer", { id, answer })),
       resolveApproval: (id, resolution) =>
         call("approval.resolve", { id, resolution }),
       // Cloud cards go to key setup; the computer's existing Git login needs no cloud key.
@@ -297,6 +322,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
                   section: "connectors",
                   app: null,
                   provider: null,
+                  entry: null,
                 },
               }
             : { ...u, explainer },
@@ -312,6 +338,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
               section: "connectors",
               app: null,
               provider: null,
+              entry: null,
             },
           }));
         patch((u) => ({ ...u, explainer: null }));
@@ -331,6 +358,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           },
         );
       },
+      appAccess: async (app) => (await session.call("apps.access", { app })).access,
+      connectKey: async (app, values) => void (await session.call("apps.connectKey", { app, values })),
       // the browser takes the right: a docked Muse panel gives it up, and its avatar goes back to the top
       openViewer: (browserId) => {
         const open = () =>
@@ -434,27 +463,39 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         patch((u) => ({
           ...u,
           chatsOpen: false,
-          settings: { open: true, section, app: null, provider: null },
+          settings: { open: true, section, app: null, provider: null, entry: null },
         })),
       openApp: (app) =>
         patch((u) => ({ ...u, settings: { ...u.settings, app } })),
       openProvider: (provider) =>
         patch((u) => ({ ...u, settings: { ...u.settings, provider } })),
+      openEntry: (entry) =>
+        patch((u) => ({ ...u, settings: { ...u.settings, entry } })),
       closeSettings: () =>
         patch((u) => ({ ...u, settings: { ...u.settings, open: false } })),
       setTheme: (theme) => patch((u) => ({ ...u, theme })),
       reset: () => {
         link.close();
-        setLink(openSession(where));
+        setLink(openSession(where, pin.ask));
         setUi((u) => ({ ...initialUi, theme: u.theme }));
       },
     };
-  }, [session, link, conversation]);
+  }, [session, link, conversation, pin.ask]);
 
   // Back closes the top layer; Muse's panel closes as its button does, its avatar travelling home
   useBack(ui, (layer) =>
     layer === "muse" ? actions.setMuse(false) : setUi((u) => close(u, layer)),
   );
+
+  // on a phone, swipes open and close the sidebar and the viewer (the browser button's: the run that needs you); the Amuse
+  // panel's page, sheets and the like keep to themselves
+  const swipe = useSwipe({
+    open: ui.viewer ? "viewer" : ui.chatsOpen ? "sidebar" : null,
+    blocked: ui.museOpen || ui.settings.open || ui.explainer !== null || ui.taskDetail !== null,
+    commit: (panel, open) =>
+      panel === "sidebar" ? actions.setChats(open) : open ? actions.openViewer(pillBrowser(conversation)?.id ?? null) : actions.closeViewer(),
+  });
+  const swiping = (panel: "sidebar" | "viewer") => (swipe?.panel === panel ? swipe : null);
 
   // a notice shows for a few seconds, a longer one a little longer (a tap closes it sooner)
   useEffect(() => {
@@ -467,149 +508,161 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
   }, [ui.notice]);
 
   return (
-    <Files.Provider value={files}>
-      <div
-        className="flex h-full"
-        style={{ background: "var(--chat-background)" }}
-      >
-        {/* on a desktop, closing (by ☰, or giving way) as it opens: by its width */}
-        <DockedSidebar
-          open={docked}
-          chats={chats}
-          current={ui.chat}
-          left={ui.left}
-          goal={ui.goal}
-          skill={ui.skill}
-          session={session}
-          actions={actions}
-        />
-        {/* with the viewer open on desktop, the chat keeps what the viewer leaves */}
+    <PinContext.Provider value={pin}>
+      <Files.Provider value={files}>
+        <SessionContext.Provider value={session}>
         <div
-          className="relative flex min-w-0 flex-1 flex-col"
-          // the right side's panel (the Amuse panel, or the browser) pushes the chat aside on the same curve as the
-          // sidebar on the left
-          style={{
-            marginRight: width >= 768 ? right : 0,
-            transition: "margin-right 0.24s cubic-bezier(0.2, 0, 0, 1)",
-          }}
+          className="flex h-full"
+          style={{ background: "var(--chat-background)" }}
         >
-          <ChatFeed
-            conversation={conversation}
-            outgoing={shownOutgoing}
-            older={older}
-            release={release}
-            thumb={where.kind === "server" ? where.thumb : null}
+          {/* on a desktop, closing (by ☰, or giving way) as it opens: by its width */}
+          <DockedSidebar
+            open={docked}
+            chats={chats}
+            current={ui.chat}
+            left={ui.left}
+            goal={ui.goal}
+            skill={ui.skill}
+            session={session}
             actions={actions}
           />
-          <TopBar
-            conversation={conversation}
-            museOpen={ui.museOpen}
-            actions={actions}
-          />
-          <MenuButton
-            open={sidebarOut}
-            left={menuLeft}
-            onClick={() =>
-              docked
-                ? actions.setSidebar(false)
-                : ui.chatsOpen
-                  ? actions.setChats(false)
-                  : fits
-                    ? actions.setSidebar(true)
-                    : actions.setChats(true)
-            }
-          />
-          <BrowserButton
-            conversation={conversation}
-            open={ui.viewer !== null}
-            actions={actions}
-          />
-          {ui.notice && (
-            <p
-              role="status"
-              onClick={() => setUi((u) => ({ ...u, notice: null }))}
-              className="anim-fade-in absolute inset-x-0 bottom-[86px] z-30 mx-auto w-fit max-w-[90%] rounded-[18px] px-4 py-2 text-[13px]"
-              style={{
-                background: "var(--fill-primary)",
-                color: "var(--fill-red)",
-                boxShadow: "var(--shadow-float)",
-              }}
-            >
-              {ui.notice}
-            </p>
-          )}
-          {needsModel && !ui.notice && (
-            <button
-              className="anim-fade-in absolute inset-x-0 bottom-[86px] z-30 mx-auto w-fit max-w-[90%] rounded-full px-4 py-2 text-[13px] font-medium"
-              style={{
-                background: "var(--fill-primary)",
-                color: "var(--fill-blue)",
-                boxShadow: "var(--shadow-float)",
-              }}
-              onClick={() => actions.openSettings("models")}
-            >
-              {t.chat.chooseModel}
-            </button>
-          )}
-          <Composer
-            conversation={conversation}
-            place={
-              ui.chat === MAIN
-                ? null
-                : chats.find((c) => c.id === ui.chat)?.title || t.chat.newChat
-            }
-            actions={actions}
-          />
-        </div>
+          {/* with the viewer open on desktop, the chat keeps what the viewer leaves */}
+          <div
+            className="relative flex min-w-0 flex-1 flex-col"
+            // the right side's panel (the Amuse panel, or the browser) pushes the chat aside on the same curve as the
+            // sidebar on the left
+            style={{
+              marginRight: width >= 768 ? right : 0,
+              transition: "margin-right 0.24s cubic-bezier(0.2, 0, 0, 1)",
+            }}
+          >
+            <ChatFeed
+              conversation={conversation}
+              outgoing={shownOutgoing}
+              older={older}
+              release={release}
+              thumb={where.kind === "server" ? where.thumb : null}
+              actions={actions}
+            />
+            <TopBar
+              conversation={conversation}
+              museOpen={ui.museOpen}
+              actions={actions}
+            />
+            <MenuButton
+              open={sidebarOut}
+              left={menuLeft}
+              swipe={swiping("sidebar")}
+              openLeft={menuOpenLeft}
+              onClick={() =>
+                docked
+                  ? actions.setSidebar(false)
+                  : ui.chatsOpen
+                    ? actions.setChats(false)
+                    : fits
+                      ? actions.setSidebar(true)
+                      : actions.setChats(true)
+              }
+            />
+            <BrowserButton
+              conversation={conversation}
+              open={ui.viewer !== null}
+              swipe={swiping("viewer")}
+              actions={actions}
+            />
+            {ui.notice && (
+              <p
+                role="status"
+                onClick={() => setUi((u) => ({ ...u, notice: null }))}
+                className="anim-fade-in absolute inset-x-0 bottom-[86px] z-30 mx-auto w-fit max-w-[90%] rounded-[18px] px-4 py-2 text-[13px]"
+                style={{
+                  background: "var(--fill-primary)",
+                  color: "var(--fill-red)",
+                  boxShadow: "var(--shadow-float)",
+                }}
+              >
+                {ui.notice}
+              </p>
+            )}
+            {needsModel && !ui.notice && (
+              <button
+                className="anim-fade-in absolute inset-x-0 bottom-[86px] z-30 mx-auto w-fit max-w-[90%] rounded-full px-4 py-2 text-[13px] font-medium"
+                style={{
+                  background: "var(--fill-primary)",
+                  color: "var(--fill-blue)",
+                  boxShadow: "var(--shadow-float)",
+                }}
+                onClick={() => actions.openSettings("models")}
+              >
+                {t.chat.chooseModel}
+              </button>
+            )}
+            <Composer
+              conversation={conversation}
+              replying={replying}
+              place={
+                ui.chat === MAIN
+                  ? null
+                  : chats.find((c) => c.id === ui.chat)?.title || t.chat.newChat
+              }
+              actions={actions}
+            />
+          </div>
 
-        <MusePanel
-          open={ui.museOpen}
-          conversation={conversation}
-          session={session}
-          mode={ui.viewer ? "floating" : "docked"}
-          actions={actions}
-        />
-        <DrawerSidebar
-          open={ui.chatsOpen && !docked}
-          chats={chats}
-          current={ui.chat}
-          left={ui.left}
-          goal={ui.goal}
-          skill={ui.skill}
-          session={session}
-          actions={actions}
-        />
-        <SettingsModal
-          ui={ui.settings}
-          theme={ui.theme}
-          session={session}
-          demo={where.kind === "demo"}
-          actions={actions}
-        />
-        <ExplainerModal
-          conversation={conversation}
-          open={ui.explainer}
-          actions={actions}
-        />
-        <TaskDetailSheet
-          conversation={conversation}
-          open={ui.taskDetail}
-          actions={actions}
-        />
-        <Viewer
-          conversation={conversation}
-          viewer={ui.viewer}
-          live={where.kind === "server" ? where.live : null}
-          thumb={where.kind === "server" ? where.thumb : null}
-          terminal={where.kind === "server" ? where.terminal : null}
-          onResize={(edge) => {
-            const width = clampViewer(innerWidth - 8 - edge);
-            localStorage.setItem(VIEWER_WIDTH, String(width));
-            setViewerWidth(width);
-          }}
-          actions={actions}
-        />
-      </div>
-    </Files.Provider>
+          <MusePanel
+            open={ui.museOpen}
+            conversation={conversation}
+            session={session}
+            mode={ui.viewer ? "floating" : "docked"}
+            actions={actions}
+          />
+          <DrawerSidebar
+            open={ui.chatsOpen && !docked}
+            swipe={swiping("sidebar")}
+            chats={chats}
+            current={ui.chat}
+            left={ui.left}
+            goal={ui.goal}
+            skill={ui.skill}
+            session={session}
+            actions={actions}
+          />
+          <SettingsModal
+            ui={ui.settings}
+            theme={ui.theme}
+            session={session}
+            demo={where.kind === "demo"}
+            actions={actions}
+          />
+          <ExplainerModal
+            conversation={conversation}
+            open={ui.explainer}
+            actions={actions}
+          />
+          <TaskDetailSheet
+            conversation={conversation}
+            open={ui.taskDetail}
+            actions={actions}
+          />
+          <Viewer
+            conversation={conversation}
+            viewer={ui.viewer}
+            swipe={swiping("viewer")}
+            live={where.kind === "server" ? where.live : null}
+            thumb={where.kind === "server" ? where.thumb : null}
+            terminal={where.kind === "server" ? where.terminal : null}
+            onResize={(edge) => {
+              const width = clampViewer(innerWidth - 8 - edge);
+              localStorage.setItem(VIEWER_WIDTH, String(width));
+              setViewerWidth(width);
+            }}
+            actions={actions}
+          />
+          {pin.sheet}
+          {where.kind === "server" && <AccountWatch notify={actions.notify} />}
+        </div>
+        </SessionContext.Provider>
+      </Files.Provider>
+    </PinContext.Provider>
   );
 }

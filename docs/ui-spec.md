@@ -14,7 +14,7 @@ Everything below is replicated from reference screenshots in
 | 5 | Takeover | `05-takeover-1..9`, `10-control`, `13-mobile-control` | Take control / You're in control / Hand back states; Stop and Done buttons. |
 | 6 | Waiting / done states | `08-now`, `09-waiting`, `11-done` | Status pill at top of chat; terminal card states. |
 | 7 | Settings | `20-settings`, `21-settings-page` | Settings modal/page: General, Connectors, Permissions, Schedules. |
-| 8 | Secure store | `22-secure-store`, `23-add-credential` | Not built: logins are kept from the user's own sign-ins in the browser (a page for them is to come). |
+| 8 | Secure store | `22-secure-store`, `23-add-credential` | Built as Settings › Vault (list, entry page, add with presets) and the request cards; secret values are never shown back. Browser logins and passwords for sites are to come. |
 | 9 | Permissions | `24-permissions`, `25-websites`, `26-website-detail`, `27-site-dropdown` | Global defaults + per-site Allow/Ask/Deny rows. |
 | 10 | Connectors | `28-connectors`, `29-gmail-connector`, `30-gmail-perms`, `40-connectors`, `41-connectors-scrolled`, `42-after-connect` | Connector list, per-connector capability rows (Read / Write and delete, Allow/Ask/Deny). |
 | 11 | Connection request | `50-connreq-1..5`, `51-connreq-1..6`, `52-connreq-desktop`, `53-connreq-click`, `54-closed` | Agent-initiated connector connect card in chat: icon, name, "Connector" subtitle, full-width Connect button, pre-connect explainer modal. |

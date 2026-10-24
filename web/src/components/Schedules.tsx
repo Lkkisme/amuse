@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CalendarClock } from "lucide-react";
 import type { Needs, Schedule, Session } from "@amuse/protocol";
 import { moment, outcomeLabel, repeats, scheduleState } from "../schedules.ts";
+import { Button } from "./Button";
 import { useT } from "../i18n/react.ts";
 
 type Control = "pause" | "resume" | "cancel";
@@ -150,43 +151,25 @@ function List({
           </div>
           {(s.status === "active" || s.status === "paused") && (
             <div className="mt-2 flex justify-end gap-2">
-              <Pill
+              <Button
+                onCard
                 onClick={() =>
                   control(s.id, s.status === "active" ? "pause" : "resume")
                 }
               >
                 {s.status === "active" ? t.schedule.pause : t.schedule.resume}
-              </Pill>
-              <Pill danger onClick={() => control(s.id, "cancel")}>
+              </Button>
+              <Button
+                onCard
+                tone="danger"
+                onClick={() => control(s.id, "cancel")}
+              >
                 {t.schedule.delete}
-              </Pill>
+              </Button>
             </div>
           )}
         </li>
       ))}
     </ul>
-  );
-}
-
-function Pill({
-  children,
-  danger = false,
-  onClick,
-}: {
-  children: React.ReactNode;
-  danger?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      className="hover-fade h-8 rounded-full px-4 text-[14px] font-medium"
-      style={{
-        background: "var(--fill-card-button)",
-        color: danger ? "var(--fill-red)" : "var(--text-primary)",
-      }}
-      onClick={onClick}
-    >
-      {children}
-    </button>
   );
 }

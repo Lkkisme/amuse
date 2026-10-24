@@ -1,0 +1,12 @@
+{
+  "chat": "openrouter/fake-model",
+  "browser": null,
+  "background": null,
+  "voice": null,
+  "localVoice": null,
+  "thinking": {
+    "chat": "off",
+    "browser": "off",
+    "background": "off"
+  }
+}

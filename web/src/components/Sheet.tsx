@@ -35,6 +35,7 @@ export function Sheet({
   // at the top of the page: inside another layer (settings, which animates and clips) a fixed sheet would be held to it
   return createPortal(
     <div
+      data-no-swipe=""
       className={`fixed inset-0 z-[80] flex items-end justify-center sm:items-center sm:p-4 ${closing ? "pointer-events-none" : ""}`}
     >
       <div

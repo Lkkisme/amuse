@@ -3,9 +3,9 @@ import { request } from "node:http";
 import { test } from "node:test";
 import { createHost, type Timers } from "@amuse/core";
 import { demoPorts, seed } from "@amuse/demo";
-import { type Access } from "./access.ts";
+import { letIn, noPin } from "./testing.ts";
 import { refusing } from "./sandbox.ts";
-import { listen } from "./server.ts";
+import { AGENT_MARK, listen } from "./server.ts";
 
 test("the sandbox's whole subnet is refused, whichever way its addresses are written, and no other", () => {
   const refuses = refusing("10.231.250.0/24");
@@ -24,14 +24,7 @@ test("a subnet that cannot be read stops the server rather than letting the sand
 });
 
 /** Lets every request in: whatever is refused is refused for where it comes from. */
-const anyone: Access = {
-  ready: () => true,
-  setup: async () => "",
-  login: async () => "session",
-  valid: () => true,
-  logout: () => {},
-  change: async () => null,
-};
+const anyone = letIn();
 const never: Timers<number> = { set: () => 0, clear: () => {} };
 
 /** One request from a given local address (127.0.0.x are all this machine), the status it got. */
@@ -51,10 +44,11 @@ function ask(port: number, from: string, method: string, path: string, headers: 
   });
 }
 
-test("the server refuses every route to the sandbox's network, signed in or not, and serves the rest", async () => {
+test("the server refuses every route to the sandbox's network, and to Amuse's own browsers wherever they come from, signed in or not, and serves the rest", async () => {
   const server = await listen({
     session: createHost(demoPorts({ set: (_, fn) => (queueMicrotask(fn), 0), clear: () => {} }), { seed: seed(), timers: never }),
     access: anyone,
+    ...noPin,
     refuse: (address) => address === "127.0.0.2",
     port: 0,
     host: "127.0.0.1",
@@ -69,6 +63,9 @@ test("the server refuses every route to the sandbox's network, signed in or not,
       ["POST", "/setup", json],
       ["POST", "/password", json],
       ["POST", "/lock", json],
+      ["GET", "/account", {}],
+      ["POST", "/account/pin/unlock", json],
+      ["POST", "/account/devices/approve", json],
       ["GET", "/files/f-1", {}],
       ["POST", "/files", { "content-type": "image/png", "x-file-name": "a.png" }],
       ["POST", "/transcribe", { "content-type": "audio/webm" }],
@@ -80,6 +77,8 @@ test("the server refuses every route to the sandbox's network, signed in or not,
     ];
     for (const [method, path, headers] of routes) {
       assert.equal(await ask(port, "127.0.0.2", method, path, headers), 403, `${method} ${path} from the sandbox`);
+      // the mark the browsers put on every request: the way in included, so Amuse never even asks to sign in
+      assert.equal(await ask(port, "127.0.0.1", method, path, { ...headers, [AGENT_MARK]: "1" }), 403, `${method} ${path} from Amuse's browser`);
       assert.notEqual(await ask(port, "127.0.0.1", method, path, headers), 403, `${method} ${path} from anyone else`);
     }
     assert.equal(await ask(port, "127.0.0.1", "GET", "/unlock"), 204);

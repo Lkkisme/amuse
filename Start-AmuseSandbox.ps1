@@ -190,10 +190,23 @@ foreach ($sandboxFolder in @('', 'memory', 'user', 'skills')) {
 }
 $sandboxPreviousWorkspace = $env:AMUSE_WORKSPACE
 $sandboxPreviousSubnet = $env:AMUSE_SANDBOX_SUBNET
+$sandboxPreviousDaemonImage = $env:AMUSE_SANDBOX_DAEMON_IMAGE
 try {
     $env:AMUSE_WORKSPACE = $sandboxWorkspace
     $env:AMUSE_SANDBOX_SUBNET = $sandboxConfig.subnet
-    $sandboxUp = Invoke-AmuseSandboxDocker -Executable $sandboxDocker -Arguments @('compose', '-f', (Join-Path $Root 'compose.sandbox.windows.yaml'), 'up', '-d', '--wait', '--wait-timeout', '60') -TimeoutSeconds 75
+    if ($sandboxConfig.PSObject.Properties.Name -contains 'daemonImage') {
+        $sandboxDaemonImage = [string]$sandboxConfig.daemonImage
+        if ($sandboxDaemonImage -notmatch '^(?:sha256:[0-9a-f]{64}|[a-z0-9][a-z0-9._/-]*(?::[A-Za-z0-9][A-Za-z0-9_.-]{0,127})?)$') {
+            throw 'The sandbox daemon image must be an explicit local image reference.'
+        }
+        # image inspect is local-only: never pull an image from a launcher.
+        $sandboxImage = Invoke-AmuseSandboxDocker -Executable $sandboxDocker -Arguments @('image', 'inspect', '--format', '{{.Id}}', $sandboxDaemonImage)
+        if ($sandboxImage.ExitCode -ne 0 -or $sandboxImage.StandardOutput.Trim() -notmatch '^sha256:[0-9a-f]{64}$') {
+            throw 'The configured sandbox daemon image is not installed locally. Build or restore it before starting.'
+        }
+        $env:AMUSE_SANDBOX_DAEMON_IMAGE = $sandboxDaemonImage
+    }
+    $sandboxUp = Invoke-AmuseSandboxDocker -Executable $sandboxDocker -Arguments @('compose', '-f', (Join-Path $Root 'compose.sandbox.windows.yaml'), 'up', '-d', '--pull', 'never', '--wait', '--wait-timeout', '60') -TimeoutSeconds 75
     if ($sandboxUp.StandardOutput) { Write-Output $sandboxUp.StandardOutput.TrimEnd() }
     if ($sandboxUp.StandardError) { Write-Output $sandboxUp.StandardError.TrimEnd() }
     if ($sandboxUp.ExitCode -ne 0) { throw 'The Amuse sandbox did not become ready.' }
@@ -201,4 +214,5 @@ try {
 finally {
     $env:AMUSE_WORKSPACE = $sandboxPreviousWorkspace
     $env:AMUSE_SANDBOX_SUBNET = $sandboxPreviousSubnet
+    $env:AMUSE_SANDBOX_DAEMON_IMAGE = $sandboxPreviousDaemonImage
 }

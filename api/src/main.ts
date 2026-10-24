@@ -1,14 +1,18 @@
 /**
  * The server: the core host with Pi agents, served on 127.0.0.1. Who may use it
- * is whoever knows the master password, set on the first visit (access.json
- * beside the journal); the model providers' keys, Composio's and the models
- * chosen are set up in the app (keys.json, models.json).
+ * is whoever knows the master password, set on the first visit (kept in the
+ * database); the model providers' keys, Composio's and the models chosen are
+ * set up in the app (keys.json, models.json).
  *   AMUSE_PORT   default 8797
  *   AMUSE_HOST   default 127.0.0.1
- *   AMUSE_JOURNAL  JSONL file the event log lives in (survives restarts), with the rest of the
- *                 data beside it; without one, everything goes in a temporary folder
+ *   AMUSE_DATA   the folder everything is kept in: amuse.db (the journal, chats, rules, password …), the workspace,
+ *                 backups/. Without it, AMUSE_JOURNAL's folder; with neither, a temporary folder
+ *   AMUSE_JOURNAL  where the older versions kept the journal (a JSONL file): imported once into the database
+ *                 and kept as <name>.bak, with the other old files beside it
  *   AMUSE_PI_MODEL, AMUSE_PI_BROWSER_MODEL, <PROVIDER>_API_KEY, AMUSE_PI_AUTH, AMUSE_COMPOSIO_KEY(_FILE)
- *                 read once, when there is no keys.json yet: taken over into it
+ *                 read once, when the Vault is new: taken over into it
+ *   AMUSE_SECRETS_DIR  where the Vault's key lives (store.key, made on first start), apart from the data
+ *                 (compose.yaml: /secrets/amuse-store); without it, beside the data, which is no protection against a leak of it
  *   AMUSE_BROWSERS  the auto-browser pool: name|controller URL|noVNC URL, comma-separated
  *                 (see compose.browsers.yaml); AUTO_BROWSER_TOKEN_FILE holds the controllers' bearer token
  *   AMUSE_PUBLIC_URL  this server's address as the user's browser reaches it (http://host:port);
@@ -24,24 +28,35 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { SandboxError, masking, sandboxClient, terminalAt } from "@amuse/sandbox";
-import { ComposioError, NoComposioKey, composio, composioApps, composioConnector, composioDirectory, keyedComposio } from "@amuse/composio";
-import { fileChats } from "./journal.ts";
+import { NoComposioKey, composio, composioSaid, composioGuide, composioApps, composioConnector, composioDirectory, keyedComposio } from "@amuse/composio";
+import { StartupError, queryOne } from "@amuse/db";
+import { z } from "zod";
+import { JournalError, sqliteChats } from "./journal.ts";
+import { locate, openData } from "./data.ts";
+import { serveProblem } from "./startup.ts";
+import { sqliteSent } from "./sent.ts";
 import { workspace } from "./workspace.ts";
 import { browserPool, controller } from "@amuse/browser";
-import { type Ports, Rejected, createHost, memoryRules, noLogins, noSandbox, realTimers } from "@amuse/core";
+import { type Ports, Rejected, createHost, noLogins, noSandbox, realTimers } from "@amuse/core";
 import type { Entity } from "@amuse/protocol";
-import { type PiAuth, VoiceUnavailable, adoptEnvironment, createDesktopTools, setUpDefaults, builtInSkills, skillsPort, transcriber, fileCredentials, piAgent, piBrowserAgent, piKeys, piScheduleRunner, piTaskRunner, untrustedRule } from "@amuse/pi";
-import { z } from "zod";
-import { fileAccess } from "./access.ts";
-import { fileDefaults } from "./defaults.ts";
+import { type KeyFile, type PiAuth, LOCAL_VOICE, VoiceUnavailable, adoptEnvironment, createDesktopTools, setUpDefaults, builtInSkills, piAgent, piBrowserAgent, piKeys, piScheduleRunner, piTaskRunner, providerNames, skillsPort, storeCredentials, transcriber, untrustedRule } from "@amuse/pi";
+import { sqliteAccess } from "./access.ts";
+import { sqlitePin, unlocks } from "./pin.ts";
+import { sensitive } from "./sensitive.ts";
+import { sqliteDefaults } from "./defaults.ts";
 import { listen } from "./server.ts";
-import { fileRules } from "./rules.ts";
+import { sqliteRules } from "./rules.ts";
+import { refusing } from "./sandbox.ts";
+import { maskingFiles } from "./masked-files.ts";
+import { KeyUnavailable } from "./seal.ts";
+import { sqliteChoices } from "./choices.ts";
+import { sqliteBrowserSessions } from "./browser-sessions.ts";
+import { secretStore } from "./secret-store.ts";
+import { changelogEntries, news, sqliteAnnounced } from "./whats-new.ts";
 import { connectPaseo } from "./paseo-client.ts";
 import { paseoBridge } from "./paseo.ts";
 import { NativeBrowserManager, type NativeStep } from "./native-browser.ts";
 import { createBrowserMcp, browserMcpTools, type BrowserMcpActions } from "./browser-mcp.ts";
-import { refusing } from "./sandbox.ts";
-import { sandboxSecrets } from "./secrets.ts";
 import { sharedAmuseTools } from "./shared-tools.ts";
 import { localGitHub } from "./local-github.ts";
 import { localApps } from "./local-apps.ts";
@@ -52,14 +67,33 @@ const port = Number(process.env["AMUSE_PORT"] ?? 8797);
 const host = process.env["AMUSE_HOST"] ?? "127.0.0.1";
 const backendKind = z.enum(["pi", "paseo"]).parse(process.env["AMUSE_BACKEND"] ?? "pi");
 
-/** where everything is kept: beside the journal (or, with none, somewhere that goes with this run) */
-const journalFile = process.env["AMUSE_JOURNAL"];
-const dataDir = journalFile ? dirname(journalFile) : mkdtempSync(join(tmpdir(), "amuse-data-"));
-const access = fileAccess(join(dataDir, "access.json"));
+/**
+ * Before anything opens the data: its folders are checked, and the database is opened and migrated (db/). When that cannot
+ * be done, this server still answers, with a page that says why and what to do, and nothing else starts.
+ */
+const signals: NodeJS.Signals[] = ["SIGINT", "SIGTERM"];
+/** Start-up stops here for a reason it can name: the log has the details, and the address answers with the page (startup.ts). */
+const stopped = async (error: unknown): Promise<never> => {
+  if (!(error instanceof StartupError)) throw error;
+  console.error(`amuse could not start: ${error.message}`);
+  for (const signal of signals) process.once(signal, () => process.exit(1));
+  await serveProblem(error.problem, { port, host });
+  return await new Promise<never>(() => {});
+};
+const where = await (async () => {
+  try {
+    return locate(process.env);
+  } catch (error) {
+    return await stopped(error);
+  }
+})();
+const dataDir = where.dir;
+const db = await openData(where).catch(stopped);
+const access = sqliteAccess(db);
+/** the PIN that authorizes sensitive actions, and the sessions it unlocked (in memory: a restart locks them) */
+const pin = sqlitePin(db);
+const unlocked = unlocks(pin, access.valid);
 
-/** The user's keys and models, set up in the app; what the environment held before is taken over once. */
-const keysPath = join(dataDir, "keys.json");
-const choicePath = join(dataDir, "models.json");
 /** Pi's provider catalog is separate from models.json, which holds the user's selections. */
 const modelsPath = process.env["AMUSE_PI_MODELS"];
 /** Owner configuration is read once at startup, outside the agent workspace. There is no prompt-editing RPC. */
@@ -74,22 +108,55 @@ const modelOptions = {
   thinkingLevel,
   omitOutputLimit: process.env["AMUSE_PI_OMIT_OUTPUT_LIMIT"] === "1",
 };
+/** Amuse's own machine, where there is one: commands run there by the agents, and wiped by the user in Settings */
+const sandboxUrl = process.env["AMUSE_SANDBOX_URL"];
+const sandboxDirect = sandboxUrl ? sandboxClient(sandboxUrl) : undefined;
+
+/**
+ * The Vault: every secret Amuse keeps for the user, in the database, sealed, with its key apart from the data (a folder of its
+ * own, checked at start). The keys of the models, speech and Composio are in it too, with a use for what they serve
+ * (pi/src/credentials.ts), and so are the credentials given for the sandbox. A key that is missing, damaged or not the one the
+ * secrets were sealed with stops the start here, and the address says so.
+ */
+if (!where.secretsMounted) console.warn("AMUSE_SECRETS_DIR is not set: the Vault's key is kept beside the data, so a copy of the data carries it too. Give it a folder of its own (compose.yaml does).");
+const newVault = queryOne(db, z.object({ n: z.number() }), "select (select count(*) from vault_check) + (select count(*) from model_choice) as n")?.n === 0;
+const vault = await (async () => {
+  try {
+    return secretStore({ db, keyPath: join(where.secrets, "store.key"), sandbox: sandboxDirect });
+  } catch (error) {
+    if (error instanceof KeyUnavailable) return await stopped(new StartupError({ kind: "vault-key", trouble: error.trouble }, error.message));
+    throw error;
+  }
+})();
+
+// what the sandbox could not be told to forget while it was out of reach is taken out now, and what it should hold is given again
+void vault.sweep().catch((error: unknown) => console.warn(`The sandbox could not be brought up to date with the Vault: ${error instanceof Error ? error.message : "an error"}`));
+
+/** The user's keys and models, set up in the app; what the environment held before is taken over once, into a Vault that is new. */
+const choices = sqliteChoices(db);
 const keyFile = process.env["AMUSE_COMPOSIO_KEY_FILE"];
-const adopted = await adoptEnvironment({
-  keysPath,
-  choicePath,
-  apps: {
-    composio: keyFile ? readFileSync(keyFile, "utf8").trim() : process.env["AMUSE_COMPOSIO_KEY"],
-  },
-  env: process.env,
-  ...modelOptions,
-  ...(process.env["AMUSE_PI_AUTH"] ? { authFile: process.env["AMUSE_PI_AUTH"] } : {}),
-});
+const providerLabels = await providerNames();
+const keyNames = (id: string) => (id === "composio" ? "Composio" : id === LOCAL_VOICE ? "Your speech server" : (providerLabels.get(id) ?? id));
+const appKeyIds = ["composio"];
+// keys the old files held came in under their provider's plain id: they are given the names they are known by
+await vault.relabel(keyNames);
+const credentials: KeyFile = storeCredentials(vault, { apps: appKeyIds, names: keyNames });
+const adopted = newVault
+  ? await adoptEnvironment({
+      keys: credentials,
+      choices,
+      apps: {
+        composio: keyFile ? readFileSync(keyFile, "utf8").trim() : process.env["AMUSE_COMPOSIO_KEY"],
+      },
+      env: process.env,
+      ...modelOptions,
+      ...(process.env["AMUSE_PI_AUTH"] ? { authFile: process.env["AMUSE_PI_AUTH"] } : {}),
+    })
+  : [];
 if (adopted.length > 0) console.log(`Keys taken over from the environment: ${adopted.join(", ")}. Set them in the app from now on.`);
-const credentials = fileCredentials(keysPath);
 const keys = piKeys({
   keys: credentials,
-  choicePath,
+  choices,
   ...modelOptions,
   apps: [
     {
@@ -105,12 +172,8 @@ const keys = piKeys({
   ],
 });
 const auth: PiAuth = { kind: "keys", keys: credentials };
-/** Amuse's own machine, where there is one: commands run there by the agents, and wiped by the user in Settings */
-const sandboxUrl = process.env["AMUSE_SANDBOX_URL"];
-const sandboxDirect = sandboxUrl ? sandboxClient(sandboxUrl) : undefined;
-/** credentials the user gave for the sandbox (secrets.ts): kept, given, and masked in all it says to the agent */
-const given = sandboxDirect ? sandboxSecrets(join(dataDir, "sandbox-secrets.json"), sandboxDirect) : undefined;
-const sandbox = sandboxDirect && given ? masking(sandboxDirect, () => given.masked()) : undefined;
+/** what the sandbox says to the agents comes back with the secrets that are in it masked (the Vault knows which) */
+const sandbox = sandboxDirect && masking(sandboxDirect, () => vault.masked());
 const model = () => keys.model("chat");
 const browserModel = () => keys.model("browser");
 const desktopConfigPath = process.env["AMUSE_DESKTOP_CONFIG"];
@@ -139,9 +202,12 @@ const system = [
   "Each turn you get the conversation so far: the newest part in full, older parts in brief; search further back with `memory_search`.",
   "You remember: what you know about the user comes with every turn. Keep what will matter later with `remember`, and look with `memory_search` before asking what they may have told you (the memory skill says how).",
   "Messages in brackets, like [browser task …], [task …], [connection action …], [scheduled task …] or [heartbeat], come from your background work, not the user (the delegation skill says what to do with them).",
+  "When Amuse was updated ([Amuse was updated] with what is new), tell the user in one short message, in their language, what they can do now that they could not before, picking what matters to them and skipping internals; then carry on.",
   "A note from your background work often has nothing new for the user (a task's wrap-up after you told them its result, a check where all is well, a notice you already passed on): then call `no_reply` and write nothing. What you write in that turn is not shown, and never explain why you are staying silent. Never use it for a message from the user.",
   "Only your final words in a turn reach the user as your reply; what you write on the way to a tool is not shown. When a turn takes many steps, keep the user with you through `say`: if they write while you work, answer them with it at once, briefly, and go on; before something that takes minutes, say what you are doing. Never go quiet on them for long.",
   "Never claim a background task has finished unless you were told so. Never say you will do something and stop: what you are going to do, you do now with your tools, in this turn; your reply ends the turn.",
+  "For how a task or browser run is going, read what is running now (it comes with every turn, and `read_browser` shows the page a browser task is on): never answer from what you said earlier or from what you remember of it.",
+  "When the user asks to see something, or you have proof worth keeping (a confirmation, a score, a certificate), save a picture of the page with `save_screenshot` and send it with `send_file`; a browser task keeps what it shows you itself. Not routinely.",
   "Before you act for the user toward others or do what is hard to undo (send a message or an email, post publicly, delete data), make sure they want it. The specific thing they asked for in their message is their confirmation: do not ask again. Their OK covers only that action and that content; if either changes, show them again. Buying is the exception: even when they say buy, go through the checkout for them to review before paying.",
   "Some steps show the user an approval card on their own (how they set their permissions decides which). The card is theirs, not yours: when a tool or your background work says it waits for their OK, tell them in a sentence what it wants and why, and never say it is done until you hear it was. If they decline or never answer, that step does not happen: do not try another way around it.",
   "Their permissions can also say no (Deny) to an app action, or to something in the browser (visiting, submitting forms, downloading, uploading): then nothing is asked, the step is refused, and the answer names the rule and where they change it. Tell the user in one line which rule it was and where to change it. Never work around it (another tool, the browser for an app, another path to the same thing), and do not ask again unless the user brings it up.",
@@ -149,18 +215,21 @@ const system = [
   ...(desktop ? [desktopSystem] : []),
   ...(sandbox
     ? [
-        "You have a computer of your own, a sandbox, for running programs, scripts and installs (the sandbox skill says how). What you do inside it needs no one's OK; deleting or overwriting the user's own files, or anything that leaves it, still does.",
+        "You have a computer of your own, a sandbox, for running programs, scripts and installs (the sandbox skill says how). What you do inside it needs no one's OK; deleting or overwriting the user's own files, or anything that leaves it, still does. Anything the user may want to keep — code, projects, documents, output — goes in the workspace (`projects/` for instance): its home folder is for tools, configs and caches, and a reset wipes everything outside the workspace.",
       ]
     : []),
+  "Secrets: look with `list_secrets` before you ask for one, and never ask for one in the chat. A code a program waits for (a login, verification or OAuth code) is temporary: ask with `request_secret` for the terminal it waits in, and it is typed there and kept nowhere. A key, token or password for later is long-term: ask with `request_secret` and it is saved to the user's vault, encrypted (they see it in Settings › Vault): you fill in its plain fields (a username, an account id: ask the user in the chat if you do not know them), and the user types only the secrets on the card; `use_secret` puts it to use in your sandbox. When your work needs a model provider's or Composio's key that is not set up, ask for it with `request_secret` and `provider` instead of sending the user to Settings. You never see a secret's value; what your sandbox prints shows it masked.",
   untrustedRule,
 ].join("\n");
 /** connections go through Composio, with the key set up now (none: each use says it is needed) */
 const composioClient = keyedComposio(() => keys.appKey("composio"));
 const composioUser = "owner";
-/** what the agent may do with connections (core/policy.ts): kept beside the journal, or in memory without one */
-const rules = journalFile ? fileRules(join(dataDir, "rules.json")) : memoryRules();
-// Muse's workspace, and the index of sent files beside it
-const files = workspace(join(dataDir, "workspace"), join(dataDir, "sent.json"));
+/** what the agent may do with connections (core/policy.ts) */
+const rules = sqliteRules(db);
+// Muse's workspace, and the index of sent files kept in the database
+const files = workspace(join(dataDir, "workspace"), sqliteSent(db), dataDir);
+/** what the agents read of it comes back with the secrets that are in the sandbox masked (the user's own view of their files is the workspace itself) */
+const agentFiles = maskingFiles(files, () => vault.masked());
 const paseoConfigPath = process.env["AMUSE_PASEO_CONFIG"];
 if (backendKind === "paseo" && !paseoConfigPath) throw new Error("AMUSE_PASEO_CONFIG is required for the Paseo execution backend.");
 const paseoConfig = backendKind === "paseo" ? z.object({ home: z.string(), clientModule: z.string(), cwd: z.string(), providerId: z.string().default("qwen-multi") }).parse(JSON.parse(readFileSync(paseoConfigPath!, "utf8"))) : undefined;
@@ -201,7 +270,7 @@ const nativeActions: BrowserMcpActions | undefined = nativeBrowser ? {
     },
 } : undefined;
 const browserMcp = nativeActions ? createBrowserMcp({
-  url: `http://${host}:${port}`, tokenPath: join(journalFile ? dirname(dataDir) : dataDir, "browser-mcp.json"),
+  url: `http://${host}:${port}`, tokenPath: join(dirname(dataDir), "browser-mcp.json"),
   tools: (scope) => sharedTools?.tools(scope) ?? [], actions: nativeActions,
 }) : undefined;
 const browserInstructions = (chat: string) => [
@@ -220,12 +289,13 @@ const browserInstructions = (chat: string) => [
 const bridge = paseoConfig ? paseoBridge(await connectPaseo(paseoConfig), {
   path: join(dataDir, "paseo-bindings.json"), cwd: paseoConfig.cwd, files,
   workspaceRoot: join(dataDir, "workspace"), model: "sc117-swift-1.5-qwen3.8-flash-next-iq3_xxs", contextWindow: 262144,
-  steer: true, instructionVersion: "upstream-3e9979e-shared-v2",
+  steer: true, instructionVersion: "upstream-8d68b1a-shared-v3",
   ready: () => acceptingTools,
+  stopChat: (chat) => sharedTools?.stopChat(chat),
   ...(nativeBrowser ? { browserReady: (id: string) => nativeBrowser.waitReady(id) } : {}),
   prepare: async (_chat, io, userMessage) => {
-    if (userMessage) setUpDefaults(fileDefaults(join(dataDir, "defaults.json")), io);
-    return await sharedTools?.brief() ?? "";
+    if (userMessage) setUpDefaults(sqliteDefaults(db), io);
+    return await sharedTools?.brief(io) ?? "";
   },
   ...(nativeBrowser && browserMcp ? { browserOpen: (chat: string, url: string) => nativeBrowser.openForChat(chat, url), browserMcp: (chat: string, run?: string) => ({ ...browserMcp.config(run ? `${chat}~${run}` : chat) }), browserInstructions } : {}),
 }) : undefined;
@@ -263,8 +333,7 @@ const nodes = (process.env["AMUSE_BROWSERS"] ?? "")
       },
     ];
   });
-const pool = !nativeBrowser && nodes.length > 0 ? browserPool(nodes) : undefined;
-await pool?.reset();
+const pool = !nativeBrowser && nodes.length > 0 ? browserPool(nodes, { sessions: sqliteBrowserSessions(db) }) : undefined;
 const browsers = nativeBrowser ?? pool;
 /**
  * Every port is real and chosen here on purpose; a capability that is not
@@ -283,14 +352,6 @@ const cloudDirectory = composioDirectory(composioClient, {
 const local = localGitHub({ rules, statePath: join(dataDir, "local-github.json"), git: { cwd: process.cwd() }, connectedUrl: publicUrl ? new URL("/", publicUrl).href : "http://127.0.0.1:8081/" });
 const connectedApps = localApps({ local, cloudApps, cloudDirectory, cloudConnect: connector.connect, hasCloudKey: () => !!keys.appKey("composio") });
 const { apps, directory } = connectedApps;
-/** What went wrong with Composio, as the user is told it (the app shows a rejection's words; anything else is an internal error). */
-const composioSaid = (error: unknown): unknown => {
-  if (error instanceof NoComposioKey) return new Rejected({ kind: "unsound", reason: "Connections are not set up yet: add a Composio key in Settings › Connections." });
-  if (!(error instanceof ComposioError)) return error;
-  if (error.status === 401 || error.status === 403)
-    return new Rejected({ kind: "unsound", reason: "Composio did not accept the key: test or replace it in Settings › Connections." });
-  return new Rejected({ kind: "unsound", reason: `Composio could not be reached just now${error.status ? ` (${error.status})` : ""}. Try again in a moment.` });
-};
 const said =
   <A extends unknown[], R>(call: (...args: A) => Promise<R>) =>
   async (...args: A): Promise<R> => {
@@ -346,10 +407,23 @@ const about = async (): Promise<string> => {
   ].join("\n");
 };
 
+/**
+ * A call to the sandbox, whose failure the user hears in our own words: what the sandbox said about it (`detail`)
+ * is never passed on as ours.
+ */
+const inOurWords = async <T>(call: () => Promise<T>): Promise<T> => {
+  try {
+    return await call();
+  } catch (error) {
+    throw error instanceof SandboxError ? new Rejected({ kind: "unsound", reason: error.message }) : error;
+  }
+};
+
 const ports: Ports = {
-  ...piAgent({ model, thinking: () => keys.thinking("chat"), auth, ...modelOptions, ...desktopOptions, system, rules, files, ...(sandbox ? { sandbox } : {}), apps, search, appsSetup: connectedApps.setup, skills, about, defaults: fileDefaults(join(dataDir, "defaults.json")) }),
+  ...piAgent({ secrets: { secrets: vault, keys }, model, thinking: () => keys.thinking("chat"), auth, ...modelOptions, ...desktopOptions, system, rules, files: agentFiles, ...(sandbox ? { sandbox } : {}), ...(browsers ? { browsers } : {}), apps, search, appsSetup: connectedApps.setup, appsFit: async (app) => (keys.appKey("composio") ? await directory.cannotConnect(app) : null), skills, about, defaults: sqliteDefaults(db) }),
   // scheduled work runs on the background model (the chat's when none is chosen)
   ...piScheduleRunner({
+    secrets: { secrets: vault, keys },
     model: () => keys.model("background"),
     thinking: () => keys.thinking("background"),
     auth,
@@ -359,12 +433,13 @@ const ports: Ports = {
     skills,
     about,
     rules,
-    files,
+    files: agentFiles,
     ...(sandbox ? { sandbox } : {}),
     apps,
     search,
   }),
   ...piTaskRunner({
+    secrets: { secrets: vault, keys },
     model,
     thinking: () => keys.thinking("chat"),
     auth,
@@ -374,7 +449,7 @@ const ports: Ports = {
     skills,
     about,
     rules,
-    files,
+    files: agentFiles,
     ...(sandbox ? { sandbox } : {}),
     apps,
     search,
@@ -405,23 +480,17 @@ const ports: Ports = {
         fit: () => {},
       }),
   sandbox:
-    sandbox && given
+    sandbox && sandboxDirect
       ? {
           reset: async () => {
-            try {
-              await sandbox.reset();
-            } catch (error) {
-              // our own words only, never what the sandbox said about it (`detail`)
-              throw error instanceof SandboxError ? new Rejected({ kind: "unsound", reason: error.message }) : error;
-            }
-            // the reset emptied its home, where the credentials were
-            await given.again();
+            await inOurWords(() => sandbox.reset());
+            // the reset emptied its home, where the secrets were put: given again
+            await vault.again();
           },
-          give: (request, value) => given.give(request, value),
-          secrets: () => given.secrets(),
-          forget: (id) => given.forget(id),
+          atRisk: () => inOurWords(() => sandbox.atRisk()),
         }
       : noSandbox,
+  secrets: vault,
   rules,
   approval: () => {}, // waiting agents get the verdict through AgentIO.decision
   // a card from before the key was removed: the user hears where to add one
@@ -429,6 +498,9 @@ const ports: Ports = {
   apps: {
     search: said(directory.search),
     connect: said(directory.connect),
+    access: said(directory.access),
+    cannotConnect: said(directory.cannotConnect),
+    connectKey: said(directory.connectKey),
     disconnect: said(directory.disconnect),
     permit: said(directory.permit),
     accounts: () => none(directory.accounts),
@@ -445,16 +517,43 @@ if (nativeBrowser && bridge) {
   ports.job = (browser, io) => { nativePorts.job(browser, io); if (browser.instructions !== "在当前 Amuse 聊天的同一浏览器中执行用户任务。") bridge.runBrowser(browser, io); };
 }
 
-const journalPath = process.env["AMUSE_JOURNAL"];
-// side chats beside the main chat's log
-const store = journalPath ? { store: fileChats(dirname(journalPath), journalPath) } : {};
-const nativeSession = createHost(ports, store);
+// what an update brought that the user has not been told about yet (whats-new.ts), from the changelog the image ships
+const announced = sqliteAnnounced(db);
+const changelog = (() => {
+  try {
+    return readFileSync(new URL("../../CHANGELOG.md", import.meta.url), "utf8");
+  } catch {
+    return ""; // no changelog beside the code: there is nothing to tell
+  }
+})();
+// a journal that cannot be replayed stops the start with a page, not a crash loop
+const nativeSession = await (async () => {
+  try {
+    return createHost(ports, {
+      store: sqliteChats(db),
+      // one waking report to the main chat's agent, which tells the user what they can do now; nothing on a first start
+      started: (main) => {
+        const fresh = news(changelogEntries(changelog), announced);
+        if (!fresh) return;
+        main.report(fresh.note);
+        fresh.delivered();
+      },
+    });
+  } catch (error) {
+    if (!(error instanceof JournalError)) throw error;
+    return await stopped(new StartupError({ kind: "journal-unreadable", chat: error.chat, event: error.event }, error.message));
+  }
+})();
 nativeBrowser?.bind(nativeSession);
 const session = bridge ? await bridge.attach(nativeSession) : nativeSession;
 if (bridge) sharedTools = sharedAmuseTools({
   host: () => nativeSession, context: (scope) => bridge.toolContext(scope),
-  config: { rules, files, apps, search, skills, about, appsSetup: connectedApps.setup, ...(sandbox ? { sandbox } : {}) },
+  config: { secrets: { secrets: vault, keys }, rules, files: agentFiles, apps, search, skills, about, appsSetup: connectedApps.setup, appsFit: directory.cannotConnect, ...(browsers ? { browsers } : {}), ...(sandbox ? { sandbox } : {}) },
   directory: join(dataDir, "codemode"),
+  ...(nativeBrowser ? { browserLook: (scope: string) => ({
+    look: (id: string) => nativeBrowser.observeForChat(parentChat(scope), id, actorSignal(scope)),
+    screenshot: (id: string, ref?: string) => nativeBrowser.screenshotForChat(parentChat(scope), id, actorSignal(scope), ref),
+  }) } : {}),
   ...(nativeActions ? { browserTools: (scope: string) => browserMcpTools(nativeActions, scope) } : {}),
 });
 if (nativeBrowser) console.log("Restored browser state:", JSON.stringify(await nativeBrowser.restoreExisting()));
@@ -469,9 +568,22 @@ const follow = (entity: Entity) => {
 session.subscribe((update) => {
   if (update.kind === "event" && update.envelope.event.kind === "upserted") follow(update.envelope.event.entity);
 });
-for (const { id } of (await nativeSession.call("chats.list", {})).chats) {
-  const synced = await nativeSession.call("session.sync", { chat: id, since: null });
-  if (synced.kind === "snapshot") synced.state.entities.forEach(follow);
+// the browsers the state lists as open: what a restart reconciles the controllers against (their session is adopted again, or their card closes)
+const openBrowsers: string[] = [];
+for (const { id } of (await session.call("chats.list", {})).chats) {
+  const synced = await session.call("session.sync", { chat: id, since: null });
+  if (synced.kind !== "snapshot") continue;
+  synced.state.entities.forEach(follow);
+  for (const entity of synced.state.entities) if (entity.kind === "browser" && entity.live) openBrowsers.push(entity.id);
+}
+if (pool) {
+  const { lost, closed } = await pool.reconcile(openBrowsers);
+  if (closed > 0) console.log(`amuse: closed ${closed} browser session${closed === 1 ? "" : "s"} that no browser owned.`);
+  for (const { id, reason } of lost) {
+    console.warn(`amuse: browser ${id} is closed: ${reason}.`);
+    // no dead card stays: the state closes it (its agent is gone with the restart, and nothing waits on it)
+    await session.call("browser.control", { id, action: "stop" }).catch(() => {});
+  }
 }
 const live = browsers && { browsers, controlled: (id: string) => held.has(id), ...(nativeBrowser ? { native: nativeBrowser } : {}) };
 
@@ -490,6 +602,9 @@ await listen({
   ...(browserMcp ? { browserMcp: browserMcp.handle } : {}),
   returned: connector.returned,
   access,
+  pin,
+  unlocks: unlocked,
+  sensitive: (call) => sensitive(call, rules),
   ...(refuse ? { refuse } : {}),
   transcribe: speech,
   serviceStatus,
@@ -499,7 +614,7 @@ await listen({
 acceptingTools = true;
 bridge?.activate();
 for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => {
-  void Promise.allSettled([desktop?.close(), bridge?.close(), browserMcp?.close(), nativeBrowser?.shutdown()]).finally(() => process.exit(0));
+  void Promise.allSettled([desktop?.close(), bridge?.close(), browserMcp?.close(), nativeBrowser?.shutdown()]).finally(() => { db.close(); process.exit(0); });
 });
 // the way in: the first visit sets the master password
 if (!access.ready()) console.log(`amuse is ready. Open ${publicUrl ?? `http://${host}:${port}`} and set the master password.`);

@@ -13,9 +13,11 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { SquareTerminal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { Button } from "./Button";
 import { useT } from "../i18n/react.ts";
 import type { Messages } from "../i18n/en.ts";
 import { retryViewerClose, viewerRecovery } from "../socket-recovery.ts";
+import { computerName } from "../secrets.ts";
 
 /** Ctrl and Alt held for the next key typed on the phone's keyboard (or the next key of the row). */
 type Mods = { ctrl: boolean; alt: boolean };
@@ -46,7 +48,8 @@ function closedCopy(code: number, t: Messages): { title: string; text: string; a
   if (code === 4404) return { ...t.viewer.closed.noSandbox, again: false };
   if (code === 4429) return { ...t.viewer.closed.tooMany, again: true };
   if (code === 1000) return { ...t.viewer.closed.closed, again: true };
-  return { ...t.viewer.closed.unreachable, again: true };
+  const unreachable = t.viewer.closed.unreachable;
+  return { ...unreachable, text: unreachable.text(computerName(t)), again: true };
 }
 
 const encoder = new TextEncoder();
@@ -159,6 +162,8 @@ export function TerminalView({
     const binary = term.onBinary((data) =>
       send(Uint8Array.from(data, (c) => c.charCodeAt(0) & 0xff)),
     );
+    // text selected in it keeps the touches, as selected text on the page does (useSwipe.ts)
+    const selection = term.onSelectionChange(() => el.toggleAttribute("data-selecting", term.hasSelection()));
     const resized = term.onResize(({ cols, rows }) => {
       if (ws.readyState === WebSocket.OPEN)
         ws.send(JSON.stringify({ type: "resize", cols, rows }));
@@ -171,6 +176,7 @@ export function TerminalView({
       observer.disconnect();
       typed.dispose();
       binary.dispose();
+      selection.dispose();
       resized.dispose();
       ws.onclose = null;
       ws.close();
@@ -210,13 +216,12 @@ export function TerminalView({
               {closed.text}
             </p>
             {closed.again && (
-              <button
-                className="hover-fade mt-3 h-10 rounded-full px-4 text-[15px] font-medium"
-                style={{ background: "#3a3a3c", color: "#f2f2f7" }}
-                onClick={() => recovery.current?.manual()}
-              >
-                {t.viewer.openAgain}
-              </button>
+              // the terminal is dark in either theme: the button takes the dark one's colours
+              <div className="dark mt-3">
+                <Button onClick={() => recovery.current?.manual()}>
+                  {t.viewer.openAgain}
+                </Button>
+              </div>
             )}
           </div>
         )}

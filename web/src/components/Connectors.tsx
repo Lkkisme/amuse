@@ -11,14 +11,19 @@ import { ChevronLeft, MoreHorizontal, Search } from "lucide-react";
 import type {
   Account,
   App,
+  AppAccess,
+  GivenField,
   KindRule,
   Permission,
   Session,
   ToolKind,
 } from "@amuse/protocol";
+import { Button } from "./Button";
 import { AppLogo } from "./AppLogo";
+import { KeyConnect } from "./KeyConnect";
 import { PermissionSelect } from "./PermissionSelect";
 import { useT } from "../i18n/react.ts";
+import { type Failures, failedAt, noFailures, pageLeft, wentThrough, wordsFor } from "../shown.ts";
 
 type Tab = "available" | "connected";
 const TABS: Tab[] = ["available", "connected"];
@@ -44,29 +49,49 @@ export function Connectors({
     cursor: string | null;
   } | null>(null);
   const [accounts, setAccounts] = useState<Account[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  /** what failed where: the list's own (a search, the accounts), and the open app's (the list never shows that one) */
+  const [failures, setFailures] = useState<Failures>(noFailures);
   /** the app or account an action is running for */
   const [busy, setBusy] = useState<string | null>(null);
+  /** how many times the open app's access has been asked about: a return to the page asks again */
+  const [askedAgain, setAskedAgain] = useState(0);
 
-  const fail = (e: unknown) =>
-    setError(e instanceof Error ? e.message : String(e));
+  const fail = (e: unknown) => setFailures((was) => failedAt(was, "list", e));
+  const failPage = (e: unknown) => setFailures((was) => failedAt(was, "page", e));
+  /** the app whose page is open, for a call that may have been made from the list or from a page */
+  const opened = useRef<string | null>(null);
 
   const loadAccounts = useCallback(
     () =>
       session
         .call("apps.accounts", {})
-        .then(({ accounts }) => setAccounts(accounts), fail),
+        .then(
+          ({ accounts }) => {
+            setAccounts(accounts);
+            // it went through: a failure that was the connection dropping does not stand
+            setFailures(wentThrough);
+          },
+          (e: unknown) => setFailures((was) => failedAt(was, opened.current ? "page" : "list", e)),
+        ),
     [session],
   );
   useEffect(() => void loadAccounts(), [loadAccounts]);
-  // back from the provider's page (another tab): see what came of it
+  // back from the provider's page (another tab), or from another app on a phone: see what came of it, and ask
+  // again about the app on screen (its answer, too, may have been the connection dropping while the page was away)
   useEffect(() => {
-    const back = () =>
-      document.visibilityState === "visible" && void loadAccounts();
+    const back = () => {
+      if (document.visibilityState !== "visible") return;
+      void loadAccounts();
+      setAskedAgain((n) => n + 1);
+    };
     document.addEventListener("visibilitychange", back);
+    window.addEventListener("pageshow", back);
+    window.addEventListener("online", back);
     window.addEventListener("focus", back);
     return () => {
       document.removeEventListener("visibilitychange", back);
+      window.removeEventListener("pageshow", back);
+      window.removeEventListener("online", back);
       window.removeEventListener("focus", back);
     };
   }, [loadAccounts]);
@@ -79,7 +104,11 @@ export function Connectors({
       () => {
         session
           .call("apps.search", { query, cursor: null })
-          .then((page) => mine === asked.current && setFound(page), fail);
+          .then((page) => {
+            if (mine !== asked.current) return;
+            setFound(page);
+            setFailures((was) => failedAt(was, "list", null)); // the search worked: nothing left to say about the list
+          }, fail);
       },
       query ? TYPING_MS : 0,
     );
@@ -104,7 +133,7 @@ export function Connectors({
     const local = app === "local-github";
     const opened = local ? null : window.open("", "_blank");
     setBusy(app);
-    setError(null);
+    setFailures((was) => failedAt(was, "page", null));
     session
       .call("apps.connect", { app })
       .then(({ url }) => {
@@ -114,17 +143,41 @@ export function Connectors({
       })
       .catch((e: unknown) => {
         opened?.close();
-        fail(e);
+        failPage(e);
       })
       .finally(() => setBusy(null));
   };
+  // how the open app is connected: a link, or the user's own key. Asked when the page opens and again when the
+  // user comes back to it; `access` is kept across a return, so a key typed into the field is not lost.
+  const [access, setAccess] = useState<AppAccess | null>(null);
+  const viewingId = viewing?.id;
+  useEffect(() => {
+    if (!viewingId) return;
+    let current = true;
+    session.call("apps.access", { app: viewingId }).then(
+      ({ access }) => current && setAccess(access),
+      (e: unknown) => current && failPage(e),
+    );
+    return () => {
+      current = false;
+    };
+  }, [session, viewingId, askedAgain]);
+  // the app whose page is open, and nothing of its own failure left behind when the user leaves it
+  opened.current = viewingId ?? null;
+  useEffect(() => setFailures(pageLeft), [viewingId]);
+  useEffect(() => setAccess(null), [viewingId]);
+  /** the key goes to the server and on to Composio, nowhere else; then the accounts are read again */
+  const connectKey = async (app: string, values: GivenField[]) => {
+    await session.call("apps.connectKey", { app, values });
+    await loadAccounts();
+  };
   const disconnect = (ids: string[]) => {
     setBusy(ids.join());
-    setError(null);
+    setFailures((was) => failedAt(was, "page", null));
     Promise.all(
       ids.map((account) => session.call("apps.disconnect", { account })),
     )
-      .then(() => loadAccounts(), fail)
+      .then(() => loadAccounts(), failPage)
       .finally(() => setBusy(null));
   };
 
@@ -136,13 +189,15 @@ export function Connectors({
       !query || `${a.id} ${a.name}`.toLowerCase().includes(query.toLowerCase()),
   );
 
-  const errorLine = error && (
+  // the list shows its own failures only: one about the app whose page is open stays on that page
+  const listSaid = wordsFor(failures.list, t);
+  const errorLine = listSaid && (
     <p
       role="alert"
       className="mt-3 text-[13px]"
       style={{ color: "var(--fill-red)" }}
     >
-      {error}
+      {listSaid}
     </p>
   );
 
@@ -153,7 +208,9 @@ export function Connectors({
         app={viewing}
         accounts={accountsOf(viewing.id)}
         busy={busy}
-        error={errorLine}
+        access={access}
+        error={wordsFor(failures.page, t)}
+        onConnectKey={(values) => connectKey(viewing.id, values)}
         onBack={() => onView(null)}
         onConnect={() => connect(viewing.id)}
         onDisconnect={disconnect}
@@ -191,6 +248,8 @@ export function Connectors({
         {TABS.map((option) => (
           <button
             key={option}
+            role="tab"
+            aria-selected={tab === option}
             className="rounded-full text-[14px] font-medium"
             style={
               tab === option
@@ -219,13 +278,14 @@ export function Connectors({
             <>
               <Group>{found.apps.map(row)}</Group>
               {found.cursor && (
-                <button
-                  className="hover-fade mt-2 h-10 w-full rounded-full text-[14px] font-medium"
-                  style={{ color: "var(--fill-blue)" }}
+                <Button
+                  variant="plain"
+                  tone="accent"
+                  className="mt-2 w-full"
                   onClick={more}
                 >
                   {t.connections.showMore}
-                </button>
+                </Button>
               )}
             </>
           )
@@ -249,7 +309,9 @@ function AppPage({
   app,
   accounts,
   busy,
+  access,
   error,
+  onConnectKey,
   onBack,
   onConnect,
   onDisconnect,
@@ -258,7 +320,9 @@ function AppPage({
   app: App;
   accounts: Account[];
   busy: string | null;
-  error: React.ReactNode;
+  access: AppAccess | null;
+  error: string | null;
+  onConnectKey: (values: GivenField[]) => Promise<void>;
   onBack: () => void;
   onConnect: () => void;
   onDisconnect: (accounts: string[]) => void;
@@ -311,7 +375,15 @@ function AppPage({
           {app.description || t.connections.useAccounts}
         </p>
       </div>
-      {error}
+      {error && (
+        <p
+          role="alert"
+          className="mt-3 text-[13px]"
+          style={{ color: "var(--fill-red)" }}
+        >
+          {error}
+        </p>
+      )}
       {accounts.length > 0 && (
         <Group className="mt-5">
           <li>
@@ -327,14 +399,22 @@ function AppPage({
         </Group>
       )}
       {accounts.length === 0 ? (
-        <button
-          disabled={busy === app.id}
-          className="mx-auto mt-5 block h-10 w-full max-w-[280px] rounded-full text-[15px] font-medium text-white disabled:opacity-50"
-          style={{ background: "var(--fill-blue)" }}
-          onClick={onConnect}
-        >
-          {t.connections.connect}
-        </button>
+        access?.kind === "key" ? (
+          <div className="mt-5">
+            <KeyConnect app={app.name} fields={access.fields} connect={onConnectKey} />
+          </div>
+        ) : (
+          <div className="mt-5 flex justify-center">
+            <Button
+              variant="primary"
+              className="w-full max-w-[280px]"
+              disabled={busy === app.id || access === null}
+              onClick={onConnect}
+            >
+              {t.connections.connect}
+            </Button>
+          </div>
+        )
       ) : (
         <Group className="mt-3">
           {accounts.map((account) => (
@@ -391,7 +471,7 @@ function AppPage({
                     boxShadow: "var(--shadow-raised)",
                   }}
                 >
-                  {account.status !== "active" && (
+                  {account.status !== "active" && access?.kind !== "key" && (
                     <MenuItem
                       onClick={() => {
                         setOptions(null);
@@ -414,16 +494,23 @@ function AppPage({
               )}
             </li>
           ))}
-          <li>
-            <button
-              className="hover-fade w-full py-3 text-left text-[15px]"
-              style={{ color: "var(--fill-blue)" }}
-              onClick={onConnect}
-            >
-              {t.connections.addAccount}
-            </button>
-          </li>
+          {access?.kind !== "key" && (
+            <li>
+              <button
+                className="hover-fade w-full py-3 text-left text-[15px]"
+                style={{ color: "var(--fill-blue)" }}
+                onClick={onConnect}
+              >
+                {t.connections.addAccount}
+              </button>
+            </li>
+          )}
         </Group>
+      )}
+      {accounts.length > 0 && access?.kind === "key" && (
+        <div className="mt-4">
+          <KeyConnect app={app.name} fields={access.fields} connect={onConnectKey} />
+        </div>
       )}
       {rules && rules.length > 0 && (
         <>
@@ -441,7 +528,7 @@ function AppPage({
                     className="min-w-0 flex-1 text-[15px]"
                     style={{ color: "var(--text-primary)" }}
                   >
-                    {t.connections.kindLines[rule.kind](app.name)}
+                    {t.connections.kindLines[rule.kind]}
                   </span>
                   <PermissionSelect
                     value={rule.permission}
@@ -452,17 +539,18 @@ function AppPage({
             </section>
           ))}
           {rules.some((r) => r.chosen) && (
-            <button
-              className="hover-fade ml-auto mt-3 block px-4 text-[14px]"
-              style={{ color: "var(--fill-red)" }}
-              onClick={() =>
-                rules
-                  .filter((r) => r.chosen)
-                  .forEach((r) => permit(r.kind, null))
-              }
-            >
-              {t.connections.resetDefaults}
-            </button>
+            <div className="mt-3 flex justify-end">
+              <Button
+                tone="danger"
+                onClick={() =>
+                  rules
+                    .filter((r) => r.chosen)
+                    .forEach((r) => permit(r.kind, null))
+                }
+              >
+                {t.connections.resetDefaults}
+              </Button>
+            </div>
           )}
         </>
       )}

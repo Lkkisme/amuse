@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, rmdirSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
-import { type AgentIO, type Ports, createHost, memoryChats, memoryRules, noKeys, noWorkspace, noLogins, noSandbox } from "@amuse/core";
+import { type AgentIO, type Ports, createHost, memoryChats, memoryRules, noKeys, noWorkspace, noLogins, noSandbox, noSecrets } from "@amuse/core";
 import type { Session, Task } from "@amuse/protocol";
 import type { FileStore } from "./workspace.ts";
 import { type BridgeAgent, type BridgeClient, type BridgeEntry, type PaseoBridgeOptions, paseoBridge } from "./paseo.ts";
@@ -72,8 +72,8 @@ function ports(): Ports {
     prompt: () => { throw new Error("bridge must never invoke the Pi agent"); },
     interrupt: () => {}, title: async () => "unused", browse: () => {}, job: () => {}, task: () => {}, schedule: () => {},
     browser: () => {}, approval: () => {}, stopTask: () => {}, fit: () => {}, connect: async () => "https://example.invalid/",
-    apps: { search: async () => ({ apps: [], cursor: null }), accounts: async () => [], connect: async () => "https://example.invalid/", disconnect: async () => {}, permissions: async () => [], permit: async () => {} },
-    rules: memoryRules(), keys: noKeys, files: noWorkspace, logins: noLogins, sandbox: noSandbox,
+    apps: { access: async () => ({ kind: "managed" }), cannotConnect: async () => null, connectKey: async () => { throw new Error("No key connection in this fixture."); }, search: async () => ({ apps: [], cursor: null }), accounts: async () => [], connect: async () => "https://example.invalid/", disconnect: async () => {}, permissions: async () => [], permit: async () => {} },
+    rules: memoryRules(), keys: noKeys, files: noWorkspace, logins: noLogins, sandbox: noSandbox, secrets: noSecrets,
   };
 }
 
@@ -427,7 +427,7 @@ test("background helpers inherit the originating chat's MCP and browser CLI inst
   });
   const actions: Parameters<AgentIO["act"]>[0][] = [];
   const io: AgentIO = {
-    chat: "main", emit: () => {}, act: (action) => { actions.push(action); return { ok: true, id: "task-browser" }; },
+    chat: "main", mention: () => {}, running: () => "", emit: () => {}, act: (action) => { actions.push(action); return { ok: true, id: "task-browser" }; },
     context: () => "originating chat context", recall: () => "", chats: () => [], schedules: () => [], readChat: () => null,
     decision: async () => ({ verdict: "approved", remember: false }), report: () => {},
     time: () => ({ now: at, timezone: "UTC" }), lastWords: () => "", answer: async () => ({ kind: "closed" }), listen: () => () => {},

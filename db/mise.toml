@@ -1,0 +1,4 @@
+[tasks.check]
+description = "Type-check and test the database: its migrations and the runner"
+depends = ["//:install"]
+run = "npm run typecheck && npm test"

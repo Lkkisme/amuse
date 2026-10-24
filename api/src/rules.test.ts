@@ -1,50 +1,64 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { test } from "node:test";
 import { browserRulesOf, decideBrowser } from "@amuse/core";
-import { fileRules } from "./rules.ts";
+import { StartupError, openDatabase, tempFolder } from "@amuse/db";
+import { type Location, locate, openData } from "./data.ts";
+import { sqliteRules } from "./rules.ts";
 
-const fresh = () => join(mkdtempSync(join(tmpdir(), "amuse-rules-")), "rules.json");
+const folder = () => tempFolder("amuse-rules-");
 
-test("rules survive a restart, the file stays the owner's, and a broken file stops the start", async () => {
-  const path = fresh();
-  await fileRules(path).set("gmail", "destructive", "deny");
-  await fileRules(path).setSite("bank.com", { never: true, actions: {} });
-  await fileRules(path).setSiteAction("a5.ucsd.edu", "submit", "allow");
-  await fileRules(path).setBrowser("download", "ask");
-  assert.deepEqual(await fileRules(path).of("gmail"), { destructive: "deny" });
-  assert.deepEqual(await fileRules(path).sites(), { "bank.com": { never: true, actions: {} }, "a5.ucsd.edu": { never: false, actions: { submit: "allow" } } });
-  assert.deepEqual(await fileRules(path).browser(), { download: "ask" });
-  // Windows uses inherited ACLs rather than POSIX mode bits.
-  if (process.platform !== "win32") assert.equal(statSync(path).mode & 0o777, 0o600);
-  writeFileSync(path, '{"apps":{"gmail":{"destructive":"maybe"}},"browser":{},"sites":{}}');
-  assert.throws(() => fileRules(path));
+/** The data folder with a rules.json of the given shape in it, started the way the server starts: imported, then read from the database. */
+async function startedWith(content: unknown) {
+  const dir = folder();
+  writeFileSync(join(dir, "rules.json"), typeof content === "string" ? content : JSON.stringify(content));
+  const said: string[] = [];
+  const db = await openData(locate({ AMUSE_DATA: dir }), (message) => void said.push(message));
+  return { dir, said, db, rules: sqliteRules(db) };
+}
+
+test("rules survive a restart, and the database stays the owner's", async () => {
+  const dir = folder();
+  const where: Location = locate({ AMUSE_DATA: dir });
+  const first = sqliteRules(await openData(where, () => {}));
+  await first.set("gmail", "destructive", "deny");
+  await first.setSite("bank.com", { never: true, actions: {} });
+  await first.setSiteAction("a5.ucsd.edu", "submit", "allow");
+  await first.setBrowser("download", "ask");
+  const second = sqliteRules(await openData(where, () => {}));
+  assert.deepEqual(await second.of("gmail"), { destructive: "deny" });
+  assert.deepEqual(await second.sites(), { "bank.com": { never: true, actions: {} }, "a5.ucsd.edu": { never: false, actions: { submit: "allow" } } });
+  assert.deepEqual(await second.browser(), { download: "ask" });
+  if (process.platform !== "win32") assert.equal(statSync(where.database).mode & 0o777, 0o600);
+});
+
+test("a rules file that cannot be read stops the start and is left as it was", async () => {
+  const dir = folder();
+  const bad = '{"apps":{"gmail":{"destructive":"maybe"}},"browser":{},"sites":{}}';
+  writeFileSync(join(dir, "rules.json"), bad);
+  await assert.rejects(openData(locate({ AMUSE_DATA: dir }), () => {}), (error) => error instanceof StartupError && error.problem.kind === "migration-failed");
+  assert.equal(readFileSync(join(dir, "rules.json"), "utf8"), bad);
+  assert.equal(existsSync(join(dir, "rules.json.bak")), false);
 });
 
 test("nothing stored that cannot be read stops the server or makes the rules wider: names read plainly, unreadable entries as never, the file kept beside", async () => {
-  const path = fresh();
-  writeFileSync(
-    path,
-    JSON.stringify({
-      apps: {},
-      browser: { upload: "allow", download: "ask", visit: "sometimes" },
-      sites: {
-        "evil.com.": { never: true, actions: {} },
-        "WWW.Shop.com": { never: false, actions: { submit: "allow" } },
-        "shop.com": { never: false, actions: { submit: "deny", download: "allow" } },
-        "my_host.example.com": "allow",
-        "[2606:4700::1111]": { never: true, actions: {} },
-        "ok.com": { never: false, actions: { upload: "allow", submit: "allow" } },
-        "broken.com": { never: "yes" },
-        "fine.com": "deny",
-      },
-    }),
-  );
-  const before = readFileSync(path, "utf8");
-  const said: string[] = [];
-  const rules = fileRules(path, (m) => void said.push(m));
+  const content = JSON.stringify({
+    apps: {},
+    browser: { upload: "allow", download: "ask", visit: "sometimes" },
+    sites: {
+      "evil.com.": { never: true, actions: {} },
+      "WWW.Shop.com": { never: false, actions: { submit: "allow" } },
+      "shop.com": { never: false, actions: { submit: "deny", download: "allow" } },
+      "my_host.example.com": "allow",
+      "[2606:4700::1111]": { never: true, actions: {} },
+      "ok.com": { never: false, actions: { upload: "allow", submit: "allow" } },
+      "broken.com": { never: "yes" },
+      "fine.com": "deny",
+    },
+  });
+  const { dir, said, db, rules } = await startedWith(content);
   assert.deepEqual(await rules.sites(), {
     // a spelling of a name is that name; two entries for one name keep the stricter of each
     "evil.com": { never: true, actions: {} },
@@ -65,31 +79,25 @@ test("nothing stored that cannot be read stops the server or makes the rules wid
   assert.ok(said.some((m) => /setting for visit/.test(m)));
   assert.equal(said.filter((m) => /uploading is always asked about/.test(m)).length, 2);
   // the file as it was is kept beside it
-  const kept = readdirSync(dirname(path)).filter((name) => name.endsWith(".bak"));
-  assert.equal(kept.length, 1);
-  assert.equal(readFileSync(join(dirname(path), kept[0] ?? ""), "utf8"), before);
-  // written again without them: the next start is quiet and the same
+  assert.equal(readFileSync(join(dir, "rules.json.bak"), "utf8"), content);
+  // the next start is quiet and the same
+  db.close();
   const next: string[] = [];
-  assert.deepEqual(await fileRules(path, (m) => void next.push(m)).sites(), await rules.sites());
+  const again = sqliteRules(await openData(locate({ AMUSE_DATA: dir }), (m) => void next.push(m)));
+  assert.deepEqual(await again.sites(), await rules.sites());
   assert.deepEqual(next, []);
   // a rule cannot be kept for a name that would not be read back
   for (const bad of ["evil.com.", "my_host.example.com", "[2606:4700::1111]", "nodots", "UPPER.com"]) {
     await assert.rejects(rules.setSiteAction(bad, "submit", "allow"), /not a website name/, bad);
     await assert.rejects(rules.setSite(bad, { never: true, actions: {} }), /not a website name/, bad);
   }
-  assert.deepEqual(await fileRules(path, () => {}).sites(), await rules.sites(), "nothing bad was written");
 });
 
 test("migrating an ask under an allow keeps it as narrow as it was: submit and download are set as the defaults give them", async () => {
-  const path = fresh();
-  writeFileSync(
-    path,
-    JSON.stringify({
-      apps: {},
-      sites: { "bank.com": "allow", "login.bank.com": "ask", "other.com": "ask", "x.other.com": "ask", "deep.login.bank.com": "ask" },
-    }),
-  );
-  const rules = fileRules(path);
+  const { rules } = await startedWith({
+    apps: {},
+    sites: { "bank.com": "allow", "login.bank.com": "ask", "other.com": "ask", "x.other.com": "ask", "deep.login.bank.com": "ask" },
+  });
   const sites = await rules.sites();
   assert.deepEqual(sites["login.bank.com"], { never: false, actions: { visit: "allow", submit: "ask", download: "allow" } });
   assert.deepEqual(sites["deep.login.bank.com"], sites["login.bank.com"], "an allow anywhere above counts");
@@ -107,16 +115,11 @@ test("migrating an ask under an allow keeps it as narrow as it was: submit and d
   assert.equal(decideBrowser(browser, "https://login.bank.com/", "download").permission, "allow");
 });
 
-test("the rules before the browser's: allow becomes every action allowed, ask becomes visit allowed, deny becomes never; the file is written again in the new shape", async () => {
-  const path = fresh();
-  writeFileSync(
-    path,
-    JSON.stringify({
-      apps: { gmail: { write: "allow" } },
-      sites: { "trusted.com": "allow", "news.example": "ask", "bank.com": "deny", "help.bank.com": "allow" },
-    }),
-  );
-  const rules = fileRules(path);
+test("the rules before the browser's: allow becomes every action allowed, ask becomes visit allowed, deny becomes never", async () => {
+  const { rules } = await startedWith({
+    apps: { gmail: { write: "allow" } },
+    sites: { "trusted.com": "allow", "news.example": "ask", "bank.com": "deny", "help.bank.com": "allow" },
+  });
   assert.deepEqual(await rules.sites(), {
     "trusted.com": { never: false, actions: { visit: "allow", submit: "allow", download: "allow" } },
     "news.example": { never: false, actions: { visit: "allow" } },
@@ -125,22 +128,20 @@ test("the rules before the browser's: allow becomes every action allowed, ask be
   });
   assert.deepEqual(await rules.browser(), {}, "the browser's own settings are the defaults");
   assert.deepEqual(await rules.of("gmail"), { write: "allow" }, "app rules are as they were");
-  // written again, in the new shape, and read back the same
-  const written: unknown = JSON.parse(readFileSync(path, "utf8"));
-  assert.deepEqual(written, { apps: { gmail: { write: "allow" } }, browser: {}, sites: await rules.sites() });
-  assert.deepEqual(await fileRules(path).sites(), await rules.sites());
-  // a half old, half new file (one site already an exception) reads too
-  writeFileSync(
-    path,
-    JSON.stringify({ apps: {}, browser: { visit: "allow" }, sites: { "a.com": "deny", "b.com": { never: false, actions: { submit: "deny" } } } }),
-  );
-  assert.deepEqual(await fileRules(path).sites(), { "a.com": { never: true, actions: {} }, "b.com": { never: false, actions: { submit: "deny" } } });
-  assert.deepEqual(await fileRules(path).browser(), { visit: "allow" });
 });
 
-test("a site in both shapes (a file edited by hand) keeps the stricter of each", async () => {
-  const path = fresh();
-  writeFileSync(path, JSON.stringify({ apps: {}, browser: {}, sites: { "EVIL.com": "deny", "evil.com": { never: false, actions: { visit: "allow" } } } }));
-  const rules = fileRules(path, () => {});
-  assert.deepEqual((await rules.sites())["evil.com"]?.never, true);
+test("a half old, half new file reads too, and a site in both shapes keeps the stricter of each", async () => {
+  const half = await startedWith({ apps: {}, browser: { visit: "allow" }, sites: { "a.com": "deny", "b.com": { never: false, actions: { submit: "deny" } } } });
+  assert.deepEqual(await half.rules.sites(), { "a.com": { never: true, actions: {} }, "b.com": { never: false, actions: { submit: "deny" } } });
+  assert.deepEqual(await half.rules.browser(), { visit: "allow" });
+  const both = await startedWith({ apps: {}, browser: {}, sites: { "EVIL.com": "deny", "evil.com": { never: false, actions: { visit: "allow" } } } });
+  assert.equal((await both.rules.sites())["evil.com"]?.never, true);
+});
+
+test("rules held in a database opened on its own are the same as through the server's start", async () => {
+  const dir = folder();
+  const db = await openData(locate({ AMUSE_DATA: dir }), () => {});
+  await sqliteRules(db).set("slack", "write", "ask");
+  db.close();
+  assert.deepEqual(await sqliteRules(openDatabase(join(dir, "amuse.db"))).of("slack"), { write: "ask" });
 });

@@ -1,0 +1,17 @@
+{
+  "name": "@amuse/db",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "node --test 'src/**/*.test.ts'"
+  },
+  "dependencies": {
+    "@amuse/core": "*",
+    "@amuse/protocol": "*",
+    "zod": "^4.6.7"
+  }
+}

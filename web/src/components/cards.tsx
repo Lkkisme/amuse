@@ -3,7 +3,6 @@
  * Props are protocol entities; behavior goes through Actions.
  */
 import {
-  CalendarClock,
   Check,
   ChevronRight,
   CircleAlert,
@@ -18,16 +17,25 @@ import type {
   Browser,
   Connection,
   Failure,
+  KeyProvider,
   Schedule,
+  SecretAnswer,
+  SecretAsk,
   SecretRequest,
+  Session,
   Task,
 } from "@amuse/protocol";
-import { repeats, scheduleState } from "../schedules.ts";
+import { cardSubtitle, cardSummary, standing } from "../schedules.ts";
 import type { Actions } from "../ui.ts";
 import { useT } from "../i18n/react.ts";
-import type { Messages } from "../i18n/en.ts";
+import { Button } from "./Button";
 import { type Place, alone, corners } from "./shape.ts";
+import { type Draft, type ProviderNames, blank, describeUse, toValue } from "../secrets.ts";
 import { AppLogo } from "./AppLogo";
+import { ApprovalText } from "./ApprovalText";
+import { ValueEditor } from "./SecretFields";
+import { KeyLine, KeyLogin, useKeyTests } from "./KeyLogin";
+import { useSession } from "../sessionContext.ts";
 import { useEffect, useState } from "react";
 import {
   bannerActive,
@@ -60,7 +68,7 @@ export function TaskCard({
   const meta = taskStatus(task.status, t);
   const done = task.steps.filter((s) => s.done).length;
   return (
-    <div {...shell(place, "w-full max-w-[340px] p-4")}>
+    <div {...shell(place, "w-full max-w-(--amuse-width) p-4")}>
       <div className="flex items-start gap-3">
         <span
           className="flex size-9 shrink-0 items-center justify-center rounded-[10px]"
@@ -169,7 +177,7 @@ export function ApprovalCard({
     timed_out: { label: t.cards.timedOut, color: "var(--icon-secondary)", Icon: CircleAlert },
   };
   return (
-    <div {...shell(place, "w-full max-w-[340px] p-4")}>
+    <div {...shell(place, "w-full max-w-(--amuse-width) p-4")}>
       <div className="flex items-start gap-3">
         {/* an app's action shows the app, as its Connect card does */}
         {approval.app ? (
@@ -204,49 +212,38 @@ export function ApprovalCard({
           </p>
         </div>
       </div>
-      {/* one "Field: value" a line; a long one scrolls inside the card */}
-      <p
-        className="mt-2.5 max-h-48 overflow-y-auto whitespace-pre-line text-[13px] leading-snug [overflow-wrap:anywhere]"
-        style={{ color: "var(--text-secondary)" }}
-      >
-        {approval.detail}
-      </p>
+      <ApprovalText detail={approval.detail} />
       {approval.status === "pending" ? (
         <>
           {/* three answers: this once, always (only where a rule can hold it: app actions), or no */}
           {/* one under another: three side by side were cramped on a phone */}
           <div className="mt-3 flex flex-col gap-2">
-            <button
-              className="h-10 w-full rounded-full text-[15px] font-semibold text-white"
-              style={{ background: "var(--fill-blue)" }}
+            <Button
+              variant="primary"
+              className="w-full"
               onClick={() => actions.resolveApproval(approval.id, "allow_once")}
             >
-              {t.cards.allowOnce}
-            </button>
+              {approval.lasting ? t.cards.allow : t.cards.allowOnce}
+            </Button>
             {approval.remember && (
-              <button
-                className="h-10 w-full rounded-full text-[15px] font-semibold"
-                style={{
-                  background: "var(--fill-card-button)",
-                  color: "var(--fill-blue)",
-                }}
+              <Button
+                tone="accent"
+                onCard
+                className="w-full"
                 onClick={() =>
                   actions.resolveApproval(approval.id, "allow_always")
                 }
               >
                 {t.cards.alwaysAllow}
-              </button>
+              </Button>
             )}
-            <button
-              className="h-10 w-full rounded-full text-[15px] font-semibold"
-              style={{
-                background: "var(--fill-card-button)",
-                color: "var(--text-primary)",
-              }}
+            <Button
+              onCard
+              className="w-full"
               onClick={() => actions.resolveApproval(approval.id, "deny")}
             >
               {t.cards.deny}
-            </button>
+            </Button>
           </div>
         </>
       ) : (
@@ -298,7 +295,7 @@ export function ConnectionCard({
     dismissed: t.cards.notNow,
   }[connection.status];
   return (
-    <div {...shell(place, "w-full max-w-[260px] p-2.5", 18)}>
+    <div {...shell(place, "w-full max-w-(--amuse-width) p-2.5", 18)}>
       <div className="flex items-center gap-2.5 px-0.5 pt-0.5">
         <AppLogo
           name={connection.title}
@@ -317,37 +314,41 @@ export function ConnectionCard({
           </p>
         </div>
       </div>
-      <button
-        disabled={connection.status !== "pending"}
-        className="mt-2.5 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-full text-[14px] font-medium"
-        style={{
-          background: "var(--fill-card-button)",
-          color:
-            connection.status === "connected"
-              ? "var(--fill-green)"
-              : "var(--text-primary)",
-        }}
-        onClick={() => actions.openExplainer(connection.id)}
-      >
-        {connection.status === "connected" && <Check size={15} />}
-        {label}
-      </button>
+      {connection.status === "pending" ? (
+        <Button
+          onCard
+          className="mt-2.5 w-full"
+          onClick={() => actions.openExplainer(connection.id)}
+        >
+          {label}
+        </Button>
+      ) : (
+        <p
+          className="mt-2.5 inline-flex items-center gap-1.5 text-[14px] font-medium"
+          style={{
+            color:
+              connection.status === "connected"
+                ? "var(--fill-green)"
+                : "var(--text-secondary)",
+          }}
+        >
+          {connection.status === "connected" && <Check size={15} />}
+          {label}
+        </p>
+      )}
     </div>
   );
 }
 
 /* ---------- Credential ---------- */
 
-/** Where a credential goes, as the user reads it. */
-function destination(deliver: SecretRequest["deliver"], t: Messages): string {
-  if (deliver.kind === "env") return t.cards.destinationEnv(deliver.name);
-  if (deliver.kind === "file") return t.cards.destinationFile(deliver.path.replace(/^~?\/?/, ""));
-  return t.cards.destinationPane(deliver.pane);
-}
+/** What a card for a secret can have said of a use of the server's, which it does not know the provider's name for. */
+const NO_NAMES: ProviderNames = new Map();
 
 /**
- * Amuse asking for a credential its computer needs: typed here, it goes to
- * the sandbox through the server, never into the chat or Amuse's context.
+ * Amuse asking for a secret: a code a program waits for (typed here, it goes into that terminal and is kept nowhere),
+ * or a long-term one (kept in the Vault, with the uses the card says; filling it in is the user's word for
+ * them). Either way it goes through the server, never into the chat or Amuse's context.
  */
 export function SecretCard({
   secret,
@@ -359,22 +360,20 @@ export function SecretCard({
   actions: Actions;
 }) {
   const t = useT();
-  const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const answer = (given: string | null) => {
+  /** `cleared`: what to forget of what was typed, once it is given */
+  const answer = (given: SecretAnswer | null, cleared: () => void) => {
     setBusy(true);
     setError(null);
     actions
       .answerSecret(secret.id, given)
-      .then(
-        () => setValue(""),
-        (e: unknown) => setError(e instanceof Error ? e.message : String(e)),
-      )
+      .then(cleared, (e: unknown) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setBusy(false));
   };
+  const { deliver } = secret;
   return (
-    <div {...shell(place, "w-full max-w-[320px] p-3", 18)}>
+    <div {...shell(place, "w-full max-w-(--amuse-width) p-3", 18)}>
       <div className="flex items-center gap-2.5">
         <span
           className="flex size-10 shrink-0 items-center justify-center rounded-[12px]"
@@ -396,7 +395,11 @@ export function SecretCard({
             className="truncate text-[12px]"
             style={{ color: "var(--text-secondary)" }}
           >
-            {destination(secret.deliver, t)}
+            {deliver.kind === "temporary"
+              ? t.cards.destinationPane(deliver.pane)
+              : deliver.kind === "key"
+                ? t.cards.keySub
+                : t.cards.storedSub}
           </p>
         </div>
       </div>
@@ -408,73 +411,284 @@ export function SecretCard({
           {secret.why}
         </p>
       )}
-      {secret.status === "pending" ? (
-        <>
-          <input
-            type="password"
-            autoComplete="off"
-            aria-label={secret.name}
-            placeholder={t.cards.secretPlaceholder}
-            className="mt-2.5 h-10 w-full rounded-[12px] px-3 text-[14px] outline-none"
-            style={{ background: "var(--field)", color: "var(--text-primary)" }}
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) =>
-              e.key === "Enter" && value && !busy && answer(value)
-            }
-          />
-          <p
-            className="mt-1.5 text-[12px]"
-            style={{ color: "var(--text-tertiary)" }}
-          >
-            {t.cards.secretNote}
-          </p>
-          {error && (
-            <p
-              role="alert"
-              className="mt-1.5 text-[12px]"
-              style={{ color: "var(--fill-red)" }}
-            >
-              {error}
-            </p>
-          )}
-          <div className="mt-2.5 flex gap-2">
-            <button
-              disabled={busy}
-              className="h-9 flex-1 rounded-full text-[14px] font-medium disabled:opacity-50"
-              style={{
-                background: "var(--fill-card-button)",
-                color: "var(--text-primary)",
-              }}
-              onClick={() => answer(null)}
-            >
-              {t.cards.decline}
-            </button>
-            <button
-              disabled={busy || !value}
-              className="h-9 flex-1 rounded-full text-[14px] font-semibold text-white disabled:opacity-40"
-              style={{ background: "var(--fill-blue)" }}
-              onClick={() => answer(value)}
-            >
-              {t.cards.provide}
-            </button>
-          </div>
-        </>
+      {deliver.kind === "key" ? (
+        <KeyForm
+          provider={deliver.provider}
+          hint={deliver.hint}
+          status={secret.status}
+          busy={busy}
+          error={error}
+          onNotNow={() => answer(null, () => undefined)}
+        />
+      ) : secret.status === "pending" ? (
+        deliver.kind === "temporary" ? (
+          <OneTimeForm label={secret.name} busy={busy} error={error} answer={answer} />
+        ) : (
+          <StoredForm ask={deliver} busy={busy} error={error} answer={answer} />
+        )
       ) : (
-        <p
-          className="mt-2.5 inline-flex items-center gap-1.5 text-[14px] font-medium"
-          style={{
-            color:
-              secret.status === "provided"
-                ? "var(--fill-green)"
-                : "var(--text-secondary)",
-          }}
-        >
-          {secret.status === "provided" && <Check size={15} />}
-          {secret.status === "provided" ? t.cards.provided : t.cards.declined}
-        </p>
+        <SecretOutcome status={secret.status} added={deliver.kind === "stored" ? t.cards.savedToVault : t.cards.provided} notAdded={t.cards.declined} />
       )}
     </div>
+  );
+}
+
+/**
+ * Amuse asking for the key of a service of the server's: the sign-in sheet is Settings' own. The server settles the
+ * card as soon as the key is there, whoever added it, so this only offers the sheet, tries the key it adds, and says
+ * how it stands.
+ */
+function KeyForm(props: KeyFormProps) {
+  const session = useSession();
+  return session ? <KeyFormOn session={session} {...props} /> : null;
+}
+
+interface KeyFormProps {
+  provider: string;
+  hint: string | null;
+  status: SecretRequest["status"];
+  busy: boolean;
+  error: string | null;
+  onNotNow: () => void;
+}
+
+function KeyFormOn({
+  session,
+  provider,
+  hint,
+  status,
+  busy,
+  error,
+  onNotNow,
+}: KeyFormProps & { session: Session }) {
+  const t = useT();
+  const [setting, setSetting] = useState<KeyProvider | null>(null);
+  const [said, setSaid] = useState<string | null>(null);
+  const { tests, test } = useKeyTests(session);
+  const open = () => {
+    setSaid(null);
+    void session.call("keys.list", {}).then(
+      ({ providers }) => {
+        const found = providers.find((p) => p.id === provider);
+        if (found) setSetting(found);
+        else setSaid(t.cards.keyUnknown);
+      },
+      (e: unknown) => setSaid(e instanceof Error ? e.message : String(e)),
+    );
+  };
+  const tried = tests[provider];
+  return (
+    <>
+      {status !== "declined" && (hint || tried !== undefined) && (
+        <div className="mt-2">
+          <KeyLine hint={hint} test={tried} />
+        </div>
+      )}
+      {(error ?? said) && (
+        <p role="alert" className="mt-1.5 text-[12px]" style={{ color: "var(--fill-red)" }}>
+          {error ?? said}
+        </p>
+      )}
+      {status === "pending" ? (
+        <div className="mt-2.5 flex gap-2">
+          <Button onCard className="flex-1" disabled={busy} onClick={onNotNow}>
+            {t.cards.notNow}
+          </Button>
+          <Button variant="primary" className="flex-1" disabled={busy} onClick={open}>
+            {t.cards.addKey}
+          </Button>
+        </div>
+      ) : (
+        <SecretOutcome status={status} added={t.cards.keyAdded} notAdded={t.cards.keyNotAdded} />
+      )}
+      <KeyLogin
+        session={session}
+        provider={setting}
+        onClose={(done) => {
+          // a key just set up is tried at once, as in Settings
+          if (done && setting) test(setting.id);
+          setSetting(null);
+        }}
+      />
+    </>
+  );
+}
+
+/** How a card for a secret ended. */
+function SecretOutcome({ status, added, notAdded }: { status: SecretRequest["status"]; added: string; notAdded: string }) {
+  return (
+    <p
+      className="mt-2.5 inline-flex items-center gap-1.5 text-[14px] font-medium"
+      style={{ color: status === "provided" ? "var(--fill-green)" : "var(--text-secondary)" }}
+    >
+      {status === "provided" && <Check size={15} />}
+      {status === "provided" ? added : notAdded}
+    </p>
+  );
+}
+
+/** What a form on a secret's card hands the card to send: the answer (null: declined), and what to forget once it is sent. */
+type Answer = (given: SecretAnswer | null, cleared: () => void) => void;
+
+/** The error, if any, and Decline / Provide (Provide once there is something to provide). */
+function AnswerButtons({
+  busy,
+  error,
+  ready,
+  provide,
+  onDecline,
+  onProvide,
+}: {
+  busy: boolean;
+  error: string | null;
+  ready: boolean;
+  /** what the button that gives it says */
+  provide: string;
+  onDecline: () => void;
+  onProvide: () => void;
+}) {
+  const t = useT();
+  return (
+    <>
+      {error && (
+        <p
+          role="alert"
+          className="mt-1.5 text-[12px]"
+          style={{ color: "var(--fill-red)" }}
+        >
+          {error}
+        </p>
+      )}
+      <div className="mt-2.5 flex gap-2">
+        <Button onCard className="flex-1" disabled={busy} onClick={onDecline}>
+          {t.cards.decline}
+        </Button>
+        <Button variant="primary" className="flex-1" disabled={busy || !ready} onClick={onProvide}>
+          {provide}
+        </Button>
+      </div>
+    </>
+  );
+}
+
+/** A code for a program that waits for it: one line, used once. */
+function OneTimeForm({
+  label,
+  busy,
+  error,
+  answer,
+}: {
+  label: string;
+  busy: boolean;
+  error: string | null;
+  answer: Answer;
+}) {
+  const t = useT();
+  const [value, setValue] = useState("");
+  const provide = () => answer({ kind: "temporary", value }, () => setValue(""));
+  return (
+    <>
+      <input
+        type="password"
+        autoComplete="off"
+        aria-label={label}
+        placeholder={t.cards.secretPlaceholder}
+        className="mt-2.5 h-10 w-full rounded-[12px] px-3 text-[14px] outline-none"
+        style={{ background: "var(--field)", color: "var(--text-primary)" }}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && value && !busy && provide()}
+      />
+      <p
+        className="mt-1.5 text-[12px]"
+        style={{ color: "var(--text-tertiary)" }}
+      >
+        {t.cards.oneTime}
+      </p>
+      <AnswerButtons
+        busy={busy}
+        error={error}
+        ready={value !== ""}
+        provide={t.cards.provide}
+        onDecline={() => answer(null, () => setValue(""))}
+        onProvide={provide}
+      />
+    </>
+  );
+}
+
+/**
+ * A long-term secret: the plain fields Amuse filled in (read-only, said to be visible to it), an input for each secret field the user types
+ * (everything typed on a card is secret), Amuse's note, and what it sets up.
+ */
+function StoredForm({
+  ask,
+  busy,
+  error,
+  answer,
+}: {
+  ask: Extract<SecretAsk, { kind: "stored" }>;
+  busy: boolean;
+  error: string | null;
+  answer: Answer;
+}) {
+  const t = useT();
+  const [secret, setSecret] = useState<Draft[]>(() => ask.secret.map((f) => blank(f.kind)));
+  /** the values given, in order; as many as there are fields only when every one is filled in */
+  const secretValues = ask.secret.flatMap((field, i) => {
+    const draft = secret[i];
+    const value = draft ? toValue(draft, field.name) : null;
+    return value ? [{ name: field.name, value }] : [];
+  });
+  const ready = secretValues.length === ask.secret.length;
+  const change = (i: number, draft: Draft) => setSecret((drafts) => drafts.map((d, j) => (j === i ? draft : d)));
+  const forget = () => setSecret(ask.secret.map((f) => blank(f.kind)));
+  return (
+    <>
+      {ask.plain.length > 0 && (
+        <div className="mt-2.5">
+          <p className="mb-1 text-[12px]" style={{ color: "var(--text-tertiary)" }}>
+            {t.cards.plainNote}
+          </p>
+          {ask.plain.map((f) => (
+            <p key={f.name} className="text-[13px] [overflow-wrap:anywhere]" style={{ color: "var(--text-primary)" }}>
+              <span style={{ color: "var(--text-secondary)" }}>{f.name}: </span>
+              {f.value.kind === "text" ? f.value.text : f.value.filename}
+            </p>
+          ))}
+        </div>
+      )}
+      {ask.secret.map((f, i) => (
+        <div key={f.name} className="mt-2.5">
+          <p className="mb-1 text-[12px] font-medium" style={{ color: "var(--text-secondary)" }}>
+            {f.name}
+          </p>
+          {secret[i] && <ValueEditor draft={secret[i]} onChange={(draft) => change(i, draft)} secret fallbackName={f.name} look="card" label={f.name} />}
+        </div>
+      ))}
+      {ask.note && (
+        <p className="mt-2.5 text-[13px] [overflow-wrap:anywhere]" style={{ color: "var(--text-secondary)" }}>
+          <span className="font-medium">{t.cards.noteLabel}: </span>
+          {ask.note}
+        </p>
+      )}
+      {ask.uses.length > 0 && (
+        <p className="mt-2 text-[13px] [overflow-wrap:anywhere]" style={{ color: "var(--text-secondary)" }}>
+          {t.cards.setsUp(ask.uses.map((use) => describeUse(use, NO_NAMES, t)).join(", "))}
+        </p>
+      )}
+      <p className="mt-1.5 text-[12px]" style={{ color: "var(--text-tertiary)" }}>
+        {t.cards.storedNote}
+      </p>
+      <AnswerButtons
+        busy={busy}
+        error={error}
+        ready={ready}
+        provide={t.cards.saveToVault}
+        onDecline={() => answer(null, forget)}
+        onProvide={() => answer({ kind: "stored", secret: secretValues }, forget)}
+      />
+    </>
   );
 }
 
@@ -492,7 +706,7 @@ export function FailureCard({
 }) {
   const t = useT();
   return (
-    <div {...shell(place, "w-full max-w-[340px] px-4 py-3", 18)} role="status">
+    <div {...shell(place, "w-full max-w-(--amuse-width) px-4 py-3", 18)} role="status">
       <div className="flex items-start gap-2.5">
         <CircleAlert
           size={18}
@@ -529,16 +743,13 @@ export function FailureCard({
         </div>
       </div>
       {failure.status === "open" ? (
-        <button
-          className="hover-fade mt-2.5 h-8 w-full rounded-full text-[14px] font-medium"
-          style={{
-            background: "var(--fill-card-button)",
-            color: "var(--text-primary)",
-          }}
+        <Button
+          onCard
+          className="mt-2.5 w-full"
           onClick={() => actions.retry(failure.id)}
         >
           {t.cards.tryAgain}
-        </button>
+        </Button>
       ) : (
         <p
           className="mt-2 text-[12px]"
@@ -553,7 +764,24 @@ export function FailureCard({
 
 /* ---------- Schedule ---------- */
 
-/** Work the agent set up for later: what, when, and what is next; managed in Settings › Schedules. */
+/** A light calendar tile (a header band and a grid of days) with a small amber clock badge, light in both themes like an app's icon; grey once the schedule is over. */
+function ScheduleIcon({ over }: { over: boolean }) {
+  const days = [0, 1, 2].flatMap((row) => [0, 1, 2].map((col) => ({ x: 11 + col * 7, y: 17 + row * 6 })));
+  const badge = over ? "#9aa0a6" : "#f5b301";
+  return (
+    <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden className="shrink-0">
+      <rect x="2" y="2" width="32" height="32" rx="9" fill="#fff" stroke="#d9dce1" />
+      <path d="M2 11a9 9 0 0 1 9-9h14a9 9 0 0 1 9 9v2H2z" fill="#eceef1" />
+      {days.map((d) => (
+        <circle key={`${d.x}-${d.y}`} cx={d.x} cy={d.y} r="1.7" fill="#8b919a" />
+      ))}
+      <circle cx="31" cy="31" r="8" fill={badge} stroke="#fff" strokeWidth="2" />
+      <path d="M31 26.5V31l3 1.8" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Work the agent set up for later: one card for it, kept up to date as it is paused, resumed, done or cancelled; managed in Settings › Schedules. */
 export function ScheduleCard({
   schedule,
   place = alone,
@@ -564,48 +792,42 @@ export function ScheduleCard({
   actions: Actions;
 }) {
   const t = useT();
-  const over = schedule.status === "done" || schedule.status === "cancelled";
+  const over = !standing(schedule);
   return (
-    <button
-      {...shell(
-        place,
-        "flex w-full max-w-[320px] items-center gap-3 p-3 text-left",
-        18,
-      )}
-      aria-label={t.cards.scheduleLabel(schedule.title)}
-      onClick={() => actions.openSettings("schedules")}
-    >
-      <span
-        className="flex size-10 shrink-0 items-center justify-center rounded-xl"
-        style={{
-          background: "var(--fill-card-button)",
-          color: over ? "var(--icon-secondary)" : "var(--fill-blue)",
-        }}
+    <div {...shell(place, "w-full max-w-(--amuse-width) p-4")}>
+      <div className="flex items-start gap-3">
+        <ScheduleIcon over={over} />
+        <div className="min-w-0 flex-1">
+          <p
+            className="truncate text-[15px] font-semibold"
+            style={{ color: "var(--text-primary)" }}
+          >
+            {schedule.title}
+          </p>
+          <p
+            className="text-[13px]"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            {cardSubtitle(schedule)}
+          </p>
+        </div>
+      </div>
+      <p
+        className="mt-3 line-clamp-3 text-[14px] leading-[20px]"
+        style={{ color: "var(--text-primary)" }}
       >
-        <CalendarClock size={20} />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span
-          className="block truncate text-[14px] font-semibold"
-          style={{ color: "var(--text-primary)" }}
+        {cardSummary(schedule)}
+      </p>
+      {!over && (
+        <Button
+          onCard
+          className="mt-3 w-full"
+          onClick={() => actions.openSettings("schedules")}
         >
-          {schedule.title}
-        </span>
-        <span
-          className="block truncate text-[12px]"
-          style={{ color: "var(--text-secondary)" }}
-        >
-          {repeats(schedule.when)}
-        </span>
-        <span
-          className="block truncate text-[12px]"
-          style={{ color: "var(--text-secondary)" }}
-        >
-          {scheduleState(schedule)}
-        </span>
-      </span>
-      <ChevronRight size={16} style={{ color: "var(--icon-secondary)" }} />
-    </button>
+          {t.cards.viewScheduledTask}
+        </Button>
+      )}
+    </div>
   );
 }
 
@@ -699,7 +921,7 @@ function EndedBrowserCard({
 }) {
   const t = useT();
   return (
-    <div {...shell(place, "flex w-full max-w-[314px] items-center gap-3 p-4")}>
+    <div {...shell(place, "flex w-full max-w-(--amuse-width) items-center gap-3 p-4")}>
       <span
         className="flex size-10 shrink-0 items-center justify-center rounded-[12px]"
         style={{
@@ -748,7 +970,7 @@ export function BrowserCard({
   if (!browser.live)
     return <EndedBrowserCard browser={browser} place={place} />;
   return (
-    <div {...shell(place, "w-full max-w-[314px] p-4")}>
+    <div {...shell(place, "w-full max-w-(--amuse-width) p-4")}>
       <div className="flex items-center gap-3">
         <span
           className="flex size-10 shrink-0 items-center justify-center rounded-[12px]"
@@ -795,16 +1017,9 @@ export function BrowserCard({
         )}
       </button>
 
-      <button
-        className="mt-3 h-9 w-full rounded-full text-[14px] font-medium"
-        style={{
-          background: "var(--fill-card-button)",
-          color: "var(--text-primary)",
-        }}
-        onClick={open}
-      >
+      <Button onCard className="mt-3 w-full" onClick={open}>
         {t.cards.openBrowser}
-      </button>
+      </Button>
     </div>
   );
 }

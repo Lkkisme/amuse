@@ -10,6 +10,7 @@
  * over the chat instead; on a phone, a page of its own.
  */
 import { useEffect, useRef, useState } from "react";
+import { Button } from "./Button";
 import { usePresence } from "./usePresence";
 import { CalendarClock, CircleCheck, Clock, Globe, KeyRound, List, ListTodo, Plug, ShieldCheck, X } from "lucide-react";
 import type { Approval, Chat, Entity, Schedule, Session, State } from "@amuse/protocol";
@@ -364,9 +365,14 @@ function Approvals({ session, conversation, actions }: { session: Session; conve
           ))}
         </ul>
       )}
-      <button className="hover-fade mt-5 text-[14px] font-medium" style={{ color: "var(--fill-blue)" }} onClick={() => actions.openSettings("permissions")}>
+      <Button
+        variant="plain"
+        tone="accent"
+        className="-ml-4 mt-5"
+        onClick={() => actions.openSettings("permissions")}
+      >
         {t.panel.managePermissions}
-      </button>
+      </Button>
     </div>
   );
 }

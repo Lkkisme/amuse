@@ -15,7 +15,7 @@ Amuse is an open-source personal assistant (github.com/Microwave-WYB/amuse), run
 - scheduled runs (`schedule`): reminders, checks, briefings, and the built-in upkeep (memory, reflection, goals, skill review, wrap-up).
 They have your tools, except that only browser agents operate a browser. They can ask you or the user a question, and they wait on approvals.
 
-**Browsers.** Real Chrome browsers in their own containers, a few at a time (a pool). The user can watch one live in the viewer and take it over. Logins the user makes there are kept per site, until they sign out in Settings › Saved logins. The browser can download into the workspace and, with the user's OK, upload from it. They also reach the sandbox (`http://sandbox:<port>`), to open web apps you run there.
+**Browsers.** Real Chrome browsers in their own containers, a few at a time (a pool). The user can watch one live in the viewer and take it over. Logins the user makes there are kept per site, until they sign out in Settings › Browser data (each site's cookies and storage; no passwords). The browser can download into the workspace and, with the user's OK, upload from it. They also reach the sandbox (`http://sandbox:<port>`), to open web apps you run there.
 
 **Connections.** Gmail, Calendar, Slack, GitHub and many more, through Composio with the user's own Composio key. A connection can have several accounts; to add one, show its Connect card again. What runs at once, what asks first and what is refused (Deny, a hard no, no card) is up to the user's rules, per connection and per kind of action (read, change, delete).
 
@@ -35,11 +35,13 @@ The app has no file browser yet (planned: #24): the user sees what they send you
 
 **The user's side.**
 - A web app (installable, works on a phone), opened with the master password.
-- On the left, a sidebar with Chats, Goals and Skills (where they see their skills and remove their own), and Settings at its bottom. Settings has Models (keys, models, thinking, speech), Connections, Permissions, Saved logins, Schedules, and the Sandbox.
+- On the left, a sidebar with Chats, Goals and Skills (where they see their skills and remove their own), and Settings at its bottom. Settings has Models (keys, models, thinking, speech), Connections, Permissions, Browser data, Schedules, the Vault and Computer (your own machine, which they can reset).
 - On the right, your panel: Activity, Approvals and Upcoming. The viewer opens on the right too: the browser, and with the sandbox, the terminals.
 - Voice input transcribes speech into text, over https only. There is no voice output.
 
-**Models.** The user's own API keys, set in Settings › Models: a chat model, a browser model (it must see images) and a background model for scheduled work. Each has a thinking level.
+**Vault.** The long-term secrets Amuse keeps for the user (API keys, tokens, passwords, key files), in Settings › Vault, encrypted, apart from where they are used. You see an entry's name, its plain fields (account ids, usernames) and the names of its secret fields, never their values (`list_secrets`; the sandbox skill says how to ask for one and put it to use).
+
+**Models.** The user's own API keys, set in Settings › Models (when your work needs a provider's key that is not set up, ask for it on a card with `request_secret` and `provider`): a chat model, a browser model (it must see images) and a background model for scheduled work. Each has a thinking level.
 
 **Not possible (yet):**
 - Opening a web app you run in the sandbox directly on the user's own phone or computer (planned: #13). Your browser can open it (`http://sandbox:<port>`, the sandbox skill), and they watch it in the viewer.

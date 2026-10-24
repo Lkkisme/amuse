@@ -20,6 +20,7 @@ import {
   verdict,
 } from "@amuse/core";
 import type { Account, App, Entity } from "@amuse/protocol";
+import { memorySecrets } from "./secrets.ts";
 
 const demoApp = (id: string, name: string, description: string): App => ({
   id,
@@ -76,6 +77,13 @@ function demoApps(rules: Rules): AppDirectory {
         since: new Date().toISOString(),
       });
       return "https://example.com/";
+    },
+    // every demo app is connected with a click: there is no key to bring
+    access: async () => ({ kind: "managed" }),
+    // and every one of them can be: nothing here needs credentials of its own
+    cannotConnect: async () => null,
+    connectKey: async () => {
+      throw new Error("The demo's apps need no key");
     },
     async disconnect(account) {
       accounts.delete(account);
@@ -147,6 +155,7 @@ export function demoPorts<H>(timers: Timers<H>): Ports {
     keys: noKeys, // nor keys: its agent is scripted
     logins: noLogins, // nor real browsers
     sandbox: noSandbox, // nor a machine of its own
+    secrets: memorySecrets(),
     // a side chat is named after its first few words
     title: async (text) => text.split(/\s+/).slice(0, 4).join(" "),
     prompt: (turn, { emit, act, time }) => {
@@ -300,6 +309,7 @@ export function seed(): Entity[] {
       text: "Check the school-trip email and research exhibits at the aquarium",
       timezone: zone(),
       attachments: [],
+      quote: null,
     },
     {
       kind: "reply",
@@ -331,6 +341,7 @@ export function seed(): Entity[] {
       text: "Book the table for Friday",
       timezone: zone(),
       attachments: [],
+      quote: null,
     },
     {
       kind: "approval",
@@ -345,6 +356,7 @@ export function seed(): Entity[] {
       app: "gmail",
       always: false,
       byRule: false,
+      lasting: false,
     },
     {
       kind: "browser",
@@ -367,6 +379,7 @@ export function seed(): Entity[] {
       text: "Also check the tide schedule, and log in to the trip portal for me",
       timezone: zone(),
       attachments: [],
+      quote: null,
     },
     {
       kind: "browser",

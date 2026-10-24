@@ -3,9 +3,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CodemodeSandbox } from "@earendil-works/pi-codemode";
-import { type AgentIO, type Host } from "@amuse/core";
-import { agentTools, agentBrief, helperTools, holding, type RunHandle, type AgentToolsConfig } from "@amuse/pi";
+import { type AgentIO, type Host, withJobs } from "@amuse/core";
+import { agentTools, agentBrief, agentJobBook, helperTools, holding, type RunHandle, type AgentToolsConfig } from "@amuse/pi";
 import { Call } from "@amuse/protocol";
+import type { BrowserLook } from "@amuse/pi";
 import { z } from "zod";
 import type { SharedMcpTool } from "./browser-mcp.ts";
 
@@ -31,19 +32,34 @@ export function sharedAmuseTools(options: {
   config: AgentToolsConfig;
   directory: string;
   browserTools?(scope: string): SharedMcpTool[];
+  /** Scoped observation/image methods retain the native browser's control checks. */
+  browserLook?(scope: string): BrowserLook;
 }) {
   // The same chat's scripts have one store and commit in order. Different chats
   // cannot see one another's store through load(), including background actors.
   const lanes = new Map<string, Promise<unknown>>();
-  const brief = () => agentBrief(options.config);
+  const jobs = agentJobBook(options.config);
+  const brief = async (io?: AgentIO) => [
+    await agentBrief(options.config),
+    ...(io ? [withJobs(io.running(), jobs?.running(io.chat) ?? [], io.time().now)] : []),
+  ].filter(Boolean).join("\n\n");
   const toolsFor = (scope: string): SharedMcpTool[] => {
     const context = options.context(scope);
+    const connectedBrowser = options.browserLook?.(scope) ?? options.config.browsers;
+    const ownedBrowser = (id: string) => {
+      if (!options.host().external.state(context.io.chat).entities.some((entity) => entity.kind === "browser" && entity.id === id))
+        throw new Error("This browser does not belong to this chat.");
+    };
+    const scopedConfig: AgentToolsConfig = { ...options.config, ...(connectedBrowser ? { browsers: {
+      look: async (id: string) => { ownedBrowser(id); return connectedBrowser.look(id); },
+      screenshot: async (id: string, ref?: string) => { ownedBrowser(id); return connectedBrowser.screenshot(id, ref); },
+    } } : {}) };
     const definitions = (signal?: AbortSignal) => {
-      if (!context.run) return agentTools(options.config, () => options.context(scope).io, { heard: () => options.context(scope).unanswered(), quiet: () => options.context(scope).quiet() });
+      if (!context.run) return agentTools(scopedConfig, () => options.context(scope).io, { heard: () => options.context(scope).unanswered(), quiet: () => options.context(scope).quiet() });
       const stop = signal ? AbortSignal.any([context.run.stop, signal]) : context.run.stop;
       const io: AgentIO = { ...checked(context.io, stop), decision: (id) => untilAbort(context.io.decision(id), stop), answer: (id) => untilAbort(context.io.answer(id), stop) };
       const run = { ...context.run, io, stop };
-      const config = { ...options.config, ...(options.config.apps ? { apps: checked(options.config.apps, stop) } : {}), ...(options.config.files ? { files: checked(options.config.files, stop) } : {}) };
+      const config = { ...scopedConfig, ...(options.config.apps ? { apps: checked(options.config.apps, stop) } : {}), ...(options.config.files ? { files: checked(options.config.files, stop) } : {}) };
       return [
         ...helperTools({ ...config, system: "", model: () => null, auth: { kind: "environment" } }, run, holding(run)),
         ...agentTools(config, () => io, { heard: () => false, quiet: () => context.quiet() }).filter((tool) => tool.name === "no_reply"),
@@ -74,7 +90,7 @@ export function sharedAmuseTools(options: {
       },
     });
     toolset.push(
-      { name: "amuse_context", description: "Read current Amuse memory, goals, skill catalog, and the user's time before planning work. This does not restart or replace the current Codex conversation.", parameters: json({}), async execute() { return text(`${JSON.stringify(context.io.time())}\n${await brief()}`); } },
+      { name: "amuse_context", description: "Read current Amuse memory, goals, skill catalog, live browser/task/job state, and the user's time before planning work. This does not restart or replace the current Codex conversation.", parameters: json({}), async execute() { return text(`${JSON.stringify(context.io.time())}\n${await brief(context.io)}`); } },
       rpc("goals_list", "List the user's existing Amuse goals and their current status.", "goals.list", json({})),
       rpc("goals_get", "Read one Amuse goal, including its full description and log.", "goals.get", json({ id: string }, ["id"])),
       rpc("goals_add", "Create a goal only when the user explicitly asks to keep a goal; preserve their actual objective.", "goals.add", json({ title: { type: "string", maxLength: 200 }, about: { type: "string", maxLength: 4000 } }, ["title", "about"])),
@@ -118,5 +134,5 @@ export function sharedAmuseTools(options: {
     });
     return toolset;
   };
-  return { brief, tools: toolsFor };
+  return { brief, tools: toolsFor, stopChat: (chat: string) => jobs?.stopChat(chat) };
 }

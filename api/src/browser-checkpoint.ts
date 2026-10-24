@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { apply, Browser, Chat, empty, Envelope, MAIN, type State } from "@amuse/protocol";
 import { z } from "zod";
+import { openReadOnly } from "@amuse/db";
+import { eventsOf } from "./journal.ts";
 
 const safeId = /^[A-Za-z0-9-]{1,80}$/;
 export const BrowserCheckpoint = z.object({
@@ -32,14 +34,32 @@ export function readBrowserJournal(path: string): State {
 export function snapshotBrowsers(options: { journalPath: string; directory: string; ownerPid?: number; now?: Date }): BrowserCheckpoint {
   const journalPath = resolve(options.journalPath);
   const data = dirname(journalPath);
-  const list = join(data, "chats.json");
-  const chats = existsSync(list) ? z.array(Chat).parse(JSON.parse(readFileSync(list, "utf8"))) : [];
-  const ids = [...new Set([MAIN, ...chats.map((chat) => chat.id)])];
   const browsers: BrowserCheckpoint["browsers"] = [];
-  for (const chat of ids) {
+  const keep = (chat: string, state: State) => {
     if (!safeId.test(chat)) throw new Error(`Invalid checkpoint chat id: ${chat}`);
-    const state = readBrowserJournal(chat === MAIN ? journalPath : join(data, "chats", `${chat}.jsonl`));
     for (const browser of state.entities) if (browser.kind === "browser" && browser.live && ["paused", "idle"].includes(browser.status)) browsers.push({ chat, seq: state.seq, browser });
+  };
+  const database = join(data, "amuse.db");
+  if (existsSync(database)) {
+    // Never open a candidate checkout or run migration here. The database beside
+    // this exact journal is authoritative; a damaged DB must not revive stale JSONL.
+    // openReadOnly sees a running server's committed WAL and leaves an idle DB immutable.
+    const db = openReadOnly(database);
+    try {
+      db.exec("begin");
+      const chats = z.array(Chat).parse(db.prepare("select id, title, at, updated from chats order by at, id").all());
+      for (const chat of new Set([MAIN, ...chats.map((chat) => chat.id)])) {
+        let state: State = structuredClone(empty);
+        for (const envelope of eventsOf(db, chat)) state = apply(state, envelope);
+        keep(chat, state);
+      }
+      db.exec("commit");
+    } finally { db.close(); }
+  } else {
+    const list = join(data, "chats.json");
+    const chats = existsSync(list) ? z.array(Chat).parse(JSON.parse(readFileSync(list, "utf8"))) : [];
+    for (const chat of new Set([MAIN, ...chats.map((chat) => chat.id)]))
+      keep(chat, readBrowserJournal(chat === MAIN ? journalPath : join(data, "chats", `${chat}.jsonl`)));
   }
   const checkpoint = BrowserCheckpoint.parse({ version: 1, source: "owner-stop", id: randomUUID(), createdAt: (options.now ?? new Date()).toISOString(), journalPath, ownerPid: options.ownerPid ?? null, browsers });
   mkdirSync(options.directory, { recursive: true });

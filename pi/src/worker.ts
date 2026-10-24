@@ -12,7 +12,8 @@ import type { AgentIO } from "@amuse/core";
 import type { PiConfig } from "./agent.ts";
 import { workspaceTools } from "./attachments.ts";
 import { redact } from "./redact.ts";
-import { sandboxTools, secretTools } from "./sandbox.ts";
+import { sandboxTools } from "./sandbox.ts";
+import { secretTools } from "./secrets.ts";
 import { type Hold, type RunHandle, askTool, inbox } from "./runs.ts";
 import { type PiSession, openSession, secretsOf } from "./session.ts";
 import { appTools, chatTools, tools } from "./tools.ts";
@@ -52,14 +53,18 @@ export function helperTools(cfg: PiConfig, run: RunHandle, hold: Hold): ToolDefi
     ...(cfg.apps ? appTools(io, cfg.apps, hold) : []),
     ...(cfg.files ? workspaceTools(io, cfg.files, { send: false }) : []),
     ...(cfg.extraTools ?? []),
-    ...(cfg.sandbox ? [...sandboxTools(cfg.sandbox), ...secretTools(io)] : []),
+    ...(cfg.sandbox ? sandboxTools(cfg.sandbox) : []),
+    ...(cfg.secrets ? secretTools(io, { ...cfg.secrets, sandbox: cfg.sandbox !== undefined }, hold) : []),
     askTool(run),
   ];
 }
 
-/** The work and the conversation as a helper is briefed on them. */
-export function briefed(io: AgentIO, now: string, work: string): string {
-  return [`Now: ${now}.`, work, `---\nThe conversation with the user so far, for background only (do not answer it):\n\n${io.context()}`].join("\n\n");
+/**
+ * The work and the conversation as a helper is briefed on them: the conversation first, which it shares with the chat's other
+ * helpers and the chat itself (the provider reuses what a request begins with, context.ts), then the time and the work.
+ */
+export function briefed(io: Pick<AgentIO, "context">, now: string, work: string): string {
+  return [`The conversation with the user so far, for background only (do not answer it):\n\n${io.context()}`, `---\nNow: ${now}.\n${work}`].join("\n\n");
 }
 
 /** Run one helper to the end of its work: `system` its rules, `tools` everything it may use, `briefing` the work. */

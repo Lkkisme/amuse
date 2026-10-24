@@ -9,7 +9,7 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { piAgent } from "./agent.ts";
 import { fileCredentials } from "./credentials.ts";
-import { piKeys } from "./keys.ts";
+import { memoryChoices, piKeys } from "./keys.ts";
 import { NoModel, openSession } from "./session.ts";
 
 type RequestMessage = { role: string; content: string | { type: string; text: string }[] };
@@ -75,7 +75,9 @@ async function endpoint(t: TestContext, input: ("text" | "image")[] = ["text"]) 
 
 test("a local session can omit output limits while retaining thinking, sampling and payload callbacks", async (t) => {
   const local = await endpoint(t);
-  const opened = await openSession({ ...local, thinkingLevel: "medium", omitOutputLimit: true }, "Be brief.", []);
+  const opened = await openSession({ ...local, thinkingLevel: "medium", omitOutputLimit: true }, "Be brief.", [], {
+    caching: { key: "external-harness-output-test", stable: () => ["Reply OK."] },
+  });
   t.after(opened.close);
   assert.equal(opened.session.thinkingLevel, "medium");
   let callbacks = 0;
@@ -210,10 +212,10 @@ test("chat title utility omits owner reply wrappers and the operational chat sys
 
 test("provider tests keep their default cap and honor the optional server output limit", async (t) => {
   const local = await endpoint(t);
-  const defaults = piKeys({ keys: local.auth.keys, choicePath: join(local.dir, "choices.json"), modelsPath: local.modelsPath });
+  const defaults = piKeys({ keys: local.auth.keys, choices: memoryChoices(), modelsPath: local.modelsPath });
   assert.equal((await defaults.test("local-endpoint")).ok, true);
   assert.equal(local.requests[0]!["max_completion_tokens"], 32);
-  const keys = piKeys({ keys: local.auth.keys, choicePath: join(local.dir, "choices.json"), modelsPath: local.modelsPath, omitOutputLimit: true });
+  const keys = piKeys({ keys: local.auth.keys, choices: memoryChoices(), modelsPath: local.modelsPath, omitOutputLimit: true });
   assert.equal((await keys.test("local-endpoint")).ok, true);
   assert.equal(local.requests.length, 2);
   for (const field of ["max_tokens", "max_completion_tokens", "max_output_tokens"]) assert.equal(field in local.requests[1]!, false);

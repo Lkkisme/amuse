@@ -18,6 +18,8 @@ function recording(onAct: (action: AgentAction) => void = () => {}, onReport: (n
     act: (action) => (onAct(action), { ok: true, id: "x" }),
     decision: async () => ({ verdict: "denied", remember: false }),
     report: onReport,
+    mention: onReport,
+    running: () => "",
     context: () => "",
     recall: () => "",
     time: () => ({ now: "2026-10-20T08:00:00Z", timezone: "UTC" }),
@@ -71,7 +73,8 @@ test("the client parses Composio's responses and sends the key as x-api-key", as
     const url = new URL(String(input));
     seen.push(`${init?.method ?? "GET"} ${url.pathname} key=${new Headers(init?.headers).get("x-api-key")}`);
     const body =
-      url.pathname.endsWith("/auth_configs") ? { items: [{ id: "ac_1" }] }
+      url.pathname.endsWith("/toolkits/gmail") ? { name: "Gmail", composio_managed_auth_schemes: ["OAUTH2"] }
+      : url.pathname.endsWith("/auth_configs") ? { items: [{ id: "ac_1" }] }
       : url.pathname.endsWith("/link") ? { redirect_url: "https://connect.composio.dev/x", connected_account_id: "ca_9" }
       : { id: "ca_9", status: "ACTIVE" };
     return Response.json(body);
@@ -80,6 +83,7 @@ test("the client parses Composio's responses and sends the key as x-api-key", as
   assert.deepEqual(await client.link("gmail", "owner"), { url: "https://connect.composio.dev/x", account: "ca_9" });
   assert.equal(await client.status("ca_9"), "active");
   assert.deepEqual(seen, [
+    "GET /api/v3.1/toolkits/gmail key=ak_test",
     "GET /api/v3/auth_configs key=ak_test",
     "POST /api/v3/connected_accounts/link key=ak_test",
     "GET /api/v3/connected_accounts/ca_9 key=ak_test",

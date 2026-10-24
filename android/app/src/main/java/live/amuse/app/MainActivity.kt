@@ -64,6 +64,7 @@ class MainActivity : ComponentActivity() {
     private var attempt = 0
     private var foreground = false
     private var lastCookie: String? = null
+    private var cookieOperation = 0L
     private var pendingGrant: Pair<Int, String?>? = null
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private var pausedCookie: String? = null
@@ -120,9 +121,12 @@ class MainActivity : ComponentActivity() {
         WebView.setWebContentsDebuggingEnabled(false)
         vault = SessionVault(this)
         pairedVault = PairedSessionVault(this)
-        val server = runCatching { ServerAddress.parse(preferences.getString("server", ServerAddress.DEFAULT)!!) }
-            .getOrElse { ServerAddress.parse(ServerAddress.DEFAULT) }
-        state = state.copy(server = server, deviceSecure = getSystemService(KeyguardManager::class.java).isDeviceSecure,
+        val savedOrigin = preferences.getString("server", null)
+        val configured = ServerConfiguration.resolve(savedOrigin, pairedVault.configuredServer(), vault.configuredServer())
+        if (savedOrigin == null && configured != null) preferences.edit().putString("server", configured.origin).apply()
+        val server = configured ?: ServerAddress.parse(ServerAddress.EXAMPLE)
+        state = state.copy(server = server, configured = configured != null, settingsVisible = configured == null,
+            deviceSecure = getSystemService(KeyguardManager::class.java).isDeviceSecure,
             useDeviceUnlock = preferences.getBoolean("device_unlock", false), reusableSessionSupported = Build.VERSION.SDK_INT >= 30,
             autoConnectTailscale = preferences.getBoolean("auto_connect_tailscale", true),
             darkTheme = preferences.getBoolean("dark_theme", false),
@@ -134,8 +138,7 @@ class MainActivity : ComponentActivity() {
         userPresentRegistered = true
         updateSystemBars()
         // Never load a page with cookies left after an abrupt process exit.
-        cookies.removeAllCookies {
-            cookies.flush()
+        clearActiveCookies {
             state = state.copy(cookiesReady = true)
             openSavedSessionIfNeeded()
         }
@@ -153,6 +156,7 @@ class MainActivity : ComponentActivity() {
                         state = state.copy(settingsVisible = true)
                     },
                     onCloseSettings = {
+                        if (!state.configured) return@AmuseApp
                         state = state.copy(settingsVisible = false)
                         if (state.pairedSession && !state.useDeviceUnlock) openSavedSessionIfNeeded()
                     },
@@ -344,7 +348,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun authenticate() {
-        if (!foreground || !deviceUnlocked() || !state.cookiesReady || state.authenticating) return
+        if (!state.configured || !foreground || !deviceUnlocked() || !state.cookiesReady || state.authenticating) return
         if ((!state.useDeviceUnlock && !state.pickerSuspended) || !state.deviceSecure) { useServerPin(); return }
         cancelAuthentication()
         val thisAttempt = attempt
@@ -407,12 +411,16 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun finishUnlock(cookie: String?, generation: Int) {
-        if (generation != attempt || !foreground || !deviceUnlocked()) return
+        val server = state.server
+        val visit = UnlockLifecycle.Visit(generation, server.origin)
+        fun current() = UnlockLifecycle.current(visit, UnlockLifecycle.Visit(attempt, state.server.origin),
+            foreground, deviceUnlocked(), state.configured, state.cookiesReady)
+        if (!current()) return
         state = state.copy(authenticating = true)
-        cookies.removeAllCookies {
-            if (generation != attempt || !foreground || !deviceUnlocked()) return@removeAllCookies
+        clearActiveCookies { clearedOperation ->
+            if (!current() || clearedOperation != cookieOperation) return@clearActiveCookies
             val ready = {
-                if (generation == attempt && foreground && deviceUnlocked()) {
+                if (current()) {
                     val resumePicker = state.pickerSuspended && webView != null
                     lastCookie = cookie
                     state = state.copy(unlocked = true, authenticating = false, notice = null, pageSuspended = false,
@@ -436,14 +444,21 @@ class MainActivity : ComponentActivity() {
                 }
             }
             if (cookie == null) ready()
-            else cookies.setCookie(state.server.home, SessionCookie.restoreHeader(cookie)) { accepted ->
-                if (accepted) ready() else state = state.copy(authenticating = false, notice = "无法恢复登录，请使用服务器 PIN。")
+            else {
+                val restoringOperation = ++cookieOperation
+                cookies.setCookie(server.home, SessionCookie.restoreHeader(cookie)) { accepted ->
+                    if (!current() || restoringOperation != cookieOperation) {
+                        if (UnlockLifecycle.clearStaleCookie(restoringOperation, cookieOperation,
+                                state.useDeviceUnlock, state.unlocked)) clearActiveCookies()
+                    } else if (accepted) ready()
+                    else state = state.copy(authenticating = false, notice = "无法恢复登录，请使用服务器网页登录。")
+                }
             }
         }
     }
 
     private fun useServerPin() {
-        if (!foreground || !deviceUnlocked()) return
+        if (!state.configured || !foreground || !deviceUnlocked()) return
         if (state.pickerSuspended) lockSession()
         cancelAuthentication()
         vault.clear()
@@ -458,7 +473,7 @@ class MainActivity : ComponentActivity() {
         // An owner-paired phone restores its encrypted device session. Others
         // go directly to the same server login as the web app.
         // Explicitly locking still leaves the lock page until the next resume.
-        if (foreground && deviceUnlocked() && state.cookiesReady && !state.useDeviceUnlock && !state.unlocked &&
+        if (state.configured && foreground && deviceUnlocked() && state.cookiesReady && !state.useDeviceUnlock && !state.unlocked &&
             !state.pickerSuspended && !state.settingsVisible && !state.authenticating) {
             val cookie = if (state.pairedSession) pairedVault.open(state.server) else null
             if (state.pairedSession && cookie == null) state = state.copy(pairedSession = false,
@@ -485,6 +500,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         // WebView only needs a session cookie; the reusable copy is encrypted.
+        cookieOperation++
         cookies.setCookie(state.server.home, SessionCookie.restoreHeader(cookie))
         if (state.pairedSession) runCatching { pairedVault.store(state.server, cookie) }
             .onFailure { state = state.copy(notice = "本次登录可用，但自动登录未能更新。可通过 USB 重新配对。") }
@@ -536,7 +552,7 @@ class MainActivity : ComponentActivity() {
         pausedCookie = null
         releaseWebView(webView)
         lastCookie = null
-        cookies.removeAllCookies { cookies.flush() }
+        clearActiveCookies()
     }
 
     private fun suspendForPicker() {
@@ -552,7 +568,7 @@ class MainActivity : ComponentActivity() {
         webView?.clearFocus()
         state = state.copy(unlocked = false, pickerSuspended = true, loading = false,
             notice = "文件已由系统选择。返回后请验证本机身份，验证成功才会上传。")
-        cookies.removeAllCookies { cookies.flush() }
+        clearActiveCookies()
     }
 
     private fun forgetSession() {
@@ -567,13 +583,17 @@ class MainActivity : ComponentActivity() {
         val server = try { ServerAddress.parse(address) } catch (error: IllegalArgumentException) {
             state = state.copy(settingsError = error.message); return
         }
+        if (deviceUnlock && !state.deviceSecure) {
+            state = state.copy(settingsError = "请先在 Android 设置中启用安全锁屏，再开启本机解锁。")
+            return
+        }
         if (server != state.server || deviceUnlock != state.useDeviceUnlock) forgetSession()
         cancelRecovery()
         preferences.edit().putString("server", server.origin).putBoolean("device_unlock", deviceUnlock)
             .putBoolean("auto_connect_tailscale", autoConnectTailscale).apply()
-        state = state.copy(server = server, useDeviceUnlock = deviceUnlock, autoConnectTailscale = autoConnectTailscale,
+        state = state.copy(server = server, configured = true, useDeviceUnlock = deviceUnlock, autoConnectTailscale = autoConnectTailscale,
             settingsVisible = false, settingsError = null)
-        if (state.pairedSession && !state.useDeviceUnlock) openSavedSessionIfNeeded()
+        openSavedSessionIfNeeded()
     }
 
     private fun retry() {
@@ -705,7 +725,7 @@ class MainActivity : ComponentActivity() {
     }.getOrNull()
 
     private fun requestTailscaleConnection() {
-        if (!state.autoConnectTailscale || !foreground || !deviceUnlocked() || state.settingsVisible || !TailscaleConnection.tailnet(state.server)) return
+        if (!state.configured || !state.autoConnectTailscale || !foreground || !deviceUnlocked() || state.settingsVisible || !TailscaleConnection.tailnet(state.server)) return
         if (!state.tailscaleInstalled) {
             state = state.copy(tailscaleStatus = "请先安装并登录 Tailscale，再返回 Amuse。")
             return
@@ -807,7 +827,7 @@ class MainActivity : ComponentActivity() {
             safeBrowsingEnabled = true
             mediaPlaybackRequiresUserGesture = true
             cacheMode = WebSettings.LOAD_NO_CACHE
-            userAgentString = "$userAgentString AmuseAndroid/0.1"
+            userAgentString = "$userAgentString AmuseAndroid/${BuildConfig.VERSION_NAME}"
         }
         cookies.setAcceptCookie(true)
         cookies.setAcceptThirdPartyCookies(this, false)
@@ -864,8 +884,9 @@ class MainActivity : ComponentActivity() {
                 return null
             }
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                if (!current(view)) return true
                 if (state.server.contains(request.url.toString())) return false
-                if (request.isForMainFrame) openExternal(request.url)
+                if (request.isForMainFrame && request.hasGesture()) openExternal(request.url)
                 return true
             }
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
@@ -909,6 +930,9 @@ class MainActivity : ComponentActivity() {
                     if (retry == null) cancelRecovery() else scheduleRecovery(retry)
                 }
             }
+            override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
+                if (current(view)) state = state.copy(canGoBack = view.canGoBack())
+            }
             override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
                 if (!current(view) || !state.server.contains(request.url.toString())) return
                 if (BuildConfig.SCREEN_PREVIEW) Log.w("AmuseShell", "HTTP error; status=${response.statusCode}; mainFrame=${request.isForMainFrame}")
@@ -935,7 +959,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
-                if (current(view)) { lockSession(); state = state.copy(notice = "页面进程已退出，请重新解锁连接。") }
+                if (current(view)) {
+                    lockSession()
+                    state = state.copy(notice = "页面进程已退出，正在恢复连接。")
+                    openSavedSessionIfNeeded()
+                }
                 return true
             }
         }
@@ -948,6 +976,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun connectionFailed(message: String) { state = state.copy(loading = false, connectionError = message) }
+
+    private fun clearActiveCookies(onRemoved: (Long) -> Unit = {}) {
+        val operation = ++cookieOperation
+        cookies.removeAllCookies { cookies.flush(); onRemoved(operation) }
+    }
 
     private fun download(url: String, userAgent: String, disposition: String?, mime: String?) {
         val server = state.server

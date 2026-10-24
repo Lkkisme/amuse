@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type Entry, type Ports, type Workspace, createHost, memoryRules, noKeys, noLogins, noSandbox, noWorkspace } from "@amuse/core";
+import { type Entry, type Ports, type Workspace, createHost, memoryRules, noKeys, noLogins, noSandbox, noSecrets, noWorkspace } from "@amuse/core";
 import { agentBrief, agentTools } from "./agent.ts";
 
 function fixture() {
@@ -21,11 +21,11 @@ function fixture() {
   };
   const notes: string[] = [];
   const ports: Ports = {
-    files, keys: noKeys, rules: memoryRules(), logins: noLogins, sandbox: noSandbox,
+    files, keys: noKeys, rules: memoryRules(), logins: noLogins, sandbox: noSandbox, secrets: noSecrets,
     prompt: (turn) => { if (turn.kind === "message") assert.fail("shared tools must not start a Pi model"); notes.push(turn.text); },
     interrupt: () => {}, title: async () => "", browse: () => {}, job: () => {}, task: () => {}, schedule: () => {},
     browser: () => {}, approval: () => {}, stopTask: () => {}, fit: () => {}, connect: async () => "",
-    apps: { search: async () => ({ apps: [], cursor: null }), accounts: async () => [], connect: async () => "", disconnect: async () => {}, permissions: async () => [], permit: async () => {} },
+    apps: { search: async () => ({ apps: [], cursor: null }), accounts: async () => [], connect: async () => "", access: async () => ({ kind: "managed" }), cannotConnect: async () => null, connectKey: async () => {}, disconnect: async () => {}, permissions: async () => [], permit: async () => {} },
   };
   const host = createHost(ports, { clock: { now: () => "2026-10-21T08:00:00Z" }, timers: { set: () => 0, clear: () => {} } });
   const cfg = { files, rules: ports.rules, skills: [{ name: "fixture", description: "Read the integration fixture", body: "Use the fixture.", from: "built in" }] };

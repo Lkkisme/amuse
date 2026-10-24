@@ -9,6 +9,8 @@ import { BookOpen, ChevronLeft, FileText, Plus, Trash2 } from "lucide-react";
 import type { Session, SkillInfo, SkillOrigin } from "@amuse/protocol";
 import type { Actions } from "../ui.ts";
 import { activeT } from "../i18n/language.ts";
+import { Button } from "./Button";
+import { ConfirmSheet } from "./ConfirmSheet";
 import { reason } from "./Goals";
 import { RichText } from "./markdown";
 import { Sheet } from "./Sheet";
@@ -204,21 +206,18 @@ function AddSkill({
             }
           />
         </div>
-        <button
+        <Button
+          variant="primary"
+          size="lg"
+          className="mt-6"
           disabled={!what.trim()}
-          className="mt-6 h-12 w-full rounded-full text-[16px] font-semibold text-white disabled:opacity-40"
-          style={{ background: "var(--fill-blue)" }}
           onClick={() => onAsk(what.trim())}
         >
           {t.skills.askAmuse}
-        </button>
-        <button
-          className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
-          style={{ color: "var(--text-primary)" }}
-          onClick={onClose}
-        >
+        </Button>
+        <Button variant="plain" size="lg" className="mt-2" onClick={onClose}>
           {t.common.cancel}
-        </button>
+        </Button>
       </div>
     </Sheet>
   );
@@ -370,37 +369,15 @@ export function SkillPage({
         )}
       </div>
 
-      <Sheet open={removing} onClose={() => setRemoving(false)} bare>
-        <div className="flex flex-col items-center px-6 pb-6 pt-5 text-center">
-          <p
-            className="mt-2 text-[20px] font-semibold"
-            style={{ color: "var(--text-primary)" }}
-          >
-            {t.skills.removeTitle(name)}
-          </p>
-          <p
-            className="mt-1 text-[14px]"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            {t.skills.removeHelp}
-          </p>
-          <button
-            disabled={busy}
-            className="mt-6 h-12 w-full rounded-full text-[16px] font-semibold text-white disabled:opacity-50"
-            style={{ background: "var(--fill-red)" }}
-            onClick={remove}
-          >
-            {t.common.remove}
-          </button>
-          <button
-            className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
-            style={{ color: "var(--text-primary)" }}
-            onClick={() => setRemoving(false)}
-          >
-            {t.common.cancel}
-          </button>
-        </div>
-      </Sheet>
+      <ConfirmSheet
+        open={removing}
+        onClose={() => setRemoving(false)}
+        title={t.skills.removeTitle(name)}
+        body={t.skills.removeHelp}
+        action={t.common.remove}
+        busy={busy}
+        onConfirm={remove}
+      />
     </div>
   );
 }
@@ -427,13 +404,14 @@ function Folded({ text }: { text: string }) {
         )}
       </div>
       {long && (
-        <button
-          className="hover-fade mt-2 text-[14px] font-medium"
-          style={{ color: "var(--fill-blue)" }}
+        <Button
+          variant="plain"
+          tone="accent"
+          className="-ml-4 mt-2"
           onClick={() => setOpen((o) => !o)}
         >
           {open ? t.skills.showLess : t.skills.showAll}
-        </button>
+        </Button>
       )}
     </div>
   );

@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
-import { createHost, memoryChats, memoryRules, noKeys, noWorkspace, noLogins, noSandbox, type Ports } from "@amuse/core";
+import { createHost, memoryChats, memoryRules, noKeys, noWorkspace, noLogins, noSandbox, noSecrets, type Ports } from "@amuse/core";
 import { WebSocket, WebSocketServer } from "ws";
 import { NativeBrowserManager } from "./native-browser.ts";
 
@@ -19,8 +19,8 @@ function ports(): Ports {
     prompt: () => { throw new Error("The browser integration test must never invoke a model."); },
     interrupt: () => {}, title: async () => "unused", browse: () => {}, job: () => {}, task: () => {}, schedule: () => {},
     browser: () => {}, approval: () => {}, stopTask: () => {}, fit: () => {}, connect: async () => "https://example.invalid/",
-    apps: { search: async () => ({ apps: [], cursor: null }), accounts: async () => [], connect: async () => "https://example.invalid/", disconnect: async () => {}, permissions: async () => [], permit: async () => {} },
-    rules: memoryRules(), keys: noKeys, files: noWorkspace, logins: noLogins, sandbox: noSandbox,
+    apps: { access: async () => ({ kind: "managed" }), cannotConnect: async () => null, connectKey: async () => { throw new Error("No key connection in this fixture."); }, search: async () => ({ apps: [], cursor: null }), accounts: async () => [], connect: async () => "https://example.invalid/", disconnect: async () => {}, permissions: async () => [], permit: async () => {} },
+    rules: memoryRules(), keys: noKeys, files: noWorkspace, logins: noLogins, sandbox: noSandbox, secrets: noSecrets,
   };
 }
 
@@ -100,6 +100,7 @@ test("real isolated Edge shares agent/viewer state, enforces takeover and releas
       #status{position:absolute;left:32px;top:230px}#value{position:absolute;left:32px;top:280px}
     </style></head><body><h1>Shared browser fixture</h1><input id="message" aria-label="Message" autocomplete="off">
     <button id="apply" aria-label="Apply">Apply</button><div id="status">Count: 0; submitted: </div><div id="value">Value: </div>
+    <canvas aria-label="Chart preview" width="80" height="40" style="position:absolute;left:800px;top:500px;background:#123456"></canvas>
     <script>let count=0,submitted='',seq=0,sawDrag=false,shiftDown=false,shiftUps=0,mouseDowns=0,mouseUps=0;const field=document.querySelector('#message');
       function report(){document.querySelector('#status').textContent='Count: '+count+'; submitted: '+submitted;document.querySelector('#value').textContent='Value: '+field.value;fetch('/event',{method:'POST',body:JSON.stringify({seq:++seq,value:field.value,count,submitted,sawDrag,shiftDown,shiftUps,mouseDowns,mouseUps,width:innerWidth,height:innerHeight,mobile:matchMedia('(max-width:600px)').matches})});}
       addEventListener('resize',report);
@@ -134,14 +135,22 @@ test("real isolated Edge shares agent/viewer state, enforces takeover and releas
   assert.equal(view.url, url);
   assert.equal(view.title, "Amuse isolated browser fixture");
   const ref = (label: string) => { const element = view.elements.find((item) => item.label === label); assert.ok(element, `visible ${label} element`); return element.ref; };
-  const before = Buffer.from(await manager.screenshotForChat("main", id));
+  const beforeBytes = await manager.screenshotForChat("main", id); assert.ok(beforeBytes);
+  const before = Buffer.from(beforeBytes);
   assert.deepEqual([...before.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
   assert.deepEqual({ width: before.readUInt32BE(16), height: before.readUInt32BE(20) }, { width: 1024, height: 768 });
+  const pictureRef = ref("Chart preview");
+  const cropped = Buffer.from(await manager.screenshotForChat("main", id, undefined, pictureRef));
+  assert.deepEqual({ width: cropped.readUInt32BE(16), height: cropped.readUInt32BE(20) }, { width: 80, height: 40 });
+  await assert.rejects(manager.screenshotForChat("other-chat", id, undefined, pictureRef), /另一个会话/);
+  await assert.rejects(manager.screenshotForChat("main", id, undefined, "invented-selector"), /ref/i);
   view = await manager.actForChat("main", id, { kind: "type", ref: ref("Message"), text: "agent text" });
+  await assert.rejects(manager.screenshotForChat("main", id, undefined, pictureRef), /ref/i, "a fresh observation invalidates earlier element refs");
   view = await manager.actForChat("main", id, { kind: "click", ref: ref("Apply") });
   assert.match(view.text, /Count: 1; submitted: agent text/);
   await until(() => fixtureState.count === 1 ? true : undefined, "the agent's DOM update reaching the fixture");
-  const after = Buffer.from(await manager.screenshotForChat("main", id));
+  const afterBytes = await manager.screenshotForChat("main", id); assert.ok(afterBytes);
+  const after = Buffer.from(afterBytes);
   assert.notEqual(createHash("sha256").update(before).digest("hex"), createHash("sha256").update(after).digest("hex"), "the rendered image changes with actual page input");
   await assert.rejects(manager.observeForChat("other-chat", id), /另一个会话/);
 
@@ -177,6 +186,7 @@ test("real isolated Edge shares agent/viewer state, enforces takeover and releas
   await assert.rejects(manager.actForChat("main", id, { kind: "press", key: "Enter" }), /接管/);
   await assert.rejects(manager.finishForChat("main", id, "Should refuse"), /接管/);
   await assert.rejects(manager.screenshotForChat("main", id), /接管/);
+  await assert.rejects(manager.screenshotForChat("main", id, undefined, ref("Chart preview")), /接管/);
   pointer(90, 110);
   send({ type: "key", action: "down", key: "a", code: "KeyA", modifiers: 2 });
   send({ type: "key", action: "up", key: "a", code: "KeyA", modifiers: 2 });

@@ -253,6 +253,12 @@ export function localGitHub(options: LocalGitHubOptions) {
       return { apps: !cursor && matches ? [localGitHubApp] : [], cursor: null };
     },
     accounts,
+    async access(app) { requireApp(app); return { kind: "managed" }; },
+    async cannotConnect(app) { requireApp(app); return null; },
+    async connectKey(app, _values) {
+      requireApp(app);
+      throw new LocalGitHubUnavailable("Local GitHub uses the computer's existing Git login. Connect it on the computer; entering a new key here is unsupported.");
+    },
     async connect(app) { requireApp(app); return connect(); },
     async disconnect(id) {
       if (!isLocalGitHubAccount(id)) throw new LocalGitHubUnavailable("This is not a local GitHub account.");

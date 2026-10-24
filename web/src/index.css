@@ -7,6 +7,19 @@
   --sidebar-width: 0px;
 }
 
+/* How wide Amuse's items can be (its replies, as far as their words go, and every card): one right edge for them all.
+   Always short of the column, so what is Amuse's leaves a gap on the right (48px or more on a phone), as the user's
+   bubbles do on the left. With a pointer it is the share the bubbles had, which also leaves room beside them for the
+   buttons that show on hover. Capped, so a wide column does not make a card huge. */
+:root {
+  --amuse-width: min(85%, 600px);
+}
+@media (hover: hover) {
+  :root {
+    --amuse-width: min(78%, 600px);
+  }
+}
+
 /* Muse web design tokens — exact values, see docs/web-tokens.md for provenance. */
 .light {
   --bg-primary: #fcfcfc;
@@ -81,6 +94,21 @@
   animation: fadeIn 0.3s ease-out both;
 }
 
+/* The name badge: it glides to the size of what it holds (set from its content, TopBar.tsx); the line that
+   leaves fades out while the new one fades in, a little after the box has begun to move. */
+.badge-pill {
+  transition: width 0.24s cubic-bezier(0.2, 0, 0, 1), height 0.24s cubic-bezier(0.2, 0, 0, 1);
+}
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+.anim-badge-in { animation: fadeIn 0.2s ease-out 0.06s both; }
+.anim-badge-out { animation: fadeOut 0.14s ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .badge-pill { transition: none; }
+}
+
 /* Thinking dots: hatch-dot-pulse, 1.2s ease-in-out infinite, staggered ~0.2s */
 @keyframes hatch-dot-pulse {
   0%, 100% { opacity: 1; }
@@ -111,6 +139,21 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .skeleton { animation: none; background-image: none; background-color: color-mix(in srgb, var(--text-primary) 4%, transparent); }
+}
+
+/* A wrong PIN: its six boxes shake and settle (PinInput.tsx); with reduced motion they only clear */
+@keyframes pin-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+.pin-shake {
+  animation: pin-shake 0.4s ease-in-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pin-shake { animation: none; }
 }
 
 /* Streaming text shimmer: background-position -200% -> 200%, gradient clip */
@@ -157,6 +200,12 @@
 }
 .anim-panel-in-right { animation: panel-in-right 0.24s cubic-bezier(0.2, 0, 0, 1) both; }
 .anim-panel-out-right { animation: panel-out-right 0.24s cubic-bezier(0.2, 0, 0, 1) both; }
+
+/* A page a swipe lets go of (useSwipe.ts) settles open or closed on the same duration and curve; reduced motion: it snaps */
+.swipe-settle { transition: transform 0.24s cubic-bezier(0.2, 0, 0, 1), opacity 0.24s cubic-bezier(0.2, 0, 0, 1); }
+@media (prefers-reduced-motion: reduce) {
+  .swipe-settle { transition: none; }
+}
 
 /* On a phone, the Muse panel and its avatar travel together (transition.ts): one duration and curve for both */
 ::view-transition-group(muse-avatar) {
@@ -246,7 +295,7 @@
 .hover-fade {
   transition: opacity 0.18s ease, background-color 0.18s ease;
 }
-.hover-fade:hover {
+.hover-fade:not(:disabled):hover {
   opacity: 0.72;
 }
 /* Panel opacity transition .18-.2s */
@@ -295,10 +344,40 @@
     opacity: 1;
   }
 }
-/* Touch: no row; a tap on the bubble opens its menu (ChatFeed), and a long press selects its words
-   as the phone does anywhere */
+/* Touch: no row; a long press on the bubble opens its menu (ChatFeed), whose Select text hands the bubble's words
+   to the phone's own selection */
 @media (hover: none) {
   .msg-actions { display: none; }
+}
+
+/* A bubble whose words are being selected (ChatFeed, Select text): the phone's own selection works in it, and a faint
+   outline says so until a tap elsewhere ends it */
+.bubble-selectable {
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
+  outline: 2px solid color-mix(in srgb, var(--fill-blue) 40%, transparent);
+  outline-offset: 3px;
+}
+.bubble-selectable * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* The item a tapped quote went to (ChatFeed): a blue wash that fades */
+.quote-flash {
+  border-radius: 24px;
+  animation: quote-flash 1.6s ease-out;
+}
+@keyframes quote-flash {
+  0%, 35% {
+    background: color-mix(in srgb, var(--fill-blue) 18%, transparent);
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--fill-blue) 18%, transparent);
+  }
+  100% {
+    background: transparent;
+    box-shadow: 0 0 0 6px transparent;
+  }
 }
 
 /* Buttons show they can be pressed (Tailwind's base resets them to the arrow) */
@@ -477,4 +556,14 @@ body {
   mask-position: left top, right top;
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
+}
+
+/* A box that scrolls without showing a scrollbar on touch screens, where the finger scrolls it and its fade shows there is more */
+@media (pointer: coarse) {
+  .touch-no-scrollbar {
+    scrollbar-width: none;
+  }
+  .touch-no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
 }

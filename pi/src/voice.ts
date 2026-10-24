@@ -6,7 +6,8 @@
  * provider, and it reads the key from the user's keys like Pi does.
  */
 import type { KeyFile } from "./credentials.ts";
-import { LOCAL_VOICE, plainly } from "./keys.ts";
+import { LOCAL_VOICE } from "./credentials.ts";
+import { plainly } from "./keys.ts";
 import { redact } from "./redact.ts";
 
 /** The speech-to-text services, in the order they are tried (by provider id, as in the keys). */

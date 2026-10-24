@@ -8,10 +8,11 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { test, type TestContext } from "node:test";
 import { promisify } from "node:util";
-import { createHost, memoryChats, memoryRules, noKeys, noLogins, noSandbox, noWorkspace, type Host, type Ports, type Rules } from "@amuse/core";
+import { createHost, memoryChats, memoryRules, noKeys, noLogins, noSandbox, noSecrets, noWorkspace, type Host, type Ports, type Rules } from "@amuse/core";
 import { WebSocketServer } from "ws";
 import { NativeBrowserManager } from "./native-browser.ts";
-import { fileChats } from "./journal.ts";
+import { sqliteChats } from "./journal.ts";
+import { migratedNow, type Db } from "@amuse/db";
 import { snapshotBrowsers } from "./browser-checkpoint.ts";
 
 const edge = process.env["AMUSE_TEST_EDGE"] ?? "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe";
@@ -20,8 +21,8 @@ function ports(rules: Rules): Ports {
   return {
     prompt: nodeModel, interrupt: () => {}, title: async () => "unused", browse: () => {}, job: () => {}, task: nodeModel, schedule: nodeModel,
     browser: () => {}, approval: () => {}, stopTask: () => {}, fit: () => {}, connect: async () => "https://example.invalid/",
-    apps: { search: async () => ({ apps: [], cursor: null }), accounts: async () => [], connect: async () => "https://example.invalid/", disconnect: async () => {}, permissions: async () => [], permit: async () => {} },
-    rules, keys: noKeys, files: noWorkspace, logins: noLogins, sandbox: noSandbox,
+    apps: { access: async () => ({ kind: "managed" }), cannotConnect: async () => null, connectKey: async () => { throw new Error("No key connection in this fixture."); }, search: async () => ({ apps: [], cursor: null }), accounts: async () => [], connect: async () => "https://example.invalid/", disconnect: async () => {}, permissions: async () => [], permit: async () => {} },
+    rules, keys: noKeys, files: noWorkspace, logins: noLogins, sandbox: noSandbox, secrets: noSecrets,
   };
 }
 async function until<T>(read: () => T | undefined | Promise<T | undefined>, label: string, timeout = 10000): Promise<T> {
@@ -38,6 +39,8 @@ async function fixture(t: TestContext) {
   assert.equal(dirname(verified).toLowerCase(), realpathSync(tmpdir()).toLowerCase());
   assert.ok(basename(verified).startsWith("amuse-native-policy-"));
   const managers: NativeBrowserManager[] = [];
+  const databases: Db[] = [];
+  const database = (dir: string) => { const db = migratedNow(dir); databases.push(db); return db; };
   const hits = { page: 0, target: 0, posts: 0, downloads: 0 };
   const previewRequests: { url: string; cookie: string; origin: string }[] = [];
   const hmrRequests: string[] = [];
@@ -105,10 +108,11 @@ async function fixture(t: TestContext) {
     for (const connection of hmr.clients) connection.terminate();
     await new Promise<void>((resolve) => hmr.close(() => resolve()));
     server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve()));
+    for (const db of databases) db.close();
     assert.equal(realpathSync(directory), verified);
     rmSync(verified, { recursive: true, force: true, maxRetries: 6, retryDelay: 100 });
   });
-  return { create, hits, url, directory, previewRequests, hmrRequests, requestPaths };
+  return { create, hits, url, directory, database, previewRequests, hmrRequests, requestPaths };
 }
 
 // These are complete real browser operations against an isolated local HTTP
@@ -252,9 +256,10 @@ test("native Edge previews sandbox ports through the daemon with logical URLs, i
 const oldBrowser = (id: string, url: string, status: "paused" | "idle" | "working" = "paused") => ({ kind: "browser" as const, id, at: "2026-10-21T12:00:00.000Z", title: "Saved browser", url, status, instructions: status === "working" ? "Old task must not be replayed." : "", result: null, outcome: null, step: null, live: true, files: [] });
 
 test("owner stop checkpoint survives real Edge termination and core recovery, then cannot revive a user-closed page", { skip: !existsSync(edge) || process.platform !== "win32", timeout: 90000 }, async (t) => {
-  const { create, url, directory, requestPaths } = await fixture(t);
+  const { create, url, directory, database, requestPaths } = await fixture(t);
   const data = join(directory, "data"), journalPath = join(data, "events.jsonl");
-  const store = () => fileChats(data, journalPath);
+  const db = database(data);
+  const store = () => sqliteChats(db);
   const rules = memoryRules(); await rules.setBrowser("visit", "allow");
   const original = create(rules, 1, undefined, store());
   const { id } = await original.manager.openForChat("main", `${url}/held-owner-page`);
@@ -297,7 +302,8 @@ test("owner stop checkpoint survives real Edge termination and core recovery, th
   const page = restarted.host.external.state("main").entities.find((entity) => entity.id === id);
   assert.ok(page?.kind === "browser"); assert.equal(page.status, "paused"); assert.equal(page.live, true); assert.equal(page.url, saved.url);
   assert.equal(restarted.manager.list("main").find((browser) => browser.id === id)?.controlledBy, "user");
-  assert.ok((await restarted.manager.screenshot(id)).length > 1000, "the original page has an actual restored viewer image");
+  const restoredImage = await restarted.manager.screenshot(id);
+  assert.ok(restoredImage && restoredImage.length > 1000, "the original page has an actual restored viewer image");
   assert.equal(requestPaths.some((path) => /must-not-revive|must-not-replay|changed-url/.test(path)), false, "a user stop, changed job and new URL remain authoritative");
   assert.equal(readdirSync(directory).filter((name) => name.startsWith("resume.consumed.")).length, 1);
   assert.equal(existsSync(join(directory, "resume.json")), false);

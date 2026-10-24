@@ -5,16 +5,13 @@ import { type Browsers, nodeOrigin } from "@amuse/browser";
 import { createHost, type Timers } from "@amuse/core";
 import { demoPorts } from "@amuse/demo";
 import { WebSocket, WebSocketServer } from "ws";
-import type { Access } from "./access.ts";
+import { letIn, noPin } from "./testing.ts";
 import type { Live } from "./live.ts";
 import { listen } from "./server.ts";
 
 const timers: Timers<number> = { set: () => 0, clear: () => {} };
 const cookie = "amuse=viewer-test-session";
-const access: Access = {
-  ready: () => true, setup: async () => "", login: async () => null,
-  valid: (session) => session === "viewer-test-session", logout: () => {}, change: async () => null,
-};
+const access = letIn("viewer-test-session", (session) => session === "viewer-test-session");
 const png = Uint8Array.from([137, 80, 78, 71]);
 
 async function fixture(t: TestContext, options: { live?: boolean; native?: boolean; mcp?: boolean } = {}) {
@@ -32,6 +29,7 @@ async function fixture(t: TestContext, options: { live?: boolean; native?: boole
   let held = false;
   const attached: string[] = [];
   const browsers: Browsers = {
+    holds: (id) => ["native-run", "rfb-run"].includes(id),
     open: async () => {}, look: async () => ({ url: "https://example.com/", title: "Test", text: "", elements: [] }),
     step: async () => {}, screenshot: async (id) => ["native-run", "rfb-run"].includes(id) ? png : null,
     remember: async () => {}, fit: async () => {}, close: async () => {}, logins: async () => [], forgetLogin: async () => {},
@@ -50,7 +48,7 @@ async function fixture(t: TestContext, options: { live?: boolean; native?: boole
   const live: Live = { browsers, controlled: () => held, ...(options.native === false ? {} : { native }) };
   let mcpCalls = 0;
   const server = await listen({
-    session: createHost(demoPorts(timers), { timers }), access, port: 0, host: "127.0.0.1",
+    session: createHost(demoPorts(timers), { timers }), access, ...noPin, port: 0, host: "127.0.0.1",
     ...(options.live === false ? {} : { live }),
     ...(options.mcp ? { browserMcp: async (request, response) => {
       mcpCalls++;

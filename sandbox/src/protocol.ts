@@ -3,9 +3,10 @@
  * over HTTP, checked with these schemas on both sides. What the daemon says is
  * not taken for trusted (a process in the sandbox could stand in for it), so
  * what could carry words into the agent's context is held to a plain shape. A command is run to
- * completion (`POST /run`); what goes on running is in herdr's terminals (`/terminal`, for the user to see).
- * The daemon also keeps credentials the user gave for the sandbox (`/secrets`) and empties the sandbox's
- * home on request (`POST /reset`).
+ * completion (`POST /run`), or as a job of a chat that is handed off to the background if it takes long (`/jobs`); what goes on
+ * running to be watched or typed into is in herdr's terminals (`/terminal`, for the user to see).
+ * The daemon also keeps credentials the user gave for the sandbox (`/secrets`), empties the sandbox's home on
+ * request (`POST /reset`), and says what that would delete (`GET /at-risk`).
  */
 import { z } from "zod";
 
@@ -39,6 +40,53 @@ export const Ran = z.object({
 });
 export type Ran = z.infer<typeof Ran>;
 
+/** How long a job is waited for before it is handed off to the background, how long one may live, and how many a chat may have running. */
+export const HANDOFF_SECONDS = 10;
+export const JOB_LIFETIME = 1800;
+export const MAX_JOBS = 4;
+
+/** A chat's id, as the daemon keeps its jobs by it. */
+export const ChatId = z.string().min(1).max(100);
+
+/** A job of a chat: a command that outlives the request that started it. */
+export const Start = z.object({
+  chat: ChatId,
+  command: z.string().min(1).max(100_000),
+  cwd: z.string().max(4096).optional(),
+  /** hand it off at once, without the wait for it to end */
+  background: z.boolean().optional(),
+});
+export type Start = z.infer<typeof Start>;
+
+export const JobId = z.string().regex(/^j\d{1,9}$/);
+/** A job of a chat, by its id; for one of that chat's jobs only. */
+export const JobRef = z.object({ chat: ChatId, id: JobId });
+export type JobRef = z.infer<typeof JobRef>;
+/** Stopping jobs: one, or without an id every one of the chat's. */
+export const StopJobs = z.object({ chat: ChatId, id: JobId.optional() });
+export type StopJobs = z.infer<typeof StopJobs>;
+
+/** Why a job ended: it ran out, hit the lifetime, was stopped on request, or the sandbox was reset. */
+export const JobEnd = z.object({
+  exitCode: z.int().nullable(),
+  signal: Signal.nullable(),
+  reason: z.enum(["finished", "timedOut", "stopped", "reset"]),
+});
+export type JobEnd = z.infer<typeof JobEnd>;
+
+/** A job as it stands: what it printed so far (clipped as a command's is), for how long it has run, and how it ended if it has. */
+export const JobState = z.object({
+  id: JobId,
+  running: z.boolean(),
+  /** seconds it has run (to its end, once it has) */
+  seconds: z.int().min(0),
+  output: z.string(),
+  cut: z.int().min(0),
+  end: JobEnd.nullable(),
+});
+export type JobState = z.infer<typeof JobState>;
+export const JobStates = z.object({ jobs: z.array(JobState) });
+
 /** Why a request was not done, in the daemon's words (which the client does not pass on as its own). */
 export const Failure = z.object({ error: z.string() });
 
@@ -51,12 +99,32 @@ export const SecretEnv = z.object({ name: EnvName, value: z.string().min(1).max(
 export type SecretEnv = z.infer<typeof SecretEnv>;
 
 /** A credential written to a file in the home folder (never the workspace, which the user and Amuse's own tools read). */
-export const SecretFile = z.object({ path: z.string().min(1).max(1024), value: z.string().min(1).max(200_000) });
+export const SecretFile = z.object({
+  path: z.string().min(1).max(1024),
+  value: z.string().min(1).max(200_000),
+  /** `base64`: the value is the file's bytes in base64 (a keystore is not text); `utf8` (the default): the text itself */
+  encoding: z.enum(["utf8", "base64"]).optional(),
+});
 export type SecretFile = z.infer<typeof SecretFile>;
 
 /** Taking a credential back: the variable, or the file. */
 export const Forget = z.union([z.object({ env: EnvName }), z.object({ file: z.string().min(1).max(1024) })]);
 export type Forget = z.infer<typeof Forget>;
+
+/**
+ * A folder in the home folder, outside the workspace, that a reset would delete: something the user may have
+ * put there themselves, and may want kept.
+ */
+export const AtRiskFolder = z.object({
+  /** where it is, from the home folder ("myapp") */
+  path: z.string().max(1024),
+  /** it holds a `.git`: a repository of code, more likely to be work than a tool's own folder */
+  repository: z.boolean(),
+});
+export type AtRiskFolder = z.infer<typeof AtRiskFolder>;
+
+/** What a scan of the home folder found: a handful of folders, a few levels deep at most. */
+export const AtRiskFolders = z.object({ folders: z.array(AtRiskFolder) });
 
 /** A terminal of herdr's, by its pane's id (w1:p2). */
 export const PaneId = z.string().regex(/^w\d{1,6}:p\d{1,6}$/);

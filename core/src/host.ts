@@ -7,12 +7,14 @@
  * uses it in-process (web demo, tests).
  */
 import {
+  type AtRiskFolder,
   type Account,
   type Approval,
   type Attachment,
   type Permission,
   type KindRule,
   type KeyTest,
+  type KeyWay,
   type LoginStep,
   type ModelRole,
   type LocalVoice,
@@ -20,23 +22,28 @@ import {
   type ToolKind,
   type Browser,
   Chat,
+  type AppAccess,
   type Connection,
   type Entity,
   Event,
   type Envelope,
   type Failure,
   type Handlers,
+  type GivenField,
   type Params,
+  type Quote,
   type Reply,
   type Results,
   type Schedule,
-  type SecretInfo,
+  type SecretAnswer,
+  type SecretEntry,
   type SecretRequest,
   type SkillInfo,
   type SkillOrigin,
   type Session,
   type Task,
   type State,
+  type Use,
   type Update,
   MAIN,
   apply,
@@ -44,6 +51,7 @@ import {
   empty,
   recent,
 } from "@amuse/protocol";
+import { misfit, told } from "./secrets.ts";
 import {
   type AgentAction,
   type Change,
@@ -64,6 +72,7 @@ import {
 import { deadline, localTime, userZone } from "./schedule.ts";
 import { addGoal, goalLog, listGoals, readGoal, updateGoal } from "./goals.ts";
 import { BEAT_MS, beatNote, inFlight } from "./heartbeat.ts";
+import { live, liveState } from "./live.ts";
 import { type Timers, realTimers } from "./timers.ts";
 import { type Rules, browserActions, defaultBrowser } from "./policy.ts";
 import { type Budget, type Where, agentContext, budget, mentions, recall } from "./context.ts";
@@ -93,8 +102,9 @@ export interface ChatInfo {
 
 /**
  * What ports and agents can do in one chat: say things, act through the
- * rules, wait for an approval, and wake the chat's agent with a note (not
- * shown as a user message), e.g. a finished run's result.
+ * rules, wait for an approval, wake the chat's agent with a note (not shown as
+ * a user message), e.g. a finished run's result, or tell it something it reads
+ * with its next turn.
  */
 export interface AgentIO {
   /** the chat this is for (MAIN or a side chat's id) */
@@ -115,6 +125,10 @@ export interface AgentIO {
   decision(id: string): Promise<Answer>;
   /** Wake the chat agent with a note from background work. */
   report(note: string): void;
+  /** Tell the chat agent something, without waking it: it reads it with its next turn (a browser taken over, or handed back). */
+  mention(note: string): void;
+  /** What is running now in this chat, a line each (live.ts), as the agent reads it every turn; "" when nothing is. */
+  running(): string;
   /** Now, and the user's time zone (their device's when they last wrote). */
   time(): { now: string; timezone: string };
   /** What the user last said in this chat (or, before they have, in the main chat); "" before they ever have. */
@@ -169,18 +183,16 @@ export interface Ports {
   skills?: Skills;
   /** Amuse's own machine, as far as the user controls it (none where there is no sandbox). */
   sandbox: Sandbox;
+  /** The Vault. */
+  secrets: Secrets;
 }
 
-/** The sandbox Amuse works in, as the user sees it: it can be wiped, and given credentials. */
+/** The sandbox Amuse works in, as the user sees it: it can be wiped. */
 export interface Sandbox {
   /** Stop what runs in the sandbox and wipe its home folder; the workspace is kept, and system-wide installs stay until the container is recreated. Rejects, in words, when it cannot. */
   reset(): Promise<void>;
-  /** Give the sandbox a credential the user typed, where `request` says. Rejects, in words, when it cannot. */
-  give(request: SecretRequest, value: string): Promise<void>;
-  /** The credentials given, never their values. */
-  secrets(): Promise<SecretInfo[]>;
-  /** Take one back, from the sandbox too. */
-  forget(id: string): Promise<void>;
+  /** Folders in the sandbox's home folder, outside the workspace, that a reset would delete: what the user may want kept. Rejects, in words, when it cannot. */
+  atRisk(): Promise<AtRiskFolder[]>;
 }
 
 const noSandboxHere = () => new Rejected({ kind: "unsound", reason: "This server has no sandbox." });
@@ -190,12 +202,71 @@ export const noSandbox: Sandbox = {
   reset: async () => {
     throw noSandboxHere();
   },
-  give: async () => {
+  atRisk: async () => {
     throw noSandboxHere();
   },
-  secrets: async () => [],
-  forget: async () => {
-    throw noSandboxHere();
+};
+
+/**
+ * The Vault (protocol/src/secrets.ts), as the user manages it in Settings and as the agents use it. Every
+ * call rejects, in words, when it cannot be done. What it keeps, it keeps encrypted; a secret field's value comes
+ * out only to where a use of it says (the sandbox, a service of the server's), never to a client or an agent.
+ */
+export interface Secrets {
+  list(): Promise<SecretEntry[]>;
+  add(params: Params["secrets.add"]): Promise<{ id: string }>;
+  edit(params: Params["secrets.edit"]): Promise<void>;
+  setSecret(params: Params["secrets.setSecret"]): Promise<void>;
+  /** A secret field as text, for the user's own eyes (a client's reveal and copy): never an agent's, which has `AgentSecrets` only. */
+  reveal(params: Params["secrets.reveal"]): Promise<string>;
+  removeSecret(params: Params["secrets.removeSecret"]): Promise<void>;
+  /** Add a use, putting the field where it says (a variable or file in the sandbox) now. */
+  use(params: Params["secrets.use"]): Promise<Use>;
+  /** Add a use for an agent: the same, but a secret field's first use in the sandbox only with `approved` (the user's word on a card). */
+  useByAgent(params: Params["secrets.use"], approved: boolean): Promise<Use>;
+  unuse(params: Params["secrets.unuse"]): Promise<void>;
+  remove(id: string): Promise<void>;
+  /** The user answered a card: a code goes into its terminal and is kept nowhere (but for a while in memory, to mask what the terminal shows of it); the fields of a long-term secret are stored, with the uses the card names. */
+  answer(request: SecretRequest, answer: SecretAnswer): Promise<void>;
+}
+
+/** What an agent may do with the store: look, and add a use. */
+export type AgentSecrets = Pick<Secrets, "list" | "useByAgent">;
+
+const noStore = () => new Rejected({ kind: "unsound", reason: "This server has no Vault." });
+
+/** No Vault on this server (tests). */
+export const noSecrets: Secrets = {
+  list: async () => [],
+  add: async () => {
+    throw noStore();
+  },
+  edit: async () => {
+    throw noStore();
+  },
+  setSecret: async () => {
+    throw noStore();
+  },
+  reveal: async () => {
+    throw noStore();
+  },
+  removeSecret: async () => {
+    throw noStore();
+  },
+  use: async () => {
+    throw noStore();
+  },
+  useByAgent: async () => {
+    throw noStore();
+  },
+  unuse: async () => {
+    throw noStore();
+  },
+  remove: async () => {
+    throw noStore();
+  },
+  answer: async () => {
+    throw noStore();
   },
 };
 
@@ -234,8 +305,8 @@ export class WorkspaceError extends Error {}
 /**
  * Muse's workspace: a folder of real files that Muse and the user share.
  * What the user sends lands in user/ (pictures and videos in
- * user/media_library/), the browser's downloads in downloads/, and the rest
- * is Muse's own. Paths are relative to the workspace and never leave it.
+ * user/media_library/), the browser's downloads in downloads/, pictures of
+ * pages in screenshots/, and the rest is Muse's own. Paths are relative to the workspace and never leave it.
  * A file sent in the chat is an attachment: an id the chat keeps, pointing
  * at the file where it is now (nowhere, once deleted).
  */
@@ -287,7 +358,11 @@ export const noWorkspace: Workspace = {
 };
 
 /** What wakes the agent: the user's message (with any files), or a note from its background work (not shown as a message). */
-export type Turn = { kind: "message"; text: string; attachments: Attachment[] } | { kind: "note"; text: string };
+export type Turn =
+  | { kind: "message"; text: string; attachments: Attachment[]; quote: Quote | null }
+  | { kind: "note"; text: string }
+  /** Not a turn of its own: what the agent reads with its next one, or mid-turn as it works (a browser taken over, or handed back). */
+  | { kind: "aside"; text: string };
 
 /** Where apps are found, connected and let go of: the connector's directory. */
 export interface AppDirectory {
@@ -295,17 +370,28 @@ export interface AppDirectory {
   accounts(): Promise<Account[]>;
   /** The provider's hosted auth link for `app`. */
   connect(app: string): Promise<string>;
+  /** How `app` is connected: a hosted link, or the user's own key. */
+  access(app: string): Promise<AppAccess>;
+  /** Connect `app` with the credentials the user typed (one field, or several); the connector passes them on and keeps nothing. */
+  connectKey(app: string, values: GivenField[]): Promise<void>;
+  /**
+   * When `app` cannot be connected here at all: the words for the agent, naming a toolkit of the same service that
+   * takes a key or a token instead, where there is one; null when it can be connected.
+   */
+  cannotConnect(app: string): Promise<string | null>;
   disconnect(account: string): Promise<void>;
   /** What the agent may do with the app, by kind of tool. */
   permissions(app: string): Promise<KindRule[]>;
   permit(app: string, kind: ToolKind, permission: Permission | null): Promise<void>;
 }
 
-/** Where the user's keys are set up and the models chosen: a sign-in goes prompt by prompt. */
+/** Where the user's keys are set up and the models chosen: a sign-in goes step by step. */
 export interface Keys {
   list(): Promise<Results["keys.list"]>;
-  login(provider: string): Promise<LoginStep>;
+  login(provider: string, way?: KeyWay): Promise<LoginStep>;
   answer(login: string, value: string): Promise<LoginStep>;
+  /** The sign-in's next step, or after a while the step as it stands. */
+  wait(login: string): Promise<LoginStep>;
   cancel(login: string): Promise<void>;
   /** Try a provider's key with one short request. */
   test(provider: string): Promise<KeyTest>;
@@ -317,6 +403,8 @@ export interface Keys {
   voice(provider: string | null): Promise<void>;
   /** Set up (or remove) the user's own speech server. */
   localVoice(service: (LocalVoice & { key: string | null }) | null): Promise<void>;
+  /** Called after any key is set up or forgotten, by whoever did it (where the keys can tell). */
+  onChange?(listener: () => void): void;
 }
 
 /** No keys: where none are kept (the demo, tests); the demo's agent needs none. */
@@ -324,6 +412,7 @@ export const noKeys: Keys = {
   list: async () => ({ providers: [], models: [], chat: null, browser: null, background: null, thinking: { chat: "off", browser: "off", background: "off" }, voice: { services: [], chosen: null, local: null } }),
   login: async () => ({ kind: "failed", reason: "No keys are kept here." }),
   answer: async () => ({ kind: "failed", reason: "No keys are kept here." }),
+  wait: async () => ({ kind: "failed", reason: "No keys are kept here." }),
   cancel: async () => {},
   test: async () => ({ ok: false, detail: "No keys are kept here." }),
   logout: async () => {},
@@ -367,9 +456,12 @@ export interface Clock {
   now(): string;
 }
 
-/** Where a chat's event log survives restarts. The host replays it on start and appends every event. */
+/**
+ * Where a chat's event log survives restarts. The host replays it on start, event by event (so a store can read it as it goes,
+ * without holding it whole), and appends every event.
+ */
 export interface Journal {
-  load(): Envelope[];
+  load(): Iterable<Envelope>;
   append(envelope: Envelope): void;
 }
 
@@ -417,6 +509,8 @@ export interface HostOptions {
   snapshot?: number;
   /** What wakes the host when a schedule or an approval falls due (real timers by default). */
   timers?: Timers<unknown>;
+  /** Told once, when the host is up, with the main chat's agent: what the server itself says to it (a new version's news). */
+  started?: (main: AgentIO) => void;
 }
 
 /** Trusted backend synchronization only; these operations are not exposed over RPC. */
@@ -443,7 +537,10 @@ const SETTLE_SLACK_MS = 60_000;
 /** How much of another chat the agent reads at once. */
 const otherChat: Budget = { full: 12_000, brief: 4_000 };
 
-/** One chat as the host keeps it: the whole feed (clients may ask for any of it), its log, and its agent's IO. */
+/** How many of a chat's latest events the host keeps to answer a client that is only a little behind; further back, the client gets a snapshot. */
+const LOG_KEPT = 1000;
+
+/** One chat as the host keeps it: the whole feed (clients may ask for any of it), its latest events, and its agent's IO. */
 interface Room {
   chat: Chat;
   state: State;
@@ -521,12 +618,19 @@ export function createHost(ports: Ports, options: HostOptions = {}): Host {
   const record = (room: Room, envelope: Envelope) => {
     room.state = apply(room.state, envelope);
     room.log.push(envelope);
+    // the log is only its tail, trimmed in steps so that most events cost nothing; the state is the whole feed
+    if (room.log.length > LOG_KEPT * 2) room.log.splice(0, room.log.length - LOG_KEPT);
   };
-  /** Every change is recorded here; ports only reach the Say subset of them (AgentIO.emit). */
+  /**
+   * Every change is recorded here; ports only reach the Say subset of them (AgentIO.emit). What a deleted chat's agent still says goes
+   * nowhere: the chat and its journal are gone. The journal comes first: if it cannot take the event (the disk, a lock), nothing is
+   * recorded, so the next event is numbered the same and the journal never has a gap.
+   */
   const commit = (room: Room, change: Change) => {
+    if (rooms.get(room.chat.id) !== room) return;
     const envelope = { seq: room.state.seq + 1, event: place(room.state, change) };
-    record(room, envelope);
     room.journal.append(envelope);
+    record(room, envelope);
     push({ kind: "event", chat: room.chat.id, envelope });
     if (change.kind !== "upserted") return;
     // a run that starts is looked in on from now; one that is done is no longer
@@ -534,6 +638,9 @@ export function createHost(ports: Ports, options: HostOptions = {}): Host {
     if (inFlight(moved)) {
       if (!beats.has(moved.id)) beats.set(moved.id, { room, since: clock.now(), last: clock.now() });
     } else beats.delete(moved.id);
+    // what the chat agent reads every turn (live.ts): when each run in play last changed
+    if (live(moved)) changed.set(moved.id, clock.now());
+    else changed.delete(moved.id);
     arm(); // only an entity can move a deadline
     // something said moves the chat up the list
     const { entity } = change;
@@ -548,6 +655,8 @@ export function createHost(ports: Ports, options: HostOptions = {}): Host {
   let armed: { at: string; handle: unknown } | null = null;
   /** Runs in flight, by id: their chat, since when, and when the chat agent last heard how they go. */
   const beats = new Map<string, { room: Room; since: string; last: string }>();
+  /** When each run in play last changed, by id: what the chat agent reads every turn (live.ts) says how long ago. */
+  const changed = new Map<string, string>();
   const nextBeat = (): string | null =>
     [...beats.values()].map((b) => new Date(Date.parse(b.last) + BEAT_MS).toISOString()).reduce<string | null>((a, b) => (a === null || Date.parse(b) < Date.parse(a) ? b : a), null);
   /** Tell the chat agent how each run that is due goes. */
@@ -624,6 +733,11 @@ export function createHost(ports: Ports, options: HostOptions = {}): Host {
         // a chat deleted meanwhile has no one to tell
         if (rooms.get(chat) === at()) ports.prompt({ kind: "note", text: note }, io);
       },
+      mention: (note) => {
+        // the same, but it must not wake the agent: it is read with the next turn, or mid-turn as it works
+        if (rooms.get(chat) === at()) ports.prompt({ kind: "aside", text: note }, io);
+      },
+      running: () => liveState(at().state, changed, clock.now()),
       context: () => agentContext(at().state, budget, where),
       recall(query, everywhere = false) {
         const room = at();
@@ -708,7 +822,7 @@ export function createHost(ports: Ports, options: HostOptions = {}): Host {
     const { agent } = room;
     switch (effect.kind) {
       case "prompt":
-        return ports.prompt({ kind: "message", text: effect.text, attachments: effect.attachments }, agent);
+        return ports.prompt({ kind: "message", text: effect.text, attachments: effect.attachments, quote: effect.quote }, agent);
       case "note":
         return ports.prompt({ kind: "note", text: effect.text }, agent);
       case "interrupt":
@@ -764,13 +878,34 @@ export function createHost(ports: Ports, options: HostOptions = {}): Host {
   const chats = stored.some((c) => c.id === MAIN) ? stored : [{ id: MAIN, title: "", at: now, updated: now }, ...stored];
   for (const chat of chats) {
     const room = open(chat);
-    const history = room.journal.load();
-    history.forEach((envelope) => record(room, envelope));
+    let replayed = 0;
+    for (const envelope of room.journal.load()) {
+      record(room, envelope);
+      replayed += 1;
+    }
     recover(room.state, now).forEach((change) => commit(room, change));
-    if (chat.id === MAIN && history.length === 0) for (const entity of options.seed ?? []) commit(room, { kind: "upserted", entity });
+    if (chat.id === MAIN && replayed === 0) for (const entity of options.seed ?? []) commit(room, { kind: "upserted", entity });
   }
   if (!stored.some((c) => c.id === MAIN)) store.save(ordered());
   arm(); // what fell due while amuse was down happens now (or is recorded as missed)
+
+  /**
+   * A card that asks for the key of a service is done once the key is there, however it got there (the sheet on the
+   * card, or Settings): it shows the end of the key, and the chat's agent is woken to carry on.
+   */
+  const settleKeys = async () => {
+    const waiting = [...rooms.values()].flatMap((room) => room.state.entities.flatMap((e) => (e.kind === "secret" && e.status === "pending" && e.deliver.kind === "key" ? [{ room, request: e, provider: e.deliver.provider }] : [])));
+    if (waiting.length === 0) return;
+    const { providers } = await ports.keys.list();
+    for (const { room, request, provider } of waiting) {
+      const found = providers.find((p) => p.id === provider);
+      if (!found?.connected) continue;
+      room.agent.act({ kind: "secretAnswered", id: request.id, outcome: "provided", hint: found.hint });
+      room.agent.report(told(request, true));
+    }
+  };
+  ports.keys.onChange?.(() => void settleKeys().catch(() => {}));
+  void settleKeys().catch(() => {});
 
   /** A side chat with no title yet is named after its first message. */
   const nameAfter = (room: Room, text: string) => {
@@ -873,30 +1008,50 @@ export function createHost(ports: Ports, options: HostOptions = {}): Host {
       await ports.sandbox.reset();
       return null;
     },
+    "sandbox.atRisk": async () => ({ folders: await ports.sandbox.atRisk() }),
     "approvals.list": async () => ({
       approvals: [...rooms.values()]
         .flatMap((room) => room.state.entities.filter((e): e is Approval => e.kind === "approval").map((approval) => ({ chat: room.chat, approval })))
         .sort((a, b) => Date.parse(b.approval.at) - Date.parse(a.approval.at)),
     }),
-    // the value goes from here to the sandbox, never into the chat, the journal or the agent's context
-    "secret.answer": async ({ id, value }) => {
+    // the value goes from here to where it is kept or typed, never into the chat, the journal or the agent's context
+    "secret.answer": async ({ id, answer }) => {
       const room = holder(id);
       const request = room?.state.entities.find((e): e is SecretRequest => e.kind === "secret" && e.id === id);
       if (!room || !request) throw new Rejected({ kind: "notFound", entity: "secret", id });
       if (request.status !== "pending") throw new Rejected({ kind: "unsound", reason: "That has been answered already." });
-      if (value !== null) await ports.sandbox.give(request, value);
-      const provided = value !== null;
-      room.agent.act({ kind: "secretAnswered", id, outcome: provided ? "provided" : "declined" });
-      room.agent.report(
-        provided
-          ? `[credential] The user provided ${request.name}; it is in your sandbox as asked. Carry on with what needed it (you never see the value, and output shows it masked).`
-          : `[credential] The user declined to give ${request.name}. Do not ask for it again unless they bring it up.`,
-      );
+      if (answer !== null) {
+        const wrong = misfit(request.deliver, answer);
+        if (wrong) throw new Rejected({ kind: "unsound", reason: wrong });
+        await ports.secrets.answer(request, answer);
+      }
+      room.agent.act({ kind: "secretAnswered", id, outcome: answer !== null ? "provided" : "declined" });
+      const note = told(request, answer !== null);
+      if (note) room.agent.report(note);
       return null;
     },
-    "secrets.list": async () => ({ secrets: await ports.sandbox.secrets() }),
+    "secrets.list": async () => ({ entries: await ports.secrets.list() }),
+    "secrets.add": (params) => ports.secrets.add(params),
+    "secrets.edit": async (params) => {
+      await ports.secrets.edit(params);
+      return null;
+    },
+    "secrets.setSecret": async (params) => {
+      await ports.secrets.setSecret(params);
+      return null;
+    },
+    "secrets.reveal": async (params) => ({ value: await ports.secrets.reveal(params) }),
+    "secrets.removeSecret": async (params) => {
+      await ports.secrets.removeSecret(params);
+      return null;
+    },
+    "secrets.use": async (params) => ({ use: await ports.secrets.use(params) }),
+    "secrets.unuse": async (params) => {
+      await ports.secrets.unuse(params);
+      return null;
+    },
     "secrets.remove": async ({ id }) => {
-      await ports.sandbox.forget(id);
+      await ports.secrets.remove(id);
       return null;
     },
     "skills.list": async () => ({ skills: await (ports.skills ?? noSkills).list() }),
@@ -926,6 +1081,13 @@ export function createHost(ports: Ports, options: HostOptions = {}): Host {
       return { accounts };
     },
     "apps.connect": async ({ app }) => ({ url: await ports.apps.connect(app) }),
+    "apps.access": async ({ app }) => ({ access: await ports.apps.access(app) }),
+    "apps.connectKey": async ({ app, values }) => {
+      await ports.apps.connectKey(app, values);
+      // a Connect card waiting for this app is settled now, and the agent told
+      settleConnections(await ports.apps.accounts());
+      return null;
+    },
     "apps.disconnect": async ({ account }) => {
       await ports.apps.disconnect(account);
       return null;
@@ -953,8 +1115,9 @@ export function createHost(ports: Ports, options: HostOptions = {}): Host {
       return null;
     },
     "keys.list": () => ports.keys.list(),
-    "keys.login": ({ provider }) => ports.keys.login(provider),
+    "keys.login": ({ provider, way }) => ports.keys.login(provider, way),
     "keys.answer": ({ login, value }) => ports.keys.answer(login, value),
+    "keys.wait": ({ login }) => ports.keys.wait(login),
     "keys.cancel": async ({ login }) => {
       await ports.keys.cancel(login);
       return null;
@@ -981,6 +1144,9 @@ export function createHost(ports: Ports, options: HostOptions = {}): Host {
       return null;
     },
   };
+
+  // what the server itself has to say to the main chat, once, now that it is up (a new version's news)
+  options.started?.(main().agent);
 
   return {
     agent: (chat) => roomOf(chat).agent,

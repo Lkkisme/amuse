@@ -1,0 +1,26 @@
+{
+  "apps": {
+    "gmail": {
+      "destructive": "deny",
+      "write": "ask"
+    },
+    "github": {
+      "read": "allow"
+    }
+  },
+  "browser": {
+    "download": "ask"
+  },
+  "sites": {
+    "bank.example": {
+      "never": true,
+      "actions": {}
+    },
+    "news.example": {
+      "never": false,
+      "actions": {
+        "submit": "allow"
+      }
+    }
+  }
+}

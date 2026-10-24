@@ -2,9 +2,12 @@
  * UI-only state: which panels are open and what they show. Server state is
  * the conversation (session.ts); this never duplicates it, only ids into it.
  */
-import { type App, type Attachment, type KeyProvider, MAIN, type SkillOrigin } from "@amuse/protocol";
+import { type App, type AppAccess, type Attachment, type GivenField, type KeyProvider, MAIN, type Quote, type SecretAnswer, type SkillOrigin } from "@amuse/protocol";
 
-export type SettingsSection = "general" | "models" | "connectors" | "permissions" | "logins" | "schedules" | "sandbox";
+export type SettingsSection = "general" | "security" | "models" | "connectors" | "permissions" | "logins" | "secrets" | "schedules" | "sandbox";
+
+/** What the Vault shows besides its list: the form to add an entry, or an entry's page (its name, to title the page). */
+export type SecretPage = { kind: "add" } | { kind: "entry"; id: string; name: string };
 
 /** A section of the sidebar besides the chats (nav.ts). */
 export type LeftSection = "goals" | "skills";
@@ -33,14 +36,22 @@ export interface Ui {
   /** the Muse panel (profile and activity): docked on the right, or floating over the chat while the browser has the right */
   museOpen: boolean;
   /** section null: on a phone, the list of sections (on a desktop, the first one) */
-  /** `app`, `provider`: a connector's or a key provider's page, open over its section */
-  settings: { open: boolean; section: SettingsSection | null; app: App | null; provider: KeyProvider | null };
+  /** `app`, `provider`, `entry`: a connector's, a key provider's or a secret's page (or the form to add one), open over its section */
+  settings: {
+    open: boolean;
+    section: SettingsSection | null;
+    app: App | null;
+    provider: KeyProvider | null;
+    entry: SecretPage | null;
+  };
   /** the viewer on the right: the browser (its active tab) or the sandbox's terminals */
   viewer: { browserId: string | null; shown: Shown } | null;
   /** connection whose pre-connect explainer is open */
   explainer: string | null;
   /** task whose detail sheet is open */
   taskDetail: string | null;
+  /** the item of Amuse's the next message in `chat` replies to (the quote bar over the composer) */
+  replying: { chat: string; quote: Quote } | null;
   /** a short message about something that did not work */
   notice: string | null;
 }
@@ -54,10 +65,11 @@ export const initialUi: Ui = {
   goal: null,
   skill: null,
   museOpen: false,
-  settings: { open: false, section: null, app: null, provider: null },
+  settings: { open: false, section: null, app: null, provider: null, entry: null },
   viewer: null,
   explainer: null,
   taskDetail: null,
+  replying: null,
   notice: null,
 };
 
@@ -65,14 +77,20 @@ export const initialUi: Ui = {
 export interface Actions {
   /** say something in the chat on screen, with any files already uploaded; fails when it did not get through */
   send(text: string, attachments: Attachment[]): Promise<void>;
+  /** start replying to an item of Amuse's in the chat on screen, or (null) stop; the next message goes with it */
+  reply(quote: Quote | null): void;
   stop(): void;
   /** try again a turn Muse could not reply to */
   retry(failure: string): void;
   resolveApproval(id: string, resolution: "allow_once" | "allow_always" | "deny"): void;
-  /** answer a request for a credential: its value (to the sandbox, never the chat), or null to decline; fails, in words, when it could not be given */
-  answerSecret(id: string, value: string | null): Promise<void>;
+  /** answer a request for a secret: the code or the fields it asked for (to the server's care, never the chat), or null to decline; fails, in words, when it could not be given */
+  answerSecret(id: string, answer: SecretAnswer | null): Promise<void>;
   openExplainer(connectionId: string | null): void;
   connect(connectionId: string): void;
+  /** how an app is connected: a hosted link, or credentials of the user's own (one field, or several) */
+  appAccess(app: string): Promise<AppAccess>;
+  /** connect an app with those credentials (typed by them, passed on to Composio, kept nowhere); fails, in words, when it did not go through */
+  connectKey(app: string, values: GivenField[]): Promise<void>;
   /** null: whichever browser is newest (or none, said so) */
   openViewer(browserId: string | null): void;
   closeViewer(): void;
@@ -110,6 +128,8 @@ export interface Actions {
   /** Settings › Connections: a service's page, or back to the list (null) */
   openApp(app: App | null): void;
   openProvider(provider: KeyProvider | null): void;
+  /** Settings › Vault: an entry's page, the form to add one, or back to the list (null) */
+  openEntry(entry: SecretPage | null): void;
   closeSettings(): void;
   setTheme(theme: Theme): void;
   reset(): void;

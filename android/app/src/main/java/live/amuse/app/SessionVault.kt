@@ -37,6 +37,12 @@ class SessionVault(context: Context) {
     fun hasSession(server: ServerAddress): Boolean = prefs.getString("origin", null) == server.origin &&
         prefs.contains("payload") && Build.VERSION.SDK_INT >= 30 && keyStore.containsAlias(alias)
 
+    /** Preserve a legacy configured origin without unsealing its biometric session. */
+    fun configuredServer(): ServerAddress? = runCatching {
+        val origin = prefs.getString("origin", null) ?: return@runCatching null
+        ServerAddress.parse(origin).takeIf(::hasSession)
+    }.getOrNull()
+
     @Synchronized
     fun store(server: ServerAddress, cookie: String) {
         check(Build.VERSION.SDK_INT >= 30)

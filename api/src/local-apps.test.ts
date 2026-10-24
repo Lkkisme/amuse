@@ -29,6 +29,9 @@ function setup(t: TestContext) {
   };
   const gmail = { id: "gmail", name: "Gmail", description: "Mail", logo: null };
   const cloudDirectory: AppDirectory = {
+    async access() { cloud("directory.access"); return { kind: "managed" }; },
+    async cannotConnect() { cloud("directory.cannotConnect"); return null; },
+    async connectKey() { cloud("directory.connectKey"); },
     async search(_query, cursor) { cloud("search"); return { apps: [gmail], cursor: cursor ? null : "next-page" }; },
     async accounts() { cloud("directory.accounts"); return [{ id: "ca_1", label: "Fixture mail", app: gmail, status: "active", since: null }]; },
     async connect() { cloud("directory.connect"); return "https://accounts.example.test/oauth"; },
@@ -45,7 +48,7 @@ function agent() {
   const reports: string[] = [];
   let approve = true;
   const io: AgentIO = {
-    chat: "main", chats: () => [], schedules: () => [], readChat: () => null,
+    chat: "main", mention: () => {}, running: () => "", chats: () => [], schedules: () => [], readChat: () => null,
     emit: () => {}, act: (action) => { actions.push(action); return { ok: true, id: "approval-1" }; },
     decision: async () => ({ verdict: approve ? "approved" : "denied", remember: false }),
     report: (note) => { reports.push(note); }, context: () => "", recall: () => "",
@@ -152,4 +155,25 @@ test("request_connection checks setup for its provider and old zero-argument set
   assert.match(JSON.stringify(await execute("gmail")), /Composio key goes/);
   const legacy = tools(() => s.io, rules, { appsSetup: () => "legacy setup" }).find((entry) => entry.name === "request_connection")!;
   assert.match(JSON.stringify(await legacy.execute("fixture", { status: "Connect", provider: "gmail", title: "Gmail" }, undefined, undefined, {} as never)), /legacy setup/);
+});
+
+test("local access discovery stays managed without a cloud key, and typed keys cannot cross into Git login", async (t) => {
+  const { composite, called } = setup(t);
+  assert.deepEqual(await composite.directory.access("local-github"), { kind: "managed" });
+  assert.equal(await composite.directory.cannotConnect("local-github"), null);
+  await assert.rejects(composite.directory.connectKey("local-github", [{ name: "token", value: "must-not-be-stored" }]), /existing Git login/);
+  assert.deepEqual(called, []);
+  assert.equal((await composite.directory.accounts()).some((account) => account.id === "local-github:fixture"), true, "a refused key flow never disables the existing connection");
+  await assert.rejects(async () => composite.directory.access("gmail"), NoComposioKey);
+  await assert.rejects(async () => composite.directory.cannotConnect("gmail"), NoComposioKey);
+  await assert.rejects(async () => composite.directory.connectKey("gmail", []), NoComposioKey);
+  assert.deepEqual(called, []);
+});
+
+test("cloud access and key-link capabilities remain routed to their real provider", async (t) => {
+  const { composite, called, key } = setup(t); key(true);
+  assert.deepEqual(await composite.directory.access("gmail"), { kind: "managed" });
+  assert.equal(await composite.directory.cannotConnect("gmail"), null);
+  await composite.directory.connectKey("gmail", [{ name: "test-key", value: "fixture" }]);
+  assert.deepEqual(called, ["directory.access", "directory.cannotConnect", "directory.connectKey"]);
 });

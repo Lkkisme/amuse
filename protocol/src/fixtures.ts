@@ -8,7 +8,7 @@ import type { Call, Envelope } from "./index.ts";
 const at = "2026-10-20T08:24:00Z";
 
 export const envelopes: Envelope[] = [
-  { seq: 1, event: { kind: "upserted", index: 0, entity: { kind: "prompt", id: "p1", at, text: "Log in to the trip portal", timezone: "Asia/Shanghai", attachments: [] } } },
+  { seq: 1, event: { kind: "upserted", index: 0, entity: { kind: "prompt", id: "p1", at, text: "Log in to the trip portal", timezone: "Asia/Shanghai", attachments: [], quote: null } } },
   { seq: 2, event: { kind: "upserted", index: 1, entity: { kind: "reply", id: "r1", at, text: "On it", streaming: true, attachments: [] } } },
   { seq: 3, event: { kind: "appended", id: "r1", text: "." } },
   { seq: 4, event: { kind: "activity", activity: { kind: "working", label: "Opening page" } } },
@@ -34,7 +34,7 @@ export const envelopes: Envelope[] = [
     event: {
       kind: "upserted",
       index: 3,
-      entity: { kind: "approval", id: "a1", at, action: "Send email", target: "restaurant@example.com", detail: "Table for 4", remember: true, status: "pending", expires: "2026-10-20T08:54:00Z", app: "gmail", always: false, byRule: false },
+      entity: { kind: "approval", id: "a1", at, action: "Send email", target: "restaurant@example.com", detail: "Table for 4", remember: true, status: "pending", expires: "2026-10-20T08:54:00Z", app: "gmail", always: false, byRule: false, lasting: false },
     },
   },
   {
@@ -106,6 +106,22 @@ export const envelopes: Envelope[] = [
   },
   { seq: 15, event: { kind: "activity", activity: { kind: "responding", label: null } } },
   { seq: 16, event: { kind: "activity", activity: null } },
+  {
+    seq: 17,
+    event: {
+      kind: "upserted",
+      index: 11,
+      entity: {
+        kind: "prompt",
+        id: "p2",
+        at,
+        text: "Make it 9",
+        timezone: "Asia/Shanghai",
+        attachments: [],
+        quote: { id: "s1", kind: "schedule", text: "Morning briefing", state: "active" },
+      },
+    },
+  },
 ];
 
 export const calls: Call[] = [
@@ -113,6 +129,7 @@ export const calls: Call[] = [
   { method: "session.sync", params: { chat: "c-1", since: 7 } },
   { method: "session.history", params: { chat: "main", before: 40, limit: 20 } },
   { method: "chat.send", params: { chat: "main", text: "hi", timezone: "Asia/Shanghai", attachments: [] } },
+  { method: "chat.send", params: { chat: "main", text: "change this one", timezone: "Asia/Shanghai", attachments: [], replyTo: "s1" } },
   { method: "chat.stop", params: { chat: "main" } },
   { method: "chat.retry", params: { id: "x1" } },
   { method: "chats.list", params: {} },
@@ -132,6 +149,8 @@ export const calls: Call[] = [
   { method: "apps.search", params: { query: "mail", cursor: null } },
   { method: "apps.accounts", params: {} },
   { method: "apps.connect", params: { app: "gmail" } },
+  { method: "apps.access", params: { app: "cloudflare" } },
+  { method: "apps.connectKey", params: { app: "cloudflare", values: [{ name: "generic_api_key", value: "example-key-not-real" }] } },
   { method: "apps.disconnect", params: { account: "ca_1" } },
   { method: "apps.permissions", params: { app: "gmail" } },
   { method: "apps.permit", params: { app: "gmail", kind: "write", permission: "ask" } },
@@ -142,10 +161,13 @@ export const calls: Call[] = [
   { method: "logins.list", params: {} },
   { method: "logins.forget", params: { site: "facebook.com" } },
   { method: "sandbox.reset", params: {} },
+  { method: "sandbox.atRisk", params: {} },
   { method: "approvals.list", params: {} },
   { method: "keys.list", params: {} },
   { method: "keys.login", params: { provider: "fireworks" } },
+  { method: "keys.login", params: { provider: "openai", way: "account" } },
   { method: "keys.answer", params: { login: "l-1", value: "fw_example" } },
+  { method: "keys.wait", params: { login: "l-1" } },
   { method: "keys.cancel", params: { login: "l-1" } },
   { method: "keys.test", params: { provider: "fireworks" } },
   { method: "keys.logout", params: { provider: "fireworks" } },

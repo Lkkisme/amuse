@@ -1,12 +1,12 @@
 /**
  * Settings (surfaces 7, 9, 10): a page on a phone, a modal with a nav column on
- * a desktop — General (appearance; the password), Models (the user's keys and
+ * a desktop — General (appearance, language), Security (the PIN, the password,
+ * the devices: Security.tsx), Models (the user's keys and
  * the models chosen: Models.tsx), Connections (the server's directory: Connectors.tsx),
- * Permissions (per-site Allow/Ask/Deny), Schedules and the Sandbox (reset it). Modeled on the reference
- * settings sheet. (Muse's secure store is left out: the browser keeps logins
- * from the user's own sign-ins instead.)
+ * Permissions (per-site Allow/Ask/Deny), the Vault (SecretStore.tsx), Browser data (the sites the browser keeps
+ * the user signed in to), Schedules and the Sandbox (reset it). Modeled on the reference settings sheet.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -14,11 +14,13 @@ import {
   Globe,
   LayoutGrid,
   Plus,
+  Cookie,
   Settings as SettingsIcon,
   Shield,
   Sparkles,
-  KeyRound,
+  LockKeyhole,
   Terminal,
+  Vault,
   X,
   CalendarClock,
 } from "lucide-react";
@@ -26,23 +28,30 @@ import type { BackendStatus as Backend, Session } from "@amuse/protocol";
 import type { Actions, SettingsSection, Theme, Ui } from "../ui.ts";
 import type { Choice } from "../i18n/language.ts";
 import { useLanguageChoice, useT } from "../i18n/react.ts";
+import type { Messages } from "../i18n/en.ts";
+import { Button } from "./Button";
 import { usePresence } from "./usePresence";
 import { barButton, barButtonLook, barIcon } from "./bar";
 import { AppsKey } from "./AppsKey";
 import { SitePermissions } from "./SitePermissions";
 import { Schedules } from "./Schedules";
 import { Models } from "./Models";
-import { PinSecurity } from "./PinSecurity";
 import { BackendStatus, useBackendStatus } from "./BackendStatus";
 import { Logins } from "./Logins";
 import { Sandbox } from "./Sandbox";
+import { SecretStore } from "./SecretStore";
+import { type BarSlots, BarSlotsContext } from "./SecretFields";
+import { computerName } from "../secrets.ts";
+import { Security } from "./Security";
 
 const NAV: { id: SettingsSection; icon: React.ReactNode }[] = [
   { id: "general", icon: <SettingsIcon size={18} /> },
+  { id: "security", icon: <LockKeyhole size={18} /> },
   { id: "models", icon: <Sparkles size={18} /> },
   { id: "connectors", icon: <LayoutGrid size={18} /> },
   { id: "permissions", icon: <Shield size={18} /> },
-  { id: "logins", icon: <KeyRound size={18} /> },
+  { id: "secrets", icon: <Vault size={18} /> },
+  { id: "logins", icon: <Cookie size={18} /> },
   { id: "schedules", icon: <CalendarClock size={18} /> },
   { id: "sandbox", icon: <Terminal size={18} /> },
 ];
@@ -51,15 +60,12 @@ const NAV: { id: SettingsSection; icon: React.ReactNode }[] = [
 
 function GeneralSection({
   theme,
-  server,
   actions,
   backend,
   backendLoading,
   backendUnavailable,
 }: {
   theme: Theme;
-  /** there is a server, with a password (not the in-browser demo) */
-  server: boolean;
   actions: Actions;
   backend: Backend | null;
   backendLoading: boolean;
@@ -98,7 +104,6 @@ function GeneralSection({
         value={language}
         onPick={setLanguage}
       />
-      {server && <PinSecurity />}
     </div>
   );
 }
@@ -139,6 +144,14 @@ function OptionList<T extends string>({
   );
 }
 
+/**
+ * A section's name where the page is shown: the Computer page is named in full here (「Amuse 的电脑」), since its
+ * row in the nav is the short form (「电脑」).
+ */
+function sectionName(t: Messages, section: SettingsSection): string {
+  return section === "sandbox" ? computerName(t) : t.settings.sections[section];
+}
+
 /* ---------------- Shell ---------------- */
 
 export function SettingsModal({
@@ -158,28 +171,41 @@ export function SettingsModal({
 }) {
   const t = useT();
   const { mounted, closing, onAnimationEnd } = usePresence(ui.open);
-  // Adding a website rule starts from the bar's +, and ends with the section.
+  // adding (a website rule, a login) starts from the bar's +, and ends with the section
   const [adding, setAdding] = useState(false);
   const { backend, loading: backendLoading, unavailable: backendUnavailable } = useBackendStatus(session, ui.open && !demo);
+  const paseo = backend?.kind === "paseo";
+  const viewingProvider = paseo ? null : ui.provider;
+  // the bar's room for a Vault page's button (SecretFields.tsx)
+  const [slots, setSlots] = useState<BarSlots>({ phone: null, desktop: null });
+  const phoneSlot = useCallback((el: HTMLElement | null) => setSlots((was) => (was.phone === el ? was : { ...was, phone: el })), []);
+  const desktopSlot = useCallback((el: HTMLElement | null) => setSlots((was) => (was.desktop === el ? was : { ...was, desktop: el })), []);
   useEffect(() => setAdding(false), [ui.section, ui.open]);
   if (!mounted) return null;
   // a phone shows the sections as a list first, then one section as a page of its own; a desktop shows both side by side
   const section = ui.section;
   const shown = section ?? "general";
-  const paseo = backend?.kind === "paseo";
-  const viewingProvider = ui.provider;
-  const sectionName = (id: SettingsSection) => id === "models" && paseo ? t.backend.voiceTitle : t.settings.sections[id];
-  const nav = NAV.map((item) => ({ ...item, label: sectionName(item.id) }));
   const round = "flex size-8 shrink-0 items-center justify-center rounded-full";
   // the page's bar: what it is, and its one action (adding, where there is something to add)
   const title = !section
     ? t.settings.title
     : ui.app
       ? ui.app.name
-      : ui.provider
-        ? ui.provider.name
-        : sectionName(section);
-  const adds = !ui.app && shown === "permissions" ? t.settings.addWebsite : null;
+      : viewingProvider
+        ? viewingProvider.name
+        : ui.entry
+          ? ui.entry.kind === "add"
+            ? t.secrets.newTitle
+            : ui.entry.name
+          : sectionName(t, section);
+  const adds =
+    !ui.app && shown === "permissions"
+      ? t.settings.addWebsite
+      : shown === "secrets" && !ui.entry
+        ? t.secrets.add
+        : null;
+  // the Vault's adding is a page of its own (so Back leaves it); a website is added in place
+  const onAdd = () => (shown === "secrets" ? actions.openEntry({ kind: "add" }) : setAdding((a) => !a));
   // a phone's bar has the chat's round buttons; a desktop's has small labelled ones, the height of its close button
   const add = adds && (
     <button
@@ -187,23 +213,19 @@ export function SettingsModal({
       aria-pressed={adding}
       className={barButton}
       style={barButtonLook}
-      onClick={() => setAdding((a) => !a)}
+      onClick={onAdd}
     >
       <Plus size={barIcon} />
     </button>
   );
   const addLabelled = adds && (
-    <button
+    <Button
+      className="shrink-0"
       aria-pressed={adding}
-      className="hover-fade flex h-8 shrink-0 items-center gap-1.5 rounded-full pl-2.5 pr-3.5 text-[14px] font-medium"
-      style={{
-        background: "var(--fill-secondary)",
-        color: "var(--text-primary)",
-      }}
-      onClick={() => setAdding((a) => !a)}
+      onClick={onAdd}
     >
       <Plus size={15} /> {adds}
-    </button>
+    </Button>
   );
   return (
     <div
@@ -229,9 +251,11 @@ export function SettingsModal({
                 ? t.settings.closeSettings
                 : ui.app
                   ? t.settings.allConnections
-                  : ui.provider
+                  : viewingProvider
                     ? t.settings.allProviders
-                    : t.settings.allSettings
+                    : ui.entry
+                      ? t.settings.allSecrets
+                      : t.settings.allSettings
             }
             className={barButton}
             style={barButtonLook}
@@ -242,7 +266,9 @@ export function SettingsModal({
                   ? actions.openApp(null)
                   : viewingProvider
                     ? actions.openProvider(null)
-                    : actions.openSettings(null)
+                    : ui.entry
+                      ? actions.openEntry(null)
+                      : actions.openSettings(null)
             }
           >
             <ChevronLeft size={barIcon} />
@@ -253,24 +279,24 @@ export function SettingsModal({
           >
             {title}
           </p>
-          {add ?? <span />}
+          {add ?? <span ref={phoneSlot} className="flex justify-end" />}
         </header>
 
         {/* the sections: a list on a phone (until one is open), a column on a desktop */}
         <nav
-          className={`${section ? "hidden sm:flex" : "flex"} shrink-0 flex-col gap-1 px-3 sm:w-[220px] sm:border-r sm:p-4`}
+          className={`${section ? "hidden sm:flex" : "flex"} min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain px-3 sm:w-[220px] sm:flex-none sm:border-r sm:p-4`}
           style={{ borderColor: "var(--fill-divider)" }}
         >
           <p
-            className="hidden px-2 pb-2 text-[19px] font-semibold sm:block"
+            className="hidden shrink-0 px-2 pb-2 text-[19px] font-semibold sm:block"
             style={{ color: "var(--text-primary)" }}
           >
             {t.settings.title}
           </p>
-          {nav.filter((n) => !demo || n.id !== "sandbox").map((n) => (
+          {NAV.filter((n) => !demo || (n.id !== "sandbox" && n.id !== "security")).map((n) => (
             <button
               key={n.id}
-              className="flex items-center gap-3 rounded-xl px-3 py-3 text-left text-[16px] font-medium sm:py-2.5 sm:text-[15px]"
+              className="flex shrink-0 items-center gap-3 rounded-xl px-3 py-3 text-left text-[16px] font-medium sm:py-2.5 sm:text-[15px]"
               style={{
                 background:
                   shown === n.id && section
@@ -281,7 +307,7 @@ export function SettingsModal({
               onClick={() => actions.openSettings(n.id)}
             >
               {n.icon}
-              <span className="flex-1">{n.label}</span>
+              <span className="flex-1">{t.settings.sections[n.id]}</span>
               <ChevronRight
                 size={16}
                 className="sm:hidden"
@@ -291,7 +317,7 @@ export function SettingsModal({
           ))}
           {demo && (
             <button
-              className="mt-auto hidden items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15px] font-medium sm:flex"
+              className="mt-auto hidden shrink-0 items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15px] font-medium sm:flex"
               style={{ color: "var(--text-secondary)" }}
               onClick={() => actions.reset()}
             >
@@ -311,9 +337,14 @@ export function SettingsModal({
               style={{ color: "var(--text-primary)" }}
             >
               {/* the section shown (General before one is chosen), not the phone's list title */}
-              {ui.app || ui.provider ? "" : sectionName(shown)}
+              {ui.app || viewingProvider || ui.entry?.kind === "entry"
+                ? ""
+                : ui.entry
+                  ? t.secrets.newTitle
+                  : sectionName(t, shown)}
             </p>
             {addLabelled}
+            <span ref={desktopSlot} className="flex" />
             <button
               aria-label={t.settings.closeSettings}
               className={barButton}
@@ -324,13 +355,7 @@ export function SettingsModal({
             </button>
           </header>
           {shown === "connectors" && (
-            // One scroll surface includes the status cards, app list and setup help.
-            // A keyboard must not squeeze the only scrollable list between fixed blocks.
-            <div className="min-h-0 flex-1 overflow-y-auto" data-connections-scroll>
-              {paseo && <p className="mx-5 mb-4 shrink-0 rounded-xl px-4 py-3 text-[13px] leading-relaxed sm:mx-6"
-                style={{ background: "var(--fill-secondary)", color: "var(--text-secondary)" }}>
-                {t.backend.connectionsHelp}
-              </p>}
+            <div data-connections-scroll className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
               <AppsKey
                 session={session}
                 demo={demo}
@@ -340,17 +365,23 @@ export function SettingsModal({
             </div>
           )}
           {shown === "permissions" && (
-            <>
-              {paseo && <p className="mx-5 mb-4 rounded-xl px-4 py-3 text-[13px] leading-relaxed sm:mx-6"
-                style={{ background: "var(--fill-secondary)", color: "var(--text-secondary)" }}>
-                {t.backend.permissionsHelp}
-              </p>}
-              <SitePermissions session={session} adding={adding} onAdded={() => setAdding(false)} />
-            </>
+            <SitePermissions
+              session={session}
+              adding={adding}
+              onAdded={() => setAdding(false)}
+            />
           )}
           {shown === "schedules" && <Schedules session={session} />}
           {shown === "logins" && <Logins session={session} />}
-          {shown === "sandbox" && <Sandbox session={session} />}
+          {shown === "secrets" && (
+            <BarSlotsContext.Provider value={slots}>
+              <SecretStore session={session} page={ui.entry} onPage={actions.openEntry} />
+            </BarSlotsContext.Provider>
+          )}
+          {shown === "sandbox" && (
+            <Sandbox session={session} />
+          )}
+          {shown === "security" && !demo && <Security />}
           {shown === "models" && backendLoading && (
             <div className="px-5 sm:px-6"><BackendStatus backend={null} loading /></div>
           )}
@@ -360,16 +391,14 @@ export function SettingsModal({
               executionManaged={paseo}
               header={paseo ? <>
                 <BackendStatus backend={backend} unavailable={backendUnavailable} />
-                <p className="mb-4 text-[13px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-                  {t.backend.executionHelp}
-                </p>
+                <p className="mb-4 text-[13px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>{t.backend.executionHelp}</p>
               </> : null}
               viewing={viewingProvider}
               onView={actions.openProvider}
             />
           )}
           {shown === "general" && (
-            <GeneralSection theme={theme} server={!demo} actions={actions} backend={backend} backendLoading={backendLoading} backendUnavailable={backendUnavailable} />
+            <GeneralSection theme={theme} actions={actions} backend={backend} backendLoading={backendLoading} backendUnavailable={backendUnavailable} />
           )}
         </div>
       </div>

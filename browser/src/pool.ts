@@ -10,12 +10,14 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import {
+  type Box,
   type Controller,
   ControllerError,
   type Element,
   type Observation,
 } from "./controller.ts";
 import { type Size, fitted, resize, standard } from "./desktop.ts";
+import { cropPng, pngSize } from "./png.ts";
 
 export interface Node {
   name: string;
@@ -29,6 +31,26 @@ export interface Node {
    * there, and only while it is. Without one, the node takes no uploads.
    */
   handoff?: { local: string; remote: string };
+}
+
+/**
+ * Where each open run's node and controller session are kept, so a restart can adopt them
+ * again instead of leaving the session behind on the controller (a row each).
+ */
+export interface BrowserSessions {
+  list(): { id: string; node: string; session: string }[];
+  save(id: string, node: string, session: string): void;
+  forget(id: string): void;
+}
+
+/** What a start found: the browsers it took up again, the ones it could not, and the sessions it closed. */
+export interface Reconciled {
+  /** the browsers that are open again, on the session they were on */
+  adopted: string[];
+  /** the browsers the state lists as open that no session is left for, with why */
+  lost: { id: string; reason: string }[];
+  /** how many sessions no browser owned were closed */
+  closed: number;
 }
 
 /** A file, by name and bytes. */
@@ -55,6 +77,8 @@ export interface PageView {
     href: string | null;
     disabled: boolean;
   }[];
+  /** set when the run's page had gone and another was taken up in its place: what happened, in a line */
+  note?: string;
 }
 
 /** What the browser agent and the API need from browsers, per run. */
@@ -71,7 +95,13 @@ export interface Browsers {
   ): Promise<void>;
   look(run: string): Promise<PageView>;
   step(run: string, step: Step): Promise<void>;
-  screenshot(run: string): Promise<Uint8Array | null>;
+  /**
+   * A picture of the run's page, or — with `ref`, a ref the run's latest look gave — of exactly that
+   * element: the page's screenshot cut to the element's box. An element off the visible page is
+   * scrolled to first (the page moves, as any step does). Null when there is no browser, no picture,
+   * or nothing of the element on it; an unknown ref is refused (StaleRef).
+   */
+  screenshot(run: string, ref?: string): Promise<Uint8Array | null>;
   /** Keep this run's logins for later runs (the user just held the browser). */
   remember(run: string): Promise<void>;
   /** The sites logins are kept for (shared by every browser), with how many cookies. */
@@ -83,6 +113,8 @@ export interface Browsers {
   close(run: string): Promise<void>;
   /** The run's live desktop (noVNC websocket), while it has one. */
   vnc(run: string): string | null;
+  /** Whether the pool holds this run open: a browser the state lists, whose controller session it has. */
+  holds(run: string): boolean;
   /** Put a file into the file input `ref`: the browser gets the file itself, never a path of ours. */
   upload(run: string, ref: string, file: FileData): Promise<void>;
   /** What the run's pages have downloaded since the last time this was asked. */
@@ -106,11 +138,22 @@ export class StaleRef extends Error {
   }
 }
 
+/** The run's browser is gone: its page, and the browser with it, were closed, and nothing can be taken up. */
+export class BrowserLost extends Error {}
+
 interface Run {
   node: Node;
   session: string;
+  /** where the page was at the last look: where a fresh page is opened when this one is closed */
+  url: string;
+  /** set when the run's page had gone and another was taken up (or opened): what to tell the agent, once */
+  note: string | null;
+  /** set when the browser itself was found gone: its session is not asked anything again */
+  lost: boolean;
   /** ref → controller id, for the latest look only */
   current: Map<string, string>;
+  /** ref → where it is on the page, for the latest look only (what a picture of one element is cut from) */
+  boxes: Map<string, Box>;
   /** controller id → ref, stable for the run so an element keeps its ref */
   refs: Map<string, string>;
   /** downloads already handed over */
@@ -126,10 +169,12 @@ export function browserPool(
   options: {
     profile?: string;
     desktop?: (vnc: string, size: Size) => Promise<void>;
+    sessions?: BrowserSessions;
   } = {},
-): Browsers & { reset(): Promise<void> } {
+): Browsers & { reconcile(open: readonly string[]): Promise<Reconciled> } {
   const profile = options.profile ?? "amuse";
   const desktop = options.desktop ?? resize;
+  const sessions = options.sessions;
   const free = [...nodes];
   const waiting: {
     take: (node: Node) => void;
@@ -168,8 +213,26 @@ export function browserPool(
     if (!r) throw new Error(`browser run ${id} is not open`);
     return r;
   };
+  /** Take a node for a run adopted again: it is not free any more. */
+  const adopt = (id: string, node: Node, session: string) => {
+    free.splice(free.indexOf(node), 1);
+    runs.set(id, { node, session, url: "", note: null, lost: false, current: new Map(), boxes: new Map(), refs: new Map(), taken: new Set(), forgotten: new Set() });
+  };
+  /** Where each of the page's elements is now, by ref: what a picture of one element is cut from. */
+  const boxesOf = (r: Run, o: Observation): Map<string, Box> => {
+    const boxes = new Map<string, Box>();
+    for (const e of o.interactables) {
+      const ref = r.refs.get(e.element_id);
+      if (ref && e.bbox) boxes.set(ref, e.bbox);
+    }
+    return boxes;
+  };
   const viewOf = (r: Run, o: Observation): PageView => {
     r.current = new Map();
+    r.url = o.url;
+    // what the recovery has to say is said once, with the first look after it
+    const note = r.note;
+    r.note = null;
     const elements = o.interactables.map((e) => {
       let ref = r.refs.get(e.element_id);
       if (!ref) {
@@ -185,31 +248,137 @@ export function browserPool(
         disabled: e.disabled === true,
       };
     });
-    return { url: o.url, title: o.title, text: o.text_excerpt ?? "", elements };
+    r.boxes = boxesOf(r, o);
+    return { url: o.url, title: o.title, text: o.text_excerpt ?? "", elements, ...(note ? { note } : {}) };
   };
   const target = (r: Run, ref: string) => {
     const id = r.current.get(ref);
     if (!id) throw new StaleRef(ref);
     return id;
   };
+  /**
+   * An element that is not on the visible page is scrolled to: the box it has then, or null when the page
+   * will not move. The scroll is the page's own (the same as the agent's scroll step), and the run looks at
+   * the page again after it, so its refs and boxes are the ones the page has now.
+   */
+  const bringIntoView = async (r: Run, ref: string, box: Box, view: number): Promise<Box | null> => {
+    const by = Math.round(box.y < 0 ? box.y : box.y + box.height - view);
+    if (by === 0) return null;
+    const moved = await onPage(r, () => r.node.controller.act(r.session, { name: "scroll", body: { delta_x: 0, delta_y: by } })).catch(() => null);
+    if (!moved) return null;
+    const seen = await onPage(r, () => r.node.controller.observe(r.session)).catch(() => null);
+    if (!seen) return null;
+    viewOf(r, seen);
+    return r.boxes.get(ref) ?? null;
+  };
+  /**
+   * The run's browser is gone (its page and the browser with it, or a browser nothing can be opened in again): the run
+   * is marked lost, so nothing asks its session anything again.
+   */
+  const gone = (r: Run): BrowserLost => {
+    r.lost = true;
+    return new BrowserLost("Its browser is gone: the page was closed, or the browser with it.");
+  };
+  /**
+   * The run's page had gone (the user closed its tab, a reload replaced it, it crashed): take up the session's most
+   * recent page, or open a fresh one in the same browser (its cookies and the sign-in stay) at the last URL the run
+   * was on. False when the page is still there, so the failure was something else. Throws BrowserLost when the
+   * browser itself is gone: nothing can be taken up in it, and it is not asked again.
+   */
+  const recover = async (r: Run): Promise<boolean> => {
+    const pages = await r.node.controller.pages(r.session).catch(() => {
+      throw gone(r);
+    });
+    if (pages.some((page) => page.active)) return false;
+    const last = pages.at(-1);
+    if (last) {
+      await r.node.controller.activatePage(r.session, last.index).catch(() => {
+        throw gone(r);
+      });
+      r.note = `The page this task was on was closed; it is on another page of the same browser now (${last.url}).`;
+    } else {
+      const url = /^https?:/.test(r.url) ? r.url : null;
+      await r.node.controller.openPage(r.session, url).catch(() => {
+        throw gone(r);
+      });
+      r.note = url ? `The page this task was on was closed; a new one is open at ${url}.` : "The page this task was on was closed; a new one is open.";
+    }
+    return true;
+  };
+  /**
+   * A call on the run's page, with the recovery above: a page that is gone is taken up again, and the call is made once
+   * more. A run whose browser was found gone is not called at all: the task ends, and the preview poller with it.
+   */
+  const onPage = async <T>(r: Run, call: () => Promise<T>): Promise<T> => {
+    if (r.lost) throw gone(r);
+    try {
+      return await call();
+    } catch (error) {
+      if (!(await recover(r))) throw error;
+      return await call();
+    }
+  };
   /** Act; refs are retired when the step moved the page somewhere else. */
   const act = async (r: Run, action: Parameters<Controller["act"]>[1]) => {
-    const { before, after } = await r.node.controller.act(r.session, action);
-    if (after && before !== after.url) r.current = new Map();
+    const { before, after } = await onPage(r, () => r.node.controller.act(r.session, action));
+    if (!after) return;
+    r.url = after.url;
+    if (before !== after.url) {
+      r.current = new Map();
+      r.boxes = new Map();
+    } else {
+      // the same page: the step's own observation says where its elements are now
+      r.boxes = boxesOf(r, after);
+    }
   };
 
   return {
-    async reset() {
-      // these nodes are ours alone: sessions still live there were left by an earlier process
-      await Promise.all(
-        nodes.map(async (n) =>
-          Promise.all(
-            (await n.controller.live()).map((s) =>
-              n.controller.delete(s).catch(() => {}),
-            ),
-          ),
-        ),
-      );
+    /**
+     * What an earlier process left on the controllers: the session of a browser the state still lists as open is
+     * adopted again (its preview, live view and takeover work as before), one that is gone closes its browser
+     * instead, and a session no browser owns is closed. These nodes are ours alone, so anything live on one is ours
+     * to close. A controller that does not answer is left as it is: nothing there is adopted, closed or called lost.
+     */
+    async reconcile(open) {
+      const listed = new Set(open);
+      const rows = new Map((sessions?.list() ?? []).map((row) => [row.id, row]));
+      const adopted: string[] = [];
+      const lost: { id: string; reason: string }[] = [];
+      let closed = 0;
+      // a node this pool no longer has: the browser cannot be adopted, and its session is out of reach
+      for (const [id, row] of rows) {
+        if (nodes.some((n) => n.name === row.node)) continue;
+        sessions?.forget(id);
+        rows.delete(id);
+        if (listed.has(id)) lost.push({ id, reason: `its browser node ${row.node} is not configured any more` });
+      }
+      for (const node of nodes) {
+        const live = await node.controller.live().catch(() => null);
+        if (!live) continue;
+        const mine = new Set<string>();
+        for (const [id, row] of rows) {
+          if (row.node !== node.name) continue;
+          rows.delete(id);
+          if (!listed.has(id) || !live.includes(row.session)) {
+            // the browser is closed in the state, or its session is gone: either way the row goes, and the session is a stray
+            sessions?.forget(id);
+            if (listed.has(id)) lost.push({ id, reason: "its browser session is gone" });
+            continue;
+          }
+          mine.add(row.session);
+          adopt(id, node, row.session);
+          adopted.push(id);
+        }
+        for (const session of live) {
+          if (mine.has(session)) continue;
+          await node.controller.delete(session).catch(() => {});
+          closed++;
+        }
+      }
+      // a browser the state lists as open that no session is kept for (opened before this, or a row lost with it):
+      // one whose row is still here is on a controller that did not answer, and is left alone
+      for (const id of open) if (!adopted.includes(id) && !lost.some((one) => one.id === id) && !rows.has(id)) lost.push({ id, reason: "no session is kept for it" });
+      return { adopted, lost, closed };
     },
     async open(id, url, signal, { wait = true } = {}) {
       if (!wait && free.length === 0) throw new PoolFull(nodes.length);
@@ -227,11 +396,16 @@ export function browserPool(
         runs.set(id, {
           node,
           session,
+          url,
+          note: null,
+          lost: false,
           current: new Map(),
+          boxes: new Map(),
           refs: new Map(),
           taken: new Set(),
           forgotten: new Set(),
         });
+        sessions?.save(id, node.name, session);
       } catch (error) {
         release(node);
         throw error;
@@ -239,7 +413,7 @@ export function browserPool(
     },
     async look(id) {
       const r = run(id);
-      return viewOf(r, await r.node.controller.observe(r.session));
+      return viewOf(r, await onPage(r, () => r.node.controller.observe(r.session)));
     },
     async step(id, step) {
       const r = run(id);
@@ -293,11 +467,21 @@ export function browserPool(
           });
       }
     },
-    async screenshot(id) {
+    async screenshot(id, ref) {
       const r = runs.get(id);
-      return r
-        ? r.node.controller.screenshot(r.session).catch(() => null)
-        : null;
+      if (!r) return null;
+      const png = await onPage(r, () => r.node.controller.screenshot(r.session)).catch(() => null);
+      if (!png || !ref) return png;
+      const box = r.boxes.get(ref);
+      if (!box) throw new StaleRef(ref);
+      const cut = cropPng(png, box);
+      if (cut) return cut;
+      // nothing of it is on the visible page: bring it there, and take the page as it is then
+      const view = pngSize(png);
+      const at = view && (await bringIntoView(r, ref, box, view.height));
+      if (!at) return null;
+      const again = await onPage(r, () => r.node.controller.screenshot(r.session)).catch(() => null);
+      return again && cropPng(again, at);
     },
     async remember(id) {
       const r = run(id);
@@ -332,10 +516,12 @@ export function browserPool(
       const r = runs.get(id);
       if (!r) return;
       runs.delete(id);
+      sessions?.forget(id);
       await r.node.controller.delete(r.session).catch(() => {});
       release(r.node);
     },
     vnc: (id) => runs.get(id)?.node.vnc ?? null,
+    holds: (id) => runs.has(id),
     async upload(id, ref, file) {
       const r = run(id);
       const { handoff } = r.node;
@@ -362,18 +548,17 @@ export function browserPool(
     async stillOpen(id) {
       const r = runs.get(id);
       if (!r) return false;
-      // a window seen to have no tabs is closed, as is a session the controller no longer has (it restarted);
-      // a controller that does not answer is not taken for that
-      const tabs = await r.node.controller
-        .tabs(r.session)
-        .catch((error: unknown) =>
-          error instanceof ControllerError && error.status === 404 ? 0 : 1,
-        );
-      return tabs > 0;
+      // a session the controller no longer has is closed (it restarted, or its browser was closed). A session whose
+      // page was closed is not taken for that: the page is taken up again where it is needed (recover), so the run
+      // is left to it. A controller that does not answer is not taken for a closed browser either.
+      return await r.node.controller
+        .pages(r.session)
+        .then(() => true)
+        .catch((error: unknown) => !(error instanceof ControllerError && error.status === 404));
     },
     async downloads(id) {
       const r = run(id);
-      const done = (await r.node.controller.downloads(r.session)).filter(
+      const done = (await onPage(r, () => r.node.controller.downloads(r.session))).filter(
         (d) => d.status === "completed" && !r.taken.has(d.url),
       );
       const files: FileData[] = [];

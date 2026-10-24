@@ -5,4 +5,7 @@ export * from "./timers.ts";
 export * from "./context.ts";
 export * from "./schedule.ts";
 export * from "./heartbeat.ts";
+export * from "./live.ts";
 export * from "./goals.ts";
+export * from "./secrets.ts";
+export * from "./quote.ts";

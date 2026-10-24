@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { BellOff, CircleCheck, Plus, Target } from "lucide-react";
 import type { Goal, Session } from "@amuse/protocol";
+import { Button } from "./Button";
 import { Sheet } from "./Sheet";
 import { useT } from "../i18n/react.ts";
 import { activeLocale } from "../i18n/language.ts";
@@ -276,21 +277,18 @@ function AddGoal({
             {error}
           </p>
         )}
-        <button
+        <Button
+          variant="primary"
+          size="lg"
+          className="mt-6"
           disabled={!title.trim() || busy}
-          className="mt-6 h-12 w-full rounded-full text-[16px] font-semibold text-white disabled:opacity-40"
-          style={{ background: "var(--fill-blue)" }}
           onClick={add}
         >
           {t.common.add}
-        </button>
-        <button
-          className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
-          style={{ color: "var(--text-primary)" }}
-          onClick={onClose}
-        >
+        </Button>
+        <Button variant="plain" size="lg" className="mt-2" onClick={onClose}>
           {t.common.cancel}
-        </button>
+        </Button>
       </div>
     </Sheet>
   );

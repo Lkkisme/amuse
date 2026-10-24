@@ -11,13 +11,17 @@ import {
   ChevronDown,
   Copy,
   File as FileIcon,
+  Reply as ReplyArrow,
   Share,
+  TextCursor,
 } from "lucide-react";
-import type { Attachment, Entity, Prompt, Reply, State } from "@amuse/protocol";
-import { size } from "@amuse/core";
+import type { Attachment, Entity, Prompt, Quote, Reply, State } from "@amuse/protocol";
+import { quoteOf, size } from "@amuse/core";
 import { useFiles } from "../files.ts";
 import type { Actions } from "../ui.ts";
 import { useT } from "../i18n/react.ts";
+import { useLongPress } from "../longPress.ts";
+import { quoteLine } from "../reply.ts";
 import { thinking, time } from "../view.ts";
 import {
   ApprovalCard,
@@ -66,14 +70,10 @@ function shown(entity: Entity): boolean {
         entity.text.trim() !== "" ||
         entity.attachments.length > 0
       );
-    // one every instance starts with was not asked for here: it is in Settings › Schedules; one that is over
-    // (cancelled, or done) is a record, not shown (Amuse still knows of it)
+    // one every instance starts with was not asked for here: it is in Settings › Schedules; the others stay as
+    // their card, which says when one is paused, done or cancelled
     case "schedule":
-      return (
-        !entity.preset &&
-        entity.status !== "cancelled" &&
-        entity.status !== "done"
-      );
+      return !entity.preset;
     // one refused by the user's own rule was never a card: it is in the Approvals list, and Amuse says so in a line
     case "approval":
       return !entity.byRule;
@@ -94,6 +94,8 @@ function EntityView({
   thumb,
   actions,
   onMenu,
+  reveal,
+  selecting,
   sending,
 }: {
   entity: Entity;
@@ -101,6 +103,10 @@ function EntityView({
   thumb: Thumb;
   actions: Actions;
   onMenu: (menu: Menu) => void;
+  /** scroll to an item and mark it (a quote was tapped) */
+  reveal: (id: string) => void;
+  /** its words are selectable in the bubble (Select text) */
+  selecting: boolean;
   /** a message of the user's still on its way */
   sending: boolean;
 }) {
@@ -108,35 +114,98 @@ function EntityView({
     case "prompt":
     case "reply":
       return (
-        <Bubble item={entity} place={place} onMenu={onMenu} sending={sending} />
-      );
-    case "task":
-      return <TaskCard task={entity} place={place} actions={actions} />;
-    case "approval":
-      return <ApprovalCard approval={entity} place={place} actions={actions} />;
-    case "connection":
-      return (
-        <ConnectionCard connection={entity} place={place} actions={actions} />
-      );
-    case "secret":
-      return <SecretCard secret={entity} place={place} actions={actions} />;
-    case "browser":
-      return (
-        <BrowserCard
-          browser={entity}
-          thumb={thumb}
+        <Bubble
+          item={entity}
           place={place}
+          onMenu={onMenu}
           actions={actions}
+          reveal={reveal}
+          selecting={selecting}
+          sending={sending}
         />
       );
+    case "task":
+      return (
+        <Replyable entity={entity} onMenu={onMenu} actions={actions}>
+          <TaskCard task={entity} place={place} actions={actions} />
+        </Replyable>
+      );
+    case "approval":
+      return (
+        <Replyable entity={entity} onMenu={onMenu} actions={actions}>
+          <ApprovalCard approval={entity} place={place} actions={actions} />
+        </Replyable>
+      );
+    case "connection":
+      return (
+        <Replyable entity={entity} onMenu={onMenu} actions={actions}>
+          <ConnectionCard connection={entity} place={place} actions={actions} />
+        </Replyable>
+      );
+    case "secret":
+      return (
+        <Replyable entity={entity} onMenu={onMenu} actions={actions}>
+          <SecretCard secret={entity} place={place} actions={actions} />
+        </Replyable>
+      );
+    case "browser":
+      return (
+        <Replyable entity={entity} onMenu={onMenu} actions={actions}>
+          <BrowserCard
+            browser={entity}
+            thumb={thumb}
+            place={place}
+            actions={actions}
+          />
+        </Replyable>
+      );
     case "schedule":
-      return <ScheduleCard schedule={entity} place={place} actions={actions} />;
+      return (
+        <Replyable entity={entity} onMenu={onMenu} actions={actions}>
+          <ScheduleCard schedule={entity} place={place} actions={actions} />
+        </Replyable>
+      );
     case "failure":
-      return <FailureCard failure={entity} place={place} actions={actions} />;
+      return (
+        <Replyable entity={entity} onMenu={onMenu} actions={actions}>
+          <FailureCard failure={entity} place={place} actions={actions} />
+        </Replyable>
+      );
     case "instruction":
     case "question":
       return null; // between the agents (see `shown`)
   }
+}
+
+/**
+ * A card of Amuse's, which can be replied to: a long press on a phone opens the menu (Reply, Copy), and with a
+ * pointer a reply icon sits beside it while it is hovered (the same strip a message's actions use).
+ */
+function Replyable({
+  entity,
+  onMenu,
+  actions,
+  children,
+}: {
+  entity: Entity;
+  onMenu: (menu: Menu) => void;
+  actions: Actions;
+  children: React.ReactNode;
+}) {
+  const quote = quoteOf(entity);
+  const { handlers } = useLongPress((point, item) => {
+    if (quote) onMenu({ text: quote.text, quote, mine: false, select: null, opened: Date.now(), point, item });
+  });
+  return (
+    // the cards inside are `w-full` up to --amuse-width themselves: the cap is here once, not on both (a percentage of a percentage)
+    <div
+      className="msg relative w-full max-w-(--amuse-width) [&>*]:max-w-none"
+      {...handlers}
+    >
+      {children}
+      {quote && <ActionRow mine={false} text="" onReply={() => actions.reply(quote)} />}
+    </div>
+  );
 }
 
 /** What can be done with a message's text: copy it, or share it where the system can. */
@@ -147,13 +216,33 @@ const shareText = (text: string) =>
   void navigator.share?.({ text }).catch(() => {});
 
 /** Desktop: a message's actions, beside its bubble while the pointer is on it or its side (index.css: .msg-actions). */
-function ActionRow({ mine, text }: { mine: boolean; text: string }) {
+function ActionRow({
+  mine,
+  text,
+  onReply,
+}: {
+  mine: boolean;
+  text: string;
+  /** Amuse's items only: start a reply to it */
+  onReply?: () => void;
+}) {
   const t = useT();
   return (
     <div
       className={`msg-actions ${mine ? "msg-actions-mine" : ""} flex items-center gap-0.5`}
     >
-      {canShare() && (
+      {onReply && (
+        <button
+          aria-label={t.chat.reply}
+          title={t.chat.reply}
+          className="hover-fade rounded-full p-1.5"
+          style={{ color: "var(--icon-secondary)" }}
+          onClick={onReply}
+        >
+          <ReplyArrow size={16} />
+        </button>
+      )}
+      {text !== "" && canShare() && (
         <button
           aria-label={t.chat.share}
           className="hover-fade rounded-full p-1.5"
@@ -163,50 +252,65 @@ function ActionRow({ mine, text }: { mine: boolean; text: string }) {
           <Share size={16} />
         </button>
       )}
-      <button
-        aria-label={t.chat.copy}
-        className="hover-fade rounded-full p-1.5"
-        style={{ color: "var(--icon-secondary)" }}
-        onClick={() => copyText(text)}
-      >
-        <Copy size={16} />
-      </button>
+      {text !== "" && (
+        <button
+          aria-label={t.chat.copy}
+          className="hover-fade rounded-full p-1.5"
+          style={{ color: "var(--icon-secondary)" }}
+          onClick={() => copyText(text)}
+        >
+          <Copy size={16} />
+        </button>
+      )}
     </div>
   );
 }
 
-/** A tapped message: where the finger was, and its bubble (where it sits on screen). */
+/**
+ * What a menu is for: the words to copy, the quote that starts a reply (Amuse's items only), where the finger was,
+ * and the item (where it sits on screen).
+ */
 type Menu = {
-  message: Message;
+  text: string;
+  quote: Quote | null;
+  /** the user's own bubble (on the right) */
+  mine: boolean;
+  /** the message whose words can be selected in its bubble (the phone's own selection, which the press took over); null for a card */
+  select: string | null;
+  /** when it opened (ms): the tap that ends the long press is not a tap outside it (the browser may send one) */
+  opened: number;
   point: { x: number; y: number };
-  bubble: HTMLElement;
+  item: HTMLElement;
 };
 
 const MENU_WIDTH = 176;
 const MARGIN = 12;
 
 /**
- * Touch: a tap on a bubble opens this: a card over the bubble (above it, else below), from its
- * sender's side, kept on screen; what can be done with it. A tap elsewhere closes it. A long press
- * is the phone's own: it selects words, with the phone's handles and its copy button.
+ * Touch: a long press on a message or a card opens this (a tap does nothing; with a pointer there are the hover actions): a card over the
+ * item (above it, else below), from its sender's side, kept on screen; what can be done with it. A tap elsewhere
+ * closes it. Words the phone has already selected stay the phone's, with its handles and its copy button.
  */
 function MessageMenu({
   menu,
   onClose,
+  onReply,
+  onSelect,
 }: {
   menu: Menu | null;
   onClose: () => void;
+  onReply: (quote: Quote) => void;
+  onSelect: (id: string) => void;
 }) {
   const t = useT();
   const card = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(0);
   useLayoutEffect(() => setHeight(card.current?.offsetHeight ?? 0), [menu]);
   if (!menu) return null;
-  const { message, point, bubble } = menu;
-  // over the bubble, not on its selected words: above it, else below it, from the side of whoever said it;
-  // a bubble too tall for either has it where the finger was
-  const rect = bubble.getBoundingClientRect();
-  const mine = message.kind === "prompt";
+  const { text, quote, mine, select, point, item } = menu;
+  // over the item, not on its selected words: above it, else below it, from the side of whoever said it;
+  // an item too tall for either has it where the finger was
+  const rect = item.getBoundingClientRect();
   const fits = (y: number) => y >= MARGIN && y + height <= innerHeight - MARGIN;
   const above = rect.top - 8 - height;
   const under = rect.bottom + 8;
@@ -229,7 +333,9 @@ function MessageMenu({
     // a press held on the menu is no selection of its words
     <div
       className="fixed inset-0 z-[80] select-none [-webkit-touch-callout:none]"
-      onClick={onClose}
+      onClick={() => {
+        if (Date.now() - menu.opened > 500) onClose();
+      }}
       onContextMenu={(e) => e.preventDefault()}
     >
       <div
@@ -246,20 +352,42 @@ function MessageMenu({
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <button
-          role="menuitem"
-          className={row}
-          style={{ color: "var(--text-primary)" }}
-          onClick={act(() => copyText(message.text))}
-        >
-          <Copy size={18} /> {t.chat.copy}
-        </button>
-        {canShare() && (
+        {quote && (
           <button
             role="menuitem"
             className={row}
             style={{ color: "var(--text-primary)" }}
-            onClick={act(() => shareText(message.text))}
+            onClick={act(() => onReply(quote))}
+          >
+            <ReplyArrow size={18} /> {t.chat.reply}
+          </button>
+        )}
+        {text !== "" && (
+          <button
+            role="menuitem"
+            className={row}
+            style={{ color: "var(--text-primary)" }}
+            onClick={act(() => copyText(text))}
+          >
+            <Copy size={18} /> {t.chat.copy}
+          </button>
+        )}
+        {select && (
+          <button
+            role="menuitem"
+            className={row}
+            style={{ color: "var(--text-primary)" }}
+            onClick={act(() => onSelect(select))}
+          >
+            <TextCursor size={18} /> {t.chat.selectText}
+          </button>
+        )}
+        {text !== "" && canShare() && (
+          <button
+            role="menuitem"
+            className={row}
+            style={{ color: "var(--text-primary)" }}
+            onClick={act(() => shareText(text))}
           >
             <Share size={18} /> {t.chat.share}
           </button>
@@ -384,51 +512,90 @@ function FileCard({ file, gone }: { file: Attachment; gone: boolean }) {
   );
 }
 
+/** The item a message replies to, small and muted above it; tapping it goes to the item. */
+function QuoteChip({
+  quote,
+  reveal,
+}: {
+  quote: Quote;
+  reveal: (id: string) => void;
+}) {
+  const t = useT();
+  return (
+    <button
+      aria-label={t.chat.jumpToQuoted}
+      className="hover-fade flex max-w-[88%] sm:max-w-[78%] items-start gap-1.5 rounded-[16px] px-3 py-2 text-left text-[13px] leading-[18px]"
+      style={{
+        background: "var(--fill-secondary)",
+        color: "var(--text-secondary)",
+      }}
+      onClick={() => reveal(quote.id)}
+    >
+      <ReplyArrow size={14} className="mt-0.5 shrink-0" />
+      <span className="line-clamp-2 [overflow-wrap:anywhere]">
+        {quoteLine(quote, t)}
+      </span>
+    </button>
+  );
+}
+
 function Bubble({
   item,
   place,
   onMenu,
+  actions,
+  reveal,
+  selecting,
   sending,
 }: {
   item: Message;
   place: Place;
   onMenu: (menu: Menu) => void;
+  actions: Actions;
+  reveal: (id: string) => void;
+  selecting: boolean;
   sending: boolean;
 }) {
   const t = useT();
   const isUser = item.kind === "prompt";
   const bubble = useRef<HTMLDivElement>(null);
-  /** A tap (touch only: with a mouse, the row under the bubble has these) opens the menu; not one on a link, nor one ending a selection. */
-  const tap = (e: React.MouseEvent) => {
-    if (!matchMedia("(hover: none)").matches || !bubble.current) return;
-    if (
-      e.target instanceof Element &&
-      e.target.closest("a, button, img, video")
-    )
-      return;
-    if (getSelection()?.isCollapsed === false) return;
-    onMenu({
-      message: item,
-      point: { x: e.clientX, y: e.clientY },
-      bubble: bubble.current,
-    });
-  };
+  /** what a reply to this starts from; none for a message the server does not have yet */
+  const quote = sending ? null : quoteOf(item);
+  // entering selection mode selects the whole text at once, so the phone shows its handles and its copy menu
+  useEffect(() => {
+    const words = selecting ? bubble.current?.querySelector("[data-words]") : null;
+    if (!words) return;
+    const range = document.createRange();
+    range.selectNodeContents(words);
+    getSelection()?.removeAllRanges();
+    getSelection()?.addRange(range);
+  }, [selecting]);
+  const select = item.text.trim() === "" ? null : item.id;
+  // a long press on a message opens the menu: Reply and Copy (words already selected by the phone are the phone's)
+  const press = useLongPress((point, el) => {
+    onMenu({ text: item.text, quote, mine: isUser, select, opened: Date.now(), point, item: el });
+  });
   const { attachments } = item;
   return (
     <div
       className={`anim-fade-in flex flex-col gap-1.5 ${isUser ? "items-end" : "items-start"} transition-opacity ${sending ? "opacity-60" : ""}`}
     >
+      {item.kind === "prompt" && item.quote && (
+        <QuoteChip quote={item.quote} reveal={reveal} />
+      )}
       {attachments.length > 0 && (
         <Sent attachments={attachments} mine={isUser} />
       )}
       {(item.text !== "" || attachments.length === 0) && (
         <div
-          onClick={tap}
           ref={bubble}
+          // in selection mode the press is the phone's own, and the bubble says so
+          {...(selecting ? { "data-selecting": "" } : press.handlers)}
           // 16px text on 22px lines; 12px above and below (15px to the eye, with the leading) to 20px at the sides, 4:3;
           // a line is 46px high, a pill with the 22px corners
           // a long run with no space (a web address) breaks where it must, inside the bubble
-          className="msg relative w-fit max-w-[88%] sm:max-w-[78%] px-5 py-3 text-[16px] leading-[22px] [overflow-wrap:anywhere]"
+          // both fit their words: the user's to a share of the column, Amuse's to the width its cards share (--amuse-width)
+          className={`msg relative ${selecting ? "bubble-selectable" : ""} px-5 py-3 text-[16px] leading-[22px] [overflow-wrap:anywhere] w-fit ${isUser ? "max-w-[88%] sm:max-w-[78%]" : "max-w-(--amuse-width)"}`}
           style={{
             ...corners(isUser ? "user" : "muse", place),
             background: isUser
@@ -447,7 +614,11 @@ function Bubble({
               <RichText text={item.text} />
             </div>
           )}
-          <ActionRow mine={isUser} text={item.text} />
+          <ActionRow
+            mine={isUser}
+            text={item.text}
+            {...(quote ? { onReply: () => actions.reply(quote) } : {})}
+          />
         </div>
       )}
       {sending && (
@@ -481,6 +652,10 @@ const USER_SCROLL_MS = 1500;
 const JUMP_BUTTON_DISTANCE = 240;
 /** px from the top within which older messages are fetched */
 const OLDER_DISTANCE = 600;
+/** Most pages fetched back to find the item a quote points at. */
+const REVEAL_PAGES = 20;
+/** How long (ms) an item stays marked after a quote was tapped (index.css `.quote-flash`). */
+const FLASH_MS = 1600;
 
 interface Props {
   conversation: State;
@@ -514,8 +689,26 @@ export function ChatFeed({
   );
   /** messages in the whole feed: what "new" is counted against, so pages fetched back are not new */
   const total = conversation.earlier + conversation.entities.length;
-  /** the message whose menu is open (touch: tapped) */
+  /** the item whose menu is open (touch: a long press on a message or card) */
   const [menu, setMenu] = useState<Menu | null>(null);
+  /** the message whose words are selectable in its bubble (Select text), until a tap elsewhere or a scroll takes it away */
+  const [selecting, setSelecting] = useState<string | null>(null);
+  const leaveSelecting = () => {
+    setSelecting(null);
+    if (getSelection()?.anchorNode && scrollRef.current?.contains(getSelection()?.anchorNode ?? null)) getSelection()?.removeAllRanges();
+  };
+  const openMenu = (next: Menu) => {
+    setSelecting(null);
+    setMenu(next);
+  };
+  useEffect(() => {
+    if (selecting === null) return;
+    const away = (e: PointerEvent) => {
+      if (!(e.target instanceof Element && e.target.closest("[data-selecting]"))) leaveSelecting();
+    };
+    document.addEventListener("pointerdown", away, true);
+    return () => document.removeEventListener("pointerdown", away, true);
+  }, [selecting]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -628,6 +821,12 @@ export function ChatFeed({
     const el = scrollRef.current;
     if (!el) return;
     fetchOlder();
+    // the bubble being selected has scrolled out of view
+    if (selecting !== null) {
+      const own = el.querySelector(`[data-entity="${CSS.escape(selecting)}"]`)?.getBoundingClientRect();
+      const view = el.getBoundingClientRect();
+      if (!own || own.bottom < view.top || own.top > view.bottom) leaveSelecting();
+    }
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
     const near = distance < 80;
     setFar(distance > JUMP_BUTTON_DISTANCE);
@@ -648,6 +847,33 @@ export function ChatFeed({
       setPendingCount(0);
       release();
     }
+  };
+
+  /**
+   * Go to an item a quote points at and mark it for a moment, fetching older pages while it is not held yet (the
+   * view holds only the recent end). Gone from the chat, there is nowhere to go.
+   */
+  const latest = useRef(conversation);
+  latest.current = conversation;
+  const reveal = async (id: string) => {
+    const el = () =>
+      scrollRef.current?.querySelector<HTMLElement>(
+        `[data-entity="${CSS.escape(id)}"]`,
+      ) ?? null;
+    for (let pages = 0; !el() && latest.current.earlier > 0 && pages < REVEAL_PAGES; pages++) {
+      await older();
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    const found = el();
+    if (!found) return;
+    // the view leaves the end for good: it is not to snap back, nor follow what grows
+    stick.current = false;
+    handled.current = Date.now();
+    found.scrollIntoView({ block: "center", behavior: "smooth" });
+    found.classList.remove("quote-flash");
+    void found.offsetWidth; // the mark starts again when a quote is tapped twice
+    found.classList.add("quote-flash");
+    setTimeout(() => found.classList.remove("quote-flash"), FLASH_MS);
   };
 
   const arrived = useRef(false);
@@ -712,7 +938,9 @@ export function ChatFeed({
                 }}
                 thumb={thumb}
                 actions={actions}
-                onMenu={setMenu}
+                onMenu={openMenu}
+                selecting={selecting === entity.id}
+                reveal={reveal}
                 sending={sending.has(entity.id)}
               />
             </div>
@@ -769,7 +997,12 @@ export function ChatFeed({
         {/* Muse-style scroll fade: a mask dissolves the content itself under the
           floating top bar and composer — no solid overlay sits on top. */}
       </div>
-      <MessageMenu menu={menu} onClose={() => setMenu(null)} />
+      <MessageMenu
+        menu={menu}
+        onClose={() => setMenu(null)}
+        onReply={actions.reply}
+        onSelect={setSelecting}
+      />
     </div>
   );
 }

@@ -1,28 +1,32 @@
 import assert from "node:assert/strict";
-import { appendFileSync, mkdtempSync, readFileSync, statSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { test } from "node:test";
-import { createHost, type Timers } from "@amuse/core";
+import { type ChatStore, type Journal, createHost, memoryChats, type Timers } from "@amuse/core";
+import { migratedDatabase, query, readJournalFile, tempFolder } from "@amuse/db";
 import { demoPorts, seed } from "@amuse/demo";
-import { fileChats, fileJournal } from "./journal.ts";
+import { Envelope, MAIN, apply, empty } from "@amuse/protocol";
+import { z } from "zod";
+import { locate, openData } from "./data.ts";
+import { JournalError, eventsOf, exported, sqliteChats } from "./journal.ts";
 
 const idle: Timers<number> = { set: () => 0, clear: () => {} };
-const snapshot = async (host: ReturnType<typeof createHost>) => {
-  const r = await host.call("session.sync", { chat: "main", since: null });
+const clock = { now: () => "2026-10-23T00:00:00.000Z" };
+const snapshot = async (host: ReturnType<typeof createHost>, chat = MAIN) => {
+  const r = await host.call("session.sync", { chat, since: null });
   assert.ok(r.kind === "snapshot");
   return r.state;
 };
+const dataFolder = () => tempFolder("amuse-journal-");
 
 test("a restarted host comes back with the same state and keeps counting", async () => {
-  const path = join(mkdtempSync(join(tmpdir(), "amuse-journal-")), "log", "events.jsonl");
-  const first = createHost(demoPorts(idle), { seed: seed(), store: fileChats(dirname(path), path), timers: idle });
+  const dir = dataFolder();
+  const first = createHost(demoPorts(idle), { seed: seed(), store: sqliteChats(await openData(locate({ AMUSE_DATA: dir }), () => {})), timers: idle });
   await first.call("chat.send", { chat: "main", text: "remember me", timezone: "UTC", attachments: [] });
   const before = await snapshot(first);
-  // Windows uses inherited ACLs rather than POSIX mode bits.
-  if (process.platform !== "win32") assert.equal((statSync(path).mode & 0o777).toString(8), "600");
 
-  const second = createHost(demoPorts(idle), { seed: seed(), store: fileChats(dirname(path), path), timers: idle });
+  const second = createHost(demoPorts(idle), { seed: seed(), store: sqliteChats(await openData(locate({ AMUSE_DATA: dir }), () => {})), timers: idle });
   const replayed = await snapshot(second);
   assert.deepEqual(
     replayed.entities.map((e) => e.id),
@@ -41,43 +45,108 @@ test("a restarted host comes back with the same state and keeps counting", async
   assert.equal(after.entities.at(-1)?.id, id);
 });
 
-test("a torn last line is dropped and cut off, so the next append starts clean", async () => {
-  const path = join(mkdtempSync(join(tmpdir(), "amuse-journal-")), "events.jsonl");
-  const host = createHost(demoPorts(idle), { seed: seed(), store: fileChats(dirname(path), path), timers: idle });
-  const seq = (await snapshot(host)).seq;
-  appendFileSync(path, '{"seq":');
-  const journal = fileJournal(path);
-  assert.equal(journal.load().length, seq);
-  journal.append({ seq: seq + 1, event: { kind: "activity", activity: null } });
-  assert.equal(fileJournal(path).load().length, seq + 1);
+test("a row it cannot read stops the load, and the data is left as it was", async () => {
+  const db = await migratedDatabase();
+  createHost(demoPorts(idle), { seed: seed(), store: sqliteChats(db), timers: idle });
+  const rows = () => query(db, z.object({ n: z.number() }), "select count(*) as n from events")[0]?.n;
+  const count = rows();
+  db.prepare("insert into events (chat, seq, event) values (?, ?, ?)").run(MAIN, (count ?? 0) + 2, '{"kind":"renamed"}'); // a gap, and not an event
+  assert.throws(() => createHost(demoPorts(idle), { store: sqliteChats(db), timers: idle }), (error) => error instanceof JournalError && error.chat === MAIN && error.event === (count ?? 0) + 1 && /is not the next event/.test(error.message));
+  assert.equal(rows(), (count ?? 0) + 1);
 });
 
-test("a whole line it cannot read stops the load, and the file is left as it was", async () => {
-  const path = join(mkdtempSync(join(tmpdir(), "amuse-journal-")), "events.jsonl");
-  const host = createHost(demoPorts(idle), { seed: seed(), store: fileChats(dirname(path), path), timers: idle });
-  await snapshot(host);
-  appendFileSync(path, '{"seq":999,"event":{"kind":"renamed"}}\n');
-  const before = readFileSync(path);
-  assert.throws(() => fileJournal(path).load(), /line \d+ is not the next event/);
-  assert.deepEqual(readFileSync(path), before);
+test("the journal is append-only in effect: an event cannot be written twice", async () => {
+  const db = await migratedDatabase();
+  const journal = sqliteChats(db).journal(MAIN);
+  journal.append({ seq: 1, event: { kind: "activity", activity: null } });
+  assert.throws(() => journal.append({ seq: 1, event: { kind: "activity", activity: null } }), /constraint/i);
 });
 
-test("side chats are kept beside the main chat's log, and a deleted one's log goes with it", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "amuse-chats-"));
-  const main = join(dir, "events.jsonl");
-  const first = createHost(demoPorts(idle), { store: fileChats(dir, main), timers: idle });
+test("side chats are kept with the main chat, and a deleted one's events go with it", async () => {
+  const dir = dataFolder();
+  const first = createHost(demoPorts(idle), { store: sqliteChats(await openData(locate({ AMUSE_DATA: dir }), () => {})), timers: idle });
   const side = await first.call("chats.create", {});
   await first.call("chat.send", { chat: side.id, text: "a side thought", timezone: "UTC", attachments: [] });
-  const log = join(dir, "chats", `${side.id}.jsonl`);
-  if (process.platform !== "win32") {
-    assert.equal((statSync(log).mode & 0o777).toString(8), "600");
-    assert.equal((statSync(join(dir, "chats.json")).mode & 0o777).toString(8), "600");
-  }
 
-  const second = createHost(demoPorts(idle), { store: fileChats(dir, main), timers: idle });
+  const db = await openData(locate({ AMUSE_DATA: dir }), () => {});
+  const second = createHost(demoPorts(idle), { store: sqliteChats(db), timers: idle });
   const synced = await second.call("session.sync", { chat: side.id, since: null });
   assert.ok(synced.kind === "snapshot" && synced.state.entities.some((e) => e.kind === "prompt" && e.text === "a side thought"));
+  const events = (chat: string) => query(db, z.object({ n: z.number() }), "select count(*) as n from events where chat = ?", chat)[0]?.n;
+  assert.ok((events(side.id) ?? 0) > 0);
   await second.call("chats.delete", { id: side.id });
-  assert.throws(() => statSync(log));
-  assert.throws(() => fileChats(dir, main).journal("../events"), /not a chat id/);
+  assert.equal(events(side.id), 0);
+  assert.deepEqual(sqliteChats(db).load().map((c) => c.id), [MAIN]);
+});
+
+test("the journal is read as it is replayed, not loaded whole", async () => {
+  const db = await migratedDatabase();
+  const journal = sqliteChats(db).journal(MAIN);
+  for (let seq = 1; seq <= 3; seq++) journal.append({ seq, event: { kind: "activity", activity: null } });
+  const loaded = journal.load();
+  assert.ok(!Array.isArray(loaded), "a lazy sequence, not a list");
+  const iterator = loaded[Symbol.iterator]();
+  assert.equal(iterator.next().value?.seq, 1);
+  // and from a point on, for whoever reads on demand
+  assert.deepEqual([...eventsOf(db, MAIN, 1)].map((e) => e.seq), [2, 3]);
+});
+
+/** The old journal files, as the previous version wrote them: appended to a JSONL file, one event a line, replayed from it. */
+function jsonlChats(dir: string): ChatStore {
+  const base = memoryChats();
+  mkdirSync(join(dir, "chats"), { recursive: true });
+  const path = (chat: string) => (chat === MAIN ? join(dir, "events.jsonl") : join(dir, "chats", `${chat}.jsonl`));
+  const read = (chat: string): Envelope[] => {
+    const log: Envelope[] = [];
+    try {
+      readJournalFile(path(chat), (seq, event) => void log.push(Envelope.parse({ seq, event: JSON.parse(event) })));
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    }
+    return log;
+  };
+  return {
+    load: () => JSON.parse(readChats(dir)),
+    save: (chats) => {
+      base.save(chats);
+      writeFileSync(join(dir, "chats.json"), JSON.stringify(chats, null, 2));
+    },
+    journal: (chat): Journal => ({ load: () => read(chat), append: (e) => appendFileSync(path(chat), `${JSON.stringify(e)}\n`) }),
+    remove: () => {},
+  };
+}
+import { existsSync, readFileSync } from "node:fs";
+const readChats = (dir: string) => (existsSync(join(dir, "chats.json")) ? readFileSync(join(dir, "chats.json"), "utf8") : "[]");
+
+test("replay equivalence: the state from the JSONL files is the state from SQLite, event for event", async () => {
+  // a real host run writes the old files (a main chat, a side chat, a rule-asking exchange)
+  const dir = dataFolder();
+  const old = createHost(demoPorts(idle), { seed: seed(), store: jsonlChats(dir), timers: idle, clock });
+  await old.call("chat.send", { chat: "main", text: "plan my week", timezone: "UTC", attachments: [] });
+  const side = await old.call("chats.create", {});
+  await old.call("chat.send", { chat: side.id, text: "a side thought", timezone: "UTC", attachments: [] });
+  await old.call("chat.send", { chat: "main", text: "and also this", timezone: "UTC", attachments: [] });
+
+  // a host restarted from the files
+  const restartedFromFiles = createHost(demoPorts(idle), { seed: seed(), store: jsonlChats(dir), timers: idle, clock });
+  const files = { main: await snapshot(restartedFromFiles), side: await snapshot(restartedFromFiles, side.id), chats: await restartedFromFiles.call("chats.list", {}) };
+
+  // the state as folding the files' events gives it (the restart wrote its recovery into them, as it does)
+  const folded = (chat: string) => {
+    let state = empty;
+    readJournalFile(chat === MAIN ? join(dir, "events.jsonl") : join(dir, "chats", `${chat}.jsonl`), (seq, event) => void (state = apply(state, Envelope.parse({ seq, event: JSON.parse(event) }))));
+    return state;
+  };
+  const fromFiles = { main: folded(MAIN), side: folded(side.id) };
+  // the same files, imported
+  const db = await openData(locate({ AMUSE_DATA: dir }), () => {});
+  const fromSql = (chat: string) => [...eventsOf(db, chat)].reduce(apply, empty);
+  assert.deepEqual(fromSql(MAIN), fromFiles.main);
+  assert.deepEqual(fromSql(side.id), fromFiles.side);
+  const restartedFromSql = createHost(demoPorts(idle), { seed: seed(), store: sqliteChats(db), timers: idle, clock });
+  assert.deepEqual(await snapshot(restartedFromSql), files.main);
+  assert.deepEqual(await snapshot(restartedFromSql, side.id), files.side);
+  assert.deepEqual(await restartedFromSql.call("chats.list", {}), files.chats);
+  // and exported again, the journal is the lines the old file held, byte for byte (the restart added its recovery after them)
+  assert.ok([...exported(db, MAIN)].join("").startsWith(readFileSync(join(dir, "events.jsonl.bak"), "utf8")));
 });

@@ -10,7 +10,9 @@ import { Attachment } from "@amuse/protocol";
 import { WorkspaceError } from "@amuse/core";
 import { walk, worded } from "./descend.ts";
 import { MAX_FILE, workspace } from "./workspace.ts";
-import type { Access } from "./access.ts";
+import { memorySent, sqliteSent } from "./sent.ts";
+import { migratedNow, openDatabase } from "@amuse/db";
+import { letIn, noPin } from "./testing.ts";
 import { listen } from "./server.ts";
 
 const never: Timers<number> = { set: () => 0, clear: () => {} };
@@ -20,22 +22,16 @@ function plantLink(target: string, path: string): void {
   symlinkSync(to, path, process.platform === "win32" ? "junction" : undefined);
 }
 /** In with the cookie "amuse=s", and only with it. */
-const access: Access = {
-  ready: () => true,
-  setup: async () => "s",
-  login: async () => "s",
-  valid: (session) => session === "s",
-  logout: () => {},
-  change: async () => "s",
-};
+const access = letIn("s", (session) => session === "s");
 
 async function serve() {
   const dir = mkdtempSync(join(tmpdir(), "amuse-files-"));
-  const files = workspace(join(dir, "workspace"), join(dir, "sent.json"));
+  const files = workspace(join(dir, "workspace"), memorySent(), dir);
   const server = await listen({
     session: createHost({ ...demoPorts(never), files }, { timers: never }),
     files,
     access,
+    ...noPin,
     port: 0,
     host: "127.0.0.1",
   });
@@ -121,7 +117,7 @@ test("no upload without a session, none over the limit, and no file by a made-up
 
 test("the workspace stays inside itself, and the chat's files follow them when they move, and are gone when deleted", async () => {
   const dir = mkdtempSync(join(tmpdir(), "amuse-ws-"));
-  const files = workspace(join(dir, "workspace"), join(dir, "sent.json"));
+  const files = workspace(join(dir, "workspace"), memorySent(), dir);
   await files.write("notes/today.md", new TextEncoder().encode("# hi"), false);
   await assert.rejects(files.write("notes/today.md", new Uint8Array(), false), /already exists/);
   await assert.rejects(files.open("../sent.json"), /outside the workspace/);
@@ -162,7 +158,7 @@ function withSecrets() {
   mkdirSync(join(secrets, "folder"), { recursive: true });
   writeFileSync(join(secrets, "keys.json"), "keys");
   writeFileSync(join(secrets, "folder/more.json"), "more");
-  const files = workspace(join(dir, "workspace"), join(dir, "sent.json"));
+  const files = workspace(join(dir, "workspace"), memorySent(), dir);
   const untouched = () => {
     assert.equal(readFileSync(join(secrets, "keys.json"), "utf8"), "keys");
     assert.equal(readFileSync(join(secrets, "folder/more.json"), "utf8"), "more");
@@ -214,7 +210,7 @@ test("a link to a file, at the end of a path, is refused for read, write, move, 
 
 test("a sent file whose folder or file is swapped for a link is no longer served, read or held", async () => {
   const { dir, secrets, files, untouched } = withSecrets();
-  const server = await listen({ session: createHost({ ...demoPorts(never), files }, { timers: never }), files, access, port: 0, host: "127.0.0.1" });
+  const server = await listen({ session: createHost({ ...demoPorts(never), files }, { timers: never }), files, access, ...noPin, port: 0, host: "127.0.0.1" });
   const get = (id: string) => fetch(`http://127.0.0.1:${server.port}/files/${id}`, { headers: { cookie: "amuse=s" } });
   try {
     const sent = await files.save("report.txt", "text/plain", [text("the report")]);
@@ -266,11 +262,14 @@ test("deleting a folder deletes the links in it, not what they lead to; a pipe i
 function fresh() {
   const dir = mkdtempSync(join(tmpdir(), "amuse-protected-"));
   const root = join(dir, "workspace");
-  return { dir, root, files: workspace(root, join(dir, "sent.json")) };
+  return { dir, root, files: workspace(root, memorySent(), dir) };
 }
 
 test("Windows concurrent uploads keep every file and index entry while private server metadata can still be saved", { skip: process.platform !== "win32" }, async () => {
-  const { dir, root, files } = fresh();
+  const dir = mkdtempSync(join(tmpdir(), "amuse-persisted-uploads-"));
+  const root = join(dir, "workspace");
+  const db = migratedNow(dir);
+  const files = workspace(root, sqliteSent(db), dir);
   const held = await walk(root, ["user"]);
   try {
     // The live workspace tree stays guarded; the private data directory is
@@ -283,11 +282,15 @@ test("Windows concurrent uploads keep every file and index entry while private s
       assert.ok(attachment);
       assert.equal(new TextDecoder().decode((await files.read(attachment.id))?.data), `payload ${i}`);
     }
-    const restarted = workspace(root, join(dir, "sent.json"));
-    for (const attachment of uploaded) assert.ok(attachment && await restarted.read(attachment.id), "every index entry survives restart");
+    db.close();
+    const reopened = openDatabase(join(dir, "amuse.db"));
+    try {
+      const restarted = workspace(root, sqliteSent(reopened), dir);
+      for (const attachment of uploaded) assert.ok(attachment && await restarted.read(attachment.id), "every index entry survives the database and workspace reopening");
+    } finally { reopened.close(); }
     assert.equal(readFileSync(join(dir, "chats.json"), "utf8"), "metadata");
     assert.ok(!readdirSync(dir).some((name) => name.endsWith(".part")), "private upload temporaries are removed");
-  } finally { await held.close(); }
+  } finally { await held.close(); if (db.isOpen) db.close(); }
 });
 
 test("a slow upload does not hold the workspace tree or block saving chat metadata", async () => {
@@ -375,15 +378,15 @@ test("memory/, skills/ and user/ always exist, and cannot be removed or renamed,
   assert.ok(existsSync(join(root, "skills")));
   // made again at the next start, if they went some other way
   rmSync(join(root, "memory"), { recursive: true });
-  workspace(root, join(dir, "sent.json"));
+  workspace(root, memorySent(), dir);
   assert.ok(statSync(join(root, "memory")).isDirectory());
   // but not over something that is not a folder
   rmSync(join(root, "skills"), { recursive: true });
   writeFileSync(join(root, "skills"), "a file");
-  assert.throws(() => workspace(root, join(dir, "sent.json")), /skills in the workspace is not a folder/);
+  assert.throws(() => workspace(root, memorySent(), dir), /skills in the workspace is not a folder/);
   rmSync(join(root, "skills"));
   plantLink(dir, join(root, "skills"));
-  assert.throws(() => workspace(root, join(dir, "sent.json")), /skills in the workspace is not a folder/);
+  assert.throws(() => workspace(root, memorySent(), dir), /skills in the workspace is not a folder/);
 });
 
 test("a sent file deleted or swapped outside the server is gone for locate, as it is for reading", async () => {

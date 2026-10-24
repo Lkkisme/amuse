@@ -64,6 +64,18 @@ export function localApps(options: LocalAppsOptions) {
       ]);
       return [...local, ...remote];
     },
+    access(app) {
+      if (app === LOCAL_GITHUB_APP) return options.local.directory.access(app);
+      cloud(); return options.cloudDirectory.access(app);
+    },
+    cannotConnect(app) {
+      if (app === LOCAL_GITHUB_APP) return options.local.directory.cannotConnect(app);
+      cloud(); return options.cloudDirectory.cannotConnect(app);
+    },
+    connectKey(app, values) {
+      if (app === LOCAL_GITHUB_APP) return options.local.directory.connectKey(app, values);
+      cloud(); return options.cloudDirectory.connectKey(app, values);
+    },
     connect(app) {
       if (app === LOCAL_GITHUB_APP) return options.local.directory.connect(app);
       cloud(); return options.cloudDirectory.connect(app);

@@ -72,6 +72,14 @@ class PairedSessionVault(context: Context) {
         }.getOrDefault(false)
     }
 
+    /** Configuration migration reads only the bound origin, never decrypting the session. */
+    fun configuredServer(): ServerAddress? = synchronized(lock) {
+        runCatching {
+            val origin = prefs.getString("origin", null) ?: return@runCatching null
+            ServerAddress.parse(origin).takeIf(::hasSession)
+        }.getOrNull()
+    }
+
     fun clear() = synchronized(lock) {
         val cleared = prefs.edit().clear().commit()
         if (keyStore.containsAlias(ALIAS)) keyStore.deleteEntry(ALIAS)

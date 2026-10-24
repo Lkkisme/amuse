@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from "react";
 import { MessageCircle, MoreHorizontal, Plus, Search, Settings } from "lucide-react";
 import { type Chat, MAIN, type Session, type SkillOrigin } from "@amuse/protocol";
 import type { Actions, LeftSection } from "../ui.ts";
+import type { Swipe } from "../useSwipe.ts";
 import { NAV_PAGES } from "./nav";
 import { usePresence } from "./usePresence";
 import { Goals } from "./Goals";
@@ -92,22 +93,29 @@ export function DockedSidebar({ open, ...props }: SidebarProps & { open: boolean
   );
 }
 
-/** Over the chat from the left: a page of its own on a phone, or, on a desktop without room to dock it, the same panel floating. */
-export function DrawerSidebar({ open, ...props }: SidebarProps & { open: boolean }) {
-  const { mounted, closing, onAnimationEnd } = usePresence(open);
-  if (!mounted) return null;
+/**
+ * Over the chat from the left: a page of its own on a phone, or, on a desktop without room to dock it, the same panel
+ * floating. On a phone a swipe moves it with the finger (`swipe`, useSwipe.ts): it is there while the finger moves it,
+ * with no animation of its own, and one it opened stays as it is until it closes.
+ */
+export function DrawerSidebar({ open, swipe, ...props }: SidebarProps & { open: boolean; swipe: Swipe | null }) {
+  const { mounted, closing, onAnimationEnd } = usePresence(open, swipe?.phase === "closed");
+  const moving = swipe?.phase === "drag" || swipe?.phase === "settle";
+  const settling = swipe?.phase === "settle" ? "swipe-settle" : "";
+  if (!mounted && !moving) return null;
   return (
     // clips the slide, so the panel comes out from the edge; a tap beside it closes it. What it dims is the
     // chat, not the browser beside it
-    <div className={`fixed inset-0 z-40 flex overflow-hidden md:p-2 ${closing ? "pointer-events-none" : ""}`}>
+    <div data-swipe="sidebar" className={`fixed inset-0 z-40 flex overflow-hidden md:p-2 ${closing ? "pointer-events-none" : ""}`}>
       <div
-        className={`${closing ? "anim-fade-out" : "anim-fade-in"} absolute inset-y-0 left-0 bg-black/30`}
-        style={{ right: "var(--viewer-room)" }}
+        className={`${moving ? settling : closing ? "anim-fade-out" : swipe ? "" : "anim-fade-in"} absolute inset-y-0 left-0 bg-black/30`}
+        style={{ right: "var(--viewer-room)", ...(moving ? { opacity: "var(--swipe)" } : {}) }}
         onClick={() => props.actions.setChats(false)}
       />
       <aside
         onAnimationEnd={onAnimationEnd}
-        className={`${closing ? "anim-pane-to-left pointer-events-none" : "anim-pane-from-left"} relative flex h-full w-full flex-col bg-[var(--chat-background)] p-3 md:w-[320px] md:rounded-[24px] md:bg-[var(--panel)] md:shadow-[var(--shadow-drawer)]`}
+        className={`${moving ? settling : closing ? "anim-pane-to-left pointer-events-none" : swipe ? "" : "anim-pane-from-left"} relative flex h-full w-full flex-col bg-[var(--chat-background)] p-3 md:w-[320px] md:rounded-[24px] md:bg-[var(--panel)] md:shadow-[var(--shadow-drawer)]`}
+        style={moving ? { transform: "translateX(calc((1 - var(--swipe)) * (-100% - 16px)))" } : undefined}
         aria-label="Sidebar"
       >
         {/* room for ☰, which moves into the top right while the sidebar is out (TopBar's MenuButton) */}

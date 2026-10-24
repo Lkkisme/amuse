@@ -20,9 +20,12 @@ import {
   type SiteRule,
 } from "@amuse/protocol";
 import { ACTIONS, mergedEntry, summary } from "../browserRules.ts";
+import { Button } from "./Button";
 import { ActionSelect, PermissionSelect } from "./PermissionSelect";
 import { Sheet } from "./Sheet";
+import { useFailure } from "../failure.ts";
 import { useT } from "../i18n/react.ts";
+import { wordsFor } from "../shown.ts";
 
 /** What the user typed, as a site: "https://www.Bank.com/login" and "bank.com" are both bank.com. */
 const asSite = (input: string): string | null => {
@@ -124,11 +127,10 @@ export function SitePermissions({
   const [fresh, setFresh] = useState<SiteEntry | null>(null);
   /** the website whose exceptions are open */
   const [editing, setEditing] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useFailure(session);
 
   const t = useT();
-  const said = (e: unknown) =>
-    setError(e instanceof Error ? e.message : String(e));
+  const said = setError;
   const load = useCallback(
     () =>
       Promise.all([
@@ -190,13 +192,13 @@ export function SitePermissions({
       >
         {t.permissions.description}
       </p>
-      {error && !adding && (
+      {wordsFor(error, t) && !adding && (
         <p
           role="alert"
           className="mt-2 text-[13px]"
           style={{ color: "var(--fill-red)" }}
         >
-          {error}
+          {wordsFor(error, t)}
         </p>
       )}
 
@@ -279,30 +281,27 @@ export function SitePermissions({
           <div className="mt-3 w-full">
             <RuleEditor entry={fresh} onChange={setFresh} />
           </div>
-          {error && (
+          {wordsFor(error, t) && (
             <p
               role="alert"
               className="mt-2 text-[13px]"
               style={{ color: "var(--fill-red)" }}
             >
-              {error}
+              {wordsFor(error, t)}
             </p>
           )}
-          <button
+          <Button
+            variant="primary"
+            size="lg"
+            className="mt-6"
             disabled={!draft.trim()}
-            className="mt-6 h-12 w-full rounded-full text-[16px] font-semibold text-white disabled:opacity-40"
-            style={{ background: "var(--fill-blue)" }}
             onClick={add}
           >
             {t.permissions.add}
-          </button>
-          <button
-            className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
-            style={{ color: "var(--text-primary)" }}
-            onClick={cancel}
-          >
+          </Button>
+          <Button variant="plain" size="lg" className="mt-2" onClick={cancel}>
             {t.common.cancel}
-          </button>
+          </Button>
         </div>
       </Sheet>
 
@@ -336,23 +335,21 @@ export function SitePermissions({
               }}
             />
           </div>
-          <button
-            className="hover-fade mt-4 h-11 w-full rounded-full text-[16px] font-medium"
-            style={{ color: "var(--fill-red)" }}
+          <Button
+            variant="plain"
+            size="lg"
+            tone="danger"
+            className="mt-4"
             onClick={() => {
               if (editing) void permit(editing, null);
               setEditing(null);
             }}
           >
             {t.permissions.removeExceptions}
-          </button>
-          <button
-            className="hover-fade h-11 w-full rounded-full text-[16px] font-medium"
-            style={{ color: "var(--text-primary)" }}
-            onClick={() => setEditing(null)}
-          >
+          </Button>
+          <Button variant="plain" size="lg" onClick={() => setEditing(null)}>
             {t.common.done}
-          </button>
+          </Button>
         </div>
       </Sheet>
 

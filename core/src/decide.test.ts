@@ -14,8 +14,43 @@ test("chat.send records the prompt and asks the agent", () => {
   const d = decide(empty, { method: "chat.send", params: { chat: "main", text: "hi", timezone: "Asia/Shanghai", attachments: [] } }, ctx);
   assert.ok(d.ok);
   assert.deepEqual(d.output, { id: "p1" });
-  assert.deepEqual(d.changes, [{ kind: "upserted", entity: { kind: "prompt", id: "p1", at, text: "hi", timezone: "Asia/Shanghai", attachments: [] } }]);
-  assert.deepEqual(d.effects, [{ kind: "prompt", text: "hi", attachments: [] }]);
+  assert.deepEqual(d.changes, [{ kind: "upserted", entity: { kind: "prompt", id: "p1", at, text: "hi", timezone: "Asia/Shanghai", attachments: [], quote: null } }]);
+  assert.deepEqual(d.effects, [{ kind: "prompt", text: "hi", attachments: [], quote: null }]);
+});
+
+const schedule: Entity = { kind: "schedule", id: "s1", at, title: "Morning briefing", instructions: "Read the mail", when: { kind: "repeat", cron: "0 8 * * *", timezone: "UTC" }, status: "paused", next: null, running: false, last: null, needs: null, preset: false, goal: null };
+const said: Entity = { kind: "reply", id: "r1", at, text: "It   is\nopen.", streaming: false, attachments: [] };
+const send = (state: State, replyTo: string) => decide(state, { method: "chat.send", params: { chat: "main", text: "change this", timezone: "UTC", attachments: [], replyTo } }, ctx);
+
+test("chat.send with replyTo keeps the item as it was, and gives it to the agent", () => {
+  const card = send(stateOf(schedule), "s1");
+  assert.ok(card.ok);
+  const quote = { id: "s1", kind: "schedule", text: "Morning briefing", state: "paused" };
+  assert.deepEqual(card.changes, [{ kind: "upserted", entity: { kind: "prompt", id: "p1", at, text: "change this", timezone: "UTC", attachments: [], quote } }]);
+  assert.deepEqual(card.effects, [{ kind: "prompt", text: "change this", attachments: [], quote }]);
+  const words = send(stateOf(said), "r1");
+  assert.ok(words.ok);
+  assert.deepEqual(words.effects, [{ kind: "prompt", text: "change this", attachments: [], quote: { id: "r1", kind: "reply", text: "It is open.", state: null } }]);
+});
+
+test("a message of either side can be replied to, and it has to be there; the agents' own exchanges cannot", () => {
+  const mine: Entity = { kind: "prompt", id: "p0", at, text: "hi", timezone: "UTC", attachments: [], quote: null };
+  assert.deepEqual(send(stateOf(mine), "nope"), { ok: false, rejection: { kind: "notFound", entity: "reply", id: "nope" } });
+  const own = send(stateOf(mine), "p0");
+  assert.ok(own.ok);
+  assert.deepEqual(own.effects, [{ kind: "prompt", text: "change this", attachments: [], quote: { id: "p0", kind: "prompt", text: "hi", state: null } }]);
+  const between: Entity = { kind: "instruction", id: "i1", at, run: "b1", title: "Log in", text: "more" };
+  const d = send(stateOf(between), "i1");
+  assert.ok(!d.ok && d.rejection.kind === "unsound");
+});
+
+test("chat.retry sends the user's last message again with the item it replied to", () => {
+  const quote = { id: "s1", kind: "schedule" as const, text: "Morning briefing", state: "paused" };
+  const asked: Entity = { kind: "prompt", id: "p0", at, text: "change this", timezone: "UTC", attachments: [], quote };
+  const failure: Entity = { kind: "failure", id: "x1", at, reason: "failed", detail: "", turn: { kind: "message" }, status: "open" };
+  const d = decide(stateOf(schedule, asked, failure), { method: "chat.retry", params: { id: "x1" } }, ctx);
+  assert.ok(d.ok);
+  assert.deepEqual(d.effects, [{ kind: "prompt", text: "change this", attachments: [], quote }]);
 });
 
 type Move = "take" | "handBack" | "stop";
@@ -57,7 +92,7 @@ test("illegal browser moves are rejected with where they came from", () => {
 });
 
 test("an approval resolves once; allow_* approves, deny_* denies", () => {
-  const pending = stateOf({ kind: "approval", id: "a1", at, action: "Send", target: "t", detail: "d", remember: true, status: "pending", expires: at, app: null, always: false, byRule: false });
+  const pending = stateOf({ kind: "approval", id: "a1", at, action: "Send", target: "t", detail: "d", remember: true, status: "pending", expires: at, app: null, always: false, byRule: false, lasting: false });
   const allow = decide(pending, { method: "approval.resolve", params: { id: "a1", resolution: "allow_always" } }, ctx);
   assert.ok(allow.ok && allow.changes[0]?.kind === "upserted" && allow.changes[0].entity.kind === "approval");
   assert.equal(allow.changes[0].entity.status, "approved");
@@ -113,7 +148,7 @@ test("recovery ends interrupted replies and clears the activity; a quiet state n
     { kind: "upserted", entity: { kind: "reply", id: "r1", at, text: "Hal", streaming: false, attachments: [] } },
     { kind: "activity", activity: null },
   ]);
-  assert.deepEqual(recover(stateOf({ kind: "prompt", id: "p1", at, text: "hi", timezone: "UTC", attachments: [] }), at), []);
+  assert.deepEqual(recover(stateOf({ kind: "prompt", id: "p1", at, text: "hi", timezone: "UTC", attachments: [], quote: null }), at), []);
 });
 
 test("a browser being viewed takes the view's shape, whoever drives it; back to the standard size after; not once gone", () => {
@@ -211,7 +246,7 @@ test("a run's step is its agent's while it works; ending, stopping or the user t
 });
 
 test("'always' is an answer only where a rule can hold it", () => {
-  const once = stateOf({ kind: "approval", id: "a1", at, action: "Click Pay", target: "shop.example", detail: "d", remember: false, status: "pending", expires: at, app: null, always: false, byRule: false });
+  const once = stateOf({ kind: "approval", id: "a1", at, action: "Click Pay", target: "shop.example", detail: "d", remember: false, status: "pending", expires: at, app: null, always: false, byRule: false, lasting: false });
   assert.deepEqual(decide(once, { method: "approval.resolve", params: { id: "a1", resolution: "allow_always" } }, ctx), {
     ok: false,
     rejection: { kind: "invalid", action: "always", from: "pending" },

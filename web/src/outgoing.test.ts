@@ -10,6 +10,7 @@ const prompt = (id: string, text: string): Entity => ({
   text,
   timezone: "UTC",
   attachments: [],
+  quote: null,
 });
 const reply = (id: string): Entity => ({
   kind: "reply",
@@ -29,6 +30,7 @@ const going = (
   chat: "main",
   text,
   attachments: [],
+  quote: null,
   at: "2026-10-21T10:01:00Z",
   timezone: "UTC",
   sent,
@@ -69,4 +71,10 @@ test("two of the same words sent one after the other are two messages", () => {
     one.sending.map((p) => p.id),
     ["k2"],
   );
+});
+
+test("a message on its way shows the item it replies to", () => {
+  const quote = { id: "s1", kind: "schedule" as const, text: "Morning briefing", state: "paused" };
+  const [shown] = outgoingIn([], [{ ...going("k1", "make it 9", null), quote }], "main").sending;
+  assert.deepEqual(shown?.quote, quote);
 });

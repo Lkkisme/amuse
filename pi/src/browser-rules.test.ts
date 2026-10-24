@@ -15,6 +15,8 @@ function agentIO(answer: Answer | "never") {
     act: (action) => (acted.push(action), { ok: true, id: "a1" }),
     decision: () => (answer === "never" ? new Promise<Answer>(() => {}) : Promise.resolve(answer)),
     report: () => {},
+    mention: () => {},
+    running: () => "",
     context: () => "",
     recall: () => "",
     time: () => ({ now: "2026-10-20T08:00:00Z", timezone: "UTC" }),

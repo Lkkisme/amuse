@@ -1,13 +1,14 @@
 /**
- * Settings › Saved logins: the sites Amuse's browsers keep the user signed in
- * to (from their own sign-ins, kept so they need not sign in again), and
- * signing out of one: its kept login goes, from every open browser too. The
- * cookies themselves are never shown.
+ * Settings › Browser data: the sites Amuse's browsers keep the user signed in
+ * to (cookies and storage from their own sign-ins, kept so they need not sign
+ * in again; no passwords), and signing out of one: what is kept for it goes,
+ * from every open browser too. The cookies themselves are never shown.
  */
 import { useCallback, useEffect, useState } from "react";
 import { Globe, KeyRound } from "lucide-react";
 import type { Session } from "@amuse/protocol";
-import { Sheet } from "./Sheet";
+import { Button } from "./Button";
+import { ConfirmSheet } from "./ConfirmSheet";
 import { useT } from "../i18n/react.ts";
 
 export function Logins({ session }: { session: Session }) {
@@ -90,54 +91,23 @@ export function Logins({ session }: { session: Session }) {
             >
               {site}
             </span>
-            <button
-              className="hover-fade rounded-full px-2 py-1 text-[14px] font-medium"
-              style={{ color: "var(--fill-red)" }}
-              onClick={() => setLeaving(site)}
-            >
+            <Button onCard tone="danger" onClick={() => setLeaving(site)}>
               {t.logins.signOut}
-            </button>
+            </Button>
           </li>
         ))}
       </ul>
 
-      <Sheet open={leaving !== null} onClose={() => setLeaving(null)} bare>
-        <div className="flex flex-col items-center px-6 pb-6 pt-5 text-center">
-          <span
-            className="flex size-14 items-center justify-center rounded-[16px]"
-            style={{ background: "#ffffff", color: "#111112" }}
-          >
-            <KeyRound size={26} />
-          </span>
-          <p
-            className="mt-4 text-[20px] font-semibold"
-            style={{ color: "var(--text-primary)" }}
-          >
-            {t.logins.signOutOf(leaving ?? "")}
-          </p>
-          <p
-            className="mt-1 text-[14px]"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            {t.logins.forgetHelp}
-          </p>
-          <button
-            disabled={busy}
-            className="mt-6 h-12 w-full rounded-full text-[16px] font-semibold text-white disabled:opacity-50"
-            style={{ background: "var(--fill-red)" }}
-            onClick={() => leaving && signOut(leaving)}
-          >
-            {t.logins.signOut}
-          </button>
-          <button
-            className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
-            style={{ color: "var(--text-primary)" }}
-            onClick={() => setLeaving(null)}
-          >
-            {t.common.cancel}
-          </button>
-        </div>
-      </Sheet>
+      <ConfirmSheet
+        open={leaving !== null}
+        onClose={() => setLeaving(null)}
+        icon={KeyRound}
+        title={t.logins.signOutOf(leaving ?? "")}
+        body={t.logins.forgetHelp}
+        action={t.logins.signOut}
+        busy={busy}
+        onConfirm={() => leaving && signOut(leaving)}
+      />
     </div>
   );
 }

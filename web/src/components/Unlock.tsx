@@ -1,88 +1,183 @@
-/** The first visit chooses a four-digit PIN; existing passwords remain usable. */
-import { useRef, useState } from "react";
-import { LockKeyhole } from "lucide-react";
-import { enter } from "../connection.ts";
-import { PinPad } from "./PinPad";
+/**
+ * The way in on a device: the master password. The very first visit sets it
+ * (typed twice) with the PIN, and that device is trusted; after that the
+ * password opens Muse on a trusted device, and on a new one it waits until a
+ * trusted device approves it (this page then asks every few seconds, and goes
+ * in once it is).
+ */
+import { useEffect, useRef, useState } from "react";
+import { Button } from "./Button";
+import { PinInput } from "./PinInput";
+import { admitted, enter } from "../connection.ts";
 import { useT } from "../i18n/react.ts";
+import { PIN_DIGITS } from "../pin.ts";
 
-export function Unlock({ ready }: { ready: boolean }) {
+/** how often a waiting device asks whether it is approved */
+const POLL_MS = 3000;
+
+export function Unlock({ ready, waiting: waitingAtStart }: { ready: boolean; waiting: boolean }) {
   const t = useT();
-  const [pin, setPin] = useState("");
-  const [again, setAgain] = useState("");
-  const [confirming, setConfirming] = useState(false);
-  const [legacy, setLegacy] = useState(false);
   const [password, setPassword] = useState("");
+  const [again, setAgain] = useState("");
+  const [pin, setPin] = useState("");
+  const [pinAgain, setPinAgain] = useState("");
+  const pinAgainField = useRef<HTMLInputElement>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const inFlight = useRef(false);
-  const value = confirming ? again : pin;
-  const unlock = (credential: string) => {
-    if (inFlight.current) return;
-    inFlight.current = true;
+  const [waiting, setWaiting] = useState(waitingAtStart);
+  useEffect(() => {
+    if (!waiting) return;
+    const timer = setInterval(() => {
+      void admitted().then((inNow) => {
+        if (inNow) location.replace(location.pathname + location.search);
+      });
+    }, POLL_MS);
+    return () => clearInterval(timer);
+  }, [waiting]);
+  /** What the form does, with the PIN as it was typed: the sixth digit of the one typed again sends it. */
+  const send = (entered: string, confirmed: string) => {
+    if (!password || busy) return;
+    if (!ready && password !== again) return setProblem(t.unlock.mismatch);
+    if (!ready && entered.length !== PIN_DIGITS) return setProblem(t.pin.sixDigits);
+    if (!ready && entered !== confirmed) return setProblem(t.pin.mismatch);
     setBusy(true);
-    setProblem(null);
-    void enter(credential, !ready).then((why) => {
-      inFlight.current = false;
+    void enter(password, ready ? null : entered).then((why) => {
       setBusy(false);
-      setProblem(why);
-      if (why && ready) {
-        setPin("");
-        setPassword("");
+      if (why === "waiting") {
+        setProblem(null);
+        return setWaiting(true);
       }
+      setProblem(why);
     });
   };
-  const change = (next: string) => {
-    setProblem(null);
-    if (confirming) setAgain(next);
-    else {
-      setPin(next);
-      // Four taps unlock; the ref also guards a simultaneous Enter/click.
-      if (ready && !legacy && next.length === 4) unlock(next);
-    }
+  const field =
+    "h-11 w-full max-w-xs rounded-full px-4 text-[15px] outline-none";
+  const look = {
+    background: "var(--fill-primary)",
+    color: "var(--text-primary)",
+    boxShadow: "var(--shadow-float)",
   };
 
+  const heading = waiting ? t.unlock.waitingTitle : ready ? t.unlock.welcome : t.unlock.setTitle;
+  const help = waiting ? t.unlock.waitingHelp : ready ? t.unlock.enterHelp : t.unlock.setHelp;
+
   return (
-    <main className="unlock-page">
-      <form className="unlock-card" onSubmit={(event) => {
-        event.preventDefault();
-        if (busy || (legacy ? !password : value.length !== 4)) return;
-        if (!ready && !confirming) {
-          setConfirming(true);
-          setProblem(null);
-          return;
-        }
-        if (!ready && pin !== again) {
-          setAgain("");
-          setProblem(t.pinUnlock.mismatch);
-          return;
-        }
-        unlock(legacy ? password : pin);
-      }}>
-        <span className="unlock-mark" aria-hidden="true"><LockKeyhole size={25} strokeWidth={1.7} /></span>
-        <div className="unlock-heading">
-          <p className="unlock-eyebrow">AMUSE</p>
-          <h1>{ready ? t.unlock.welcome : confirming ? t.pinUnlock.confirmTitle : t.pinUnlock.chooseTitle}</h1>
-          <p>{ready
-            ? legacy ? t.pinUnlock.existingHelp : t.pinUnlock.enterHelp
-            : confirming ? t.pinUnlock.confirmHelp : t.pinUnlock.chooseHelp}</p>
-        </div>
-        {legacy ? (
-          <input autoFocus type="password" autoComplete="current-password" aria-label={t.pinUnlock.existingPassword} placeholder={t.pinUnlock.existingPassword} className="credential-password" disabled={busy} value={password} onChange={(event) => { setPassword(event.target.value); setProblem(null); }} />
-        ) : (
-          <PinPad key={confirming ? "confirm" : "pin"} value={value} onChange={change} label={confirming ? t.pinUnlock.confirmLabel : ready ? t.pinUnlock.pinLabel : t.pinUnlock.newLabel} autoFocus disabled={busy} newPin={!ready} />
-        )}
-        {problem && <p className="credential-message is-error" role="alert">{problem}</p>}
-        <button type="submit" className="credential-primary" disabled={busy || (legacy ? !password : value.length !== 4)}>
-          {busy ? t.pinUnlock.waiting : ready ? t.pinUnlock.unlock : confirming ? t.pinUnlock.set : t.common.continue}
-        </button>
-        {ready ? (
-          <button type="button" className="credential-link" disabled={busy} onClick={() => { setLegacy(!legacy); setProblem(null); setPin(""); setPassword(""); }}>
-            {legacy ? t.pinUnlock.usePin : t.pinUnlock.useExisting}
-          </button>
-        ) : confirming ? (
-          <button type="button" className="credential-link" disabled={busy} onClick={() => { setConfirming(false); setPin(""); setAgain(""); setProblem(null); }}>{t.pinUnlock.chooseDifferent}</button>
-        ) : <p className="unlock-footnote">{t.pinUnlock.privateHelp}</p>}
-      </form>
-    </main>
+    <form
+      className="flex h-full flex-col items-center justify-center gap-4 p-6"
+      style={{ background: "var(--chat-background)" }}
+      onSubmit={(e) => {
+        e.preventDefault();
+        send(pin, pinAgain);
+      }}
+    >
+      <span
+        className="flex size-14 items-center justify-center rounded-full text-[22px] font-semibold"
+        style={{
+          background: "var(--avatar-fill)",
+          color: "var(--avatar-text)",
+          boxShadow: "var(--shadow-float)",
+        }}
+      >
+        A
+      </span>
+      <div className="max-w-xs text-center">
+        <p
+          className="text-[17px] font-semibold"
+          style={{ color: "var(--text-primary)" }}
+        >
+          {heading}
+        </p>
+        <p
+          className="mt-1 text-[14px]"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          {help}
+        </p>
+      </div>
+      {!waiting && (
+        <>
+          <input
+            autoFocus
+            type="password"
+            autoComplete={ready ? "current-password" : "new-password"}
+            aria-label={t.unlock.password}
+            placeholder={t.unlock.password}
+            className={field}
+            style={look}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          {!ready && (
+            <input
+              type="password"
+              autoComplete="new-password"
+              aria-label={t.unlock.passwordAgain}
+              placeholder={t.unlock.passwordAgain}
+              className={field}
+              style={look}
+              value={again}
+              onChange={(e) => setAgain(e.target.value)}
+            />
+          )}
+          {!ready && (
+            <>
+              <p
+                className="mt-2 max-w-xs text-center text-[14px]"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                {t.pin.setLine}
+              </p>
+              <PinInput
+                autoComplete="off"
+                label={t.unlock.pin}
+                value={pin}
+                onChange={setPin}
+                onDone={() => pinAgainField.current?.focus()}
+              />
+              <PinInput
+                ref={pinAgainField}
+                autoComplete="off"
+                label={t.unlock.pinAgain}
+                value={pinAgain}
+                onChange={setPinAgain}
+                onDone={(confirmed) => {
+                  // the password is the one thing the PIN cannot fill in: without it the button is the way
+                  if (password && again) send(pin, confirmed);
+                }}
+              />
+            </>
+          )}
+        </>
+      )}
+      {problem && (
+        <p
+          className="max-w-xs text-center text-[13px]"
+          style={{ color: "var(--fill-red)" }}
+        >
+          {problem}
+        </p>
+      )}
+      {waiting ? (
+        <Button
+          variant="plain"
+          size="lg"
+          className="max-w-xs"
+          type="button"
+          onClick={() => setWaiting(false)}
+        >
+          {t.common.back}
+        </Button>
+      ) : (
+        <Button
+          variant="primary"
+          size="lg"
+          className="max-w-xs"
+          type="submit"
+          disabled={busy}
+        >
+          {ready ? t.common.continue : t.unlock.setButton}
+        </Button>
+      )}
+    </form>
   );
 }

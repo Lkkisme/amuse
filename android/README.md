@@ -1,10 +1,22 @@
 # Amuse for Android
 
-The Android application opens the existing Amuse web interface at
-`https://lkk.tail988ed4.ts.net:8443`. It uses the same server, chat history,
-files, settings and live updates as the desktop web client. The phone must be
-able to reach that server, normally through the same Tailscale network.
-The native connection settings accept a different HTTPS origin if needed.
+The Android application opens **your configured Amuse HTTPS server** and uses
+the same responsive web UI, chat history, files, settings, browser and terminal
+as the desktop web client. There is no second model configuration or chat DB.
+On first installation, enter your server's HTTPS origin in Connection & Security
+(for example `https://amuse.example.com:8443`), then use its normal web sign-in.
+The example is only a placeholder and is never contacted before setup. Keep the
+required network or VPN available and configure the server's `AMUSE_PUBLIC_URL`.
+
+Version 0.2.0/code8 integrates upstream's generic setup, strict URL/port parsing,
+Gradle wrapper and stale-unlock fencing. Existing configured origins are kept;
+older owner-paired or biometric installs without a separate server preference
+recover only their existing vault-bound origin metadata without decrypting the
+login. New installs contain no personal URL. Local owner pairing, screenshot
+permission, optional biometric lock, Tailscale recovery and page/voice lifecycle
+handling remain available. Server password/PIN policy is owned by the web app.
+The 0.1.6 physical background/lock/network acceptance remains pending; unit and
+release builds alone do not establish device-specific lifecycle behavior.
 Version 0.1.6 keeps the owner's current passwordless page across ordinary app
 switches and screen locking. This applies only to an already paired device with
 local biometric unlocking disabled, a current same-origin page, and no picker,
@@ -59,7 +71,7 @@ only this switch preserves device pairing and local biometric keys.
   indicator; green means the document loaded, not an independent RPC health check.
 
 Version 0.1.2 restores an owner-paired device session directly into chat, without
-a password, PIN or biometric prompt. Unpaired devices start at the server PIN
+a password, PIN or biometric prompt. Unpaired devices start at the server web sign-in
 page with local biometric unlock disabled by default. The user may enable it in Connection & Security. Native
 surfaces start with the web light palette and follow the page's selected theme.
 The optional noVNC viewer is loaded on demand so a hanging video-codec probe
@@ -76,7 +88,7 @@ cannot block sign-in or chat startup.
 - Clearing local login removes the paired key and encrypted session. Changing the
   server credential revokes all server sessions, including paired devices.
 
-- The four-digit server PIN is entered in the server's web interface. Native
+- The four-digit server web sign-in is entered in the server's web interface. Native
   code never receives or stores the PIN, and never receives fingerprint data.
 - On Android 11+, a reusable server session is sealed with AES-GCM. Its random
   encryption key is wrapped using an AndroidKeyStore RSA public key. Opening it
@@ -94,13 +106,13 @@ cannot block sign-in or chat startup.
   selected URIs are withheld until the user verifies their device identity when
   local biometric unlock is enabled. PIN-only and paired modes resume without that gate.
   The in-memory page is then resumed to finish the upload. A secure device lock
-  is required for this flow. Choosing server-PIN sign-in instead cancels that
+  is required for this flow. Choosing server sign-in instead cancels that
   upload and starts a fresh page.
 - Android 10 supports the system unlock prompt but intentionally does not keep
-  a reusable biometric session. Unpaired devices require server-PIN sign-in on
+  a reusable biometric session. Unpaired devices require server sign-in on
   reopening; owner-paired sessions use the independent AES vault on API 29+.
 - Unpaired devices without a secure device lock, or with local unlock disabled,
-  do not keep a reusable biometric session and require the server PIN on reopening.
+  do not keep a reusable biometric session and require the server web sign-in on reopening.
 - Clearing the phone's saved login removes its local key and session only;
   the server still retains its chats. The server can independently expire or
   revoke any session, in which case the web client asks for the PIN again.
@@ -119,7 +131,9 @@ native bridge or camera, broad-storage or notification permission is installed.
 
 Version 0.1.4 supports the upstream Voice button: only the configured HTTPS
 origin can request audio capture. Each request first asks for native confirmation,
-then Android's `RECORD_AUDIO` permission if needed. The runtime permission dialog
+then Android's `RECORD_AUDIO` permission if needed. The normal
+`MODIFY_AUDIO_SETTINGS` permission lets WebView open its audio input device;
+it does not grant microphone capture by itself. The runtime permission dialog
 preserves its requesting renderer for that prompt; the grant is checked again on
 return against the current foreground, device-unlocked page and origin. An
 eligible owner page can remain paused after a true background transition, but its
@@ -139,17 +153,21 @@ external origin.
 ## Build
 
 Versions: JDK 17, Gradle 8.9, AGP 8.7.3, Kotlin 2.0.21, Android SDK platform 35.
-The application supports Android 10 / API 29 and later. The local build uses one
-Gradle worker, a 768 MiB Java heap and an in-process Kotlin compiler. It does not
-need an emulator or a connected phone.
+The application supports Android 10 / API 29 and later. The checked-in wrapper
+pins Gradle 8.9 and its distribution checksum. One worker and an in-process
+Kotlin compiler are used; the upstream 3 GiB heap prevents debug dex merging
+from exhausting the earlier 768 MiB limit. No emulator or phone is needed to build.
 
 Set `JAVA_HOME`, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, `ANDROID_USER_HOME` and
 `GRADLE_USER_HOME` to the installed toolchain directories, then run from this
 directory:
 
 ```powershell
-& 'D:\LocalAI\Android-Toolchain\gradle-8.9\bin\gradle.bat' --no-daemon --max-workers=1 assembleDebug testDebugUnitTest assembleRelease
+.\gradlew.bat --no-daemon --max-workers=1 assembleDebug testDebugUnitTest assembleRelease
 ```
+
+On Unix use `./gradlew` instead. Release signing stays outside version control;
+retain the same application ID and release key for updates.
 
 The outputs are:
 

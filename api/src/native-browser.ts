@@ -5,7 +5,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { chromium, request as browserRequest, type APIRequestContext, type BrowserContext, type Page, type CDPSession } from "playwright-core";
 import { WebSocket } from "ws";
-import { type Browsers, type FileData, type PageView, type Size, type Step } from "@amuse/browser";
+import { StaleRef, type Browsers, type FileData, type PageView, type Size, type Step } from "@amuse/browser";
 import { browserRulesOf, decideBrowser, hostOf, memoryRules, type Rules, type Host, type Ports, type AgentIO } from "@amuse/core";
 import { permitStep } from "@amuse/pi";
 import type { Browser as BrowserEntity, BrowserAction } from "@amuse/protocol";
@@ -503,9 +503,9 @@ export class NativeBrowserManager implements Browsers {
     const prefix = `a${randomUUID().replaceAll("-", "").slice(0, 12)}`;
     const view = await run.page.evaluate((prefix) => {
       let index = 0;
-      const elements = Array.from(document.querySelectorAll<HTMLElement>('a,button,input,textarea,select,[role="button"],[role="link"],[contenteditable="true"]')).filter((element) => { const r = element.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(element).visibility !== "hidden"; }).map((element) => {
+      const elements = Array.from(document.querySelectorAll<HTMLElement>('a,button,input,textarea,select,img,canvas,video,[role="button"],[role="link"],[role="img"],[contenteditable="true"]')).filter((element) => { const r = element.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(element).visibility !== "hidden"; }).map((element) => {
         const ref = `${prefix}-${++index}`; element.setAttribute("data-amuse-ref", ref);
-        return { ref, role: element.getAttribute("role") || element.tagName.toLowerCase(), label: element.getAttribute("aria-label") || element.getAttribute("placeholder") || element.innerText || element.getAttribute("name") || element.tagName.toLowerCase(), href: element instanceof HTMLAnchorElement ? element.href : null, disabled: element.hasAttribute("disabled") };
+        return { ref, role: element.getAttribute("role") || element.tagName.toLowerCase(), label: element.getAttribute("aria-label") || element.getAttribute("alt") || element.getAttribute("placeholder") || element.innerText || element.getAttribute("name") || element.tagName.toLowerCase(), href: element instanceof HTMLAnchorElement ? element.href : null, disabled: element.hasAttribute("disabled") };
       });
       return { url: location.href, title: document.title, text: document.body.innerText, elements };
     }, prefix);
@@ -556,8 +556,18 @@ export class NativeBrowserManager implements Browsers {
     await this.metadata(run);
     } finally { run.submitGranted = null; }
   }
-  async screenshot(id: string) { return new Uint8Array(await (await this.run(id)).page.screenshot({ type: "png" })); }
-  async screenshotForChat(chat: string, id: string, signal?: AbortSignal) { this.checkSignal(signal); const run = await this.run(id); this.assertScope(run, chat); return this.exclusive(run, async () => { await this.trackPolicy(run, () => this.permit(run, run.page.url(), "visit", "Read page image", run.page.url())); this.assertAgent(run); return this.screenshot(id); }, signal); }
+  async screenshot(id: string, ref?: string): Promise<Uint8Array | null> {
+    const run = this.runs.get(id);
+    if (!run || run.page.isClosed()) return null;
+    if (!ref) return new Uint8Array(await run.page.screenshot({ type: "png" }));
+    this.assertAgent(run);
+    if (!run.refs.has(ref)) throw new StaleRef(ref);
+    // Only refs from the latest observed page may be pictured; no invented selector or navigation.
+    const element = run.page.locator(`[data-amuse-ref="${ref}"]`);
+    return new Uint8Array(await element.screenshot({ type: "png", timeout: 5000 }));
+  }
+  holds(id: string): boolean { return this.runs.has(id); }
+  async screenshotForChat(chat: string, id: string, signal?: AbortSignal, ref?: string) { this.checkSignal(signal); const run = await this.run(id); this.assertScope(run, chat); return this.exclusive(run, async () => { await this.trackPolicy(run, () => this.permit(run, run.page.url(), "visit", "Read page image", run.page.url())); this.assertAgent(run); const picture = await this.screenshot(id, ref); if (!picture) throw new Error("Browser image is unavailable."); return picture; }, signal); }
   async finishForChat(chat: string, id: string, result: string, signal?: AbortSignal) { this.checkSignal(signal); const run = await this.run(id); this.assertScope(run, chat); return this.exclusive(run, async () => { this.assertAgent(run); this.beginJob(run); const ended = run.io.act({ kind: "browserEnded", id, status: "completed", result }); if (!ended.ok) throw new Error(`无法结束浏览器任务：${JSON.stringify(ended.rejection)}`); }, signal); }
   async remember(id: string) {
     const run = await this.run(id);

@@ -12,9 +12,9 @@
  * it, out of the agent's reach): id → where the file is now, kept up to date
  * when files move and dropped when they are deleted.
  */
-import { constants, createWriteStream, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { constants, createWriteStream, lstatSync, mkdirSync, rmSync } from "node:fs";
 import { lstat, readFile, readdir, rename } from "node:fs/promises";
-import { basename, dirname, extname, join } from "node:path";
+import { basename, extname, join } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { type Entry, type Workspace, WorkspaceError, newId } from "@amuse/core";
@@ -54,8 +54,8 @@ export function plain(path: string): string {
 }
 
 /** Each sent file, and who sent it: what the user sent stays theirs wherever it is moved. */
-const Index = z.record(z.string(), z.object({ attachment: Attachment, by: z.enum(["user", "muse"]) }));
-type Sent = z.infer<typeof Index>[string];
+export const Sent = z.object({ attachment: Attachment, by: z.enum(["user", "muse"]) });
+export type Sent = z.infer<typeof Sent>;
 const at = (sent: Sent, path: string) => ({ ...sent, attachment: { ...sent.attachment, path } });
 const within = (path: string, folder: string) => path === folder || path.startsWith(`${folder}/`);
 
@@ -79,19 +79,21 @@ export interface FileStore extends Workspace {
 export const PROTECTED = ["memory", "skills", "user"];
 const isProtected = (rel: string) => PROTECTED.includes(rel.split("/")[0] ?? "");
 
-/** The workspace at `root`; the index of sent files at `index` (outside it). */
-export function workspace(root: string, index: string): FileStore {
+/** Where the index of sent files is kept (outside the workspace): read once, written whole on each change. */
+export interface SentIndex {
+  load(): Record<string, Sent>;
+  save(all: Record<string, Sent>): void;
+}
+
+/** The workspace at `root`; the index of sent files kept in `index`; uploads arrive in `scratch` (on the same disk) before they are moved in. */
+export function workspace(root: string, index: SentIndex, scratch: string): FileStore {
   mkdirSync(root, { recursive: true, mode: 0o700 });
   for (const name of PROTECTED) {
     if (!lstatSync(join(root, name), { throwIfNoEntry: false })) mkdirSync(join(root, name), { mode: 0o700 });
     if (!lstatSync(join(root, name)).isDirectory()) throw new Error(`${name} in the workspace is not a folder: it must be one (the sandbox mounts it).`);
   }
-  let sent = existsSync(index) ? Index.parse(JSON.parse(readFileSync(index, "utf8"))) : {};
-  const saveIndex = () => {
-    const temporary = `${index}.next`;
-    writeFileSync(temporary, JSON.stringify(sent), { mode: 0o600 });
-    renameSync(temporary, index);
-  };
+  let sent = index.load();
+  const saveIndex = () => index.save(sent);
 
   const parts = (rel: string) => (rel === "" ? [] : rel.split("/"));
   /** The folder at a path (made if `make`), to use and let go. */
@@ -157,7 +159,7 @@ export function workspace(root: string, index: string): FileStore {
       const clean = cleanName(name);
       const kind = type && type !== "application/octet-stream" ? type.slice(0, 255) : typeOf(clean);
       const folder = /^(image|video)\//.test(kind) ? "user/media_library" : "user";
-      const partial = join(dirname(index), `upload-${newId("p")}.part`);
+      const partial = join(scratch, `upload-${newId("p")}.part`);
       let size = 0;
       const limit = new Transform({
         transform(chunk: Buffer, _, done) {

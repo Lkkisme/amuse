@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ChevronRight, KeyRound } from "lucide-react";
 import type { App, KeyProvider, Session } from "@amuse/protocol";
+import { Button } from "./Button";
 import { Connectors } from "./Connectors";
 import { KeyLine, KeyLogin, useKeyTests } from "./KeyLogin";
 import { Sheet } from "./Sheet";
@@ -88,7 +89,17 @@ function AppsConnections({
       {!viewing&&<div className="shrink-0 border-t px-5 py-3 sm:px-6" style={{borderColor:"var(--fill-divider)"}}>
         <p className="text-[13px]" style={{color:"var(--text-secondary)"}}>{t.localServices.cloudHelp}</p>
         <a href="https://dashboard.composio.dev/" target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-[13px] underline" style={{color:"var(--fill-blue)"}}>Composio</a>
-        {key&&<button className="ml-4 text-[13px] font-medium" style={{color:"var(--fill-blue)"}} onClick={()=>setSetting(key)}>{t.connections.addKey}</button>}
+        {key && <Button variant="primary" className="ml-4 mt-2" onClick={() => setSetting(key)}>{t.connections.addKey}</Button>}
+        <details className="mt-3 text-[13px]" style={{ color: "var(--text-secondary)" }}>
+          <summary className="cursor-pointer">{t.connections.connectTitle}</summary>
+          <p className="mt-2">{t.connections.connectHelp}</p>
+          <p className="mt-2">{t.connections.ownAccount}</p>
+          <ol className="mt-3 list-inside list-decimal space-y-2">
+            <li>{t.connections.steps.signIn}<a href="https://dashboard.composio.dev/" target="_blank" rel="noopener noreferrer" className="underline">dashboard.composio.dev</a>{t.connections.steps.signInAfter}</li>
+            <li>{t.connections.steps.openSettings}</li>
+            <li>{t.connections.steps.copyKey}</li>
+          </ol>
+        </details>
       </div>}
       {sheet}
       </>
@@ -172,13 +183,14 @@ function AppsConnections({
               </button>
             </li>
           </ul>
-          <button
-            className="hover-fade mt-2 h-11 w-full rounded-full text-[16px] font-medium"
-            style={{ color: "var(--text-primary)" }}
+          <Button
+            variant="plain"
+            size="lg"
+            className="mt-2"
             onClick={() => setManaging(false)}
           >
             {t.common.done}
-          </button>
+          </Button>
         </div>
       </Sheet>
       {sheet}

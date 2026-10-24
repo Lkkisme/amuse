@@ -32,13 +32,40 @@ export function observeRecovery(listener: (reason: "resume" | "network" | "pause
 /** Policy/auth/protocol failures need an explicit user retry, not a reconnect loop. */
 export const transientClose = (code: number) => ![1002, 1003, 1007, 1008, 1009, 1010].includes(code) && code < 4000;
 
-export function connect(url: string): Session & { close(): void } {
+/** A server error keeps its JSON-RPC code for PIN and account-security handling. */
+export class CallFailed extends Error {
+  readonly code: number;
+  constructor(message: string, code: number) { super(message); this.code = code; }
+}
+
+/** An uncertain transport outcome must never be confused with a server rejection. */
+export class Dropped extends Error {
+  constructor(message = "disconnected") { super(message); }
+}
+
+export interface ConnectOptions {
+  unreachable?: () => string;
+  patience?: number;
+}
+
+/** Explicitly read-only calls may be retried once. New methods are never replayed by default. */
+const repeatable = new Set<Method>([
+  "session.sync", "session.history", "chats.list", "backend.status", "schedules.list",
+  "apps.search", "apps.accounts", "apps.access", "apps.permissions", "browser.rules", "sites.rules",
+  "logins.list", "approvals.list", "goals.list", "goals.get", "secrets.list", "skills.list", "skills.get",
+  "keys.list", "sandbox.atRisk",
+]);
+
+export function connect(url: string, options: ConnectOptions = {}): Session & { close(): void; resume(): void } {
+  const { unreachable = () => "disconnected", patience = 15_000 } = options;
   const listeners = new Set<(update: Update) => void>();
   const pending = new Map<number, Pending>();
   const outbox: string[] = [];
   const lastSeq = new Map<string, number>();
   // A read requested during the first failed handshake still needs a snapshot on recovery.
   const syncChats = new Set<string>();
+  const retryingSync = new Set<string>();
+  const rejoin = new Set<{ ready(): void; fail(): void }>();
   let socket: WebSocket | null = null;
   let nextId = 0;
   let retry = 0;
@@ -68,7 +95,7 @@ export function connect(url: string): Session & { close(): void } {
     for (const listener of listeners) listener({ kind: "chats", chats: list });
   };
   const failPending = () => {
-    for (const entry of pending.values()) entry.fail(new Error("disconnected"));
+    for (const entry of pending.values()) entry.fail(new Dropped(unreachable()));
     pending.clear();
     outbox.length = 0;
   };
@@ -93,6 +120,7 @@ export function connect(url: string): Session & { close(): void } {
     clearTimeout(connectTimer); connectTimer = undefined;
     stopHealth(); failPending();
     ws.close();
+    if (!again) for (const waiting of [...rejoin]) waiting.fail();
     if (again) schedule();
   };
   const heartbeat = () => {
@@ -142,14 +170,17 @@ export function connect(url: string): Session & { close(): void } {
       retry = 0;
       // Only calls waiting for the very first connection can be sent here.
       for (const frame of outbox.splice(0)) ws.send(frame);
+      for (const waiting of [...rejoin]) waiting.ready();
       if (resumed) {
         void call("chats.list", {}).then((r) => chats(r.chats), () => {});
-        for (const chat of new Set([...lastSeq.keys(), ...syncChats]))
+        for (const chat of new Set([...lastSeq.keys(), ...syncChats])) {
+          if (retryingSync.has(chat)) continue;
           void call("session.sync", { chat, since: lastSeq.get(chat) ?? null }).then((r) => {
             if (socket !== ws) return;
             if (r.kind === "events") r.events.forEach((e) => deliver(chat, e));
             else reset(chat, r.state);
           }, () => {});
+        }
       }
       heartbeat();
     };
@@ -166,7 +197,7 @@ export function connect(url: string): Session & { close(): void } {
         const entry = typeof response.id === "number" ? pending.get(response.id) : undefined;
         if (!entry || typeof response.id !== "number") return;
         pending.delete(response.id);
-        if ("error" in response) entry.fail(new Error(response.error.message));
+        if ("error" in response) entry.fail(new CallFailed(response.error.message, response.error.code));
         else entry.settle(response.result);
       } catch {
         terminal = true;
@@ -182,9 +213,40 @@ export function connect(url: string): Session & { close(): void } {
     ws.onerror = () => {};
   }
 
+  /** Foreground callers can wake backoff; a live socket is verified by the bounded health probe. */
+  const resume = () => {
+    if (closed || terminal || !recovery.active()) return;
+    if (socket?.readyState === WebSocket.OPEN) return;
+    if (socket?.readyState === WebSocket.CONNECTING) return;
+    clearTimeout(retryTimer); retryTimer = undefined;
+    if (socket) disconnect(socket, false);
+    open();
+  };
+  const reconnected = () => new Promise<void>((resolve, reject) => {
+    if (closed || terminal) return reject(new Dropped(unreachable()));
+    if (socket?.readyState === WebSocket.OPEN) return resolve();
+    const waiting = {
+      ready() { clearTimeout(timer); rejoin.delete(waiting); resolve(); },
+      fail() { clearTimeout(timer); rejoin.delete(waiting); reject(new Dropped(unreachable())); },
+    };
+    const timer = setTimeout(() => waiting.fail(), patience);
+    rejoin.add(waiting);
+    resume();
+  });
+
   function call<M extends Method>(method: M, params: Params[M]): Promise<Results[M]> {
     if (method === "session.sync" && "chat" in params && typeof params.chat === "string") syncChats.add(params.chat);
-    if (closed || terminal || (opened && socket?.readyState !== WebSocket.OPEN)) return Promise.reject(new Error("disconnected"));
+    return send(method, params).catch((error: unknown) => {
+      if (!(error instanceof Dropped) || !repeatable.has(method) || closed || terminal) throw error;
+      const chat = method === "session.sync" && "chat" in params && typeof params.chat === "string" ? params.chat : null;
+      if (chat !== null) retryingSync.add(chat);
+      return reconnected().then(() => send(method, params)).finally(() => { if (chat !== null) retryingSync.delete(chat); });
+    });
+  }
+
+  function send<M extends Method>(method: M, params: Params[M]): Promise<Results[M]> {
+    if (method === "session.sync" && "chat" in params && typeof params.chat === "string") syncChats.add(params.chat);
+    if (closed || terminal || (opened && socket?.readyState !== WebSocket.OPEN)) return Promise.reject(new Dropped(unreachable()));
     const id = ++nextId;
     const frame = JSON.stringify({ jsonrpc: "2.0", id, method, params });
     return new Promise<Results[M]>((resolve, reject) => {
@@ -208,6 +270,7 @@ export function connect(url: string): Session & { close(): void } {
   open();
   return {
     call,
+    resume,
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     close() {
       closed = true;
@@ -215,6 +278,7 @@ export function connect(url: string): Session & { close(): void } {
       clearTimeout(retryTimer); clearTimeout(connectTimer); stopHealth();
       if (socket) disconnect(socket, false);
       else failPending();
+      for (const waiting of [...rejoin]) waiting.fail();
     },
   };
 }

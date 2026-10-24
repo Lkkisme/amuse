@@ -4,10 +4,15 @@
 # so the browser can open what Amuse serves in its sandbox (http://sandbox:<port>; the sandbox cannot connect
 # back: its rules let out only replies on that network). No Docker socket.
 # Secrets are made on first start by `secrets` (kept in its volume, never typed in): the bearer
-# token between amuse and the controllers, and the key that encrypts saved logins.
+# token between amuse and the controllers and the key that encrypts saved logins. The Vault's key is not among them:
+# it has a volume of its own (`vault-key`), since the secrets above can be made anew and the Vault's cannot.
 # Used by compose.yaml (production) and compose.dev.yaml (published on localhost for `mise run dev`).
 # More pairs: copy a pair block and add it to AMUSE_BROWSERS in compose.yaml.
 # Images build from auto-browser at a pinned commit (a fork carrying the desktop-resize fix).
+# A managed Chrome policy (the `browser-policy` volume, written by `secrets` below) blocks Amuse's own address in
+# every browser: Amuse never opens its own app, signed in or not (#30). It is one layer, not a guarantee. The server
+# also refuses any request carrying the X-Amuse-Agent mark, which the browsers do not send yet: their pages run in
+# Playwright contexts, where an extension cannot add it.
 
 x-node: &node
   build: https://github.com/Microwave-WYB/auto-browser.git#fe9f152c5dd9859b225b6322452b05a709958deb:browser-node
@@ -26,6 +31,10 @@ x-node: &node
     - /home/browser:size=512m,uid=10001,gid=10001
     - /data/downloads:size=512m,uid=10001,gid=10001
   security_opt: [no-new-privileges:true]
+  # the browser is Chrome for Testing (Playwright's), which reads its managed policies here; `secrets` writes that
+  # file, escaping the address in it, before this starts, and this is restarted when it is written again
+  depends_on:
+    secrets: { condition: service_completed_successfully, restart: true }
   healthcheck:
     test: [CMD-SHELL, "test -s /data/profile/browser-ws-endpoint.txt && curl -s --max-time 3 -o /dev/null http://127.0.0.1:9223/ && curl -fsS --max-time 3 http://127.0.0.1:6080/ >/dev/null"]
     interval: 10s
@@ -78,19 +87,22 @@ x-controller-env: &controller-env
   AUTH_STATE_MAX_AGE_HOURS: "720"
 
 services:
-  # first start only: make the secrets that are missing; later starts leave them alone
+  # first start only: make the secrets that are missing; later starts leave them alone. The Chrome policy the
+  # browsers read is written here every start (the `browser-policy` volume), so a changed address takes effect
   secrets:
     image: ${AB_CONTROLLER_IMAGE:-amuse-ab-controller:40ecdf8}
     user: "0"
     read_only: true
     network_mode: none
     restart: "no"
-    volumes: [secrets:/secrets, handoff-1:/handoff/1, handoff-2:/handoff/2, handoff-3:/handoff/3]
+    environment:
+      AMUSE_PUBLIC_URL: ${AMUSE_PUBLIC_URL:-http://localhost:8080}
+    volumes: [secrets:/secrets, vault-key:/vault-key, handoff-1:/handoff/1, handoff-2:/handoff/2, handoff-3:/handoff/3, browser-policy:/browser-policy]
     entrypoint:
       - python
       - -c
       - |
-        import base64, os, secrets
+        import base64, json, os, secrets
         def make(name, value, owner, mode):
             path = f"/secrets/{name}"
             try:
@@ -102,10 +114,22 @@ services:
         # amuse (uid 1000) owns the token; the controllers (root, without capabilities) read it as group 0
         make("auto-browser-token", secrets.token_hex(24), 1000, 0o440)
         make("logins-key", base64.urlsafe_b64encode(os.urandom(32)).decode(), 0, 0o400)  # Fernet key, controllers only
+        # the Vault's key folder (a volume of its own: uid 1000 only, no controller can read it): amuse makes the key in it on its
+        # first start, and never anew
+        os.chown("/vault-key", 1000, 0)
+        os.chmod("/vault-key", 0o700)
+        # the empty folder the key's volume is mounted on (a mount cannot make its own folder in a read-only volume)
+        os.makedirs("/secrets/amuse-store", exist_ok=True)
         # the folders amuse hands a file to upload through: amuse (uid 1000) puts it there, the controller
         # (root without capabilities) makes its own session folder beside it and reads the file
         for folder in ("/handoff/1", "/handoff/2", "/handoff/3"):
             os.chmod(folder, 0o1777)
+        # the Chrome policy Amuse's browsers read: the address is escaped as JSON here, because Compose puts an
+        # interpolated value into the file as it is, and a quote in one would leave the file unreadable (Chrome
+        # ignores a policy file that does not parse, and says nothing)
+        os.makedirs("/browser-policy/managed", exist_ok=True)
+        with open("/browser-policy/managed/amuse.json", "w") as policy:
+            json.dump({"URLBlocklist": [os.environ["AMUSE_PUBLIC_URL"], "amuse"]}, policy)
 
   ab-node-1:
     <<: *node
@@ -115,7 +139,7 @@ services:
       PLAYWRIGHT_SERVER_ADVERTISED_HOST: ab-node-1
       NOVNC_ALLOWED_HOSTS: ab-node-1,127.0.0.1,localhost
       NOVNC_ALLOWED_ORIGINS: http://localhost:6080
-    volumes: [profile-1:/data/profile]
+    volumes: [profile-1:/data/profile, browser-policy:/etc/opt/chrome_for_testing/policies:ro]
   ab-controller-1:
     <<: *controller
     networks: [pair-1]
@@ -137,7 +161,7 @@ services:
       PLAYWRIGHT_SERVER_ADVERTISED_HOST: ab-node-2
       NOVNC_ALLOWED_HOSTS: ab-node-2,127.0.0.1,localhost
       NOVNC_ALLOWED_ORIGINS: http://localhost:6080
-    volumes: [profile-2:/data/profile]
+    volumes: [profile-2:/data/profile, browser-policy:/etc/opt/chrome_for_testing/policies:ro]
   ab-controller-2:
     <<: *controller
     networks: [pair-2]
@@ -159,7 +183,7 @@ services:
       PLAYWRIGHT_SERVER_ADVERTISED_HOST: ab-node-3
       NOVNC_ALLOWED_HOSTS: ab-node-3,127.0.0.1,localhost
       NOVNC_ALLOWED_ORIGINS: http://localhost:6080
-    volumes: [profile-3:/data/profile]
+    volumes: [profile-3:/data/profile, browser-policy:/etc/opt/chrome_for_testing/policies:ro]
   ab-controller-3:
     <<: *controller
     networks: [pair-3]
@@ -183,6 +207,8 @@ networks:
 
 volumes:
   secrets: # made on first start by `secrets`
+  browser-policy: # the Chrome policy Amuse's browsers read; written by `secrets`, with the address escaped as JSON there
+  vault-key: # the Vault's key (`docker volume rm` of `secrets` cannot destroy it); its folder is made for amuse by `secrets`; back it up
   logins: # auth profiles (saved logins, encrypted), shared by every controller
   profile-1:
   profile-2:

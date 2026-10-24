@@ -1,75 +1,73 @@
 /**
- * The event log as a JSONL file (one Envelope per line, mode 600). Lines are
- * parsed with the protocol schema on load. A torn final write (a last line
- * without its newline) is cut off, so the next append starts on a clean
- * line instead of gluing onto it. Any whole line that is not the next valid
- * event — another version's format, a gap — stops the load with an error:
- * the history is never cut to fit.
+ * The chats and their event logs, in the database (db/migrations): a chat's journal is its rows in `events`, numbered
+ * 1, 2, 3 … without gaps and only ever added to. Replay reads them as it goes, with the protocol schema, so the host
+ * never holds the raw log: any row that is not the next valid event stops the start with an error, and the history is
+ * never cut to fit. A deleted chat takes its events with it (the foreign key).
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, truncateSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
 import type { ChatStore, Journal } from "@amuse/core";
-import { Chat, Envelope, MAIN } from "@amuse/protocol";
+import { type Db, query, transaction } from "@amuse/db";
+import { Chat, Envelope } from "@amuse/protocol";
 import { z } from "zod";
 
-function parseLine(line: string): unknown {
+const Row = z.object({ seq: z.number(), event: z.string() });
+
+/** A chat's journal in the database is not a run of valid events from 1: `event` is the first that is not. */
+export class JournalError extends Error {
+  readonly chat: string;
+  readonly event: number;
+  constructor(chat: string, event: number) {
+    super(`the journal of the chat ${chat}: event ${event} is not the next event this version can read; restore a backup, or export the journal and start over`);
+    this.chat = chat;
+    this.event = event;
+  }
+}
+
+function parseEvent(event: string): unknown {
   try {
-    return JSON.parse(line);
+    return JSON.parse(event);
   } catch {
     return null;
   }
 }
 
-export function fileJournal(path: string): Journal {
+/** A chat's events from `after` on (0: all), in order, one at a time; a row that is not the next valid event is an error. */
+export function* eventsOf(db: Db, chat: string, after = 0): Generator<Envelope> {
+  let seq = after;
+  for (const row of db.prepare("select seq, event from events where chat = ? and seq > ? order by seq").iterate(chat, after)) {
+    const { seq: stored, event } = Row.parse(row);
+    const parsed = Envelope.safeParse({ seq: stored, event: parseEvent(event) });
+    if (!parsed.success || stored !== seq + 1) throw new JournalError(chat, seq + 1);
+    seq = stored;
+    yield parsed.data;
+  }
+}
+
+export function sqliteJournal(db: Db, chat: string): Journal {
+  const insert = db.prepare("insert into events (chat, seq, event) values (?, ?, ?)");
   return {
-    load() {
-      if (!existsSync(path)) return [];
-      const content = readFileSync(path);
-      const log: Envelope[] = [];
-      let valid = 0; // bytes of the valid prefix, newline included
-      for (let start = 0; start < content.length; ) {
-        const end = content.indexOf(0x0a, start);
-        if (end === -1) break; // no newline: a torn last write
-        const parsed = Envelope.safeParse(parseLine(content.subarray(start, end).toString("utf8")));
-        if (!parsed.success || parsed.data.seq !== log.length + 1)
-          throw new Error(`${path}: line ${log.length + 1} is not the next event this version can read; move the file aside to start over`);
-        log.push(parsed.data);
-        start = valid = end + 1;
-      }
-      if (valid < content.length) truncateSync(path, valid);
-      return log;
-    },
-    append(envelope) {
-      mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-      appendFileSync(path, `${JSON.stringify(envelope)}\n`, { mode: 0o600 });
-    },
+    load: () => eventsOf(db, chat),
+    append: (envelope) => void insert.run(chat, envelope.seq, JSON.stringify(envelope.event)),
   };
 }
 
-/** A side chat's id as a file name: only ids the host makes (letters, digits, dashes) ever reach the disk. */
-const safeId = /^[A-Za-z0-9-]{1,80}$/;
+export function sqliteChats(db: Db): ChatStore {
+  const upsert = db.prepare("insert into chats (id, title, at, updated) values (?, ?, ?, ?) on conflict (id) do update set title = excluded.title, at = excluded.at, updated = excluded.updated");
+  return {
+    load: () => query(db, Chat, "select id, title, at, updated from chats order by at, id"),
+    // adds and changes; a chat goes only through `remove`, which takes its log with it
+    save: (chats) => transaction(db, () => chats.forEach((chat) => upsert.run(chat.id, chat.title, chat.at, chat.updated))),
+    journal: (chat) => sqliteJournal(db, chat),
+    remove: (chat) => void db.prepare("delete from chats where id = ?").run(chat),
+  };
+}
 
 /**
- * Chats on disk: the main chat's log where it always was (`main`), each side
- * chat's at `<dir>/chats/<id>.jsonl`, and the list of chats at
- * `<dir>/chats.json` (written whole through a temporary file, mode 600).
+ * The journal of a chat as the old file kept it, one JSON line per event (`amuse-admin export`): each event's text as it was
+ * stored, which is the text of the line the old file held, so nothing in it is dropped or reordered.
  */
-export function fileChats(dir: string, main: string): ChatStore {
-  const list = join(dir, "chats.json");
-  const path = (chat: string) => {
-    if (chat === MAIN) return main;
-    if (!safeId.test(chat)) throw new Error(`not a chat id: ${chat}`);
-    return join(dir, "chats", `${chat}.jsonl`);
-  };
-  return {
-    load: () => (existsSync(list) ? z.array(Chat).parse(JSON.parse(readFileSync(list, "utf8"))) : []),
-    save(chats) {
-      mkdirSync(dir, { recursive: true, mode: 0o700 });
-      const temporary = `${list}.next`;
-      writeFileSync(temporary, JSON.stringify(chats, null, 2), { mode: 0o600 });
-      renameSync(temporary, list);
-    },
-    journal: (chat) => fileJournal(path(chat)),
-    remove: (chat) => rmSync(path(chat), { force: true }),
-  };
+export function* exported(db: Db, chat: string): Generator<string> {
+  for (const row of db.prepare("select seq, event from events where chat = ? order by seq").iterate(chat)) {
+    const { seq, event } = Row.parse(row);
+    yield `{"seq":${seq},"event":${event}}\n`;
+  }
 }

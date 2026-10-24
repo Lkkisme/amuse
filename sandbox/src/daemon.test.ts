@@ -17,7 +17,7 @@ before(async () => {
   mkdirSync(workspace, { recursive: true });
   mkdirSync(skeleton);
   writeFileSync(join(skeleton, ".profile"), "# fresh\n");
-  daemon = await serve({ home, workspace, skeleton, port: 0, host: "127.0.0.1" });
+  daemon = await serve({ home, workspace, skeleton, port: 0, host: "127.0.0.1", handoffMs: 400, lifetimeMs: 3_000 });
   sandbox = sandboxClient(`http://127.0.0.1:${daemon.port}`);
 });
 after(() => daemon.close());
@@ -109,6 +109,39 @@ test("a reset stops everything and empties the home folder to its skeleton, neve
   assert.equal(readFileSync(outside, "utf8"), "not the sandbox's", "a link out of the home is removed, not followed");
 });
 
+test("a scan says what a reset would delete: the folders in the home folder, not the hidden ones, not the workspace, with repositories marked", async () => {
+  mkdirSync(join(home, "myapp/.git"), { recursive: true });
+  mkdirSync(join(home, "projects/scraper/.git"), { recursive: true });
+  mkdirSync(join(home, "projects/notes"));
+  mkdirSync(join(home, ".cache/work-in-progress"), { recursive: true });
+  mkdirSync(join(home, "deep/a/b/c/d"), { recursive: true });
+  mkdirSync(join(workspace, "in-the-workspace"));
+  writeFileSync(join(home, "loose.txt"), "a file, not a folder");
+
+  assert.deepEqual(await sandbox.atRisk(), [
+    { path: "deep", repository: false },
+    { path: "deep/a", repository: false },
+    { path: "deep/a/b", repository: false },
+    { path: "myapp", repository: true },
+    { path: "projects", repository: false },
+    { path: "projects/notes", repository: false },
+    { path: "projects/scraper", repository: true },
+  ]);
+
+  await sandbox.reset();
+});
+
+test("a scan names a handful of folders at most, however many there are", async () => {
+  for (let n = 0; n < 25; n++) mkdirSync(join(home, `folder-${String(n).padStart(2, "0")}`));
+
+  const folders = await sandbox.atRisk();
+  assert.equal(folders.length, 20);
+  assert.equal(folders[0]?.path, "folder-00");
+  assert.equal(folders.at(-1)?.path, "folder-19");
+
+  await sandbox.reset();
+});
+
 test("when the daemon cannot be reached, the client says so in words", async () => {
   const gone = sandboxClient("http://127.0.0.1:1");
   assert.match(await failure(gone.reset()), /cannot be reached/);
@@ -165,6 +198,13 @@ test("a credential file goes in the home folder, never the workspace or out of h
   assert.equal(existsSync(written), false);
 });
 
+test("a credential file may be bytes, sent as base64", async () => {
+  const bytes = Buffer.from([0, 1, 2, 250, 251, 252]);
+  await sandbox.setFile({ path: ".config/tool/store.p12", value: bytes.toString("base64"), encoding: "base64" });
+  assert.deepEqual(readFileSync(join(home, ".config", "tool", "store.p12")), bytes);
+  await sandbox.forget({ file: ".config/tool/store.p12" });
+});
+
 test("nothing a browser sends is taken: a page's POST or websocket says where it comes from, and is refused", async () => {
   const file = join(root, "from-a-page");
   const page = await fetch(`http://127.0.0.1:${daemon.port}/run`, {
@@ -185,4 +225,85 @@ test("nothing a browser sends is taken: a page's POST or websocket says where it
   assert.equal(existsSync(file), false);
   // the server's own requests carry no Origin, and go through
   assert.equal((await sandbox.run({ command: "echo ok" })).output.trim(), "ok");
+});
+
+test("a job that ends before the hand-off answers as a command does, with how it ended", async () => {
+  const job = await sandbox.start({ chat: "main", command: "pwd; echo out; exit 3" });
+  assert.equal(job.running, false);
+  assert.match(job.id, /^j\d+$/);
+  assert.equal(job.output, `${workspace}\nout\n`);
+  assert.deepEqual(job.end, { exitCode: 3, signal: null, reason: "finished" });
+});
+
+test("a job still running at the hand-off goes on, and its end, output and stop are asked for by id", async () => {
+  const file = join(root, "job-pid");
+  const job = await sandbox.start({ chat: "main", command: `echo $$ > ${file}; echo begun; sleep 60` });
+  assert.equal(job.running, true);
+  assert.equal(job.end, null);
+  assert.match(job.output, /begun/);
+  const pid = Number(readFileSync(file, "utf8"));
+  assert.ok(alive(pid), "it was not killed at the hand-off");
+  assert.equal((await sandbox.jobOutput({ chat: "main", id: job.id })).running, true);
+  const waiting = sandbox.waitJob({ chat: "main", id: job.id });
+  const [stopped] = await sandbox.stopJobs({ chat: "main", id: job.id });
+  assert.equal(stopped?.running, false);
+  assert.equal(stopped?.end?.reason, "stopped");
+  assert.equal((await waiting).end?.reason, "stopped");
+  assert.ok(await until(() => !alive(pid)));
+  // a finished job stays readable
+  assert.match((await sandbox.jobOutput({ chat: "main", id: job.id })).output, /begun/);
+});
+
+test("waiting for a job returns when it ends, with its exit code", async () => {
+  const job = await sandbox.start({ chat: "main", command: "sleep 0.8; echo late; exit 4" });
+  assert.equal(job.running, true);
+  const ended = await sandbox.waitJob({ chat: "main", id: job.id });
+  assert.equal(ended.running, false);
+  assert.deepEqual(ended.end, { exitCode: 4, signal: null, reason: "finished" });
+  assert.match(ended.output, /late/);
+});
+
+test("a background job is handed off at once", async () => {
+  const started = Date.now();
+  const job = await sandbox.start({ chat: "main", command: "sleep 60", background: true });
+  assert.equal(job.running, true);
+  assert.ok(Date.now() - started < 300);
+  await sandbox.stopJobs({ chat: "main" });
+});
+
+test("a chat has at most four jobs running, and sees only its own", async () => {
+  const ids: string[] = [];
+  for (let i = 0; i < 4; i++) ids.push((await sandbox.start({ chat: "busy", command: "sleep 60", background: true })).id);
+  assert.match(await failure(sandbox.start({ chat: "busy", command: "sleep 60", background: true })), /4 jobs are running/);
+  // another chat has its own room, and cannot read or stop these
+  assert.equal((await sandbox.start({ chat: "other", command: "true" })).running, false);
+  assert.match(await failure(sandbox.jobOutput({ chat: "other", id: ids[0] ?? "" })), /no job/);
+  assert.match(await failure(sandbox.stopJobs({ chat: "other", id: ids[0] ?? "" })), /no job/);
+  // an ended one gives its place back; stopping with no id stops every one of the chat's
+  assert.equal((await sandbox.stopJobs({ chat: "busy" })).length, 4);
+  assert.equal((await sandbox.start({ chat: "busy", command: "true" })).running, false);
+});
+
+test("a job past its lifetime is stopped, and says so", async () => {
+  const job = await sandbox.start({ chat: "main", command: "sleep 60", background: true });
+  const ended = await sandbox.waitJob({ chat: "main", id: job.id });
+  assert.equal(ended.end?.reason, "timedOut");
+});
+
+test("a job is stopped when whoever asked for it goes away before the hand-off", async () => {
+  const file = join(root, "gone-pid");
+  const asking = new AbortController();
+  const starting = sandbox.start({ chat: "main", command: `echo $$ > ${file}; sleep 60` }, asking.signal);
+  assert.ok(await until(() => existsSync(file) && readFileSync(file, "utf8").endsWith("\n")));
+  const pid = Number(readFileSync(file, "utf8"));
+  asking.abort();
+  await starting.catch(() => {});
+  assert.ok(await until(() => !alive(pid)), "the job goes on");
+});
+
+test("a reset ends the jobs and says it was the reset", async () => {
+  const job = await sandbox.start({ chat: "main", command: "sleep 60", background: true });
+  const waiting = sandbox.waitJob({ chat: "main", id: job.id });
+  await sandbox.reset();
+  assert.equal((await waiting).end?.reason, "reset");
 });

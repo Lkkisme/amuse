@@ -15,7 +15,7 @@ class UsbPairingReceiver : BroadcastReceiver() {
         var stored = false
         try {
             val preferences = context.getSharedPreferences("amuse_settings", Context.MODE_PRIVATE)
-            val server = ServerAddress.parse(preferences.getString("server", ServerAddress.DEFAULT) ?: ServerAddress.DEFAULT)
+            val server = ServerAddress.parse(requireNotNull(preferences.getString("server", null)))
             // Provisioning cannot change the configured server, including its HTTPS port.
             require(intent.getStringExtra("serverOrigin") == server.origin)
             val token = requireNotNull(intent.getStringExtra("sessionToken"))

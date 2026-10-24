@@ -12,6 +12,8 @@ x-sandbox-image: &sandbox-image
 services:
   sandbox:
     <<: *sandbox-image
+    # The daemon can advance without replacing the network owner or init image.
+    image: ${AMUSE_SANDBOX_DAEMON_IMAGE:-amuse-sandbox-local:20261021}
     restart: unless-stopped
     init: true
     network_mode: "service:sandbox-net"

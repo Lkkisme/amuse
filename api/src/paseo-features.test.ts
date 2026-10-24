@@ -3,12 +3,13 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test, type TestContext } from "node:test";
-import { type Ports, type Timers, createHost, memoryRules, noKeys, noLogins, noSandbox } from "@amuse/core";
+import { type Ports, type Timers, createHost, memoryRules, noKeys, noLogins, noSandbox, noSecrets } from "@amuse/core";
 import type { Schedule } from "@amuse/protocol";
 import type { PaseoCreateOptions } from "./paseo-client.ts";
 import { type BridgeAgent, type BridgeClient, type BridgeEntry, paseoBridge } from "./paseo.ts";
 import { sharedAmuseTools } from "./shared-tools.ts";
 import { workspace } from "./workspace.ts";
+import { memorySent } from "./sent.ts";
 
 const at = "2026-10-21T08:00:00Z";
 const settled = () => new Promise<void>((resolve) => setImmediate(resolve));
@@ -65,7 +66,7 @@ class FeatureClient implements BridgeClient {
 
 async function setup(t: TestContext, readiness?: () => boolean) {
   const dir = mkdtempSync(join(tmpdir(), "amuse-paseo-features-"));
-  const files = workspace(join(dir, "workspace"), join(dir, "sent.json")); const rules = memoryRules();
+  const files = workspace(join(dir, "workspace"), memorySent(), dir); const rules = memoryRules();
   const client = new FeatureClient();
   let now = Date.parse(at); let next = 0;
   const pending = new Map<number, { at: number; run(): void }>();
@@ -75,9 +76,9 @@ async function setup(t: TestContext, readiness?: () => boolean) {
     prepare: async () => "Prepared memory, skills and goal context",
     ...(readiness ? { ready: readiness } : {}),
   });
-  const ports: Ports = { files, rules, keys: noKeys, logins: noLogins, sandbox: noSandbox,
+  const ports: Ports = { files, rules, keys: noKeys, logins: noLogins, sandbox: noSandbox, secrets: noSecrets,
     browse: () => {}, job: () => {}, browser: () => {}, approval: () => {}, fit: () => {}, connect: async () => "",
-    apps: { search: async () => ({ apps: [], cursor: null }), accounts: async () => [], connect: async () => "", disconnect: async () => {}, permissions: async () => [], permit: async () => {} },
+    apps: { access: async () => ({ kind: "managed" }), cannotConnect: async () => null, connectKey: async () => { throw new Error("No key connection in this fixture."); }, search: async () => ({ apps: [], cursor: null }), accounts: async () => [], connect: async () => "", disconnect: async () => {}, permissions: async () => [], permit: async () => {} },
     ...bridge.executionPorts(),
   };
   const host = createHost(ports, { clock: { now: () => new Date(now).toISOString() }, timers });

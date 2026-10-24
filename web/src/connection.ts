@@ -3,7 +3,8 @@
  *   demo    no server configured: the real core runs in the browser with scripted ports
  *   server  VITE_AMUSE_URL (a full ws URL), or the same origin the app was served from
  *           (VITE_AMUSE_MODE=same-origin: the Docker build, and dev through Vite's proxy)
- *   locked  same-origin, but this browser has no session yet; `ready`: the master password is set
+ *   locked  same-origin, but this browser has no session yet; `ready`: the master password is set;
+ *           `waiting`: the password was given here, and this device waits for a trusted one to approve it
  * The master password opens a session the server keeps as an HttpOnly cookie, so scripts, URLs
  * and logs never see it.
  */
@@ -12,7 +13,7 @@ import { waitForUnlock } from "./connection-bootstrap.ts";
 
 export type Connection =
   | { kind: "demo" }
-  | { kind: "locked"; ready: boolean }
+  | { kind: "locked"; ready: boolean; waiting: boolean }
   | {
       kind: "server";
       rpc: string;
@@ -69,34 +70,36 @@ export async function connection(): Promise<Connection> {
   if (import.meta.env["VITE_AMUSE_MODE"] !== "same-origin") return { kind: "demo" };
 
   startedTo("asking the server (/unlock)");
-  {
-    const unlocked = await waitForUnlock();
-    startedTo(unlocked ? `the server answered /unlock (${unlocked.status})` : "/unlock could not be reached");
-    if (unlocked?.status !== 204) {
-      const said: unknown = await unlocked?.json().catch(() => null);
-      const ready = typeof said === "object" && said !== null && "ready" in said ? said.ready !== false : true;
-      return { kind: "locked", ready };
-    }
-    const rpc = new URL("/rpc", location.href);
-    rpc.protocol = location.protocol === "https:" ? "wss:" : "ws:";
-    return server(rpc.toString());
+  const unlocked = await waitForUnlock();
+  startedTo(unlocked ? `the server answered /unlock (${unlocked.status})` : "/unlock could not be reached");
+  if (unlocked?.status === 202) return { kind: "locked", ready: true, waiting: true };
+  if (unlocked?.status !== 204) {
+    const said: unknown = await unlocked?.json().catch(() => null);
+    const ready = typeof said === "object" && said !== null && "ready" in said ? said.ready !== false : true;
+    return { kind: "locked", ready, waiting: false };
   }
+  const rpc = new URL("/rpc", location.href);
+  rpc.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  return server(rpc.toString());
 }
 
-/** Open this browser with the password (`setup`: set it, the first time); reloads when in, else why not. */
-export async function enter(password: string, setup: boolean): Promise<string | null> {
-  const response = await post(setup ? "/setup" : "/unlock", { password }).catch(() => null);
+/**
+ * Open this browser with the password (`pin`: set both, the first time); reloads when in. "waiting": this device
+ * waits for a trusted one's approval; else why not.
+ */
+export async function enter(password: string, pin: string | null): Promise<string | null | "waiting"> {
+  const response = await post(pin !== null ? "/setup" : "/unlock", pin !== null ? { password, pin } : { password }).catch(() => null);
   if (!response) return activeT().common.serverUnreachable;
   if (!response.ok) return reason(response);
+  if (response.status === 202) return "waiting";
   location.replace(location.pathname + location.search);
   return null;
 }
 
-/** Change the password; every other device has to enter the new one. Null when done, else why not. */
-export async function changePassword(current: string, next: string): Promise<string | null> {
-  const response = await post("/password", { current, next }).catch(() => null);
-  if (!response) return activeT().common.serverUnreachable;
-  return response.ok ? null : reason(response);
+/** While this device waits for approval: whether it is in now (the poll that finds it approved opens its session). */
+export async function admitted(): Promise<boolean> {
+  const response = await fetch("/unlock", { cache: "no-store" }).catch(() => null);
+  return response?.status === 204;
 }
 
 /** Lock this browser: it needs the password again. */

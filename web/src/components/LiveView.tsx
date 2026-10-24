@@ -17,6 +17,7 @@ import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ClipboardPaste, Keyboard, Ke
 import type RFB from "@novnc/novnc";
 import { FILLER, edit, keys, runs } from "../remote-keys.ts";
 import { TouchSurface } from "./TouchSurface";
+import { Button } from "./Button";
 import { NativeLiveView } from "./NativeLiveView";
 import { useT } from "../i18n/react.ts";
 import { activeT } from "../i18n/language.ts";
@@ -243,7 +244,9 @@ function RfbLiveView({ url, interactive, onFit }: LiveViewProps) {
   return (
     // nothing here is the phone's to select or long-press: Firefox would select the page and pop its
     // Copy / Select all menu instead of letting the desktop see the press
+    // (in control, its touches are the desktop's: no swipe starts here, useSwipe.ts; watching, one does, and sends nothing)
     <div
+      data-no-swipe={interactive ? "" : undefined}
       className="remote-surface flex min-h-0 flex-1 flex-col"
       style={{ background: "var(--bg-secondary)" }}
       onContextMenu={(e) => e.preventDefault()}
@@ -254,7 +257,7 @@ function RfbLiveView({ url, interactive, onFit }: LiveViewProps) {
         {state === "failed" && (
           <div role="alert" className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center" style={{ background: "var(--bg-secondary)" }}>
             <p className="max-w-xs text-[14px]" style={{ color: "var(--text-secondary)" }}>{problem}</p>
-            <button type="button" className="h-10 rounded-full px-5 text-[14px] font-semibold text-white" style={{ background: "var(--fill-blue)" }} onClick={() => setAttempt((a) => a + 1)}>{t.localBrowser.retry}</button>
+            <Button variant="primary" onClick={() => setAttempt((a) => a + 1)}>{t.localBrowser.retry}</Button>
           </div>
         )}
         {controls && <TouchSurface screen={box} mode={trackpad ? "trackpad" : zoom ? "pan" : "touch"} />}

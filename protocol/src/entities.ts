@@ -4,6 +4,7 @@
  * Every union is discriminated by `kind`.
  */
 import { z } from "zod";
+import { SecretAsk } from "./secrets.ts";
 
 export const Id = z.string().min(1);
 /** ISO-8601 instant, UTC. */
@@ -28,6 +29,21 @@ export const Attachment = z.object({
   path: z.string().min(1).max(1024),
 });
 
+/**
+ * The item a message replies to, as it was when the user replied: kept with the message, so it reads
+ * the same whether or not the original is still held (a client holds only the recent end of the feed, the agent a
+ * summary of the older part). Amuse's replies and cards can be replied to, and the user's own messages.
+ */
+export const Quote = z.object({
+  /** the entity replied to */
+  id: Id,
+  kind: z.enum(["prompt", "reply", "task", "approval", "connection", "secret", "browser", "schedule", "failure"]),
+  /** what a message said, or what a card is about (its title), clipped; may be empty */
+  text: z.string(),
+  /** a card's state when replied to ("paused", "pending"); null for a reply */
+  state: z.string().nullable(),
+});
+
 /** What the user said, and where they were: their device's time zone, which is the user's time zone from then on. */
 export const Prompt = z.object({
   kind: z.literal("prompt"),
@@ -38,6 +54,8 @@ export const Prompt = z.object({
   timezone: TimeZone,
   /** files sent with it, in order (prompts from before files could be sent have none) */
   attachments: z.array(Attachment).default([]),
+  /** the item it replies to; null: none (or from before replies) */
+  quote: Quote.nullable().default(null),
 });
 
 /** What the agent said, with any files it sent; `streaming` until its last delta has arrived. */
@@ -94,6 +112,8 @@ export const Approval = z.object({
   always: z.boolean().default(false),
   /** refused by the user's rule, not asked and not answered: it never was a card (it ends denied, and is only a record) */
   byRule: z.boolean().default(false),
+  /** what Allow does is not for this once but stays (a secret into the sandbox): the card says Allow, not "Allow once" */
+  lasting: z.boolean().default(false),
 });
 
 /** The agent asking the user to connect an app (provider: e.g. "gmail"). */
@@ -107,28 +127,11 @@ export const Connection = z.object({
 });
 
 /**
- * Where a credential the user gives for Amuse's sandbox goes: an environment variable every command there gets, a file
- * in its home, or typed into a terminal (a pane of herdr's, w1:p2, where a CLI waits for a code). Typing went to a
- * running service's input before terminals were herdr's: such a `service` is read as the pane it names (none, now).
- */
-export const SecretDestination = z.preprocess(
-  (raw) =>
-    typeof raw === "object" && raw !== null && "kind" in raw && raw.kind === "stdin" && "service" in raw && !("pane" in raw)
-      ? { kind: "stdin", pane: raw.service }
-      : raw,
-  z.discriminatedUnion("kind", [
-    z.object({ kind: z.literal("env"), name: z.string().regex(/^[A-Z_][A-Z0-9_]{0,63}$/) }),
-    z.object({ kind: z.literal("file"), path: z.string().min(1).max(1024) }),
-    z.object({ kind: z.literal("stdin"), pane: z.string().min(1).max(60) }),
-  ]),
-);
-export type SecretDestination = z.infer<typeof SecretDestination>;
-
-/**
- * The agent asking the user for a credential for its sandbox (an API key, a
- * login code). The user types it on the card; it goes from there to the
- * sandbox through the server, never through the agent, the chat or this
- * entity, which keeps only that it was asked and how it was answered.
+ * The agent asking the user for a secret for its sandbox: a temporary code a program waits for (typed into
+ * its terminal), or a long-term secret to keep in the Vault (see secrets.ts). The user types it on the
+ * card; it goes from there to the server's care, never through the agent, the chat or this entity, which keeps
+ * only that it was asked and how it was answered. (`deliver` is named from when a request was one variable,
+ * one file or one terminal.)
  */
 export const SecretRequest = z.object({
   kind: z.literal("secret"),
@@ -138,7 +141,7 @@ export const SecretRequest = z.object({
   name: z.string(),
   /** what it is for */
   why: z.string(),
-  deliver: SecretDestination,
+  deliver: SecretAsk,
   status: z.enum(["pending", "provided", "declined"]),
 });
 
@@ -302,6 +305,7 @@ export const Activity = z.object({
 
 export type Prompt = z.infer<typeof Prompt>;
 export type Attachment = z.infer<typeof Attachment>;
+export type Quote = z.infer<typeof Quote>;
 export type Reply = z.infer<typeof Reply>;
 export type SecretRequest = z.infer<typeof SecretRequest>;
 export type Task = z.infer<typeof Task>;

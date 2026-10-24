@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Chat, Prompt, Reply, Update } from "@amuse/protocol";
-import { type Change, type Ports, createHost, memoryChats, memoryRules, noKeys, noLogins, noSandbox, noWorkspace } from "./index.ts";
+import { type Change, type Ports, createHost, memoryChats, memoryRules, noKeys, noLogins, noSandbox, noSecrets, noWorkspace } from "./index.ts";
 
 const at = "2026-10-21T12:00:00.000Z";
 const later = "2026-10-21T12:05:00.000Z";
 const chat: Chat = { id: "p-1234", title: "Existing Paseo chat", at, updated: at };
-const prompt: Prompt = { kind: "prompt", id: "external-user-1", at, text: "hello", timezone: "UTC", attachments: [] };
+const prompt: Prompt = { kind: "prompt", id: "external-user-1", at, text: "hello", timezone: "UTC", attachments: [], quote: null };
 const reply: Reply = { kind: "reply", id: "external-reply-1", at, text: "hello", streaming: false, attachments: [] };
 
 function fixture() {
@@ -28,6 +28,9 @@ function fixture() {
       search: async () => ({ apps: [], cursor: null }),
       accounts: async () => [],
       connect: async () => "https://connect.example/",
+      access: async () => ({ kind: "managed" }),
+      cannotConnect: async () => null,
+      connectKey: async () => {},
       disconnect: async () => {},
       permissions: async () => [],
       permit: async () => {},
@@ -37,6 +40,7 @@ function fixture() {
     logins: noLogins,
     sandbox: noSandbox,
     files: noWorkspace,
+    secrets: noSecrets,
   };
   const store = memoryChats();
   const options = { store, clock: { now: () => later } };
@@ -57,7 +61,7 @@ test("external imports use the ordinary journal, ordered push and session synchr
     { kind: "upserted", entity: { ...reply, text: "hello world" } },
     { kind: "activity", activity: null },
   ]);
-  const log = store.journal(chat.id).load();
+  const log = [...store.journal(chat.id).load()];
   assert.deepEqual(log.map((envelope) => envelope.seq), [1, 2, 3, 4, 5, 6]);
   assert.deepEqual(updates.filter((update) => update.kind === "event").map((update) => update.envelope), log);
   assert.deepEqual(await host.call("session.sync", { chat: chat.id, since: 2 }), { kind: "events", events: log.slice(2) });
@@ -76,7 +80,7 @@ test("external chat metadata and completed history survive reopening the same st
   const reopened = createHost(ports, options);
   assert.deepEqual(reopened.external.state(chat.id), host.external.state(chat.id));
   assert.deepEqual((await reopened.call("chats.list", {})).chats.find((entry) => entry.id === chat.id), metadata);
-  assert.equal(store.journal(chat.id).load().length, 2);
+  assert.equal([...store.journal(chat.id).load()].length, 2);
   assert.deepEqual(calls, []);
 });
 
@@ -88,10 +92,10 @@ test("ensuring existing chats keeps their names and imports suppress identical u
   const changes: Change[] = [{ kind: "upserted", entity: reply }, { kind: "activity", activity: { kind: "working", label: "Running tests" } }];
   host.external.ingest(chat.id, changes);
   host.external.ingest(chat.id, structuredClone(changes));
-  assert.equal(store.journal(chat.id).load().length, 2);
+  assert.equal([...store.journal(chat.id).load()].length, 2);
   host.external.ingest(chat.id, [{ kind: "appended", id: reply.id, text: "!" }]);
   host.external.ingest(chat.id, [{ kind: "appended", id: reply.id, text: "!" }]);
-  assert.equal(store.journal(chat.id).load().length, 4);
+  assert.equal([...store.journal(chat.id).load()].length, 4);
   const extended = host.external.state(chat.id).entities[0];
   assert.ok(extended?.kind === "reply");
   assert.equal(extended.text, "hello!!");
@@ -111,7 +115,7 @@ test("external state snapshots are detached and updating metadata leaves the fee
   host.external.updateChat({ ...chat, title: "Renamed", updated: later });
   assert.deepEqual(host.external.state(chat.id), before);
   assert.deepEqual(before.entities, [prompt]);
-  assert.equal(store.journal(chat.id).load().length, 1);
+  assert.equal([...store.journal(chat.id).load()].length, 1);
   assert.deepEqual(calls, []);
 });
 
@@ -128,7 +132,7 @@ test("external import validates complete batches and rejects invalid ids, entity
   assert.throws(() => host.external.ingest(chat.id, [{ kind: "appended", id: prompt.id, text: "wrong" }]), /requires a reply/);
   assert.throws(() => host.external.ingest(chat.id, [{ kind: "upserted", entity: { ...reply, id: "" } }]));
   assert.throws(() => host.external.ingest(chat.id, [{ kind: "activity", activity: { kind: "unknown", label: null } }] as unknown as Change[]));
-  assert.equal(store.journal(chat.id).load().length, 1, "an invalid later change never leaves a partial imported batch");
+  assert.equal([...store.journal(chat.id).load()].length, 1, "an invalid later change never leaves a partial imported batch");
   assert.deepEqual(host.external.state(chat.id).entities, [prompt]);
 });
 
@@ -138,7 +142,7 @@ test("external entity ids cannot be reused by another chat", () => {
   host.external.ensureChat({ ...chat, id: "p-other" });
   host.external.ingest(chat.id, [{ kind: "upserted", entity: prompt }]);
   assert.throws(() => host.external.ingest("p-other", [{ kind: "upserted", entity: prompt }]), /belongs to another chat/);
-  assert.equal(store.journal("p-other").load().length, 0);
+  assert.equal([...store.journal("p-other").load()].length, 0);
 });
 
 test("external schedules are rejected before writing so imports cannot start the local schedule runner", () => {
@@ -151,6 +155,6 @@ test("external schedules are rejected before writing so imports cannot start the
       when: { kind: "once", at: later }, status: "active", next: later, running: false, last: null, needs: null, preset: false, goal: null,
     } },
   ]), /external schedule imports are not supported/);
-  assert.equal(store.journal(chat.id).load().length, 0);
+  assert.equal([...store.journal(chat.id).load()].length, 0);
   assert.deepEqual(calls, []);
 });

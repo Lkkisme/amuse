@@ -1,5 +1,7 @@
 # Amuse
 
+[![CI](https://github.com/Microwave-WYB/amuse/actions/workflows/ci.yml/badge.svg)](https://github.com/Microwave-WYB/amuse/actions/workflows/ci.yml)
+
 An open-source Muse: a personal assistant you chat with, that browses the web in a real Chrome
 you can watch and take over (from a phone, too), and works with your services. One instance per
 person, run with Docker Compose.
@@ -17,12 +19,25 @@ git clone git@github.com:Microwave-WYB/amuse.git && cd amuse
 docker compose up -d --build  # the first build takes a while: the browser images include Chromium
 ```
 
-Open `http://localhost:8080`, set a password, and add an API key for a model provider in
+Open `http://localhost:8080`, set a password and a 6-digit PIN, and add an API key for a model provider in
 Settings › Models (any provider [Pi](https://github.com/earendil-works/pi) supports). From there,
 Amuse walks you through the rest, such as connecting your mail and calendar.
 
 Run amuse where only you can reach it (your machine, a network or VPN you trust), and set the
 password right away: the first visit sets it.
+
+The PIN authorizes sensitive actions (loosening a permission, "Always allow" on a card, a new model, voice or
+Composio key or speech server, approving a device, changing the password or the PIN). The server checks it for each;
+an unlock lasts 5 minutes after the last such action (1, 15 or 30 in Settings › Security), 30 minutes at most, and
+ends when the app goes to the background. Five wrong tries lock it for 15 minutes, then twice as long each time. It is
+optional: Settings › Security has a **Use a PIN** switch (the password, and the PIN there is), and the first prompt
+that asks for one has a "Don't use a PIN" link. With it off, sensitive actions go through without asking and nothing
+is reminded; setting one again turns it back on.
+
+Signing in on another device takes the password, then approval on a device already signed in: a card there shows the
+new one, and approving takes the PIN. A Chrome policy blocks Amuse's own address in its own browsers, as one extra
+layer: they do not send the `X-Amuse-Agent` mark yet (their pages run in Playwright contexts, where an extension
+cannot add it), so a browser that reaches Amuse anyway meets only the password and the device approval.
 
 ## Other devices
 
@@ -41,6 +56,10 @@ however Amuse is published.
 
 Then `docker compose up -d`.
 
+An [Android client](android/README.md) connects to the same HTTPS server and web
+interface, with document uploads, downloads, voice permissions and an optional
+device lock. It does not require a separate model API or chat database.
+
 ## Voice
 
 The mic turns what you say into text with OpenAI, Groq or Fireworks (your key), or a speech
@@ -49,13 +68,15 @@ Settings › Models › Voice. Run it in Docker beside Amuse and give its servic
 on the host outside Docker it is `host.docker.internal`, which a host firewall (ufw) may block for
 containers. The mic needs https (see above).
 
-## Sandbox
+## Computer
 
 Amuse has a computer of its own: a Debian 13 container where it runs commands, installs software
 (`sudo apt install …`, pip, npm) and runs programs and servers. It works there as a normal user
 with passwordless `sudo`, on files it shares with you: your workspace (the files Amuse keeps) is
 mounted in it. Commands are not approved one by one, because the container is the boundary; what
-leaves it, and deleting or overwriting the files you sent, still needs your word.
+leaves it, and deleting or overwriting the files you sent, still needs your word. In the app it is
+Settings › Computer; in Docker the services and the environment variables below keep the name
+`sandbox`.
 
 - It reaches the public internet, and nothing of yours. Connections from it to the host, your LAN,
   Tailscale and other VPN peers, link-local addresses, the ranges proxy tools on the host (Clash, sing-box,
@@ -108,10 +129,14 @@ leaves it, and deleting or overwriting the files you sent, still needs your word
 - Its home folder (what it installs for itself, its settings and caches) is a volume of its own, and
   stays across restarts. Packages installed with `apt` and changes to `/etc` live in the container
   instead: they stay across restarts, and go when the container is recreated, which an update can do.
-- Reset: Settings › Sandbox › Reset stops everything running there and wipes its home folder. It does
+  Amuse is told to keep what you may want to keep — code, projects, documents, output — in your
+  workspace (`projects/`, say), and to leave its home folder to tools, configs and caches.
+- Reset: Settings › Computer › Reset stops everything running there and wipes its home folder. It does
   not undo system-wide installs or changes in `/etc`; those stay until the container is recreated:
   `docker compose up -d --force-recreate sandbox` (the server has no Docker socket to do it for you).
-  Your workspace is kept either way.
+  Your workspace is kept either way. Before it goes ahead, the confirmation names the folders in its
+  home, outside your workspace, that would be deleted (a folder holding a `.git` is marked as a code
+  repository), so you can ask Amuse to move anything you want to keep into your files first.
 - The sandbox network has a fixed address range, `10.231.250.0/24`, which the server turns away from its
   first request (`sandbox-net` refuses it too). If it clashes with a network you have, set
   `AMUSE_SANDBOX_SUBNET` in `.env` to another free range and run `docker compose up -d`; compose gives the
@@ -126,17 +151,48 @@ leaves it, and deleting or overwriting the files you sent, still needs your word
   (the daemon watches for it), Docker brings it back into the new network, and it never has an open one in
   between.
 
+## The Vault
+
+Settings › Vault keeps the long-term secrets Amuse uses for you: API keys, tokens, passwords, key files,
+and the keys of its own models, speech and connections. An entry has plain fields (an account id, a username:
+Amuse and you can see them), secret fields (never shown back; you replace them) and a note. Where a secret is
+used is separate from what it is: a variable or file in the sandbox, or one of Amuse's own services (which
+neither Amuse nor the sandbox ever sees).
+
+- The Vault is in the database (`amuse.db`). Secret fields are encrypted (AES-256-GCM) with a key in a file of its
+  own, `store.key`, in a volume of its own (`vault-key`, at `/secrets/amuse-store`), apart from `/data` and from the
+  browsers' `secrets` volume: a copy of `/data` alone opens nothing, and `docker volume rm` of `secrets` cannot destroy it. A compromised server does give the secrets, so this is not protection against that.
+- **Back the key up** (`docker compose cp amuse:/secrets/amuse-store/store.key .`, and keep it safe). Without it
+  nothing in the Vault can be opened, and Amuse refuses to start (its address says so) rather than make a new key
+  over secrets sealed with the old one. If the key is lost for good, `docker compose exec amuse amuse-admin
+  reset-vault --yes` forgets everything in the Vault so a new key can be made; you add your keys and secrets again.
+- A temporary code (a login or verification code a program waits for) is not kept: you type it on a card and it
+  goes straight into the terminal that waits for it.
+- When you upgrade from an earlier version, `keys.json`, `models.json` and `sandbox-secrets.json` move into the
+  database once, on the first start, and `keys.json` and `sandbox-secrets.json` (which held secrets in the open) are
+  deleted once the move is checked: no plaintext copy is left anywhere. The database keeps a copy of each, sealed with
+  the Vault's key, so you can go back: `amuse-admin restore-secret-files` writes them out again, and
+  `amuse-admin forget-secret-files --yes` deletes those copies once you are sure.
+
 ## Good to know
 
-- Your conversation, the password, your keys, saved browser logins and the sandbox's home folder live in Docker volumes;
+- Your conversation, the password, your secrets and keys (sealed; their key is in the `vault-key` volume), saved browser data and the sandbox's home folder live in Docker volumes;
   they survive restarts and updates. `docker compose down -v` deletes them.
-- Update: `git pull && docker compose up -d --build`.
-- Change the password, or lock a device: Settings › General. Changing it signs every other device out.
-- Forgot the password: `docker compose exec amuse rm /data/access.json && docker compose restart amuse`,
+- Update: `git pull && docker compose up -d --build`. Before an update that changes the stored data, Amuse copies its database to `backups/` in the data volume;
+  `docker compose exec amuse amuse-admin migrate --dry-run` shows beforehand what would change.
+- Change the password or the PIN, lock a device, or remove one: Settings › Security. Changing the password signs every
+  other device out; they stay trusted.
+- Forgot the password: `docker compose exec amuse amuse-admin reset-password`,
   then set a new one on the next visit. Your chats and keys stay.
+- Forgot the PIN: `docker compose exec amuse amuse-admin reset-pin`. Every device is signed out; sign in, and the PIN
+  is off until you set one in Settings › Security.
+- Lost every device you signed in on: `docker compose exec amuse amuse-admin reset-devices`. The next device to sign in
+  with the password is trusted.
 - Use another port: `AMUSE_PUBLISH_PORT=9000` in `.env` (and `AMUSE_PUBLIC_URL=http://localhost:9000`).
 
-Development: [docs/development.md](docs/development.md).
+Development: [docs/development.md](docs/development.md). CI runs `mise run check` — the type checks, every
+package's tests and the Dockerfile check — on every pull request and on `main`, and builds both images;
+running it locally is the same thing.
 
 ## License
 

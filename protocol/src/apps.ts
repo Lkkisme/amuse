@@ -14,6 +14,25 @@ export const App = z.object({
   logo: z.url().nullable(),
 });
 
+/**
+ * One field of a service that takes credentials of the user's own: what Composio wants it under (`name`), what the
+ * provider calls it (`label`, e.g. "Cloudflare Global API Key"), and whether it is a secret (typed as a password).
+ */
+export const KeyField = z.object({ name: z.string(), label: z.string(), secret: z.boolean() });
+
+/**
+ * How an app is connected: Composio's own login (a link), or the credentials the user brings — one field or several
+ * (Cloudflare wants its global key and the account email) — which the provider calls by `label`. They are typed only
+ * by the user, in the app; they are never part of the conversation.
+ */
+export const AppAccess = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("managed") }),
+  z.object({ kind: z.literal("key"), fields: z.array(KeyField).min(1) }),
+]);
+
+/** What the user typed into one of those fields: the field's name, and the value (which is never kept). */
+export const GivenField = z.object({ name: z.string(), value: z.string().min(1).max(4096) });
+
 /** expired: it worked, and needs authorizing again */
 export const AccountStatus = z.enum(["active", "expired", "failed"]);
 
@@ -63,6 +82,9 @@ export const SiteEntry = z.object({ never: z.boolean(), actions: SiteActions });
 export const SiteRule = z.object({ site: Site, never: z.boolean(), actions: SiteActions });
 
 export type App = z.infer<typeof App>;
+export type AppAccess = z.infer<typeof AppAccess>;
+export type KeyField = z.infer<typeof KeyField>;
+export type GivenField = z.infer<typeof GivenField>;
 export type BrowserAction = z.infer<typeof BrowserAction>;
 export type BrowserRule = z.infer<typeof BrowserRule>;
 export type SiteActions = z.infer<typeof SiteActions>;
