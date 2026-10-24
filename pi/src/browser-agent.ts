@@ -385,7 +385,7 @@ function runTools(run: Run): ToolDefinition[] {
       async execute(_, { reason }) {
         run.held ??= hold();
         set("needs_you");
-        run.io.report(`[browser task "${run.browser.title}" needs the user]\n${untrusted(reason)}`);
+        run.io.report(needsTheUser(run.browser, reason));
         // the user hands it back; or, until they take it, Amuse sends what it needs (a code from their mail, say)
         const held = run.held;
         const ended = new Promise<string | null>((resolve) => {
@@ -450,7 +450,7 @@ function runTools(run: Run): ToolDefinition[] {
         await collect(); // the last step's download, too
         const kept = run.downloaded.length > 0 ? `\nDownloaded and kept in the workspace: ${run.downloaded.join(", ")}` : "";
         // the browser stays open, with this agent, for a next job
-        run.io.report(`[browser task "${run.browser.title}" (${run.browser.id}) ${done ? "finished" : "failed"}; the browser stays open for a next job]\n${untrusted(result)}${kept}`);
+        run.io.report(ended(run.browser, done, result, kept));
         void run.session?.abort();
         return text("Finished. Wait for the next task.");
       },
@@ -488,7 +488,7 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers, rules: Ru
   const runs = new Map<string, Run>();
 
   const failed = (browser: Browser, io: AgentIO, why: string) => {
-    if (io.act({ kind: "browserEnded", id: browser.id, status: "failed", result: why }).ok) io.report(`[browser task "${browser.title}" (${browser.id}) failed]\n${untrusted(why)}`);
+    if (io.act({ kind: "browserEnded", id: browser.id, status: "failed", result: why }).ok) io.report(failedTask(browser, why));
   };
 
   /** Close a browser: its agent stops, its logins are kept, its node is let go, and its card says so. */
@@ -599,7 +599,11 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers, rules: Ru
           // the user may close its window in the browser itself: then it is closed, as from its tab
           run.watch = setInterval(() => {
             void browsers.stillOpen(browser.id).then((open) => {
-              if (!open && runs.get(browser.id) === run) close(browser.id, io);
+              if (open || runs.get(browser.id) !== run) return;
+              // its window is closed, or the browser was lost: a task still in flight ends as a failure and the chat is
+              // woken for it; one that is idle has no task to end, and just closes
+              failed(run.browser, io, "Its browser is gone: the window was closed, or the browser was lost.");
+              close(browser.id, io);
             });
           }, watchMs);
           run.watch.unref?.();
@@ -648,8 +652,12 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers, rules: Ru
             if (carried) io.mention(carried);
           }
           return;
-        case "stop":
+        case "stop": {
+          // the user's Stop, or the ✕ on its tab: the task ends without a result, and the chat hears it without being woken
+          const note = stoppedByUser(browser, browsers.holds(browser.id));
+          if (note) io.mention(note);
           return close(browser.id, io);
+        }
       }
     },
     fit({ id, viewer }) {
@@ -665,6 +673,42 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers, rules: Ru
 export function handedBack(browser: Browser): string | null {
   if (browser.outcome === null) return null;
   return `[browser task "${browser.title}" (${browser.id})] The user took over this browser after its task was over, and has handed it back (they may have logged in, or done the step it stopped at). If what they asked needs more, go on in it: browse with browser ${browser.id}. If not, call no_reply.`;
+}
+
+/**
+ * What the chat hears when the user lets a task visit a site and it starts. One note for the start, as a report:
+ * the agent asked for it and hears at once.
+ */
+export function startedTask(title: string, allowed: string): string {
+  return `[browser task "${title}" started] The user allowed visiting ${allowed}; the task runs now, and its result comes as a report.`;
+}
+
+/**
+ * The same, when the task stops to ask the user for something only they can do in the browser: a report, because the
+ * task is waiting on them.
+ */
+export function needsTheUser(browser: Browser, reason: string): string {
+  return `[browser task "${browser.title}" needs the user]\n${untrusted(reason)}`;
+}
+
+/** The same, when the task is over: what came of it, and that its browser stays open for a next job. */
+export function ended(browser: Browser, done: boolean, result: string, kept: string): string {
+  return `[browser task "${browser.title}" (${browser.id}) ${done ? "finished" : "failed"}; the browser stays open for a next job]\n${untrusted(result)}${kept}`;
+}
+
+/** The same, when it ends without a result: it crashed, stopped by itself, or its browser went away. */
+export function failedTask(browser: Browser, why: string): string {
+  return `[browser task "${browser.title}" (${browser.id}) failed]\n${untrusted(why)}`;
+}
+
+/**
+ * The same, when the user stops the task or closes its browser (its Stop button and the ✕ on its tab are the same
+ * thing): the task ends without a result, and it is not a wake-up, since it is the user's own doing. Nothing is said
+ * for a browser the pool does not hold: the start closes those itself (a restart that lost the session), and that was
+ * not the user's doing. `driving`: the pool holds this run.
+ */
+export function stoppedByUser(browser: Browser, driving: boolean): string | null {
+  return driving && onJob(browser) ? `[browser task "${browser.title}" (${browser.id}): the user stopped it, and its browser is closed]` : null;
 }
 
 /**

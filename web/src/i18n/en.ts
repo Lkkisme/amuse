@@ -164,6 +164,8 @@ export const en = {
     takeControlOfBrowser: "Take control of the browser",
     closeBrowserAt: (host: string) => `Close the browser at ${host}`,
     showBrowserAt: (host: string) => `Show the browser at ${host}`,
+    stopAndClose: "Stop the task and close this browser?",
+    stopAndCloseHelp: (title: string) => `${title} is still running.`,
     browsers: "Browsers",
     openAgain: "Open again",
     keyConnecting: "Connecting to the browser",

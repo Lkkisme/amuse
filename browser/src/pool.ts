@@ -103,6 +103,8 @@ export interface Browsers {
   close(run: string): Promise<void>;
   /** The run's live desktop (noVNC websocket), while it has one. */
   vnc(run: string): string | null;
+  /** Whether the pool holds this run open: a browser the state lists, whose controller session it has. */
+  holds(run: string): boolean;
   /** Put a file into the file input `ref`: the browser gets the file itself, never a path of ours. */
   upload(run: string, ref: string, file: FileData): Promise<void>;
   /** What the run's pages have downloaded since the last time this was asked. */
@@ -400,6 +402,7 @@ export function browserPool(
       release(r.node);
     },
     vnc: (id) => runs.get(id)?.node.vnc ?? null,
+    holds: (id) => runs.has(id),
     async upload(id, ref, file) {
       const r = run(id);
       const { handoff } = r.node;

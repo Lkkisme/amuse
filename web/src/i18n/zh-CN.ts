@@ -176,6 +176,8 @@ export const zhCN = {
     takeControlOfBrowser: "接管浏览器",
     closeBrowserAt: (host) => `关闭 ${host} 的浏览器`,
     showBrowserAt: (host) => `显示 ${host} 的浏览器`,
+    stopAndClose: "停止任务并关闭这个浏览器？",
+    stopAndCloseHelp: (title) => `「${title}」仍在运行。`,
     browsers: "浏览器",
     openAgain: "重新打开",
     keyConnecting: "正在连接浏览器",

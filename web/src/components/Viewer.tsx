@@ -31,6 +31,7 @@ import {
   X,
 } from "lucide-react";
 import { useState } from "react";
+import { onJob } from "@amuse/core";
 import type { Browser, State } from "@amuse/protocol";
 import type { Actions, Shown, Ui } from "../ui.ts";
 import type { Swipe } from "../useSwipe.ts";
@@ -46,6 +47,7 @@ import {
   viewerTabs,
 } from "../view.ts";
 import { Button } from "./Button";
+import { ConfirmSheet } from "./ConfirmSheet";
 import { PagePreview } from "./cards";
 import { LiveView } from "./LiveView";
 import { TerminalView } from "./TerminalView";
@@ -76,6 +78,7 @@ export function Viewer({
   actions: Actions;
 }) {
   const { mounted, closing, onAnimationEnd } = usePresence(open !== null, swipe?.phase === "closed");
+  const t = useT();
   const moving = swipe?.phase === "drag" || swipe?.phase === "settle";
   // a swipe opening it (not yet open) opens what the browser button would: the run that needs the user
   const opening = moving && open === null;
@@ -83,6 +86,9 @@ export function Viewer({
   const viewer: Ui["viewer"] = open ?? (opening ? { browserId: pillBrowser(conversation)?.id ?? null, shown: "browser" } : last);
   // phone: every browser open, as cards over the viewer
   const [overview, setOverview] = useState(false);
+  // a browser with a task in progress is not closed without asking: `shut` holds what closing it does
+  const [stopping, setStopping] = useState<{ browser: Browser; shut: () => void } | null>(null);
+  const shut = (browser: Browser, close: () => void) => (onJob(browser) ? setStopping({ browser, shut: close }) : close());
   // closing the viewer puts the cards away too
   if (open === null && overview) setOverview(false);
   if ((!mounted && !moving) || !viewer) return null;
@@ -118,15 +124,17 @@ export function Viewer({
             count={tabs.length}
             corner={!terminal}
             onOverview={() => setOverview(true)}
+            onStop={(b) => shut(b, () => actions.control(b.id, "stop"))}
             actions={actions}
           />
-          <RunTabs tabs={tabs} activeId={browser.id} actions={actions} />
+          <RunTabs tabs={tabs} activeId={browser.id} onClose={(tab) => shut(tab, () => actions.closeTab(tab.id))} actions={actions} />
           {overview && (
             <Overview
               tabs={tabs}
               activeId={browser.id}
               thumb={thumb}
               onClose={() => setOverview(false)}
+              onCloseTab={(tab) => shut(tab, () => actions.closeTab(tab.id))}
               actions={actions}
             />
           )}
@@ -147,6 +155,20 @@ export function Viewer({
       ) : (
         <NoBrowser corner={!terminal} actions={actions} />
       )}
+      {/* closing a browser with a task in progress asks first; one that is idle closes at once, without this */}
+      <ConfirmSheet
+        open={stopping !== null}
+        onClose={() => setStopping(null)}
+        icon={CircleDot}
+        title={t.viewer.stopAndClose}
+        body={t.viewer.stopAndCloseHelp(stopping?.browser.title ?? "")}
+        action={t.common.stop}
+        onConfirm={() => {
+          const close = stopping?.shut;
+          setStopping(null);
+          close?.();
+        }}
+      />
     </div>
   );
 }
@@ -251,6 +273,7 @@ function ViewerHeader({
   count,
   corner,
   onOverview,
+  onStop,
   actions,
 }: {
   browser: Browser;
@@ -259,6 +282,8 @@ function ViewerHeader({
   /** whether its row keeps the corner for the browser button (else the switch's row does) */
   corner: boolean;
   onOverview: () => void;
+  /** stop this browser's task and close it (the viewer asks first while one is still running) */
+  onStop: (browser: Browser) => void;
   actions: Actions;
 }) {
   const t = useT();
@@ -314,7 +339,7 @@ function ViewerHeader({
           tone="danger"
           className="shrink-0"
           aria-label={t.common.stop}
-          onClick={() => actions.control(browser.id, "stop")}
+          onClick={() => onStop(browser)}
         >
           <CircleDot size={15} /> <span className="hidden sm:inline">{t.common.stop}</span>
         </Button>
@@ -357,10 +382,13 @@ const tabIcon = (tab: Browser) =>
 function RunTabs({
   tabs,
   activeId,
+  onClose,
   actions,
 }: {
   tabs: Browser[];
   activeId: string;
+  /** close this browser (the viewer asks first while a task is still running) */
+  onClose: (tab: Browser) => void;
   actions: Actions;
 }) {
   const t = useT();
@@ -395,7 +423,7 @@ function RunTabs({
             <button
               aria-label={t.viewer.closeBrowserAt(host(tab.url))}
               className="hover-fade flex size-6 shrink-0 items-center justify-center rounded-full"
-              onClick={() => actions.closeTab(tab.id)}
+              onClick={() => onClose(tab)}
             >
               <X size={13} />
             </button>
@@ -424,12 +452,15 @@ function Overview({
   activeId,
   thumb,
   onClose,
+  onCloseTab,
   actions,
 }: {
   tabs: Browser[];
   activeId: string;
   thumb: ((id: string) => string) | null;
   onClose: () => void;
+  /** close this browser (the viewer asks first while a task is still running) */
+  onCloseTab: (tab: Browser) => void;
   actions: Actions;
 }) {
   const t = useT();
@@ -479,7 +510,7 @@ function Overview({
                   aria-label={t.viewer.closeBrowserAt(host(tab.url))}
                   className="absolute right-1.5 top-1.5 flex size-7 items-center justify-center rounded-full"
                   style={{ background: "rgba(0,0,0,0.55)", color: "#fff" }}
-                  onClick={() => actions.closeTab(tab.id)}
+                  onClick={() => onCloseTab(tab)}
                 >
                   <X size={14} strokeWidth={2.5} />
                 </button>

@@ -11,6 +11,7 @@ import { untrusted } from "./untrusted.ts";
 import { Type } from "typebox";
 import { status } from "./status.ts";
 import { askToVisit, notVisited, refuseByRule, visitAnswer } from "./visits.ts";
+import { startedTask } from "./browser-agent.ts";
 import type { Hold } from "./runs.ts";
 
 const text = (value: string) => ({ content: [{ type: "text" as const, text: value }], details: null });
@@ -121,7 +122,7 @@ export function tools(
             const started = start();
             agent.report(
               started.ok
-                ? `[browser task "${title}" started] The user allowed visiting ${hostOf(url) ?? url}; the task runs now, and its result comes as a report.`
+                ? startedTask(title, hostOf(url) ?? url)
                 : `[browser task "${title}" not started] ${describe(started.rejection)}`,
             );
           });
