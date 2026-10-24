@@ -304,6 +304,8 @@ const rules: Rules = {
     const browser = find(state, "browser", id);
     if (!browser) return reject({ kind: "notFound", entity: "browser", id });
     const move = browserMoves[action];
+    // stopping what has already stopped (a second tap, or a page that had not caught up yet) is done, not an error
+    if (action === "stop" && browser.status === "stopped") return ok([], [], null);
     if (!move.from.includes(browser.status)) return reject({ kind: "invalid", action, from: browser.status });
     if (action === "take" && !browser.live) return reject({ kind: "gone", id });
     // a stopped run's browser closes at once

@@ -91,6 +91,13 @@ test("illegal browser moves are rejected with where they came from", () => {
   });
 });
 
+test("stopping a browser that has already stopped is done, with nothing to change", () => {
+  const d = decide(stateOf(browser("stopped")), { method: "browser.control", params: { id: "b1", action: "stop" } }, ctx);
+  assert.ok(d.ok);
+  assert.deepEqual(d.changes, []);
+  assert.deepEqual(d.effects, []);
+});
+
 test("an approval resolves once; allow_* approves, deny_* denies", () => {
   const pending = stateOf({ kind: "approval", id: "a1", at, action: "Send", target: "t", detail: "d", remember: true, status: "pending", expires: at, app: null, always: false, byRule: false, lasting: false });
   const allow = decide(pending, { method: "approval.resolve", params: { id: "a1", resolution: "allow_always" } }, ctx);
