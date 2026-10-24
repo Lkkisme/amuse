@@ -312,7 +312,7 @@ export const en = {
     },
     addKey: "Add Composio key",
     keyIntro: (app: string, label: string) => `${app} needs your own ${label}. Paste it to connect.`,
-    keyNote: "It goes to Composio, which holds it. Amuse does not keep it, and Muse never sees it.",
+    keyNote: "It goes to Composio, which holds it. Amuse does not keep it, and Amuse never sees it.",
     keyChecking: "Checking…",
   },
   models: {

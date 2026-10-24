@@ -2,7 +2,8 @@
  * A protocol Session over a WebSocket, for browsers (and Node 22+, which has
  * a global WebSocket). Results and events are parsed with the protocol
  * schemas on arrival, so a misbehaving server fails loudly at the boundary.
- * Reconnects with backoff and replays each chat's missed events from its last seq.
+ * Reconnects with backoff and replays each chat's missed events from its last seq; `resume()` takes it up at once
+ * (a page that comes back says so, rather than waiting out the backoff that was frozen with it).
  */
 import {
   type Chat,
@@ -20,7 +21,9 @@ import {
 
 type Pending = { settle: (raw: unknown) => void; fail: (error: Error) => void };
 
-/** A call the server answered with an error: its words, and its JSON-RPC code (the protocol's `errors`: the PIN's, say). */
+/**
+ * A call the server answered with an error: its words, and its JSON-RPC code (the protocol's `errors`: the PIN's, say).
+ */
 export class CallFailed extends Error {
   readonly code: number;
   constructor(message: string, code: number) {
@@ -29,7 +32,17 @@ export class CallFailed extends Error {
   }
 }
 
-export function connect(url: string): Session & { close(): void } {
+/**
+ * A call whose socket dropped before it was answered (a phone's browser freezes the page in the background, and the
+ * socket with it). Its own kind, so a page says it in the user's language instead of showing "disconnected".
+ */
+export class Dropped extends Error {
+  constructor() {
+    super("the connection dropped");
+  }
+}
+
+export function connect(url: string): Session & { close(): void; resume(): void } {
   const listeners = new Set<(update: Update) => void>();
   const pending = new Map<number, Pending>();
   const outbox: string[] = [];
@@ -39,6 +52,8 @@ export function connect(url: string): Session & { close(): void } {
   const lastSeq = new Map<string, number>();
   let retry = 0;
   let closed = false;
+  /** the retry that is waiting, so coming back can take it up now instead */
+  let waiting: ReturnType<typeof setTimeout> | null = null;
 
   const deliver = (chat: string, envelope: Envelope) => {
     if (envelope.seq <= (lastSeq.get(chat) ?? 0)) return;
@@ -58,6 +73,7 @@ export function connect(url: string): Session & { close(): void } {
     const ws = new WebSocket(url);
     socket = ws;
     ws.onopen = () => {
+      if (socket !== ws) return; // a newer socket is the one that counts
       const resumed = retry > 0;
       retry = 0;
       outbox.splice(0).forEach((frame) => ws.send(frame));
@@ -68,6 +84,7 @@ export function connect(url: string): Session & { close(): void } {
       }
     };
     ws.onmessage = ({ data }) => {
+      if (socket !== ws) return; // a newer socket is the one that counts
       if (typeof data !== "string") return;
       const raw: unknown = JSON.parse(data);
       const note = Notification.safeParse(raw);
@@ -83,13 +100,37 @@ export function connect(url: string): Session & { close(): void } {
       else entry.settle(response.result);
     };
     ws.onclose = () => {
+      if (socket !== ws) return; // we let this one go ourselves: its close is not the connection dropping
       socket = null;
-      for (const entry of pending.values()) entry.fail(new Error("disconnected"));
+      for (const entry of pending.values()) entry.fail(new Dropped());
       pending.clear();
       // what waited to go out has failed with them: sent later, a message the user takes back would arrive anyway
       outbox.length = 0;
-      if (!closed) setTimeout(open, Math.min(10_000, 500 * 2 ** retry++));
+      if (!closed && waiting === null)
+        waiting = setTimeout(() => {
+          waiting = null;
+          if (!closed) open();
+        }, Math.min(10_000, 500 * 2 ** retry++));
     };
+  };
+
+  /**
+   * Take the connection up again now, without waiting out the retry: a page that comes back (a phone's browser
+   * freezes it, and its timers, with it) asks for this, and so does a call that finds no socket at all.
+   */
+  const resume = () => {
+    const state = socket?.readyState;
+    // nothing to take up while it is up, or already on its way up
+    if (closed || state === WebSocket.OPEN || state === WebSocket.CONNECTING) return;
+    if (waiting !== null) {
+      clearTimeout(waiting);
+      waiting = null;
+    }
+    retry = 0;
+    const stale = socket; // a half-open one from the background: dropped, and its close ignored
+    socket = null;
+    stale?.close();
+    open();
   };
 
   function call<M extends Method>(method: M, params: Params[M]): Promise<Results[M]> {
@@ -109,19 +150,26 @@ export function connect(url: string): Session & { close(): void } {
         fail: reject,
       });
       if (socket?.readyState === WebSocket.OPEN) socket.send(frame);
-      else outbox.push(frame);
+      else {
+        // no socket (it dropped, or the page is only now coming back): it goes as soon as there is one
+        outbox.push(frame);
+        resume();
+      }
     });
   }
 
   open();
   return {
     call,
+    resume,
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
     close() {
       closed = true;
+      if (waiting !== null) clearTimeout(waiting);
+      waiting = null;
       socket?.close();
     },
   };

@@ -28,6 +28,7 @@ function capture() {
       accounts: async () => [],
       connect: async () => "https://connect.example/",
       access: async () => ({ kind: "managed" }),
+      cannotConnect: async () => null,
       connectKey: async () => {},
       disconnect: async () => {},
       permissions: async () => [],

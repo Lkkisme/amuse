@@ -46,6 +46,8 @@ export interface PiConfig extends PiModelConfig {
   secrets?: Omit<SecretAccess, "sandbox">;
   /** While apps are not set up: how the user sets them up (null once they are). */
   appsSetup?: () => string | null;
+  /** When a service cannot be connected here at all: the words for the agent, instead of a card (null when it can). */
+  appsFit?: (app: string) => Promise<string | null>;
   /** The skills that ship with Amuse (the user's own are read from skills/ in the workspace). */
   /** How this instance is set up right now (models, apps, browsers, sandbox), for `amuse_status`. */
   about?: () => Promise<string>;
@@ -378,7 +380,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
 export function agentTools(cfg: PiConfig, io: () => AgentIO, heard: () => boolean, silence: () => void): ToolDefinition[] {
   return [
     // with memory, memory_search looks in the chats as recall did, and in memory/ too
-    ...tools(io, cfg.rules, { files: cfg.files, appsSetup: cfg.appsSetup }).filter((t) => !(cfg.files && t.name === "recall")),
+    ...tools(io, cfg.rules, { files: cfg.files, appsSetup: cfg.appsSetup, appsFit: cfg.appsFit }).filter((t) => !(cfg.files && t.name === "recall")),
     ...(cfg.browsers ? browserReadTools(cfg, cfg.browsers) : []),
     ...(cfg.files ? [...memoryReadTools(io, cfg.files), ...memoryWriteTools(io, cfg.files)] : []),
     ...skillTools(cfg.skills ?? [], cfg.files),

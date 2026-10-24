@@ -4,7 +4,7 @@ import type { Toolkit } from "./client.ts";
 import { memoryRules } from "@amuse/core";
 import { composioDirectory, score } from "./directory.ts";
 
-const tk = (slug: string, name: string, description = "", categories: string[] = []): Toolkit => ({ slug, name, description, logo: null, categories });
+const tk = (slug: string, name: string, description = "", categories: string[] = [], schemes: string[] = [], managedSchemes: string[] = []): Toolkit => ({ slug, name, description, logo: null, categories, schemes, managedSchemes });
 // in order of use, as Composio lists them
 const all = [
   tk("gmail", "Gmail", "Google's email service"),

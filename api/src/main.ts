@@ -285,7 +285,7 @@ const about = async (): Promise<string> => {
 };
 
 const ports: Ports = {
-  ...piAgent({ secrets: { secrets: vault, keys }, model, thinking: () => keys.thinking("chat"), auth, system, rules, files: agentFiles, ...(sandbox ? { sandbox } : {}), ...(browsers ? { browsers } : {}), apps, search: apps.search, appsSetup: () => (keys.appKey("composio") ? null : composioGuide), skills, about, defaults: sqliteDefaults(db) }),
+  ...piAgent({ secrets: { secrets: vault, keys }, model, thinking: () => keys.thinking("chat"), auth, system, rules, files: agentFiles, ...(sandbox ? { sandbox } : {}), ...(browsers ? { browsers } : {}), apps, search: apps.search, appsSetup: () => (keys.appKey("composio") ? null : composioGuide), appsFit: async (app) => (keys.appKey("composio") ? await directory.cannotConnect(app) : null), skills, about, defaults: sqliteDefaults(db) }),
   // scheduled work runs on the background model (the chat's when none is chosen)
   ...piScheduleRunner({
     secrets: { secrets: vault, keys },
@@ -364,6 +364,7 @@ const ports: Ports = {
     search: said(directory.search),
     connect: said(directory.connect),
     access: said(directory.access),
+    cannotConnect: said(directory.cannotConnect),
     connectKey: said(directory.connectKey),
     disconnect: said(directory.disconnect),
     permit: said(directory.permit),

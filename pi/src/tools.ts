@@ -37,12 +37,18 @@ export function jobGiven(browser: string, given: Acted): string {
 /**
  * Tools bound to the agent IO of the run in progress. `files`: the workspace, where browser tasks
  * may be given files to upload; `hold`: how a helper waits on approvals; `appsSetup`: while apps
- * are not set up, how the user sets them up (null once they are).
+ * are not set up, how the user sets them up (null once they are); `appsFit`: when a service cannot
+ * be connected here at all, the words to say instead of showing a card (null when it can).
  */
 export function tools(
   io: () => AgentIO,
   rules: Rules,
-  { files, hold, appsSetup }: { files?: Workspace | undefined; hold?: Hold; appsSetup?: (() => string | null) | undefined } = {},
+  {
+    files,
+    hold,
+    appsSetup,
+    appsFit,
+  }: { files?: Workspace | undefined; hold?: Hold; appsSetup?: (() => string | null) | undefined; appsFit?: ((app: string) => Promise<string | null>) | undefined } = {},
 ): ToolDefinition[] {
   return [
     defineTool({
@@ -142,6 +148,9 @@ export function tools(
         title: Type.String({ description: "The service's name as the user knows it, e.g. 'Google Sheets'" }),
       }),
       async execute(_, { provider, title }) {
+        // a service Amuse cannot set up at all: said plainly, with the toolkit that takes a key or a token, if any
+        const unfit = await appsFit?.(provider).catch(() => null);
+        if (unfit) return text(unfit);
         const result = io().act({ kind: "connect", provider, title });
         // before connections are set up, the card leads to the settings where their key goes
         const setup = appsSetup?.();

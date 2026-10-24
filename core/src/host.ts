@@ -365,6 +365,11 @@ export interface AppDirectory {
   access(app: string): Promise<AppAccess>;
   /** Connect `app` with the user's own key; the connector passes it on and keeps nothing. */
   connectKey(app: string, key: string): Promise<void>;
+  /**
+   * When `app` cannot be connected here at all: the words for the agent, naming a toolkit of the same service that
+   * takes a key or a token instead, where there is one; null when it can be connected.
+   */
+  cannotConnect(app: string): Promise<string | null>;
   disconnect(account: string): Promise<void>;
   /** What the agent may do with the app, by kind of tool. */
   permissions(app: string): Promise<KindRule[]>;

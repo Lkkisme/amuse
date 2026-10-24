@@ -22,6 +22,7 @@ import { AppLogo } from "./AppLogo";
 import { KeyConnect } from "./KeyConnect";
 import { PermissionSelect } from "./PermissionSelect";
 import { useT } from "../i18n/react.ts";
+import { standsAfterReturn, wordsFor } from "../shown.ts";
 
 type Tab = "available" | "connected";
 const TABS: Tab[] = ["available", "connected"];
@@ -47,29 +48,44 @@ export function Connectors({
     cursor: string | null;
   } | null>(null);
   const [accounts, setAccounts] = useState<Account[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   /** the app or account an action is running for */
   const [busy, setBusy] = useState<string | null>(null);
+  /** how many times the open app's access has been asked about: a return to the page asks again */
+  const [askedAgain, setAskedAgain] = useState(0);
 
-  const fail = (e: unknown) =>
-    setError(e instanceof Error ? e.message : String(e));
+  const fail = (e: unknown) => setError(e);
 
   const loadAccounts = useCallback(
     () =>
       session
         .call("apps.accounts", {})
-        .then(({ accounts }) => setAccounts(accounts), fail),
+        .then(
+          ({ accounts }) => {
+            setAccounts(accounts);
+            setError(standsAfterReturn); // it went through: a failure that was the connection dropping does not stand
+          },
+          fail,
+        ),
     [session],
   );
   useEffect(() => void loadAccounts(), [loadAccounts]);
-  // back from the provider's page (another tab): see what came of it
+  // back from the provider's page (another tab), or from another app on a phone: see what came of it, and ask
+  // again about the app on screen (its answer, too, may have been the connection dropping while the page was away)
   useEffect(() => {
-    const back = () =>
-      document.visibilityState === "visible" && void loadAccounts();
+    const back = () => {
+      if (document.visibilityState !== "visible") return;
+      void loadAccounts();
+      setAskedAgain((n) => n + 1);
+    };
     document.addEventListener("visibilitychange", back);
+    window.addEventListener("pageshow", back);
+    window.addEventListener("online", back);
     window.addEventListener("focus", back);
     return () => {
       document.removeEventListener("visibilitychange", back);
+      window.removeEventListener("pageshow", back);
+      window.removeEventListener("online", back);
       window.removeEventListener("focus", back);
     };
   }, [loadAccounts]);
@@ -119,11 +135,11 @@ export function Connectors({
       })
       .finally(() => setBusy(null));
   };
-  // how the open app is connected: a link, or the user's own key
+  // how the open app is connected: a link, or the user's own key. Asked when the page opens and again when the
+  // user comes back to it; `access` is kept across a return, so a key typed into the field is not lost.
   const [access, setAccess] = useState<AppAccess | null>(null);
   const viewingId = viewing?.id;
   useEffect(() => {
-    setAccess(null);
     if (!viewingId) return;
     let current = true;
     session.call("apps.access", { app: viewingId }).then(
@@ -133,7 +149,8 @@ export function Connectors({
     return () => {
       current = false;
     };
-  }, [session, viewingId]);
+  }, [session, viewingId, askedAgain]);
+  useEffect(() => setAccess(null), [viewingId]);
   /** the key goes to the server and on to Composio, nowhere else; then the accounts are read again */
   const connectKey = async (app: string, key: string) => {
     await session.call("apps.connectKey", { app, key });
@@ -157,13 +174,14 @@ export function Connectors({
       !query || `${a.id} ${a.name}`.toLowerCase().includes(query.toLowerCase()),
   );
 
-  const errorLine = error && (
+  const words = wordsFor(error, t);
+  const errorLine = words && (
     <p
       role="alert"
       className="mt-3 text-[13px]"
       style={{ color: "var(--fill-red)" }}
     >
-      {error}
+      {words}
     </p>
   );
 

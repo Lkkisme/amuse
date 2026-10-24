@@ -13,6 +13,7 @@ import { useChats, useConversation } from "./session.ts";
 import { applyTheme, storedTheme } from "./theme.ts";
 import { activeT } from "./i18n/language.ts";
 import { useT } from "./i18n/react.ts";
+import { resumeOnReturn } from "./return.ts";
 import { Files, serverFiles } from "./files.ts";
 import { Unlock } from "./components/Unlock";
 import { type Actions, type Ui, initialUi } from "./ui.ts";
@@ -53,20 +54,22 @@ import { MenuButton, TopBar } from "./components/TopBar";
 import { Viewer } from "./components/Viewer";
 
 /**
- * A session and how to let go of it (a socket must be closed, or it reconnects forever). On a server, a sensitive
- * call the server holds for the PIN asks for it (`ask`), then goes again.
+ * A session and how to let go of it (a socket must be closed, or it reconnects forever), and how to take the
+ * connection up again at once when the page comes back (a phone's browser freezes it in the background).
+ * On a server, a sensitive call the server holds for the PIN asks for it (`ask`), then goes again.
  */
 const openSession = (
   where: Connection,
   ask: Ask,
-): { session: Session; close: () => void } => {
+): { session: Session; close: () => void; resume: () => void } => {
   if (where.kind === "server") {
     const remote = connect(where.rpc);
-    return { session: pinGuarded(remote, ask), close: () => remote.close() };
+    return { session: pinGuarded(remote, ask), close: () => remote.close(), resume: () => remote.resume() };
   }
   return {
     session: createHost(demoPorts(realTimers), { seed: seed() }),
     close: () => {},
+    resume: () => {},
   };
 };
 
@@ -85,7 +88,9 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
   const t = useT();
   const pin = usePinSheet();
   const [link, setLink] = useState(() => openSession(where, pin.ask));
-  const { session } = link;
+  const { session, resume } = link;
+  // a page that comes back after the browser froze it (a phone in the background) takes its socket up at once
+  useEffect(() => resumeOnReturn(resume), [resume]);
   const chats = useChats(session);
   // the look this device was left in
   const [ui, setUi] = useState<Ui>(() => ({

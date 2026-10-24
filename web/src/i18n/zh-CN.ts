@@ -322,7 +322,7 @@ export const zhCN = {
     },
     addKey: "添加 Composio 密钥",
     keyIntro: (app, label) => `${app} 需要你自己的${label}，粘贴后即可连接。`,
-    keyNote: "它会发送给 Composio 保管。Amuse 不会保存它，Muse 也无法看到它。",
+    keyNote: "它会发送给 Composio 保管。Amuse 不会保存它，Amuse 也无法看到它。",
     keyChecking: "正在检查…",
   },
   models: {

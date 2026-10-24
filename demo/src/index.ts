@@ -80,6 +80,8 @@ function demoApps(rules: Rules): AppDirectory {
     },
     // every demo app is connected with a click: there is no key to bring
     access: async () => ({ kind: "managed" }),
+    // and every one of them can be: nothing here needs credentials of its own
+    cannotConnect: async () => null,
     connectKey: async () => {
       throw new Error("The demo's apps need no key");
     },

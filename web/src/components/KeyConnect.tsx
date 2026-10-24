@@ -6,6 +6,7 @@
  */
 import { useState } from "react";
 import { useT } from "../i18n/react.ts";
+import { wordsFor } from "../shown.ts";
 import { Button } from "./Button";
 
 export function KeyConnect({
@@ -23,7 +24,7 @@ export function KeyConnect({
   const t = useT();
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const submit = () => {
     if (!key.trim() || busy) return;
     setBusy(true);
@@ -34,7 +35,7 @@ export function KeyConnect({
         setBusy(false);
       },
       (e: unknown) => {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(e);
         setBusy(false);
       },
     );
@@ -58,14 +59,17 @@ export function KeyConnect({
       <p className="mt-1.5 text-[12px]" style={{ color: "var(--text-tertiary)" }}>
         {t.connections.keyNote}
       </p>
-      {error && (
+      {error !== null && (
         <p role="alert" className="mt-1.5 text-[12px]" style={{ color: "var(--fill-red)" }}>
-          {error}
+          {wordsFor(error, t)}
         </p>
       )}
-      <Button variant="primary" size={size} className="mt-3" disabled={!key.trim() || busy} onClick={submit}>
-        {busy ? t.connections.keyChecking : t.connections.connect}
-      </Button>
+      {/* the same Connect as an app that connects by a link: the primary button, full width, under the field */}
+      <div className="mt-5 flex justify-center">
+        <Button variant="primary" size={size} className="w-full max-w-[280px]" disabled={!key.trim() || busy} onClick={submit}>
+          {busy ? t.connections.keyChecking : t.connections.connect}
+        </Button>
+      </div>
     </div>
   );
 }

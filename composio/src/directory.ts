@@ -6,7 +6,7 @@
  */
 import { type AppDirectory, type Rules, kinds, permissionOf } from "@amuse/core";
 import type { Account, AccountStatus, App } from "@amuse/protocol";
-import { CannotLink, type Composio, type Toolkit } from "./client.ts";
+import { CannotLink, type Composio, type Toolkit, ownOAuthOnly, takesKey } from "./client.ts";
 
 /** How long the fetched list is good for. */
 const FRESH_MS = 12 * 60 * 60_000;
@@ -14,6 +14,17 @@ const FRESH_MS = 12 * 60 * 60_000;
 const PAGE = 30;
 
 const app = (t: Toolkit): App => ({ id: t.slug, name: t.name, description: t.description, logo: t.logo });
+
+/**
+ * The toolkit for the same service that takes a key or a token instead (cloudflare_api_key for cloudflare), where
+ * there is one: matched on the service's name and slug prefix, among the toolkits already fetched.
+ */
+function keySibling(all: Toolkit[], slug: string, name: string): Toolkit | null {
+  const service = all.find((t) => t.slug === slug)?.name ?? name;
+  const kin = all.filter((t) => t.slug !== slug && takesKey(t.schemes) && (t.slug.startsWith(`${slug}_`) || t.name.startsWith(`${service} `)));
+  // one that says so in its name (Cloudflare Api Key) before one that only takes a key in passing
+  return kin.find((t) => /key|token/i.test(`${t.slug} ${t.name}`)) ?? kin[0] ?? null;
+}
 
 /** Composio's account statuses, as the user sees them; accounts on their way (INITIATED) are not shown. */
 const status = (raw: string): AccountStatus | null => {
@@ -59,7 +70,8 @@ export function composioDirectory(
 
   return {
     async search(query, cursor) {
-      const all = await toolkits();
+      // an own-OAuth-app toolkit cannot be connected here at all, so it is not offered; an unclassified one stays
+      const all = (await toolkits()).filter((t) => !ownOAuthOnly(t.schemes, t.managedSchemes));
       const words = query.toLowerCase().split(/\s+/).filter(Boolean);
       // a stable sort keeps the order of use within each score
       const found = words.length === 0 ? all : all.map((t) => ({ t, s: score(t, words) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s).map((x) => x.t);
@@ -86,6 +98,13 @@ export function composioDirectory(
       return access.kind === "key" ? { kind: "key", label: access.label } : { kind: "managed" };
     },
     connectKey: (appId, key) => client.linkWithKey(appId, options.userId, key),
+    async cannotConnect(appId) {
+      const access = await client.access(appId);
+      if (access.kind !== "unsupported") return null;
+      const why = `${access.name} cannot be connected here: it needs credentials of your own that Amuse cannot set up.`;
+      const sibling = keySibling(await toolkits(), appId, access.name);
+      return sibling ? `${why} ${sibling.name} (${sibling.slug}) does the same job with a key or a token: ask the user for that one instead.` : why;
+    },
     disconnect: (account) => client.remove(account),
     async permissions(app) {
       const rules = await options.rules.of(app);

@@ -42,17 +42,27 @@ export class CannotLink extends Error {
 
 const AuthConfigs = z.object({ items: z.array(z.object({ id: z.string() })) });
 const CreatedAuthConfig = z.object({ auth_config: z.object({ id: z.string() }) });
-/** An auth scheme's fields; Composio's docs do not spell an item out, so both spellings of the label are read. */
+
+/** A field group as it comes back when the response leaves it out altogether. */
+const noFields = { required: [], optional: [] };
+
+/**
+ * A toolkit's auth schemes as `GET /toolkits/{slug}` sends them (the shape `@composio/client`'s
+ * `ToolkitRetrieveResponse` declares): one `auth_config_details` entry per scheme, each with the fields its auth
+ * config and its connected account ask for. Read leniently throughout: a response that leaves a group out is not a
+ * failure, and the label is `displayName` on the wire (`display_name` is read too, in case a version sends it so).
+ */
 const AuthField = z.looseObject({ name: z.string(), displayName: z.string().optional(), display_name: z.string().optional() });
-const Fields = z.object({ required: z.array(AuthField).default([]) }).default({ required: [] });
+const Fields = z.object({ required: z.array(AuthField).default([]), optional: z.array(AuthField).default([]) }).default(noFields);
 const ToolkitAuth = z.object({
-  name: z.string(),
+  name: z.string().default(""),
+  slug: z.string().default(""),
   composio_managed_auth_schemes: z.array(z.string()).default([]),
   auth_config_details: z
     .array(
       z.object({
-        mode: z.string(),
-        fields: z.object({ auth_config_creation: Fields, connected_account_initiation: Fields }).default({ auth_config_creation: { required: [] }, connected_account_initiation: { required: [] } }),
+        mode: z.string().default(""),
+        fields: z.object({ auth_config_creation: Fields, connected_account_initiation: Fields }).default({ auth_config_creation: noFields, connected_account_initiation: noFields }),
       }),
     )
     .default([]),
@@ -88,6 +98,9 @@ const Toolkits = z.object({
       name: z.string(),
       no_auth: z.boolean().default(false),
       deprecated: z.unknown().optional(),
+      /** the schemes the toolkit supports, and which of them Composio manages: enough to tell an own-OAuth-app one from the rest, without asking about each toolkit */
+      auth_schemes: z.array(z.string()).default([]),
+      composio_managed_auth_schemes: z.array(z.string()).default([]),
       meta: z
         .looseObject({
           description: z.string().default(""),
@@ -156,6 +169,9 @@ export interface Toolkit {
   description: string;
   logo: string | null;
   categories: string[];
+  /** the schemes it supports, and which of them Composio manages (see `ownOAuthOnly`) */
+  schemes: string[];
+  managedSchemes: string[];
 }
 
 /** How a toolkit is connected: Composio hosts the login (`managed`), the user brings one key (`key`), or neither works. */
@@ -164,18 +180,51 @@ export type Access =
   | { kind: "key"; name: string; mode: string; field: string; label: string }
   | { kind: "unsupported"; name: string };
 
-/** Read a toolkit's auth schemes: Composio's own login wins; else an API key that is the only thing asked for. */
+/** The schemes a key or a bearer token is pasted for: one secret field, which a card can ask for. */
+const keyed = new Set(["API_KEY", "BEARER_TOKEN"]);
+
+/** The schemes whose login is the user's own OAuth app: Composio does not host those. */
+const ownOAuth = new Set(["OAUTH1", "OAUTH2", "S2S_OAUTH2"]);
+
+/** Whether any of these schemes is one a key or a token is pasted for. */
+export const takesKey = (schemes: readonly string[]): boolean => schemes.some((scheme) => keyed.has(scheme.toUpperCase()));
+
+/**
+ * Whether a toolkit's only way in is the user's own OAuth app, which Amuse cannot set up: true only when that is
+ * positively so — every scheme is one of those and Composio manages none. A scheme Amuse does not know, a key or a
+ * token, or anything Composio manages keeps the toolkit: an unclassified one stays visible.
+ */
+export const ownOAuthOnly = (schemes: readonly string[], managed: readonly string[]): boolean =>
+  schemes.length > 0 && managed.length === 0 && schemes.every((scheme) => ownOAuth.has(scheme.toUpperCase()));
+
+/** Read a toolkit's auth schemes: Composio's own login wins; else a key or token that is the only thing asked for. */
 export function accessOf(toolkit: unknown): Access {
   const parsed = ToolkitAuth.parse(toolkit);
-  const { name } = parsed;
+  const name = parsed.name || parsed.slug;
   if (parsed.composio_managed_auth_schemes.length > 0) return { kind: "managed", name };
   for (const scheme of parsed.auth_config_details) {
-    if (scheme.mode.toUpperCase() !== "API_KEY") continue;
+    const mode = scheme.mode.toUpperCase();
+    if (!keyed.has(mode)) continue;
     const [field, ...more] = scheme.fields.connected_account_initiation.required;
     if (field && more.length === 0 && scheme.fields.auth_config_creation.required.length === 0)
-      return { kind: "key", name, mode: "API_KEY", field: field.name, label: field.displayName || field.display_name || field.name };
+      return { kind: "key", name, mode, field: field.name, label: field.displayName || field.display_name || field.name };
   }
   return { kind: "unsupported", name };
+}
+
+/**
+ * A toolkit's schemes as one line for the log: the mode names and the field names, never a value. Written once per
+ * toolkit Amuse cannot classify, so the next real failure says exactly what Composio sent.
+ */
+export function schemeSummary(toolkit: unknown): string {
+  const parsed = ToolkitAuth.safeParse(toolkit);
+  if (!parsed.success) return "no toolkit response to read";
+  const schemes = parsed.data.auth_config_details.map((detail) => {
+    const { connected_account_initiation: initiation, auth_config_creation: creation } = detail.fields;
+    const fields = [...initiation.required, ...initiation.optional, ...creation.required, ...creation.optional].map((f) => f.name);
+    return `${detail.mode || "(no mode)"} [${fields.join(", ") || "no fields"}]`;
+  });
+  return `managed schemes [${parsed.data.composio_managed_auth_schemes.join(", ") || "none"}]; schemes ${schemes.join("; ") || "none"}`;
 }
 
 export interface Composio {
@@ -250,7 +299,25 @@ export function composio(apiKey: string, http: typeof fetch = fetch): Composio {
     return created.auth_config.id;
   }
 
-  const readAccess = async (toolkit: string) => accessOf(await call(z.unknown(), `/toolkits/${encodeURIComponent(toolkit)}`, { base: keyBase }));
+  /**
+   * A toolkit's auth schemes, asked about once: the directory and the toolkit page ask about the same ones, and a
+   * failed lookup is asked again rather than kept.
+   */
+  const accesses = new Map<string, Promise<Access>>();
+  const readAccess = (toolkit: string): Promise<Access> => {
+    const known = accesses.get(toolkit);
+    if (known) return known;
+    const asked = (async () => {
+      const response = await call(z.unknown(), `/toolkits/${encodeURIComponent(toolkit)}`, { base: keyBase });
+      const access = accessOf(response);
+      // once per toolkit: mode names and field names only, so the next real failure says what Composio sent
+      if (access.kind === "unsupported") console.warn(`Composio toolkit ${toolkit} cannot be classified: ${schemeSummary(response)}`);
+      return access;
+    })();
+    accesses.set(toolkit, asked);
+    asked.catch(() => accesses.delete(toolkit));
+    return asked;
+  };
 
   /** A custom auth config for a toolkit's API key, reused or created. Its credentials stay empty: the key goes with each account. */
   async function keyAuthConfig(toolkit: string, name: string, mode: string): Promise<string> {
@@ -261,7 +328,8 @@ export function composio(apiKey: string, http: typeof fetch = fetch): Composio {
     const created = await call(CreatedAuthConfig, "/auth_configs", {
       base: keyBase,
       method: "POST",
-      body: { toolkit: { slug: toolkit }, auth_config: { type: "use_custom_auth", auth_scheme: mode, name, credentials: {} } },
+      // `authScheme` is what Composio's own SDK sends for a custom auth config (the response calls it auth_scheme)
+      body: { toolkit: { slug: toolkit }, auth_config: { type: "use_custom_auth", authScheme: mode, name, credentials: {} } },
     });
     return created.auth_config.id;
   }
@@ -325,7 +393,7 @@ export function composio(apiKey: string, http: typeof fetch = fetch): Composio {
         for (const t of page.items) {
           if (t.no_auth || t.deprecated === true) continue;
           const logo = URL.canParse(t.meta.logo) ? t.meta.logo : null;
-          all.push({ slug: t.slug, name: t.name, description: t.meta.description, logo, categories: t.meta.categories.map((c) => c.name) });
+          all.push({ slug: t.slug, name: t.name, description: t.meta.description, logo, categories: t.meta.categories.map((c) => c.name), schemes: t.auth_schemes, managedSchemes: t.composio_managed_auth_schemes });
         }
         cursor = page.next_cursor;
         if (!cursor) break;

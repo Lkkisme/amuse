@@ -15,6 +15,7 @@ import { Button } from "./Button";
 import { Sheet } from "./Sheet";
 import { AppLogo } from "./AppLogo";
 import { KeyConnect } from "./KeyConnect";
+import { wordsFor } from "../shown.ts";
 import { useLastValue } from "./usePresence";
 
 export function ExplainerModal({ conversation, open, actions }: { conversation: State; open: string | null; actions: Actions }) {
@@ -29,7 +30,7 @@ function ExplainerBody({ req, open, actions }: { req: Connection; open: boolean;
   const close = () => actions.openExplainer(null);
   // an app that takes the user's own key asks for it here instead of opening a link
   const [access, setAccess] = useState<AppAccess | null>(null);
-  const [unfit, setUnfit] = useState<string | null>(null);
+  const [unfit, setUnfit] = useState<unknown>(null);
   const { provider } = req;
   useEffect(() => {
     let current = true;
@@ -37,7 +38,7 @@ function ExplainerBody({ req, open, actions }: { req: Connection; open: boolean;
     setUnfit(null);
     actions.appAccess(provider).then(
       (found) => current && setAccess(found),
-      (e: unknown) => current && setUnfit(e instanceof Error ? e.message : String(e)),
+      (e: unknown) => current && setUnfit(e),
     );
     return () => {
       current = false;
@@ -98,9 +99,9 @@ function ExplainerBody({ req, open, actions }: { req: Connection; open: boolean;
           className="shrink-0 border-t px-6 pb-4 pt-3 text-left"
           style={{ borderColor: "var(--fill-divider)" }}
         >
-          {unfit && (
+          {unfit !== null && (
             <p role="alert" className="mt-3 text-[13px]" style={{ color: "var(--fill-red)" }}>
-              {unfit}
+              {wordsFor(unfit, t)}
             </p>
           )}
           {access?.kind === "key" ? (
