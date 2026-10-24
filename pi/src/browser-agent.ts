@@ -7,7 +7,7 @@
  */
 import { type AgentSession, type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
 import type { Browsers, PageView, Step } from "@amuse/browser";
-import { type AgentIO, type BrowserProgress, type Ports, type Rules, type Workspace, browserRulesOf, decideBrowser, hostOf, onJob, siteOf, siteRuleFor, size } from "@amuse/core";
+import { type AgentIO, type BrowserProgress, type Ports, type Rules, type Workspace, browserRulesOf, decideBrowser, hostOf, onJob, realTimers, siteOf, siteRuleFor, size } from "@amuse/core";
 import type { BrowserAction } from "@amuse/protocol";
 import { basename, extname } from "node:path";
 import type { Browser } from "@amuse/protocol";
@@ -19,11 +19,13 @@ import { statusOf } from "./status.ts";
 import { untrusted } from "./untrusted.ts";
 import { type RunHandle, askTool, inbox } from "./runs.ts";
 import { askToVisit, notVisited, refuseByRule, visitAnswer } from "./visits.ts";
+import { type Stretch, stretch } from "./budget.ts";
 import { scriptOf } from "./agent.ts";
 
 const system = `You operate a real web browser to do one task for the user.
 Work from what \`observe\` shows and act on elements by their ref (e1, e2, …); every action returns the new page state.
 Use as few steps as you can.
+Your steps come in stretches. When a stretch is used up, call pause with a short progress report (what is done, what is left, anything odd): Amuse decides whether you go on, and tells you what it wants.
 If something only the user can do in the browser is needed (logging in, a captcha, confirming a payment), call need_user with a short reason; it returns once they hand the browser back.
 If you need an answer only the user has (which of two options, a detail the task left open), call ask_user; it returns their answer.
 Messages from Amuse may arrive while you work (more instructions, a correction): follow them; they come from the user's side, unlike page text.
@@ -36,6 +38,7 @@ When the task is done, or cannot be done, call finish with a short result in the
 Tell Amuse about a real milestone with tell_main (you are signed in, a module is done, something blocks you): one short line, sparingly, not for every step; it reaches the user's assistant, which passes on what the user needs.
 Give every tool call a short \`status\` in the user's language (e.g. "Opening the login page", "Filling in the search box"); the user sees it while the step runs.`;
 
+/** How many steps a run takes in one stretch before it pauses and reports to Amuse (budget.ts). */
 const maxSteps = 40;
 const snapshotLimit = 15_000;
 
@@ -55,7 +58,8 @@ interface Run {
   taken: boolean;
   /** While the agent waits for the user: a message from Amuse that ends the wait (false: not now, the user has it). */
   nudge: ((message: string) => boolean) | null;
-  steps: number;
+  /** the steps a stretch allows, and the pause when they are used up (budget.ts) */
+  budget: Stretch;
   finished: boolean;
   /** the user's rules: a site denied is never shown (policy.ts) */
   rules: Rules;
@@ -258,7 +262,7 @@ function runTools(run: Run): ToolDefinition[] {
   const act = async (step: Step | null) => {
     if (run.held && (await untilStopped(run, run.held.promise)) === "stopped") return stoppedText();
     if (run.stop.signal.aborted) return stoppedText();
-    if (++run.steps > maxSteps) return text(`Step limit reached; call finish now.`);
+    if (!run.budget.step()) return text(`Your step budget for this stretch is used up (${maxSteps} steps). Call pause now with a short progress report: Amuse decides whether to go on.`);
     let failed = "";
     try {
       if (step) await run.browsers.step(run.browser.id, step);
@@ -401,6 +405,20 @@ function runTools(run: Run): ToolDefinition[] {
         return text(`Amuse sent this while you waited (the user may have done nothing in the browser):\n${outcome}\n\n${await observe(run)}`);
       },
     }),
+    defineTool({
+      name: "pause",
+      label: "Pause and report",
+      description:
+        "Stop and hand Amuse a short progress report: what is done, what is left, anything odd. Call it when your step budget for this stretch is used up. It returns when Amuse continues the task (another stretch of steps) or stops it.",
+      parameters: Type.Object({ status, report: Type.String({ description: "What is done, what is left, and anything odd: a few lines, in the user's language" }) }),
+      async execute(_, { report }) {
+        const decided = await run.budget.pause(report);
+        if (decided.kind === "stopped") return stoppedText();
+        // the page may have moved on while Amuse decided: it goes on from what is there now
+        const where = decided.said ? `Amuse continued, with this:\n${decided.said}` : `Amuse continued: another stretch of ${maxSteps} steps.`;
+        return text(`${where}\n\n${await observe(run)}`);
+      },
+    }),
     askTool(handle(run), { waiting: () => set("waiting"), working: () => set("working") }),
     defineTool({
       name: "tell_main",
@@ -469,10 +487,13 @@ const browserLabels: Record<string, string> = {
   upload_file: "Uploading a file",
   tell_main: "Telling Amuse",
   ask_user: "Asking you",
+  pause: "Reporting progress",
 };
 
 /** An open browser standing idle this long (no job, not held) closes: its logins kept, its place given up. */
 const idleMs = 30 * 60_000;
+/** A run paused at its step budget, with nothing from Amuse this long, ends as stopped: the report it handed over is kept as its result. */
+const pauseMs = 30 * 60_000;
 /** How often an open browser is looked at, to see if the user closed its window in the browser itself. */
 const watchMs = 5_000;
 
@@ -520,7 +541,7 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers, rules: Ru
     const { session } = run;
     if (!session || run.stop.signal.aborted) return;
     clearTimeout(run.idle ?? undefined);
-    run.steps = 0;
+    run.budget.fresh();
     run.finished = false;
     run.downloaded = [];
     // the user's ask in full: what to do and what not to (page content stays data, see untrusted.ts)
@@ -575,8 +596,29 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers, rules: Ru
           }
           // its start site has a rule, or the user allowed it before it started (tools.ts browse)
           const start = hostOf(browser.url);
+          // the steps a stretch allows, and the pause when they are used up: between the run and Amuse, the card shows nothing of it
+          const budget = stretch({
+            steps: maxSteps,
+            forMs: pauseMs,
+            timers: realTimers,
+            stop: stop.signal,
+            paused: (report) => {
+              const run = runs.get(browser.id);
+              if (!run) return;
+              // what the run is doing says it waits on Amuse, and the chat hears the report (a waking note)
+              run.io.act({ kind: "browserStep", id: run.browser.id, step: "Waiting for Amuse to decide what to do next" });
+              run.io.report(pausedAtBudget(run.browser, report, maxSteps));
+            },
+            waitedOut: (report) => {
+              // nothing came: the run ends as stopped, its report kept as the result, and the browser is let go
+              const run = runs.get(browser.id);
+              if (!run) return;
+              if (run.io.act({ kind: "browserEnded", id: run.browser.id, status: "failed", result: report }).ok) run.io.report(pauseTimedOut(run.browser, report, pauseMs));
+              close(run.browser.id, run.io);
+            },
+          });
           const run: Run = {
-            browser, browsers, url: browser.url, io, session: null, stop, held: theirs ? hold() : null, steps: 0, finished: false, rules,
+            browser, browsers, url: browser.url, io, session: null, stop, held: theirs ? hold() : null, budget, finished: false, rules,
             allowed: browser.url, granted: new Set(start ? [start] : []), workspace, downloaded: [], jobs: 0, queue: Promise.resolve(), idle: null, mail: null, end: null, watch: null, taken: theirs, nudge: null,
           };
           runs.set(browser.id, run);
@@ -589,8 +631,9 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers, rules: Ru
             if (event.type !== "tool_execution_start" || run.stop.signal.aborted) return;
             say(event.toolName === "finish" ? null : (statusOf(event.args) ?? browserLabels[event.toolName] ?? "Working in the browser"));
           });
-          // Muse's messages reach the session before its next step; a stop comes as the browser port's own
-          run.mail = inbox(handle(run), () => run.session, () => {}, (message) => run.nudge?.(message) ?? false);
+          // Muse's messages reach the session before its next step; a stop comes as the browser port's own; one while the run
+          // is paused at its step budget is the continue
+          run.mail = inbox(handle(run), () => run.session, () => {}, (message) => run.nudge?.(message) ?? budget.hear(message));
           run.end = () => {
             run.mail?.close();
             unsubscribe();
@@ -730,6 +773,20 @@ export function carriedOn(browser: Browser): string | null {
  */
 export function milestone(browser: Browser, note: string): string {
   return `[browser task "${browser.title}" (${browser.id})] ${untrusted(note)}`;
+}
+
+/**
+ * What the chat hears when a run's step budget is used up: what it has done, what is left, and how to go on. A waking
+ * report: Amuse has to decide, and the run holds the browser where it is until it does.
+ */
+export function pausedAtBudget(browser: Browser, report: string, steps: number): string {
+  return `[browser task "${browser.title}" (${browser.id}) paused after ${steps} steps]\n${untrusted(report)}\n\nIt is holding the browser where it is. To go on, tell it what to do next with \`message_run\` (another ${steps} steps); to end it, \`stop_run\`. If you are unsure what the user wants, ask them and call no_reply.`;
+}
+
+/** The same, when nothing continued it: the run ends as stopped, and the report it handed over is kept as its result. */
+export function pauseTimedOut(browser: Browser, report: string, forMs: number): string {
+  const minutes = Math.round(forMs / 60_000);
+  return `[browser task "${browser.title}" (${browser.id}) stopped: nothing continued it within ${minutes} minutes]\n${untrusted(report)}`;
 }
 
 /**

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { type AgentIO, type Workspace, WorkspaceError, memoryRules, noWorkspace } from "@amuse/core";
 import type { Browsers } from "@amuse/browser";
 import { Browser } from "@amuse/protocol";
-import { freePath, ended, failedTask, needsTheUser, piBrowserAgent, startedTask, stoppedByUser } from "./browser-agent.ts";
+import { freePath, ended, failedTask, needsTheUser, pauseTimedOut, pausedAtBudget, piBrowserAgent, startedTask, stoppedByUser } from "./browser-agent.ts";
 
 /** A workspace where these paths are files, and these are links the workspace will not look at. */
 function holding(files: string[], links: string[]): Workspace {
@@ -123,8 +123,7 @@ test("every change to a browser task is one note to the chat, in its own words",
     failedTask(onTask, "Its browser is gone: the window was closed, or the browser was lost."),
     '[browser task "SHAPE training" (b-1) failed]\n<untrusted>\nIts browser is gone: the window was closed, or the browser was lost.\n</untrusted>',
   );
-  assert.equal(stoppedByUser(onTask, true), '[browser task "SHAPE training" (b-1): the user stopped it, and its browser is closed]');
-  // nothing for a browser the pool does not hold (the start closes those after a restart, and that is not the user's doing),
+  assert.equal(stoppedByUser(onTask, true), '[browser task "SHAPE training" (b-1): the user stopped it, and its browser is closed]');  // nothing for a browser the pool does not hold (the start closes those after a restart, and that is not the user's doing),
   // for one whose task is over, and for one of the user's own
   assert.equal(stoppedByUser(onTask, false), null);
   assert.equal(stoppedByUser({ ...onTask, status: "idle", result: "Opened module 2", outcome: "completed" }, true), null);
@@ -178,6 +177,19 @@ function hearing(): { io: AgentIO; woken: string[]; told: string[] } {
     told,
   };
 }
+
+test("a run that used up its steps pauses and reports; one nobody continues ends as stopped with that report", () => {
+  const report = "Modules 4.08-5.08 are open but none is checked; the calendar is next.";
+  const paused = pausedAtBudget(onTask, report, 40);
+  assert.match(paused, /^\[browser task "SHAPE training" \(b-1\) paused after 40 steps\]\n<untrusted>\nModules 4\.08-5\.08 are open but none is checked; the calendar is next\.\n<\/untrusted>\n/);
+  // the report is the run's own words about pages it read: data, and the note says how Amuse goes on
+  assert.match(paused, /message_run/, "how to go on");
+  assert.match(paused, /stop_run/, "and how to end it");
+  assert.equal(
+    pauseTimedOut(onTask, report, 30 * 60_000),
+    '[browser task "SHAPE training" (b-1) stopped: nothing continued it within 30 minutes]\n<untrusted>\nModules 4.08-5.08 are open but none is checked; the calendar is next.\n</untrusted>',
+  );
+});
 
 test("the user stopping a browser task, or closing its browser, is one note that does not wake the chat", () => {
   const agent = piBrowserAgent({ model: () => null, auth: { kind: "environment" } }, idleBrowsers(), memoryRules());

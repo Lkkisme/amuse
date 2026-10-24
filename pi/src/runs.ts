@@ -21,7 +21,7 @@ export function relayTools(io: () => AgentIO): ToolDefinition[] {
       name: "message_run",
       label: "Tell a background run",
       description:
-        "Tell one of your runs in flight (a browser task b-…, a task t-…, or a schedule s-… while it runs) something more: a further instruction, a correction, what the user just added. It reads it before its next step. Not for answering its questions: use answer_question.",
+        "Tell one of your runs in flight (a browser task b-…, a task t-…, or a schedule s-… while it runs) something more: a further instruction, a correction, what the user just added. It reads it before its next step. A browser task paused at its step budget goes on with it, and gets another stretch of steps. Not for answering its questions: use answer_question.",
       parameters: Type.Object({ status, run: Type.String({ description: "The run's id, e.g. b-…" }), text: Type.String({ description: "What it should know or do, in full" }) }),
       async execute(_, { run, text: message }) {
         const told = io().act({ kind: "instruct", run, text: message });
