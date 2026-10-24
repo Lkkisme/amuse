@@ -33,6 +33,7 @@ import { Button } from "./Button";
 import { type Place, alone, corners } from "./shape.ts";
 import { type Draft, type ProviderNames, blank, describeUse, toValue } from "../secrets.ts";
 import { AppLogo } from "./AppLogo";
+import { ApprovalText } from "./ApprovalText";
 import { ValueEditor } from "./SecretFields";
 import { KeyLine, KeyLogin, useKeyTests } from "./KeyLogin";
 import { useSession } from "../sessionContext.ts";
@@ -212,13 +213,7 @@ export function ApprovalCard({
           </p>
         </div>
       </div>
-      {/* one "Field: value" a line; a long one scrolls inside the card */}
-      <p
-        className="mt-2.5 max-h-48 overflow-y-auto whitespace-pre-line text-[13px] leading-snug [overflow-wrap:anywhere]"
-        style={{ color: "var(--text-secondary)" }}
-      >
-        {approval.detail}
-      </p>
+      <ApprovalText detail={approval.detail} />
       {approval.status === "pending" ? (
         <>
           {/* three answers: this once, always (only where a rule can hold it: app actions), or no */}

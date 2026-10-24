@@ -520,6 +520,8 @@ export const zhCN = {
       failed: "模型服务出现了问题。",
     },
     details: "详情",
+    more: "更多",
+    less: "收起",
     tryAgain: "重试",
     triedAgain: "已重试",
     scheduleLabel: (title) => `定时任务：${title}`,

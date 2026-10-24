@@ -515,6 +515,8 @@ export const en = {
       failed: "The model's service had a problem.",
     },
     details: "Details",
+    more: "more",
+    less: "less",
     tryAgain: "Try again",
     triedAgain: "Tried again",
     scheduleLabel: (title: string) => `Schedule: ${title}`,
