@@ -507,6 +507,8 @@ export interface HostOptions {
   snapshot?: number;
   /** What wakes the host when a schedule or an approval falls due (real timers by default). */
   timers?: Timers<unknown>;
+  /** Told once, when the host is up, with the main chat's agent: what the server itself says to it (a new version's news). */
+  started?: (main: AgentIO) => void;
 }
 
 /** setTimeout's longest wait (about 24.8 days); a later deadline is woken for and looked at again. */
@@ -1120,6 +1122,9 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
       return null;
     },
   };
+
+  // what the server itself has to say to the main chat, once, now that it is up (a new version's news)
+  options.started?.(main().agent);
 
   return {
     call: (method, params) => dispatch(handlers, { method, params }),

@@ -36,6 +36,7 @@ COPY composio composio
 COPY browser browser
 COPY sandbox sandbox
 COPY api api
+COPY CHANGELOG.md CHANGELOG.md
 COPY --from=web /app/web/dist web/dist
 RUN mkdir -p /data && chown node:node /data \
  && printf '#!/bin/sh\nexec node /app/api/src/admin.ts "$@"\n' > /usr/local/bin/amuse-admin && chmod 755 /usr/local/bin/amuse-admin

@@ -26,6 +26,7 @@ docs/      UI spec, measured design tokens, reference notes
 - Every change someone running Amuse would notice goes in `CHANGELOG.md` under Unreleased, in the same
   commit: what it does for them, in a line, not how it was done. A release moves Unreleased under its version
   and date, tags it (`vX.Y.Z`) and publishes the section as the GitHub release's notes.
+- The server reads that changelog at start (`api/src/whats-new.ts`): the bullets under Added and Changed are what it tells the user about after an update, once each, in the chat. Write them for the user, and leave an operator-only bullet (an `amuse-admin` command) out of those two sections.
 
 ## Develop
 

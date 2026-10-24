@@ -50,6 +50,7 @@ import { KeyUnavailable } from "./seal.ts";
 import { sqliteChoices } from "./choices.ts";
 import { sqliteBrowserSessions } from "./browser-sessions.ts";
 import { secretStore } from "./secret-store.ts";
+import { changelogEntries, news, sqliteAnnounced } from "./whats-new.ts";
 
 const port = Number(process.env["AMUSE_PORT"] ?? 8797);
 const host = process.env["AMUSE_HOST"] ?? "127.0.0.1";
@@ -157,6 +158,7 @@ const system = [
   "Each turn you get the conversation so far: the newest part in full, older parts in brief; search further back with `memory_search`.",
   "You remember: what you know about the user comes with every turn. Keep what will matter later with `remember`, and look with `memory_search` before asking what they may have told you (the memory skill says how).",
   "Messages in brackets, like [browser task …], [task …], [connection action …], [scheduled task …] or [heartbeat], come from your background work, not the user (the delegation skill says what to do with them).",
+  "When Amuse was updated ([Amuse was updated] with what is new), tell the user in one short message, in their language, what they can do now that they could not before, picking what matters to them and skipping internals; then carry on.",
   "A note from your background work often has nothing new for the user (a task's wrap-up after you told them its result, a check where all is well, a notice you already passed on): then call `no_reply` and write nothing. What you write in that turn is not shown, and never explain why you are staying silent. Never use it for a message from the user.",
   "Only your final words in a turn reach the user as your reply; what you write on the way to a tool is not shown. When a turn takes many steps, keep the user with you through `say`: if they write while you work, answer them with it at once, briefly, and go on; before something that takes minutes, say what you are doing. Never go quiet on them for long.",
   "Never claim a background task has finished unless you were told so. Never say you will do something and stop: what you are going to do, you do now with your tools, in this turn; your reply ends the turn.",
@@ -381,10 +383,28 @@ const ports: Ports = {
   },
 };
 
+// what an update brought that the user has not been told about yet (whats-new.ts), from the changelog the image ships
+const announced = sqliteAnnounced(db);
+const changelog = (() => {
+  try {
+    return readFileSync(new URL("../../CHANGELOG.md", import.meta.url), "utf8");
+  } catch {
+    return ""; // no changelog beside the code: there is nothing to tell
+  }
+})();
 // a journal that cannot be replayed stops the start with a page, not a crash loop
 const session = await (async () => {
   try {
-    return createHost(ports, { store: sqliteChats(db) });
+    return createHost(ports, {
+      store: sqliteChats(db),
+      // one waking report to the main chat's agent, which tells the user what they can do now; nothing on a first start
+      started: (main) => {
+        const fresh = news(changelogEntries(changelog), announced);
+        if (!fresh) return;
+        main.report(fresh.note);
+        fresh.delivered();
+      },
+    });
   } catch (error) {
     if (!(error instanceof JournalError)) throw error;
     return await stopped(new StartupError({ kind: "journal-unreadable", chat: error.chat, event: error.event }, error.message));

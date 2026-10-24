@@ -37,6 +37,7 @@ What changed in each release of Amuse, for the people who run it. The format fol
 - Reminders like Signal's: Amuse asks you to set a PIN when there is none, and to enter it once after a week without, so it is not forgotten. "Later" puts either off for a day, on every device.
 - A new device needs approval: the right password on it only waits, until a device already signed in approves it on a card that shows what it is, its address and when (with the PIN). Settings › Security lists the devices and removes one, which signs it out. (#30)
 - A Chrome policy blocks Amuse's own address in its own browsers, as one extra layer: they do not send the `X-Amuse-Agent` mark yet (their pages run in Playwright contexts, where an extension cannot add it), so a browser that reaches Amuse anyway meets only the password and the device approval. The server refuses every request carrying that mark, the way in included, ready for when the browsers send it. (#30)
+- After an update, Amuse tells you what you can do now: it reads what the new version added and changed (the operator-only entries left out) and says it in one short message, in your language, picking what matters to you. Once, then never again: a restart with nothing new says nothing, and a fresh install says nothing at all. (#64)
 
 ### Changed
 - On a phone, the message box no longer shows a scrollbar when what you type runs long: it scrolls under your finger, and its fade still shows there is more.

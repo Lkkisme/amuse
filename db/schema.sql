@@ -147,6 +147,9 @@ CREATE TABLE browser_sessions (
   node text not null,
   session text not null
 ) strict, without rowid;
+CREATE TABLE announced_changes (
+  hash text primary key
+) strict, without rowid;
 
 -- Dbmate schema migrations
 INSERT INTO schema_migrations (version) VALUES
@@ -155,4 +158,5 @@ INSERT INTO schema_migrations (version) VALUES
   ('20261023110000'),
   ('20261023110100'),
   ('20261023120000'),
-  ('20261023234842');
+  ('20261023234842'),
+  ('20261024034628');
