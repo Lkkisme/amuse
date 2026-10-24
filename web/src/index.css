@@ -7,6 +7,19 @@
   --sidebar-width: 0px;
 }
 
+/* How wide Amuse's items can be (its replies, as far as their words go, and every card): one right edge for them all.
+   Always short of the column, so what is Amuse's leaves a gap on the right (48px or more on a phone), as the user's
+   bubbles do on the left. With a pointer it is the share the bubbles had, which also leaves room beside them for the
+   buttons that show on hover. Capped, so a wide column does not make a card huge. */
+:root {
+  --amuse-width: min(85%, 600px);
+}
+@media (hover: hover) {
+  :root {
+    --amuse-width: min(78%, 600px);
+  }
+}
+
 /* Muse web design tokens — exact values, see docs/web-tokens.md for provenance. */
 .light {
   --bg-primary: #fcfcfc;
@@ -326,23 +339,6 @@
     justify-content: flex-end;
     padding-left: 0;
     padding-right: 8px;
-  }
-  /* Amuse's bubble can fill the column: with no margin beside it to hold the strip, it sits in the
-     bubble's lower corner instead (and the feed does not scroll sideways), in room the bubble keeps for it */
-  @media (max-width: 1299px) {
-    .msg:has(.msg-actions-wide) {
-      padding-right: 44px;
-    }
-    .msg-actions-wide {
-      top: auto;
-      bottom: 4px;
-      left: auto;
-      right: 8px;
-      width: auto;
-      padding-left: 0;
-      border-radius: 9999px;
-      background: var(--fill-secondary);
-    }
   }
   .msg:hover .msg-actions {
     opacity: 1;

@@ -69,7 +69,7 @@ export function TaskCard({
   const meta = taskStatus(task.status, t);
   const done = task.steps.filter((s) => s.done).length;
   return (
-    <div {...shell(place, "w-full max-w-[340px] p-4")}>
+    <div {...shell(place, "w-full max-w-(--amuse-width) p-4")}>
       <div className="flex items-start gap-3">
         <span
           className="flex size-9 shrink-0 items-center justify-center rounded-[10px]"
@@ -178,7 +178,7 @@ export function ApprovalCard({
     timed_out: { label: t.cards.timedOut, color: "var(--icon-secondary)", Icon: CircleAlert },
   };
   return (
-    <div {...shell(place, "w-full max-w-[340px] p-4")}>
+    <div {...shell(place, "w-full max-w-(--amuse-width) p-4")}>
       <div className="flex items-start gap-3">
         {/* an app's action shows the app, as its Connect card does */}
         {approval.app ? (
@@ -296,7 +296,7 @@ export function ConnectionCard({
     dismissed: t.cards.notNow,
   }[connection.status];
   return (
-    <div {...shell(place, "w-full max-w-[260px] p-2.5", 18)}>
+    <div {...shell(place, "w-full max-w-(--amuse-width) p-2.5", 18)}>
       <div className="flex items-center gap-2.5 px-0.5 pt-0.5">
         <AppLogo
           name={connection.title}
@@ -374,7 +374,7 @@ export function SecretCard({
   };
   const { deliver } = secret;
   return (
-    <div {...shell(place, "w-full max-w-[320px] p-3", 18)}>
+    <div {...shell(place, "w-full max-w-(--amuse-width) p-3", 18)}>
       <div className="flex items-center gap-2.5">
         <span
           className="flex size-10 shrink-0 items-center justify-center rounded-[12px]"
@@ -707,7 +707,7 @@ export function FailureCard({
 }) {
   const t = useT();
   return (
-    <div {...shell(place, "w-full max-w-[340px] px-4 py-3", 18)} role="status">
+    <div {...shell(place, "w-full max-w-(--amuse-width) px-4 py-3", 18)} role="status">
       <div className="flex items-start gap-2.5">
         <CircleAlert
           size={18}
@@ -781,7 +781,7 @@ export function ScheduleCard({
     <button
       {...shell(
         place,
-        "flex w-full max-w-[320px] items-center gap-3 p-3 text-left",
+        "flex w-full max-w-(--amuse-width) items-center gap-3 p-3 text-left",
         18,
       )}
       aria-label={t.cards.scheduleLabel(schedule.title)}
@@ -911,7 +911,7 @@ function EndedBrowserCard({
 }) {
   const t = useT();
   return (
-    <div {...shell(place, "flex w-full max-w-[314px] items-center gap-3 p-4")}>
+    <div {...shell(place, "flex w-full max-w-(--amuse-width) items-center gap-3 p-4")}>
       <span
         className="flex size-10 shrink-0 items-center justify-center rounded-[12px]"
         style={{
@@ -960,7 +960,7 @@ export function BrowserCard({
   if (!browser.live)
     return <EndedBrowserCard browser={browser} place={place} />;
   return (
-    <div {...shell(place, "w-full max-w-[314px] p-4")}>
+    <div {...shell(place, "w-full max-w-(--amuse-width) p-4")}>
       <div className="flex items-center gap-3">
         <span
           className="flex size-10 shrink-0 items-center justify-center rounded-[12px]"
