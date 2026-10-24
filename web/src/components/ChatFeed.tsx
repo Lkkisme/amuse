@@ -35,7 +35,7 @@ import {
   TaskCard,
 } from "./cards";
 import { RichText, linked } from "./markdown";
-import { type Place, type Side, corners } from "./shape.ts";
+import { type Place, type Side, bottomRound, concentric, corners } from "./shape.ts";
 
 type Message = Prompt | Reply;
 type Thumb = ((id: string) => string) | null;
@@ -628,7 +628,7 @@ function Bubble({
             </div>
           )}
           {item.kind === "reply" && item.suggestions.length > 0 && (
-            <Suggestions reply={item} closed={closed || sending} actions={actions} />
+            <Suggestions reply={item} closed={closed || sending} place={place} actions={actions} />
           )}
           <ActionRow
             mine={isUser}
@@ -654,13 +654,16 @@ function Bubble({
  * the user's message; that box turns solid with a check and the rest dim. Once the user has written anything newer
  * (or one was chosen) none can be tapped.
  */
-function Suggestions({ reply, closed, actions }: { reply: Reply; closed: boolean; actions: Actions }) {
+function Suggestions({ reply, closed, place, actions }: { reply: Reply; closed: boolean; place: Place; actions: Actions }) {
   const t = useT();
   const done = reply.chosen !== null;
+  // the bubble's 12px (py-3) padding under the last box, inside its corner: the boxes' radius is concentric with it
+  const round = concentric(bottomRound(place), 12);
   return (
     <div role="group" aria-label={t.chat.suggestedReplies} className="mt-3 flex flex-col gap-2">
       {reply.suggestions.map((text, index) => {
         const mine = reply.chosen === index;
+        const still = !mine && (done || closed);
         return (
           <button
             key={text}
@@ -668,15 +671,22 @@ function Suggestions({ reply, closed, actions }: { reply: Reply; closed: boolean
             aria-pressed={mine}
             disabled={done || closed}
             onClick={() => void actions.send(text, [], { reply: reply.id, index }).catch(() => {})}
-            className={`flex w-full items-center gap-2 rounded-[16px] border-[1.5px] px-4 py-2.5 text-left text-[16px] leading-[22px] outline-offset-2 outline-[color:var(--fill-blue)] focus-visible:outline-2 ${mine ? "border-solid" : "hover-fade border-dashed disabled:opacity-40"}`}
-            style={
-              mine
-                ? { background: "var(--chat-user-bubble)", borderColor: "var(--chat-user-bubble)", color: "var(--chat-user-text)" }
-                : { borderColor: "var(--text-tertiary)", color: "var(--chat-agent-text)" }
-            }
+            className={`flex w-full items-center gap-2 border-solid px-4 py-2.5 text-left text-[16px] leading-[22px] outline-offset-2 outline-[color:var(--fill-blue)] focus-visible:outline-2 ${mine ? "border-2 py-[9px] font-medium" : still ? "border" : "hover-fade border-[1.5px] border-dashed"}`}
+            style={{
+              borderRadius: round,
+              borderColor: mine ? "var(--text-primary)" : still ? "var(--fill-divider)" : "var(--text-tertiary)",
+              color: mine ? "var(--text-primary)" : still ? "var(--text-tertiary)" : "var(--chat-agent-text)",
+            }}
           >
             <span className="min-w-0 flex-1">{text}</span>
-            {mine && <Check size={18} strokeWidth={2.5} className="shrink-0" aria-hidden />}
+            {mine && (
+              <span
+                className="flex size-[22px] shrink-0 items-center justify-center rounded-full"
+                style={{ background: "var(--text-primary)", color: "var(--fill-secondary)" }}
+              >
+                <Check size={14} strokeWidth={3} aria-hidden />
+              </span>
+            )}
           </button>
         );
       })}
