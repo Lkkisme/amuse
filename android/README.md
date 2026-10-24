@@ -5,6 +5,31 @@ The Android application opens the existing Amuse web interface at
 files, settings and live updates as the desktop web client. The phone must be
 able to reach that server, normally through the same Tailscale network.
 The native connection settings accept a different HTTPS origin if needed.
+Version 0.1.6 keeps the owner's current passwordless page across ordinary app
+switches and screen locking. This applies only to an already paired device with
+local biometric unlocking disabled, a current same-origin page, and no picker,
+authentication or settings flow. The renderer is paused, hidden, disabled for
+touch and accessibility, and microphone work is canceled. It becomes visible
+again only after Android reports the device unlocked and Amuse is foregrounded.
+The existing draft and selected chat can then resume without a full page reload.
+Unpaired/biometric sessions, explicit logout, clearing login, changing origin,
+and enabling local unlock retain their existing session cleanup. Process death
+still restores through the encrypted paired vault instead of retaining a page.
+
+Foreground recovery emits fixed one-way `amuse:resume` and
+`amuse:network-change` DOM events; suspension emits `amuse:pause`. They carry no
+credentials or other payload and expose no JavaScript/native bridge. The web
+client handles socket recovery and cancels active/pending microphone work.
+Default-network and physical Internet-network observers detect Wi-Fi/mobile
+changes even when a VPN keeps its Network identity; relevant changes coalesce
+for 300 ms. A retained failed main document re-arms only its recorded transport
+failure. Healthy pages, TLS/HTTP/authentication errors and POSTs are not reloaded.
+While foregrounded and unlocked, a network change can also request Tailscale
+connection under the same opt-out, active-VPN check and 30-second cooldown.
+No background service, wake lock, battery exemption or always-on VPN setting is
+added. Android may suspend sockets or kill the process in the background;
+recovery happens on return, rather than promising a permanent background link.
+
 Version 0.1.5 adds foreground connection recovery and an optional **Tailscale
 automatic connection** setting (enabled by default). It applies only to `.ts.net`
 hosts and IPv4 addresses in `100.64.0.0/10`; ordinary HTTPS servers never trigger
@@ -14,7 +39,8 @@ only this switch preserves device pairing and local biometric keys.
 - On entering the foreground, Amuse can ask an installed Tailscale app to connect
   using its existing login and VPN authorization. An already active VPN, including
   Tailscale itself, prevents that request. An unknown VPN state also prevents it.
-  Requests have a 30-second cooldown and are never sent by network callbacks.
+  Requests have a 30-second cooldown. Since 0.1.6 a debounced foreground,
+  device-unlocked network change may also request connection under these checks.
 - This uses Tailscale's public explicit
   [`CONNECT_VPN` receiver](https://github.com/tailscale/tailscale-android/blob/main/android/src/main/java/com/tailscale/ipn/IPNReceiver.java).
   Tailscale's own [worker](https://github.com/tailscale/tailscale-android/blob/main/android/src/main/java/com/tailscale/ipn/StartVPNWorker.java)
@@ -57,9 +83,11 @@ cannot block sign-in or chat startup.
   requires a fresh system biometric/device-credential authentication through
   `BiometricPrompt.CryptoObject` and the matching non-exportable private key.
 - The WebView exists only after unlocking. It receives a session-only cookie
-  with `Secure`, `HttpOnly` and `SameSite=Strict`. Leaving the app destroys the
-  page and removes its cookies; startup also removes cookies from an interrupted
-  process before any page is loaded. Screenshots, recordings and recent-app
+  with `Secure`, `HttpOnly` and `SameSite=Strict`. Leaving an unpaired or locally
+  locked session destroys the page and removes its cookies. The eligible owner-
+  paired passwordless page is instead hidden/paused as described above; explicit
+  logout still destroys it. Startup removes cookies from an interrupted process
+  before restoring the encrypted owner pairing. Screenshots, recordings and recent-app
   previews are allowed at the owner's request (version 0.1.3+).
 - File selection uses Android's document picker without storage/camera
   permissions. The page is paused behind the native lock screen while selecting;
@@ -91,9 +119,11 @@ native bridge or camera, broad-storage or notification permission is installed.
 
 Version 0.1.4 supports the upstream Voice button: only the configured HTTPS
 origin can request audio capture. Each request first asks for native confirmation,
-then Android's `RECORD_AUDIO` permission if needed. The requesting WebView is kept
-only across that system permission dialog; the grant is checked again on return
-against the current foreground page and origin. Navigation, locking, backgrounding,
+then Android's `RECORD_AUDIO` permission if needed. The runtime permission dialog
+preserves its requesting renderer for that prompt; the grant is checked again on
+return against the current foreground, device-unlocked page and origin. An
+eligible owner page can remain paused after a true background transition, but its
+pending/active microphone work is canceled. Navigation, locking, backgrounding,
 cancellation and renderer disposal reject pending requests. Camera, mixed-resource,
 unknown-resource and off-origin requests are denied. The voice transcription
 provider is still configured on the Amuse server. Paired automatic sign-in,

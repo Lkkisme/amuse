@@ -4,7 +4,10 @@ import android.Manifest
 import android.app.KeyguardManager
 import android.content.ContentValues
 import android.content.ComponentName
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -14,6 +17,8 @@ import android.net.Uri
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.net.LinkProperties
 import android.net.http.SslError
 import android.os.Build
 import android.os.Bundle
@@ -73,8 +78,22 @@ class MainActivity : ComponentActivity() {
     private var webEpoch = 0
     private var rebuildingForRetry = false
     private var nextLoadPreservesBackoff = false
-    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private val networkCallbacks = mutableListOf<ConnectivityManager.NetworkCallback>()
+    private val networkChanges = NetworkChangeDebounce()
+    private var networkObserverEpoch = 0
+    private var networkChangeJob: Job? = null
+    private var lastDocumentFailure: ConnectionRecovery.Failure? = null
+    private var resumedVisible = false
+    private var userPresentRegistered = false
     private val tailscaleRequests = TailscaleRequestGate()
+    private val userPresent = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.action) {
+                Intent.ACTION_USER_PRESENT -> resumeForegroundPage()
+                Intent.ACTION_SCREEN_OFF -> suspendForSystemLock()
+            }
+        }
+    }
     private val picker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val picked = WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data)
         val selection = picked?.filter { it.scheme == "content" }?.toTypedArray()
@@ -108,7 +127,11 @@ class MainActivity : ComponentActivity() {
             autoConnectTailscale = preferences.getBoolean("auto_connect_tailscale", true),
             darkTheme = preferences.getBoolean("dark_theme", false),
             pairedSession = pairedVault.hasSession(server),
-            rememberedSession = vault.hasSession(server))
+            rememberedSession = vault.hasSession(server), deviceLocked = !deviceUnlocked())
+        ContextCompat.registerReceiver(this, userPresent,
+            IntentFilter(Intent.ACTION_USER_PRESENT).apply { addAction(Intent.ACTION_SCREEN_OFF) },
+            ContextCompat.RECEIVER_NOT_EXPORTED)
+        userPresentRegistered = true
         updateSystemBars()
         // Never load a page with cookies left after an abrupt process exit.
         cookies.removeAllCookies {
@@ -129,10 +152,14 @@ class MainActivity : ComponentActivity() {
                         }
                         state = state.copy(settingsVisible = true)
                     },
-                    onCloseSettings = { state = state.copy(settingsVisible = false) },
+                    onCloseSettings = {
+                        state = state.copy(settingsVisible = false)
+                        if (state.pairedSession && !state.useDeviceUnlock) openSavedSessionIfNeeded()
+                    },
                     onSaveSettings = ::saveSettings, onForget = ::forgetSession, onRetry = ::retry,
                     onOpenTailscale = ::openTailscale,
-                    onBack = { webView?.let { if (it.canGoBack()) it.goBack() } },
+                    onBack = { if (foreground && deviceUnlocked() && !state.pageSuspended)
+                        webView?.let { if (it.canGoBack()) it.goBack() } },
                     onMicrophoneAllow = ::requestMicrophonePermission,
                     onMicrophoneDeny = ::denyMicrophonePermission)
             }
@@ -142,6 +169,29 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         foreground = true
+        resumeForegroundPage()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) resumeForegroundPage()
+        else if (foreground && !deviceUnlocked()) suspendForSystemLock()
+    }
+
+    private fun deviceUnlocked(): Boolean = !getSystemService(KeyguardManager::class.java).isKeyguardLocked
+
+    private fun continuityContext() = PageContinuity.Context(state.pairedSession, state.useDeviceUnlock, state.unlocked,
+        webView?.url?.let(state.server::contains) == true, webView != null,
+        state.pickerSuspended || fileCallback != null, state.authenticating || pendingGrant != null,
+        state.settingsVisible, permissionDialogInFlight)
+
+    private fun resumeForegroundPage() {
+        if (!foreground) return
+        val deviceReady = deviceUnlocked()
+        state = state.copy(deviceLocked = !deviceReady)
+        if (!deviceReady) { suspendForSystemLock(); return }
+        if (resumedVisible) return
+        resumedVisible = true
         refreshTailscaleAvailability()
         requestTailscaleConnection()
         observeNetwork()
@@ -149,11 +199,29 @@ class MainActivity : ComponentActivity() {
         if (!secure && state.deviceSecure) vault.clear()
         state = state.copy(deviceSecure = secure, rememberedSession = vault.hasSession(state.server),
             pairedSession = pairedVault.hasSession(state.server))
+        if (state.pageSuspended) {
+            if (PageContinuity.reveal(continuityContext(), foreground, deviceReady)) {
+                state = state.copy(pageSuspended = false)
+                webView?.let { view ->
+                    view.visibility = android.view.View.VISIBLE
+                    view.isEnabled = true
+                    view.importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
+                    view.onResume()
+                }
+                startCapturingSession()
+                signalPage(PageSignal.RESUME)
+                rearmDocumentRecovery()
+                Log.i("AmuseShell", "Paired page resumed")
+            } else lockSession()
+        } else if (!state.pickerSuspended) {
+            webView?.onResume()
+            signalPage(PageSignal.RESUME)
+            rearmDocumentRecovery()
+        }
         pendingGrant?.let { grant ->
             pendingGrant = null
             if (grant.first == attempt) finishUnlock(grant.second, grant.first)
         }
-        webView?.onResume()
         microphoneResult?.let { granted ->
             microphoneResult = null
             finishMicrophonePermission(granted)
@@ -165,6 +233,7 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         stopObservingNetwork()
         cancelRecovery()
+        resumedVisible = false
         if (permissionDialogInFlight) {
             // Preserve the requesting renderer only while Android's runtime
             // dialog is open. Recheck foreground, origin and request on return.
@@ -172,7 +241,10 @@ class MainActivity : ComponentActivity() {
         } else {
             denyMicrophonePermission()
             if (fileCallback != null && state.unlocked) suspendForPicker()
-            else if (!state.pickerSuspended) lockSession(cancelPrompt = false)
+            else if (!state.pickerSuspended) {
+                if (PageContinuity.retain(continuityContext())) suspendPairedPage()
+                else lockSession(cancelPrompt = false)
+            }
             // Keep a system credential operation alive across its own dialog.
             if (promptCancellation == null) cancelAuthentication()
         }
@@ -186,7 +258,10 @@ class MainActivity : ComponentActivity() {
         if (microphoneRequest != null || permissionDialogInFlight) {
             denyMicrophonePermission()
             permissionDialogInFlight = false
-            if (!state.pickerSuspended) lockSession(cancelPrompt = false)
+            if (!state.pickerSuspended) {
+                if (PageContinuity.retain(continuityContext())) suspendPairedPage()
+                else lockSession(cancelPrompt = false)
+            }
         }
         super.onStop()
     }
@@ -194,12 +269,70 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         stopObservingNetwork()
         cancelRecovery()
+        if (userPresentRegistered) { unregisterReceiver(userPresent); userPresentRegistered = false }
         cancelAuthentication()
         denyMicrophonePermission()
         releaseWebView(webView)
         fileCallback?.onReceiveValue(null)
         fileCallback = null
         super.onDestroy()
+    }
+
+    private fun suspendForSystemLock() {
+        if (!foreground) return
+        state = state.copy(deviceLocked = true)
+        resumedVisible = false
+        stopObservingNetwork()
+        cancelRecovery()
+        denyMicrophonePermission()
+        // Even a system permission/picker flow must not expose an old page behind a locked device.
+        signalPage(PageSignal.PAUSE)
+        webView?.let { view ->
+            view.clearFocus()
+            view.visibility = android.view.View.INVISIBLE
+            view.isEnabled = false
+            view.importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            view.onPause()
+        }
+        if (state.unlocked && !state.pickerSuspended && !permissionDialogInFlight) {
+            if (PageContinuity.retain(continuityContext())) suspendPairedPage()
+            else lockSession(cancelPrompt = false)
+        }
+    }
+
+    private fun suspendPairedPage() {
+        captureSession()
+        captureJob?.cancel()
+        captureJob = null
+        cancelRecovery()
+        denyMicrophonePermission()
+        if (!state.pageSuspended) signalPage(PageSignal.PAUSE)
+        webView?.let { view ->
+            view.clearFocus()
+            view.visibility = android.view.View.INVISIBLE
+            view.isEnabled = false
+            view.importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            view.onPause()
+        }
+        state = state.copy(pageSuspended = true)
+        Log.i("AmuseShell", "Paired page suspended")
+    }
+
+    private fun signalPage(signal: PageSignal) {
+        val view = webView ?: return
+        if (!state.unlocked || view.url?.let(state.server::contains) != true) return
+        if (signal != PageSignal.PAUSE && (!foreground || !deviceUnlocked() || state.pageSuspended ||
+                state.pickerSuspended || state.authenticating || state.settingsVisible)) return
+        view.evaluateJavascript(signal.script, null)
+    }
+
+    private fun startCapturingSession() {
+        captureJob?.cancel()
+        captureJob = lifecycleScope.launch { while (isActive) { captureSession(); delay(1_200) } }
+    }
+
+    private fun rearmDocumentRecovery() {
+        scheduleRecovery(recovery.resumeFailure(lastDocumentFailure, currentPage(), canRecover()))
     }
 
     private fun cancelAuthentication() {
@@ -211,7 +344,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun authenticate() {
-        if (!state.cookiesReady || state.authenticating) return
+        if (!foreground || !deviceUnlocked() || !state.cookiesReady || state.authenticating) return
         if ((!state.useDeviceUnlock && !state.pickerSuspended) || !state.deviceSecure) { useServerPin(); return }
         cancelAuthentication()
         val thisAttempt = attempt
@@ -274,19 +407,23 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun finishUnlock(cookie: String?, generation: Int) {
-        if (generation != attempt || !foreground) return
+        if (generation != attempt || !foreground || !deviceUnlocked()) return
         state = state.copy(authenticating = true)
         cookies.removeAllCookies {
-            if (generation != attempt || !foreground) return@removeAllCookies
+            if (generation != attempt || !foreground || !deviceUnlocked()) return@removeAllCookies
             val ready = {
-                if (generation == attempt && foreground) {
+                if (generation == attempt && foreground && deviceUnlocked()) {
                     val resumePicker = state.pickerSuspended && webView != null
                     lastCookie = cookie
-                    state = state.copy(unlocked = true, authenticating = false, notice = null,
+                    state = state.copy(unlocked = true, authenticating = false, notice = null, pageSuspended = false,
                         pickerSuspended = false, loading = !resumePicker, progress = if (resumePicker) 100 else 0,
                         connectionError = null, webGeneration = state.webGeneration + if (resumePicker) 0 else 1)
                     if (resumePicker) {
+                        webView?.visibility = android.view.View.VISIBLE
+                        webView?.isEnabled = true
+                        webView?.importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
                         webView?.onResume()
+                        signalPage(PageSignal.RESUME)
                         if (pickerReturned) {
                             fileCallback?.onReceiveValue(pickedFiles)
                             fileCallback = null
@@ -295,8 +432,7 @@ class MainActivity : ComponentActivity() {
                         }
                         pausedCookie = null
                     }
-                    captureJob?.cancel()
-                    captureJob = lifecycleScope.launch { while (isActive) { captureSession(); delay(1_200) } }
+                    startCapturingSession()
                 }
             }
             if (cookie == null) ready()
@@ -307,6 +443,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun useServerPin() {
+        if (!foreground || !deviceUnlocked()) return
         if (state.pickerSuspended) lockSession()
         cancelAuthentication()
         vault.clear()
@@ -321,7 +458,7 @@ class MainActivity : ComponentActivity() {
         // An owner-paired phone restores its encrypted device session. Others
         // go directly to the same server login as the web app.
         // Explicitly locking still leaves the lock page until the next resume.
-        if (foreground && state.cookiesReady && !state.useDeviceUnlock && !state.unlocked &&
+        if (foreground && deviceUnlocked() && state.cookiesReady && !state.useDeviceUnlock && !state.unlocked &&
             !state.pickerSuspended && !state.settingsVisible && !state.authenticating) {
             val cookie = if (state.pairedSession) pairedVault.open(state.server) else null
             if (state.pairedSession && cookie == null) state = state.copy(pairedSession = false,
@@ -331,12 +468,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun resumePickerWithoutDeviceGate() {
-        if (foreground && state.pickerSuspended && !state.useDeviceUnlock && !state.authenticating)
+        if (foreground && deviceUnlocked() && state.pickerSuspended && !state.useDeviceUnlock && !state.authenticating)
             finishUnlock(pausedCookie, attempt)
     }
 
     private fun captureSession() {
-        if (!state.unlocked || !foreground) return
+        if (!state.unlocked || !foreground || !deviceUnlocked() || state.pageSuspended) return
         syncPageAppearance()
         val cookie = SessionCookie.extract(cookies.getCookie(state.server.home))
         if (cookie == lastCookie) return
@@ -378,7 +515,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun pageDiagnostics(view: WebView, phase: String) {
-        if (view !== webView) return
+        if (view !== webView || !foreground || !deviceUnlocked() || state.pageSuspended) return
         view.evaluateJavascript("JSON.stringify({ready:document.readyState,rootChildren:document.getElementById('root')?.childElementCount??-1,login:!!document.querySelector('.unlock-page'),chat:!!document.querySelector('input[placeholder=\"Message\"]'),width:innerWidth,height:innerHeight})") { status ->
             Log.i("AmuseShell", "Page structure ($phase): $status")
         }
@@ -391,7 +528,7 @@ class MainActivity : ComponentActivity() {
         captureJob?.cancel()
         captureJob = null
         if (cancelPrompt) cancelAuthentication()
-        state = state.copy(unlocked = false, pickerSuspended = false, loading = false)
+        state = state.copy(unlocked = false, pickerSuspended = false, pageSuspended = false, loading = false)
         fileCallback?.onReceiveValue(null)
         fileCallback = null
         pickedFiles = null
@@ -404,6 +541,7 @@ class MainActivity : ComponentActivity() {
 
     private fun suspendForPicker() {
         captureSession()
+        signalPage(PageSignal.PAUSE)
         pausedCookie = SessionCookie.extract(cookies.getCookie(state.server.home))
         captureJob?.cancel()
         captureJob = null
@@ -435,6 +573,7 @@ class MainActivity : ComponentActivity() {
             .putBoolean("auto_connect_tailscale", autoConnectTailscale).apply()
         state = state.copy(server = server, useDeviceUnlock = deviceUnlock, autoConnectTailscale = autoConnectTailscale,
             settingsVisible = false, settingsError = null)
+        if (state.pairedSession && !state.useDeviceUnlock) openSavedSessionIfNeeded()
     }
 
     private fun retry() {
@@ -444,7 +583,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun currentPage() = ConnectionRecovery.Page(webEpoch, state.server.origin)
-    private fun canRecover() = ConnectionRecovery.Gate(foreground, state.unlocked, state.settingsVisible,
+    private fun canRecover() = ConnectionRecovery.Gate(foreground && deviceUnlocked() && !state.pageSuspended, state.unlocked, state.settingsVisible,
         state.pickerSuspended, state.authenticating, webView != null, state.connectionError != null).allowed
 
     private fun cancelRecovery() {
@@ -491,34 +630,65 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun observeNetwork() {
-        if (networkCallback != null) return
-        val callback = object : ConnectivityManager.NetworkCallback() {
-            private var validated: Network? = null
-            override fun onAvailable(network: Network) = wake()
+        if (networkCallbacks.isNotEmpty() || !foreground || !deviceUnlocked()) return
+        val epoch = ++networkObserverEpoch
+        networkChanges.begin(epoch)
+        fun callback(source: String) = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) = update(network, "presence", "available")
+            override fun onLost(network: Network) = update(network, "presence", "lost")
             override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
-                if (capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) && validated != network) {
-                    validated = network
-                    wake()
-                } else if (!capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) && validated == network)
-                    validated = null
+                // Only routing-relevant values: bandwidth/RSSI updates cannot keep defeating backoff.
+                val transports = intArrayOf(NetworkCapabilities.TRANSPORT_CELLULAR, NetworkCapabilities.TRANSPORT_WIFI,
+                    NetworkCapabilities.TRANSPORT_BLUETOOTH, NetworkCapabilities.TRANSPORT_ETHERNET, NetworkCapabilities.TRANSPORT_VPN)
+                val fingerprint = transports.filter(capabilities::hasTransport).joinToString(",") + ":" +
+                    capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) + ":" +
+                    capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                update(network, "capabilities", fingerprint)
             }
-            override fun onLost(network: Network) { if (validated == network) validated = null }
-            private fun wake() { val registered = this; runOnUiThread {
-                if (networkCallback !== registered || !foreground) return@runOnUiThread
-                // This callback never sends CONNECT_VPN or reloads a healthy chat.
-                scheduleRecovery(recovery.wake(currentPage(), canRecover()))
-            } }
+            override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) {
+                // Hashes stay in memory; no addresses, network identifiers or credentials are logged.
+                update(network, "links", "${properties.interfaceName}:${properties.linkAddresses.hashCode()}:${properties.routes.hashCode()}:${properties.dnsServers.hashCode()}")
+            }
+            private fun update(network: Network, kind: String, fingerprint: String) {
+                val registered = this
+                runOnUiThread {
+                    if (registered !in networkCallbacks || epoch != networkObserverEpoch || !foreground || !deviceUnlocked()) return@runOnUiThread
+                    val ticket = networkChanges.changed(epoch, "$source:$network:$kind", fingerprint) ?: return@runOnUiThread
+                    networkChangeJob?.cancel()
+                    networkChangeJob = lifecycleScope.launch {
+                        delay(300)
+                        if (!networkChanges.claim(ticket, networkObserverEpoch, foreground && deviceUnlocked())) return@launch
+                        // A notification is not proof of reachability. Healthy pages recover their channels without reload.
+                        requestTailscaleConnection()
+                        signalPage(PageSignal.NETWORK_CHANGE)
+                        rearmDocumentRecovery()
+                        scheduleRecovery(recovery.wake(currentPage(), canRecover()))
+                    }
+                }
+            }
         }
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        val default = callback("default")
+        runCatching { connectivity.registerDefaultNetworkCallback(default); networkCallbacks.add(default) }
+        // A VPN can keep the same Network while its physical Wi-Fi/mobile route changes.
+        val physical = callback("physical")
         runCatching {
-            getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(callback)
-            networkCallback = callback
+            connectivity.registerNetworkCallback(NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN).build(), physical)
+            networkCallbacks.add(physical)
         }
     }
 
     private fun stopObservingNetwork() {
-        val callback = networkCallback ?: return
-        networkCallback = null
-        runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(callback) }
+        networkObserverEpoch++
+        networkChangeJob?.cancel()
+        networkChangeJob = null
+        networkChanges.cancel()
+        val removed = networkCallbacks.toList()
+        networkCallbacks.clear()
+        for (callback in removed)
+            runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(callback) }
     }
 
     private fun refreshTailscaleAvailability() {
@@ -535,7 +705,7 @@ class MainActivity : ComponentActivity() {
     }.getOrNull()
 
     private fun requestTailscaleConnection() {
-        if (!state.autoConnectTailscale || !foreground || state.settingsVisible || !TailscaleConnection.tailnet(state.server)) return
+        if (!state.autoConnectTailscale || !foreground || !deviceUnlocked() || state.settingsVisible || !TailscaleConnection.tailnet(state.server)) return
         if (!state.tailscaleInstalled) {
             state = state.copy(tailscaleStatus = "请先安装并登录 Tailscale，再返回 Amuse。")
             return
@@ -548,7 +718,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         if (!tailscaleRequests.claim(SystemClock.elapsedRealtime(), TailscaleConnection.allowed(state.server,
-                state.autoConnectTailscale, foreground, state.tailscaleInstalled, vpn))) return
+                state.autoConnectTailscale, foreground, state.tailscaleInstalled, vpn, deviceUnlocked()))) return
         val receiver = ComponentName(TailscaleConnection.PACKAGE, TailscaleConnection.RECEIVER)
         runCatching {
             val info = packageManager.getReceiverInfo(receiver, 0)
@@ -563,7 +733,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openTailscale() {
-        if (!foreground || !TailscaleConnection.tailnet(state.server)) return
+        if (!foreground || !deviceUnlocked() || !TailscaleConnection.tailnet(state.server)) return
         val intent = packageManager.getLaunchIntentForPackage(TailscaleConnection.PACKAGE)
         if (intent == null) {
             refreshTailscaleAvailability()
@@ -576,7 +746,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun microphoneAllowed(request: PermissionRequest): Boolean =
-        foreground && state.unlocked && !state.settingsVisible &&
+        foreground && deviceUnlocked() && !state.pageSuspended && state.unlocked && !state.settingsVisible &&
             webView?.url?.let(state.server::contains) == true &&
             WebPermissionPolicy.microphone(state.server, request.origin.toString(), request.resources.toList())
 
@@ -617,6 +787,7 @@ class MainActivity : ComponentActivity() {
         recovery.beginPage(page, preserveBackoff = nextLoadPreservesBackoff)
         rebuildingForRetry = false
         nextLoadPreservesBackoff = false
+        lastDocumentFailure = null
         var navigationFailed = false
         val owner = this
         fun current(view: WebView) = view === webView && page == currentPage()
@@ -659,7 +830,8 @@ class MainActivity : ComponentActivity() {
             }
             override fun onProgressChanged(view: WebView, progress: Int) { if (current(view)) state = state.copy(progress = progress) }
             override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
-                if (!current(view) || !state.unlocked) return false
+                if (!current(view) || !this@MainActivity.foreground || !deviceUnlocked() || !state.unlocked ||
+                    state.pageSuspended || state.settingsVisible) return false
                 if (!state.deviceSecure && state.useDeviceUnlock) {
                     state = state.copy(notice = "请先为手机启用安全锁屏，以便从文件选择器安全返回并上传。")
                     callback.onReceiveValue(null)
@@ -702,6 +874,7 @@ class MainActivity : ComponentActivity() {
                 Log.i("AmuseShell", "Page started; sameOrigin=${state.server.contains(url)}")
                 if (!state.server.contains(url)) { view.stopLoading(); return }
                 navigationFailed = false
+                lastDocumentFailure = null
                 recoveryJob?.cancel()
                 recoveryJob = null
                 scheduledRetry = null
@@ -714,6 +887,7 @@ class MainActivity : ComponentActivity() {
                 state = state.copy(loading = false, progress = 100, canGoBack = view.canGoBack())
                 // WebView also finishes its own error document. Only a navigation without an error is success.
                 if (recovery.finished(page, navigationFailed)) {
+                    lastDocumentFailure = null
                     recoveryJob?.cancel()
                     recoveryJob = null
                     scheduledRetry = null
@@ -729,6 +903,7 @@ class MainActivity : ComponentActivity() {
                 if (request.isForMainFrame) Log.w("AmuseShell", "Page network error; code=${error.errorCode}")
                 if (current(view) && request.isForMainFrame && state.server.contains(request.url.toString())) {
                     navigationFailed = true
+                    lastDocumentFailure = ConnectionRecovery.Failure(page, error.errorCode)
                     connectionFailed("暂时连不上你的电脑。请确认电脑在线，并检查手机网络。")
                     val retry = recovery.failed(page, error.errorCode, canRecover())
                     if (retry == null) cancelRecovery() else scheduleRecovery(retry)
@@ -738,11 +913,13 @@ class MainActivity : ComponentActivity() {
                 if (!current(view) || !state.server.contains(request.url.toString())) return
                 if (BuildConfig.SCREEN_PREVIEW) Log.w("AmuseShell", "HTTP error; status=${response.statusCode}; mainFrame=${request.isForMainFrame}")
                 if (response.statusCode == 401 && request.url.path == "/unlock" && state.pairedSession) {
+                    lastDocumentFailure = null
                     cancelRecovery()
                     pairedVault.clear()
                     state = state.copy(pairedSession = false, notice = "此手机的登录已被电脑撤销，可通过 USB 重新配对。")
                 }
                 if (request.isForMainFrame) {
+                    lastDocumentFailure = null
                     navigationFailed = true
                     cancelRecovery()
                     connectionFailed("服务器暂时无法打开页面（${response.statusCode}）。稍后重试。")
@@ -751,6 +928,7 @@ class MainActivity : ComponentActivity() {
             override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
                 handler.cancel()
                 if (current(view)) {
+                    lastDocumentFailure = null
                     navigationFailed = true
                     cancelRecovery()
                     connectionFailed("无法验证服务器证书。请检查服务地址与手机时间，修复证书后再连接。")
@@ -762,6 +940,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
+            if (!this@MainActivity.foreground || !deviceUnlocked() || state.pageSuspended) return@setDownloadListener
             if (!state.server.contains(url)) { openExternal(Uri.parse(url)); return@setDownloadListener }
             download(url, userAgent, contentDisposition, mimeType)
         }
@@ -823,6 +1002,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openExternal(uri: Uri) {
+        if (!foreground || !deviceUnlocked() || state.pageSuspended) return
         if (uri.scheme != "https" && uri.scheme != "http") return
         runCatching { startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE)) }
             .onFailure { state = state.copy(notice = "手机上没有可打开此链接的浏览器。") }
@@ -836,6 +1016,7 @@ class MainActivity : ComponentActivity() {
             scheduledRetry = null
         } else cancelRecovery()
         webEpoch++
+        lastDocumentFailure = null
         denyMicrophonePermission()
         Log.i("AmuseShell", "WebView released; unlocked=${state.unlocked}; picker=${state.pickerSuspended}")
         webView = null

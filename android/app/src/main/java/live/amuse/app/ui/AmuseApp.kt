@@ -39,6 +39,8 @@ data class ShellState(
     val darkTheme: Boolean = false,
     val unlocked: Boolean = false,
     val pickerSuspended: Boolean = false,
+    val pageSuspended: Boolean = false,
+    val deviceLocked: Boolean = true,
     val cookiesReady: Boolean = false,
     val authenticating: Boolean = false,
     val deviceSecure: Boolean = false,
@@ -80,7 +82,7 @@ fun AmuseApp(
     onMicrophoneAllow: () -> Unit,
     onMicrophoneDeny: () -> Unit,
 ) {
-    BackHandler(state.settingsVisible || (state.unlocked && state.canGoBack)) {
+    BackHandler(state.settingsVisible || (state.unlocked && state.canGoBack && !state.pageSuspended && !state.deviceLocked)) {
         if (state.settingsVisible) onCloseSettings() else onBack()
     }
     if (state.microphonePrompt) AlertDialog(onDismissRequest = onMicrophoneDeny,
@@ -103,9 +105,9 @@ fun AmuseApp(
                     Box(Modifier.size(5.dp).background(if (connected) MuseGreen else MuseTextTertiary, CircleShape))
                     Text(if (state.connectionError != null) "连接中断" else if (state.loading) "连接中" else "你的电脑",
                         color = MuseTextSecondary, fontSize = 11.sp, modifier = Modifier.padding(start = 6.dp, end = 4.dp))
-                    IconButton(onClick = onLock) { Icon(if (state.pairedSession) Icons.Outlined.Logout else Icons.Outlined.Lock,
+                    IconButton(onClick = onLock, enabled = !state.pageSuspended) { Icon(if (state.pairedSession) Icons.Outlined.Logout else Icons.Outlined.Lock,
                         if (state.pairedSession) "退出本机登录" else "锁定", Modifier.size(20.dp)) }
-                    IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, "连接设置", Modifier.size(20.dp)) }
+                    IconButton(onClick = onSettings, enabled = !state.pageSuspended) { Icon(Icons.Outlined.Settings, "连接设置", Modifier.size(20.dp)) }
                 }
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     key(state.webGeneration) {
@@ -115,14 +117,19 @@ fun AmuseApp(
                                 // The picker keeps its renderer only to retain the
                                 // pending upload callback. A visual cover alone
                                 // would still expose touches and accessibility.
-                                view.visibility = if (state.pickerSuspended) View.INVISIBLE else View.VISIBLE
-                                view.isEnabled = !state.pickerSuspended
-                                view.importantForAccessibility = if (state.pickerSuspended)
+                                val hidden = state.pickerSuspended || state.pageSuspended || state.deviceLocked
+                                view.visibility = if (hidden) View.INVISIBLE else View.VISIBLE
+                                view.isEnabled = !hidden
+                                view.importantForAccessibility = if (hidden)
                                     View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS else View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
-                                if (state.pickerSuspended) view.clearFocus()
+                                if (hidden) view.clearFocus()
                             })
                     }
-                    if (state.pickerSuspended) LockScreen(state, onUnlock, onServerPin, onSettings)
+                    if (state.pageSuspended || state.deviceLocked) {
+                        Box(Modifier.fillMaxSize().background(MuseSurface), contentAlignment = Alignment.Center) {
+                            Text(if (state.deviceLocked) "解锁手机后继续" else "返回 Amuse 后继续", color = MuseTextSecondary)
+                        }
+                    } else if (state.pickerSuspended) LockScreen(state, onUnlock, onServerPin, onSettings)
                     else {
                         if (state.loading && state.connectionError == null) LoadingScreen(state)
                         state.connectionError?.let { DisconnectedScreen(it, state, onRetry, onSettings, onOpenTailscale) }

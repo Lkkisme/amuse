@@ -4,6 +4,7 @@ package live.amuse.app
 class ConnectionRecovery {
     data class Page(val generation: Int, val origin: String)
     data class Retry(val page: Page, val serial: Long, val delaySeconds: Int)
+    data class Failure(val page: Page, val errorCode: Int?)
     data class Gate(val foreground: Boolean, val unlocked: Boolean, val settings: Boolean,
         val picker: Boolean, val authenticating: Boolean, val renderer: Boolean, val error: Boolean) {
         val allowed: Boolean get() = foreground && unlocked && !settings && !picker && !authenticating && renderer && error
@@ -46,6 +47,13 @@ class ConnectionRecovery {
         return true
     }
 
+    /** Pause cancels timers, but the retained renderer can still remember its actual transport failure. */
+    fun resumeFailure(failure: Failure?, current: Page, eligible: Boolean): Retry? {
+        if (failure?.page != current || !eligible || !retryable(failure.errorCode)) return null
+        if (page != current) beginPage(current)
+        return failed(current, failure.errorCode, eligible)
+    }
+
     fun finished(page: Page, failed: Boolean): Boolean {
         if (failed || this.page != page) return false
         cancel()
@@ -80,8 +88,8 @@ object TailscaleConnection {
     }
 
     /** Unknown VPN state fails closed; a request never replaces any existing VPN. */
-    fun allowed(server: ServerAddress, enabled: Boolean, foreground: Boolean, installed: Boolean, activeVpn: Boolean?): Boolean =
-        enabled && foreground && installed && tailnet(server) && activeVpn == false
+    fun allowed(server: ServerAddress, enabled: Boolean, foreground: Boolean, installed: Boolean, activeVpn: Boolean?, deviceUnlocked: Boolean = true): Boolean =
+        enabled && foreground && deviceUnlocked && installed && tailnet(server) && activeVpn == false
 }
 
 /** Survives Activity pauses: opening the VPN app must not cause a connect-broadcast loop. */
