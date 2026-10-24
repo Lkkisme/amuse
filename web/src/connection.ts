@@ -8,6 +8,7 @@
  * and logs never see it.
  */
 import { activeT } from "./i18n/language.ts";
+import { waitForUnlock } from "./connection-bootstrap.ts";
 
 export type Connection =
   | { kind: "demo" }
@@ -68,10 +69,8 @@ export async function connection(): Promise<Connection> {
   if (import.meta.env["VITE_AMUSE_MODE"] !== "same-origin") return { kind: "demo" };
 
   startedTo("asking the server (/unlock)");
-  const abort = new AbortController();
-  const timeout = setTimeout(() => abort.abort(), 12_000);
-  try {
-    const unlocked = await fetch("/unlock", { signal: abort.signal }).catch(() => null);
+  {
+    const unlocked = await waitForUnlock();
     startedTo(unlocked ? `the server answered /unlock (${unlocked.status})` : "/unlock could not be reached");
     if (unlocked?.status !== 204) {
       const said: unknown = await unlocked?.json().catch(() => null);
@@ -81,8 +80,6 @@ export async function connection(): Promise<Connection> {
     const rpc = new URL("/rpc", location.href);
     rpc.protocol = location.protocol === "https:" ? "wss:" : "ws:";
     return server(rpc.toString());
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
