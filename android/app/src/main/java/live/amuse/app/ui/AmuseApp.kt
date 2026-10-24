@@ -9,10 +9,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.Logout
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -75,7 +71,7 @@ fun AmuseApp(
         if (state.settingsVisible) onCloseSettings() else onBack()
     }
     if (state.microphonePrompt) AlertDialog(onDismissRequest = onMicrophoneDeny,
-        icon = { Icon(Icons.Outlined.Mic, null) }, title = { Text("Use your microphone?") },
+        icon = { Icon(painterResource(R.drawable.ic_mic), null) }, title = { Text("Use your microphone?") },
         text = { Text("${state.server.host} wants to record audio for voice input. Android may also ask for permission.") },
         confirmButton = { TextButton(onClick = onMicrophoneAllow) { Text("Allow") } },
         dismissButton = { TextButton(onClick = onMicrophoneDeny) { Text("Not now") } })
@@ -91,8 +87,8 @@ fun AmuseApp(
                         Spacer(Modifier.weight(1f))
                         Text(state.server.host, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MuseTextSecondary,
                             fontSize = 11.sp, modifier = Modifier.widthIn(max = 140.dp))
-                        if (state.useDeviceUnlock) IconButton(onClick = onLock) { Icon(Icons.Outlined.Lock, "Lock", Modifier.size(20.dp)) }
-                        IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, "Connection settings", Modifier.size(20.dp)) }
+                        if (state.useDeviceUnlock) IconButton(onClick = onLock) { Icon(painterResource(R.drawable.ic_lock), "Lock", Modifier.size(20.dp)) }
+                        IconButton(onClick = onSettings) { Icon(painterResource(R.drawable.ic_server), "Server settings", Modifier.size(20.dp)) }
                     }
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         key(state.webGeneration) {
@@ -108,10 +104,10 @@ fun AmuseApp(
                         when {
                             state.pickerSuspended -> LockScreen(state, onUnlock, onServerLogin, onSettings)
                             state.connectionError != null -> CenteredPanel {
-                                Icon(Icons.Outlined.WifiOff, null, Modifier.size(42.dp), tint = MuseTextSecondary)
+                                Icon(painterResource(R.drawable.ic_wifi_off), null, Modifier.size(42.dp), tint = MuseTextSecondary)
                                 Text("Let’s reconnect", fontSize = 25.sp)
                                 Text(state.connectionError, color = MuseTextSecondary, textAlign = TextAlign.Center)
-                                Button(onClick = onRetry) { Icon(Icons.Outlined.Refresh, null); Text("Try again") }
+                                Button(onClick = onRetry) { Icon(painterResource(R.drawable.ic_refresh_cw), null); Text("Try again") }
                                 TextButton(onClick = onSettings) { Text("Connection settings") }
                             }
                             state.loading -> CenteredPanel {
@@ -152,7 +148,7 @@ private fun LockScreen(state: ShellState, onUnlock: () -> Unit, onLogin: () -> U
         Text(state.server.host, color = MuseTextSecondary, fontSize = 12.sp)
         Button(onClick = onUnlock, enabled = state.cookiesReady && !state.authenticating && state.deviceSecure,
             shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().height(54.dp)) {
-            Icon(Icons.Outlined.Fingerprint, null); Spacer(Modifier.width(10.dp))
+            Icon(painterResource(R.drawable.ic_fingerprint), null); Spacer(Modifier.width(10.dp))
             Text(if (state.authenticating) "Unlocking…" else "Unlock with your device")
         }
         TextButton(onClick = onLogin, enabled = state.cookiesReady && !state.authenticating) { Text("Sign in to server instead") }
@@ -167,7 +163,7 @@ private fun SettingsScreen(state: ShellState, onBack: () -> Unit, onSave: (Strin
     var unlock by remember(state.useDeviceUnlock) { mutableStateOf(state.useDeviceUnlock) }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().height(58.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (state.configured) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") }
+            if (state.configured) IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_left), "Back") }
             Text(if (state.configured) "Connection & security" else "Welcome to Amuse", fontSize = 19.sp, modifier = Modifier.padding(start = 12.dp))
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
@@ -176,14 +172,14 @@ private fun SettingsScreen(state: ShellState, onBack: () -> Unit, onSave: (Strin
             Text("Connect to your own Amuse server to continue the same chats, files and tasks as the web app.", color = MuseTextSecondary, lineHeight = 22.sp)
             OutlinedTextField(value = address, onValueChange = { address = it }, singleLine = true,
                 label = { Text("Server address") }, placeholder = { Text(ServerAddress.EXAMPLE) },
-                leadingIcon = { Icon(Icons.Outlined.Https, null) }, shape = RoundedCornerShape(14.dp),
+                leadingIcon = { Icon(painterResource(R.drawable.ic_lock_keyhole), null) }, shape = RoundedCornerShape(14.dp),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), modifier = Modifier.fillMaxWidth(),
                 isError = state.settingsError != null,
                 supportingText = { Text(state.settingsError ?: "HTTPS origin only. Keep your network or VPN connected if your server needs it.") })
             Surface(color = MuseSurfaceElevated, shape = RoundedCornerShape(18.dp)) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.Fingerprint, null, Modifier.size(26.dp))
+                        Icon(painterResource(R.drawable.ic_fingerprint), null, Modifier.size(26.dp))
                         Text("Lock with your device", modifier = Modifier.weight(1f).padding(horizontal = 12.dp))
                         Switch(checked = unlock, onCheckedChange = { unlock = it })
                     }
@@ -199,7 +195,7 @@ private fun SettingsScreen(state: ShellState, onBack: () -> Unit, onSave: (Strin
                 Text(if (state.configured) "Save connection" else "Connect to server")
             }
             if (state.configured) OutlinedButton(onClick = onForget, modifier = Modifier.fillMaxWidth().height(48.dp)) {
-                Icon(Icons.AutoMirrored.Outlined.Logout, null); Spacer(Modifier.width(8.dp)); Text("Clear saved sign-in")
+                Icon(painterResource(R.drawable.ic_log_out), null); Spacer(Modifier.width(8.dp)); Text("Clear saved sign-in")
             }
             Text("Your server password and fingerprint data are never stored by the native app.\nAmuse for Android · ${BuildConfig.VERSION_NAME}",
                 color = MuseTextSecondary, textAlign = TextAlign.Center, fontSize = 11.sp, modifier = Modifier.fillMaxWidth())

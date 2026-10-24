@@ -1,2 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources><color name="launcher_background">#101010</color></resources>
+<resources>
+    <color name="launcher_background">#101010</color>
+    <!-- The native chrome's icons (lucide, in res/drawable). Compose tints them with the theme's own
+         content colour; this is what they are on their own, matching the web app's icon colour. -->
+    <color name="amuse_icon">#FF111112</color>
+</resources>

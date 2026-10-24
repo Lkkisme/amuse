@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The native chrome's icons (lucide, in res/drawable) on a device in dark mode. Compose tints
+     them with the theme's own content colour; this is what they are on their own. -->
+<resources><color name="amuse_icon">#FFFFFFFF</color></resources>
