@@ -56,23 +56,45 @@ export function Security() {
         {t.settings.security.pinHelp}
       </p>
       <div className="overflow-hidden rounded-xl" style={{ background: "var(--fill-secondary)" }}>
-        <button className={row} style={{ color: "var(--text-primary)" }} onClick={() => void open(state?.pin.set ? "change" : "set", "settings").then(load)}>
-          {state?.pin.set ? t.settings.security.changePin : t.settings.security.setPin}
-        </button>
+        <div className={row}>
+          <span className="min-w-0 flex-1 pr-3">
+            <span className="block" style={{ color: "var(--text-primary)" }}>
+              {t.settings.security.usePin}
+            </span>
+            <span className="mt-0.5 block text-[12px] leading-snug" style={{ color: "var(--text-secondary)" }}>
+              {state?.pin.set ? t.settings.security.pinOn : t.settings.security.pinOff}
+            </span>
+          </span>
+          <button
+            role="switch"
+            aria-checked={state?.pin.set === true}
+            aria-label={t.settings.security.usePin}
+            className="relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors"
+            style={{ background: state?.pin.set ? "var(--fill-blue)" : "var(--fill-tertiary)" }}
+            onClick={() => void (state?.pin.set ? open("off", "settings", true) : open("set", "settings")).then(load)}
+          >
+            <span className="absolute top-[3px] size-[20px] rounded-full bg-white transition-all" style={{ left: state?.pin.set ? 21 : 3 }} />
+          </button>
+        </div>
         {state?.pin.set && (
-          <div className={row} style={divided}>
-            <span style={{ color: "var(--text-secondary)" }}>{state.pin.unlocked ? t.settings.security.unlockedUntil(moment(state.pin.unlocked)) : t.settings.security.locked}</span>
-            <Button
-              onCard
-              disabled={!state.pin.unlocked}
-              onClick={() => {
-                lockPin();
-                void load();
-              }}
-            >
-              {t.settings.security.lockNow}
-            </Button>
-          </div>
+          <>
+            <button className={row} style={{ color: "var(--text-primary)", ...divided }} onClick={() => void open("change", "settings").then(load)}>
+              {t.settings.security.changePin}
+            </button>
+            <div className={row} style={divided}>
+              <span style={{ color: "var(--text-secondary)" }}>{state.pin.unlocked ? t.settings.security.unlockedUntil(moment(state.pin.unlocked)) : t.settings.security.locked}</span>
+              <Button
+                onCard
+                disabled={!state.pin.unlocked}
+                onClick={() => {
+                  lockPin();
+                  void load();
+                }}
+              >
+                {t.settings.security.lockNow}
+              </Button>
+            </div>
+          </>
         )}
       </div>
       {state?.pin.set && (
@@ -91,7 +113,7 @@ export function Security() {
         </>
       )}
 
-      <PasswordGroup pinSet={state?.pin.set === true} onChanged={load} />
+      <PasswordGroup />
 
       <Heading>{t.settings.security.devices}</Heading>
       <p className="-mt-1 mb-2 text-[13px] leading-snug" style={{ color: "var(--text-secondary)" }}>
@@ -165,13 +187,10 @@ export function Security() {
   );
 }
 
-/**
- * The master password: change it (every other device then needs the new one), or lock this device. Beside it, whether a
- * PIN is used at all: with it off, sensitive actions go through without asking (the server decides that).
- */
-function PasswordGroup({ pinSet, onChanged }: { pinSet: boolean; onChanged: () => void }) {
+/** The master password: change it (every other device then needs the new one), or lock this device. */
+function PasswordGroup() {
   const t = useT();
-  const { ask, open } = usePin();
+  const { ask } = usePin();
   const [changing, setChanging] = useState(false);
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
@@ -181,26 +200,6 @@ function PasswordGroup({ pinSet, onChanged }: { pinSet: boolean; onChanged: () =
     <>
       <Heading>{t.settings.general.password}</Heading>
       <div className="overflow-hidden rounded-xl" style={{ background: "var(--fill-secondary)" }}>
-        <div className={row}>
-          <span className="min-w-0 flex-1 pr-3">
-            <span className="block" style={{ color: "var(--text-primary)" }}>
-              {t.settings.security.usePin}
-            </span>
-            <span className="mt-0.5 block text-[12px] leading-snug" style={{ color: "var(--text-secondary)" }}>
-              {pinSet ? t.settings.security.pinOn : t.settings.security.pinOff}
-            </span>
-          </span>
-          <button
-            role="switch"
-            aria-checked={pinSet}
-            aria-label={t.settings.security.usePin}
-            className="relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors"
-            style={{ background: pinSet ? "var(--fill-blue)" : "var(--fill-tertiary)" }}
-            onClick={() => void (pinSet ? open("off", "settings", true) : open("set", "settings")).then(onChanged)}
-          >
-            <span className="absolute top-[3px] size-[20px] rounded-full bg-white transition-all" style={{ left: pinSet ? 21 : 3 }} />
-          </button>
-        </div>
         {changing ? (
           <form
             onSubmit={(e) => {
@@ -249,7 +248,7 @@ function PasswordGroup({ pinSet, onChanged }: { pinSet: boolean; onChanged: () =
         ) : (
           <button
             className={row}
-            style={{ color: "var(--text-primary)", ...divided }}
+            style={{ color: "var(--text-primary)" }}
             onClick={() => {
               setSaid(null);
               setChanging(true);

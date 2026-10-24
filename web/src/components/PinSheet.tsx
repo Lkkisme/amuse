@@ -39,6 +39,8 @@ const countedPin = (said: Exclude<Said, { ok: true }>) => said.left !== null || 
 
 const fieldClass = "h-12 w-full rounded-full px-5 text-[16px] outline-none";
 const fieldLook = { background: "var(--fill-secondary)", color: "var(--text-primary)" };
+/** A quiet text link, as ApprovalText's: under the buttons, the smallest thing on the sheet. */
+const quietLink = "hover-fade -mt-1 text-[13px]";
 
 function PinForm({ mode, from, onClose, onTurnOff }: { mode: PinMode; from: PinFrom; onClose: (done: boolean) => void; onTurnOff: () => void }) {
   const t = useT();
@@ -170,11 +172,6 @@ function PinForm({ mode, from, onClose, onTurnOff }: { mode: PinMode; from: PinF
           {mode === "set" ? t.pin.set : t.pin.change}
         </Button>
       )}
-      {mode === "set" && (
-        <Button variant="plain" size="sm" type="button" onClick={onTurnOff}>
-          {t.pin.dontUse}
-        </Button>
-      )}
       {mode === "check" && !forgot && (
         <Button variant="plain" size="lg" type="button" onClick={() => setForgot(true)}>
           {t.pin.forgot}
@@ -183,6 +180,11 @@ function PinForm({ mode, from, onClose, onTurnOff }: { mode: PinMode; from: PinF
       <Button variant="plain" size="lg" className={choosing ? "" : "mt-1"} type="button" onClick={() => (from === "reminder" ? later() : onClose(false))}>
         {from === "reminder" ? t.pin.later : t.common.cancel}
       </Button>
+      {mode === "set" && (
+        <button className={quietLink} style={{ color: "var(--text-tertiary)" }} type="button" onClick={onTurnOff}>
+          {t.pin.dontUse}
+        </button>
+      )}
     </form>
   );
 }
