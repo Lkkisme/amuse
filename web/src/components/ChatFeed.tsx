@@ -192,7 +192,11 @@ function Replyable({
     if (quote) onMenu({ text: quote.text, quote, mine: false, opened: Date.now(), point, item });
   });
   return (
-    <div className="msg relative w-full max-w-(--amuse-width)" {...handlers}>
+    // the cards inside are `w-full` up to --amuse-width themselves: the cap is here once, not on both (a percentage of a percentage)
+    <div
+      className="msg relative w-full max-w-(--amuse-width) [&>*]:max-w-none"
+      {...handlers}
+    >
       {children}
       {quote && <ActionRow mine={false} text="" onReply={() => actions.reply(quote)} />}
     </div>

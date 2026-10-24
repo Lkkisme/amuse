@@ -3,12 +3,10 @@
  * Props are protocol entities; behavior goes through Actions.
  */
 import {
-  Calendar,
   Check,
   ChevronRight,
   CircleAlert,
   CircleCheck,
-  Clock,
   Globe,
   KeyRound,
   ListTodo,
@@ -766,6 +764,23 @@ export function FailureCard({
 
 /* ---------- Schedule ---------- */
 
+/** A light calendar tile (a header band and a grid of days) with a small amber clock badge, light in both themes like an app's icon; grey once the schedule is over. */
+function ScheduleIcon({ over }: { over: boolean }) {
+  const days = [0, 1, 2].flatMap((row) => [0, 1, 2].map((col) => ({ x: 11 + col * 7, y: 17 + row * 6 })));
+  const badge = over ? "#9aa0a6" : "#f5b301";
+  return (
+    <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden className="shrink-0">
+      <rect x="2" y="2" width="32" height="32" rx="9" fill="#fff" stroke="#d9dce1" />
+      <path d="M2 11a9 9 0 0 1 9-9h14a9 9 0 0 1 9 9v2H2z" fill="#eceef1" />
+      {days.map((d) => (
+        <circle key={`${d.x}-${d.y}`} cx={d.x} cy={d.y} r="1.7" fill="#8b919a" />
+      ))}
+      <circle cx="31" cy="31" r="8" fill={badge} stroke="#fff" strokeWidth="2" />
+      <path d="M31 26.5V31l3 1.8" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 /** Work the agent set up for later: one card for it, kept up to date as it is paused, resumed, done or cancelled; managed in Settings › Schedules. */
 export function ScheduleCard({
   schedule,
@@ -781,25 +796,7 @@ export function ScheduleCard({
   return (
     <div {...shell(place, "w-full max-w-(--amuse-width) p-4")}>
       <div className="flex items-start gap-3">
-        <span
-          className="relative flex size-10 shrink-0 items-center justify-center rounded-xl"
-          style={{
-            background: "var(--fill-primary)",
-            color: over ? "var(--icon-secondary)" : "var(--icon-primary)",
-          }}
-        >
-          <Calendar size={22} />
-          <span
-            className="absolute -bottom-1 -right-1 flex size-4 items-center justify-center rounded-full"
-            style={{
-              background: over ? "var(--icon-secondary)" : "var(--fill-blue)",
-              color: "#fff",
-              boxShadow: `0 0 0 2px ${CARD_BG}`,
-            }}
-          >
-            <Clock size={10} strokeWidth={3} />
-          </span>
-        </span>
+        <ScheduleIcon over={over} />
         <div className="min-w-0 flex-1">
           <p
             className="truncate text-[15px] font-semibold"
