@@ -30,15 +30,15 @@ export const Attachment = z.object({
 });
 
 /**
- * The item of Amuse's a message replies to, as it was when the user replied: kept with the message, so it reads
+ * The item a message replies to, as it was when the user replied: kept with the message, so it reads
  * the same whether or not the original is still held (a client holds only the recent end of the feed, the agent a
- * summary of the older part). Only Amuse's own items can be replied to: its replies and its cards.
+ * summary of the older part). Amuse's replies and cards can be replied to, and the user's own messages.
  */
 export const Quote = z.object({
   /** the entity replied to */
   id: Id,
-  kind: z.enum(["reply", "task", "approval", "connection", "secret", "browser", "schedule", "failure"]),
-  /** what a reply said, or what a card is about (its title), clipped; may be empty */
+  kind: z.enum(["prompt", "reply", "task", "approval", "connection", "secret", "browser", "schedule", "failure"]),
+  /** what a message said, or what a card is about (its title), clipped; may be empty */
   text: z.string(),
   /** a card's state when replied to ("paused", "pending"); null for a reply */
   state: z.string().nullable(),
@@ -54,7 +54,7 @@ export const Prompt = z.object({
   timezone: TimeZone,
   /** files sent with it, in order (prompts from before files could be sent have none) */
   attachments: z.array(Attachment).default([]),
-  /** the item of Amuse's it replies to; null: none (or from before replies) */
+  /** the item it replies to; null: none (or from before replies) */
   quote: Quote.nullable().default(null),
 });
 

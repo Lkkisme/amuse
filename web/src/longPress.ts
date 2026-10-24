@@ -10,10 +10,13 @@ import { useEffect, useRef } from "react";
 export const HOLD = 450;
 /** Travel (px) under which a finger counts as still. */
 export const SLOP = 8;
-/** How long (ms) after a long press fired the tap that may follow it on lifting is ignored. */
+/** How long (ms) after a long press fired the browser's own menu for it is still held back. */
 const AFTER = 600;
 
 /** Whether a finger that went down at `from` has moved too far to be holding still at `to`. */
+/** Only a finger presses: a mouse (and a pen) never does, so dragging across messages selects their words as it always did. */
+export const presses = (pointerType: string, isPrimary: boolean): boolean => pointerType === "touch" && isPrimary;
+
 export const drifted = (from: { x: number; y: number }, to: { x: number; y: number }): boolean => Math.hypot(to.x - from.x, to.y - from.y) > SLOP;
 
 /** What a press is not for: links, buttons and fields have their own touch. */
@@ -23,7 +26,6 @@ type Press = { point: { x: number; y: number }; timer: ReturnType<typeof setTime
 
 /**
  * Pointer `handlers` for an item that opens something on a long press: `fire` gets where the finger is and the item.
- * `consumed()` says (once) whether a long press just fired, so the tap that ends it can be ignored.
  */
 export function useLongPress(fire: (point: { x: number; y: number }, item: HTMLElement) => void) {
   const press = useRef<Press | null>(null);
@@ -38,7 +40,7 @@ export function useLongPress(fire: (point: { x: number; y: number }, item: HTMLE
   const handlers = {
     onPointerDown: (e: React.PointerEvent<HTMLElement>) => {
       cancel();
-      if (e.pointerType !== "touch" || !e.isPrimary) return;
+      if (!presses(e.pointerType, e.isPrimary)) return;
       if (e.target instanceof Element && e.target.closest(OWN)) return;
       const item = e.currentTarget;
       const point = { x: e.clientX, y: e.clientY };
@@ -62,10 +64,5 @@ export function useLongPress(fire: (point: { x: number; y: number }, item: HTMLE
       if (Date.now() - firedAt.current < AFTER || press.current) e.preventDefault();
     },
   };
-  const consumed = (): boolean => {
-    const was = Date.now() - firedAt.current < AFTER;
-    firedAt.current = 0;
-    return was;
-  };
-  return { handlers, consumed };
+  return { handlers };
 }

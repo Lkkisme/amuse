@@ -35,7 +35,7 @@ export const Call = z.discriminatedUnion("method", [
   call("session.sync", z.object({ chat: Id, since: Seq.nullable() })),
   /** Up to `limit` of a chat's entities just before feed index `before`, for a state holding only the recent end. */
   call("session.history", z.object({ chat: Id, before: Index, limit: z.int().min(1).max(200) })),
-  /** `timezone`: the device's (Intl), so times are the user's own; `replyTo`: an item of Amuse's (a reply or a card) this answers */
+  /** `timezone`: the device's (Intl), so times are the user's own; `replyTo`: an item (a message of either side, or a card) this answers */
   call(
     "chat.send",
     z

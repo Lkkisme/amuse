@@ -13,10 +13,12 @@ const clip = (text: string) => {
   return flat.length <= MAX ? flat : `${flat.slice(0, MAX - 1)}…`;
 };
 
-/** The quote of an item of Amuse's: its words (a reply), or its title and state (a card); null for what is not Amuse's to be replied to. */
+/** The quote of an item: its words (a message), or its title and state (a card); null for the exchanges between agents, which are not shown. */
 export function quoteOf(entity: Entity): Quote | null {
   const { id } = entity;
   switch (entity.kind) {
+    case "prompt":
+      return { id, kind: "prompt", text: clip(entity.text) || entity.attachments.map((a) => a.name).join(", "), state: null };
     case "reply":
       return { id, kind: "reply", text: clip(entity.text) || entity.attachments.map((a) => a.name).join(", "), state: null };
     case "task":
@@ -33,14 +35,13 @@ export function quoteOf(entity: Entity): Quote | null {
       return { id, kind: "schedule", text: clip(entity.title), state: entity.running ? "running" : entity.status };
     case "failure":
       return { id, kind: "failure", text: "", state: entity.status };
-    case "prompt":
     case "instruction":
     case "question":
       return null;
   }
 }
 
-const cards: Record<Exclude<Quote["kind"], "reply">, string> = {
+const cards: Record<Exclude<Quote["kind"], "prompt" | "reply">, string> = {
   task: "task card",
   approval: "approval card",
   connection: "connection card",
@@ -52,6 +53,7 @@ const cards: Record<Exclude<Quote["kind"], "reply">, string> = {
 
 /** What the user replied to, as the agent reads it: the words of its message, or the card's kind, id, title and state. */
 export function quoted(quote: Quote): string {
+  if (quote.kind === "prompt") return `their own earlier message "${quote.text}"`;
   if (quote.kind === "reply") return `your message "${quote.text}"`;
   const title = quote.text ? ` "${quote.text}"` : "";
   return `your ${cards[quote.kind]} ${quote.id}${title}${quote.state ? ` (${quote.state})` : ""}`;

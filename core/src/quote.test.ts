@@ -21,12 +21,13 @@ test("a card is quoted by its title and state; a running schedule says so", () =
   assert.deepEqual(quoteOf(approval), { id: "a1", kind: "approval", text: "send email ann@example.com", state: "pending" });
 });
 
-test("the user's own messages and the exchanges between agents are not quotable", () => {
-  assert.equal(quoteOf({ kind: "prompt", id: "p1", at, text: "hi", timezone: "UTC", attachments: [], quote: null }), null);
+test("the user's own message is quoted by its words; the exchanges between agents are not quotable", () => {
+  assert.deepEqual(quoteOf({ kind: "prompt", id: "p1", at, text: "hi", timezone: "UTC", attachments: [], quote: null }), { id: "p1", kind: "prompt", text: "hi", state: null });
   assert.equal(quoteOf({ kind: "instruction", id: "i1", at, run: "b1", title: "Log in", text: "more" }), null);
 });
 
 test("the agent reads a quoted card by its kind, id, title and state, and a quoted message by its words", () => {
+  assert.equal(quoted({ id: "p1", kind: "prompt", text: "Book Friday", state: null }), 'their own earlier message "Book Friday"');
   assert.equal(quoted({ id: "r1", kind: "reply", text: "Shall I book it?", state: null }), 'your message "Shall I book it?"');
   assert.equal(quoted({ id: "b1", kind: "browser", text: "Look at the aquarium", state: "working" }), 'your browser task card b1 "Look at the aquarium" (working)');
   assert.equal(quoted({ id: "x1", kind: "failure", text: "", state: "open" }), 'your "could not reply" card x1 (open)');

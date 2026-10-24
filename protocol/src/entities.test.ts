@@ -23,5 +23,5 @@ test("a message from before replies has no quote, and a reply keeps the item it 
   assert.equal(Entity.parse(old).kind, "prompt");
   const quote = { id: "s1", kind: "schedule", text: "Morning briefing", state: "paused" };
   assert.deepEqual(Prompt.parse({ ...old, quote }).quote, quote);
-  assert.equal(Prompt.safeParse({ ...old, quote: { ...quote, kind: "prompt" } }).success, false);
+  assert.equal(Prompt.safeParse({ ...old, quote: { ...quote, kind: "instruction" } }).success, false);
 });

@@ -9,10 +9,13 @@ export const en = {
     share: "Share",
     copy: "Copy",
     reply: "Reply",
+    selectText: "Select text",
     replyingToAmuse: "Replying to Amuse",
+    replyingToYourself: "Replying to yourself",
     cancelReply: "Cancel reply",
     jumpToQuoted: "Go to the message replied to",
     quoted: {
+      prompt: "Your message",
       reply: "Message",
       task: "Task",
       approval: "Approval",

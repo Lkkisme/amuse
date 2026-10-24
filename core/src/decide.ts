@@ -255,7 +255,7 @@ const rules: Rules = {
     const replied = replyTo === undefined ? undefined : state.entities.find((e) => e.id === replyTo);
     if (replyTo !== undefined && !replied) return reject({ kind: "notFound", entity: "reply", id: replyTo });
     const quote = replied ? quoteOf(replied) : null;
-    if (replyTo !== undefined && !quote) return reject({ kind: "unsound", reason: "only Amuse's replies and cards can be replied to" });
+    if (replyTo !== undefined && !quote) return reject({ kind: "unsound", reason: "that cannot be replied to" });
     const id = ctx.id("p");
     return ok([upsert({ kind: "prompt", id, at: ctx.now, text, timezone, attachments, quote })], [{ kind: "prompt", text, attachments, quote }], { id });
   },

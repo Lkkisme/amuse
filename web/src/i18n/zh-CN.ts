@@ -23,10 +23,13 @@ export const zhCN = {
     share: "分享",
     copy: "复制",
     reply: "回复",
+    selectText: "选择文字",
     replyingToAmuse: "回复 Amuse",
+    replyingToYourself: "回复自己",
     cancelReply: "取消回复",
     jumpToQuoted: "跳到被回复的消息",
     quoted: {
+      prompt: "你的消息",
       reply: "消息",
       task: "任务",
       approval: "审批",

@@ -74,6 +74,10 @@ test("a reply names the item it answers: the words of a message, or a card's kin
     '[2026-10-20 08:00] User (replying to your schedule card s1 "Morning briefing" (paused)): make it 9',
   );
   assert.equal(
+    context(stateOf(replying({ id: "p0", kind: "prompt", text: "Book Friday", state: null }))),
+    '[2026-10-20 08:00] User (replying to their own earlier message "Book Friday"): make it 9',
+  );
+  assert.equal(
     context(stateOf(replying({ id: "r1", kind: "reply", text: "Shall I book it for Friday?", state: null }))),
     '[2026-10-20 08:00] User (replying to your message "Shall I book it for Friday?"): make it 9',
   );

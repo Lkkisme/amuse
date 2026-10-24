@@ -33,10 +33,14 @@ test("chat.send with replyTo keeps the item as it was, and gives it to the agent
   assert.deepEqual(words.effects, [{ kind: "prompt", text: "change this", attachments: [], quote: { id: "r1", kind: "reply", text: "It is open.", state: null } }]);
 });
 
-test("only Amuse's own items can be replied to, and they have to be there", () => {
+test("a message of either side can be replied to, and it has to be there; the agents' own exchanges cannot", () => {
   const mine: Entity = { kind: "prompt", id: "p0", at, text: "hi", timezone: "UTC", attachments: [], quote: null };
   assert.deepEqual(send(stateOf(mine), "nope"), { ok: false, rejection: { kind: "notFound", entity: "reply", id: "nope" } });
-  const d = send(stateOf(mine), "p0");
+  const own = send(stateOf(mine), "p0");
+  assert.ok(own.ok);
+  assert.deepEqual(own.effects, [{ kind: "prompt", text: "change this", attachments: [], quote: { id: "p0", kind: "prompt", text: "hi", state: null } }]);
+  const between: Entity = { kind: "instruction", id: "i1", at, run: "b1", title: "Log in", text: "more" };
+  const d = send(stateOf(between), "i1");
   assert.ok(!d.ok && d.rejection.kind === "unsound");
 });
 

@@ -7,7 +7,7 @@ import type { Messages } from "./i18n/en.ts";
 
 /** A quote as one line of text: a message's words; a card's kind and title ("Scheduled task · Morning briefing"). */
 export function quoteLine(quote: Quote, t: Messages): string {
-  if (quote.kind === "reply") return quote.text || t.chat.quoted.reply;
+  if (quote.kind === "prompt" || quote.kind === "reply") return quote.text || t.chat.quoted[quote.kind];
   const kind = t.chat.quoted[quote.kind];
   return quote.text ? `${kind} · ${quote.text}` : kind;
 }

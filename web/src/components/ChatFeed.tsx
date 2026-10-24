@@ -13,12 +13,14 @@ import {
   File as FileIcon,
   Reply as ReplyArrow,
   Share,
+  TextCursor,
 } from "lucide-react";
 import type { Attachment, Entity, Prompt, Quote, Reply, State } from "@amuse/protocol";
 import { quoteOf, size } from "@amuse/core";
 import { useFiles } from "../files.ts";
 import type { Actions } from "../ui.ts";
 import { useT } from "../i18n/react.ts";
+import { Sheet } from "./Sheet";
 import { useLongPress } from "../longPress.ts";
 import { quoteLine } from "../reply.ts";
 import { thinking, time } from "../view.ts";
@@ -189,7 +191,7 @@ function Replyable({
 }) {
   const quote = quoteOf(entity);
   const { handlers } = useLongPress((point, item) => {
-    if (quote) onMenu({ text: quote.text, quote, mine: false, opened: Date.now(), point, item });
+    if (quote) onMenu({ text: quote.text, quote, mine: false, words: null, opened: Date.now(), point, item });
   });
   return (
     // the cards inside are `w-full` up to --amuse-width themselves: the cap is here once, not on both (a percentage of a percentage)
@@ -270,7 +272,9 @@ type Menu = {
   quote: Quote | null;
   /** the user's own bubble (on the right) */
   mine: boolean;
-  /** when it opened (ms): the tap that ends the long press is not a tap outside it */
+  /** a message's words, to read and select in a sheet (the phone's own selection, which the press took over); null for a card */
+  words: { text: string; markdown: boolean } | null;
+  /** when it opened (ms): the tap that ends the long press is not a tap outside it (the browser may send one) */
   opened: number;
   point: { x: number; y: number };
   item: HTMLElement;
@@ -280,26 +284,27 @@ const MENU_WIDTH = 176;
 const MARGIN = 12;
 
 /**
- * Touch: a tap on a bubble, or a long press on an item of Amuse's (a card too), opens this: a card over the
+ * Touch: a long press on a message or a card opens this (a tap does nothing; with a pointer there are the hover actions): a card over the
  * item (above it, else below), from its sender's side, kept on screen; what can be done with it. A tap elsewhere
- * closes it. A long press on the user's own bubble is the phone's: it selects words, with the phone's handles and
- * its copy button.
+ * closes it. Words the phone has already selected stay the phone's, with its handles and its copy button.
  */
 function MessageMenu({
   menu,
   onClose,
   onReply,
+  onSelect,
 }: {
   menu: Menu | null;
   onClose: () => void;
   onReply: (quote: Quote) => void;
+  onSelect: (words: { text: string; markdown: boolean }) => void;
 }) {
   const t = useT();
   const card = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(0);
   useLayoutEffect(() => setHeight(card.current?.offsetHeight ?? 0), [menu]);
   if (!menu) return null;
-  const { text, quote, mine, point, item } = menu;
+  const { text, quote, mine, words, point, item } = menu;
   // over the item, not on its selected words: above it, else below it, from the side of whoever said it;
   // an item too tall for either has it where the finger was
   const rect = item.getBoundingClientRect();
@@ -362,6 +367,16 @@ function MessageMenu({
             onClick={act(() => copyText(text))}
           >
             <Copy size={18} /> {t.chat.copy}
+          </button>
+        )}
+        {words && (
+          <button
+            role="menuitem"
+            className={row}
+            style={{ color: "var(--text-primary)" }}
+            onClick={act(() => onSelect(words))}
+          >
+            <TextCursor size={18} /> {t.chat.selectText}
           </button>
         )}
         {text !== "" && canShare() && (
@@ -539,31 +554,13 @@ function Bubble({
   const t = useT();
   const isUser = item.kind === "prompt";
   const bubble = useRef<HTMLDivElement>(null);
-  /** what a reply to this starts from: Amuse's messages only */
-  const quote = item.kind === "reply" ? quoteOf(item) : null;
-  // a long press on Amuse's message opens the menu too (the user's own is the phone's: it selects words)
+  /** what a reply to this starts from; none for a message the server does not have yet */
+  const quote = sending ? null : quoteOf(item);
+  const words = () => (item.text.trim() === "" ? null : { text: item.text, markdown: !isUser });
+  // a long press on a message opens the menu: Reply and Copy (words already selected by the phone are the phone's)
   const press = useLongPress((point, el) => {
-    if (quote) onMenu({ text: item.text, quote, mine: false, opened: Date.now(), point, item: el });
+    onMenu({ text: item.text, quote, mine: isUser, words: words(), opened: Date.now(), point, item: el });
   });
-  /** A tap (touch only: with a mouse, the row under the bubble has these) opens the menu; not one on a link, nor one ending a selection or a long press. */
-  const tap = (e: React.MouseEvent) => {
-    if (press.consumed()) return;
-    if (!matchMedia("(hover: none)").matches || !bubble.current) return;
-    if (
-      e.target instanceof Element &&
-      e.target.closest("a, button, img, video")
-    )
-      return;
-    if (getSelection()?.isCollapsed === false) return;
-    onMenu({
-      text: item.text,
-      quote,
-      mine: isUser,
-      opened: Date.now(),
-      point: { x: e.clientX, y: e.clientY },
-      item: bubble.current,
-    });
-  };
   const { attachments } = item;
   return (
     <div
@@ -577,9 +574,8 @@ function Bubble({
       )}
       {(item.text !== "" || attachments.length === 0) && (
         <div
-          onClick={tap}
           ref={bubble}
-          {...(isUser ? {} : press.handlers)}
+          {...press.handlers}
           // 16px text on 22px lines; 12px above and below (15px to the eye, with the leading) to 20px at the sides, 4:3;
           // a line is 46px high, a pill with the 22px corners
           // a long run with no space (a web address) breaks where it must, inside the bubble
@@ -678,8 +674,11 @@ export function ChatFeed({
   );
   /** messages in the whole feed: what "new" is counted against, so pages fetched back are not new */
   const total = conversation.earlier + conversation.entities.length;
-  /** the item whose menu is open (touch: a tap on a bubble, a long press on Amuse's) */
+  /** the item whose menu is open (touch: a long press on a message or card) */
   const [menu, setMenu] = useState<Menu | null>(null);
+  /** a message's words open in a sheet to select from (it stays mounted while the sheet closes) */
+  const [reading, setReading] = useState<{ text: string; markdown: boolean } | null>(null);
+  const [readingOpen, setReadingOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -965,7 +964,23 @@ export function ChatFeed({
         menu={menu}
         onClose={() => setMenu(null)}
         onReply={actions.reply}
+        onSelect={(words) => {
+          setReading(words);
+          setReadingOpen(true);
+        }}
       />
+      <Sheet open={readingOpen} onClose={() => setReadingOpen(false)} wide>
+        <div
+          className="overflow-y-auto px-6 pb-8 pt-14 text-[16px] leading-[24px] [overflow-wrap:anywhere] select-text"
+          style={{ color: "var(--text-primary)" }}
+        >
+          {reading?.markdown ? (
+            <RichText text={reading.text} />
+          ) : (
+            <span className="whitespace-pre-wrap">{reading?.text}</span>
+          )}
+        </div>
+      </Sheet>
     </div>
   );
 }
