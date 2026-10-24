@@ -9,6 +9,7 @@ import {
   type Controller,
   type Observation,
   type Size,
+  BrowserLost,
   StaleRef,
   browserPool,
   controller,
@@ -23,16 +24,25 @@ const sizes =
 
 /**
  * A controller over a scripted page: a link and a search box, both pages share ids. `sessions`
- * holds the sessions it has live: the same set given to a second controller is a restart.
+ * holds the sessions it has live (the same set given to a second controller is a restart), and
+ * `desktop` the pages its browser has open.
  */
-/** set to make the fake's window closed */
-let closed = false;
-/** set to make the fake's tab list fail */
-let tabsFail: Error | null = null;
-function fakeController(log: string[] = [], sessions = new Set<string>()): Controller {
-  let url = "https://a.example/";
+interface Desktop {
+  /** the pages open in the browser, in the order they were opened */
+  pages: { url: string }[];
+  /** which page the session drives (-1: the one it drove was closed, and it is not among them) */
+  active: number;
+  /** the browser is gone (its context with it): every call on the session fails, as the controller answers */
+  gone?: Error;
+  /** the controller no longer has the session (it restarted): every call on it is a 404 */
+  restarted?: boolean;
+  /** a step that fails for its own reason, with the page still there */
+  refuses?: Error;
+}
+
+function fakeController(log: string[] = [], sessions = new Set<string>(), desktop: Desktop = { pages: [{ url: "https://a.example/" }], active: 0 }): Controller {
   const page = (): Observation => ({
-    url,
+    url: desktop.pages[desktop.active]?.url ?? "",
     title: "A",
     text_excerpt: "hello",
     interactables: [
@@ -58,47 +68,67 @@ function fakeController(log: string[] = [], sessions = new Set<string>()): Contr
       },
     ],
   });
+  /** What the controller answers when the session, or the browser, is not there. */
+  const reachable = () => {
+    if (desktop.gone) throw desktop.gone;
+    if (desktop.restarted) throw new ControllerError("GET /sessions/s1 failed (404)", 404);
+  };
+  /** A call on the page the session drives: one that was closed fails as the controller's does (a 500). */
+  const onPage = <T>(call: () => T): T => {
+    reachable();
+    if (desktop.active < 0) throw new ControllerError("the page the session drove was closed", 500);
+    return call();
+  };
   let made = 0;
   return {
     create: async (start) => {
-      url = start;
+      reachable();
+      desktop.pages = [{ url: start }];
+      desktop.active = 0;
       const session = `s${++made}`;
       sessions.add(session);
       return session;
     },
-    observe: async () => page(),
+    observe: async () => onPage(() => page()),
     act: async (_, action: Action) => {
+      reachable();
+      if (desktop.refuses) throw desktop.refuses;
+      if (desktop.active < 0) throw new ControllerError("the page the session drove was closed", 500);
+      const current = desktop.pages[desktop.active];
+      if (!current) throw new ControllerError("the page the session drove was closed", 500);
       log.push(`${action.name} ${JSON.stringify(action.body)}`);
-      const before = url;
-      if (action.name === "navigate") url = action.body.url;
-      if (action.name === "click" && action.body.element_id === "op-link")
-        url = "https://b.example/";
+      const before = current.url;
+      if (action.name === "navigate") current.url = action.body.url;
+      if (action.name === "click" && action.body.element_id === "op-link") current.url = "https://b.example/";
       return { before, after: page() };
     },
-    screenshot: async () => new Uint8Array([1, 2, 3]),
+    screenshot: async () => onPage(() => new Uint8Array([1, 2, 3])),
     saveProfile: async () => void log.push("save"),
     profileSites: async () => [{ site: "facebook.com", cookies: 3 }],
     forgetProfileSite: async (_, site) => void log.push(`forget ${site}`),
     clearSessionSite: async (session, site) => void log.push(`clear ${session} ${site}`),
     delete: async (s) => void (log.push(`delete ${s}`), sessions.delete(s)),
     live: async () => [...sessions],
-    downloads: async () => [
-      {
-        filename: "report.pdf",
-        status: "completed",
-        url: "/artifacts/s1/downloads/report.pdf",
-      },
-      {
-        filename: "big.zip",
-        status: "in_progress",
-        url: "/artifacts/s1/downloads/big.zip",
-      },
-    ],
+    downloads: async () =>
+      onPage(() => [
+        {
+          filename: "report.pdf",
+          status: "completed",
+          url: "/artifacts/s1/downloads/report.pdf",
+        },
+        {
+          filename: "big.zip",
+          status: "in_progress",
+          url: "/artifacts/s1/downloads/big.zip",
+        },
+      ]),
     artifact: async (u) => new TextEncoder().encode(`bytes of ${u}`),
-    tabs: async () => {
-      if (tabsFail) throw tabsFail;
-      return closed ? 0 : 1;
+    pages: async () => {
+      reachable();
+      return desktop.pages.map((open, index) => ({ index, active: index === desktop.active, url: open.url }));
     },
+    activatePage: async (_, index) => void (log.push(`activate ${index}`), (desktop.active = index)),
+    openPage: async (_, url) => void (log.push(`open ${url ?? "about:blank"}`), desktop.pages.push({ url: url ?? "about:blank" }), (desktop.active = desktop.pages.length - 1)),
   };
 }
 
@@ -417,22 +447,81 @@ test("finished downloads are handed over once each", async () => {
   assert.deepEqual(await pool.downloads("r1"), []);
 });
 
-test("a run whose window the user closed is no longer open; an unanswered controller is not taken for that", async () => {
+test("a session the controller no longer has is not open; one whose page was closed is left to the recovery; an unanswered controller is not taken for either", async () => {
+  const desktop: Desktop = { pages: [{ url: "https://a.example/" }], active: 0 };
   const pool = browserPool(
-    [{ name: "n1", controller: fakeController(), vnc: "ws://n1/websockify" }],
+    [{ name: "n1", controller: fakeController([], new Set(), desktop), vnc: "ws://n1/websockify" }],
     { desktop: sizes() },
   );
   await pool.open("r1", "https://a.example/");
   assert.equal(await pool.stillOpen("r1"), true);
-  closed = true;
-  assert.equal(await pool.stillOpen("r1"), false);
-  closed = false;
-  assert.equal(await pool.stillOpen("nope"), false);
-  tabsFail = new Error("fetch failed");
+  // the page it drove was closed: the run is left to take one up again, not closed
+  desktop.pages = [];
+  desktop.active = -1;
   assert.equal(await pool.stillOpen("r1"), true);
-  tabsFail = new ControllerError("GET /sessions/x/tabs failed (404)", 404);
+  // the controller restarted, or its browser was closed: the session is gone
+  desktop.restarted = true;
   assert.equal(await pool.stillOpen("r1"), false);
-  tabsFail = null;
+  desktop.restarted = false;
+  // a controller that does not answer is not taken for that
+  desktop.gone = new Error("fetch failed");
+  assert.equal(await pool.stillOpen("r1"), true);
+  delete desktop.gone;
+  assert.equal(await pool.stillOpen("nope"), false);});
+
+test("a page that was closed is taken up again: another page of the browser, or a fresh one at the last URL", async () => {
+  const log: string[] = [];
+  const desktop: Desktop = { pages: [], active: -1 };
+  const pool = browserPool(
+    [{ name: "n1", controller: fakeController(log, new Set(), desktop), vnc: "ws://n1/websockify" }],
+    { desktop: sizes() },
+  );
+  await pool.open("r1", "https://a.example/");
+  assert.equal((await pool.look("r1")).url, "https://a.example/");
+  // the user closed that tab, and the browser has another page open (a window they opened)
+  desktop.pages = [{ url: "https://b.example/" }];
+  desktop.active = -1;
+  const taken = await pool.look("r1");
+  assert.deepEqual(log.filter((line) => line.startsWith("activate")), ["activate 0"], "the most recent page is taken up");
+  assert.equal(taken.url, "https://b.example/");
+  assert.match(taken.note ?? "", /page this task was on was closed; it is on another page/);
+  assert.equal((await pool.look("r1")).note, undefined, "the agent is told once");
+  // and with no page left at all, a fresh one opens in the same browser, at the URL the run was on
+  desktop.pages = [];
+  desktop.active = -1;
+  const opened = await pool.look("r1");
+  assert.deepEqual(log.filter((line) => line.startsWith("open")), ["open https://b.example/"], "at the last URL the run was on");
+  assert.equal(opened.url, "https://b.example/");
+  assert.match(opened.note ?? "", /page this task was on was closed; a new one is open at https:\/\/b\.example\//);
+});
+
+test("a browser that is gone is said so, and no page is invented", async () => {
+  const desktop: Desktop = { pages: [], active: -1 };
+  const pool = browserPool(
+    [{ name: "n1", controller: fakeController([], new Set(), desktop), vnc: "ws://n1/websockify" }],
+    { desktop: sizes() },
+  );
+  await pool.open("r1", "https://a.example/");
+  // the window was closed with its context: the session is there, and nothing of it answers
+  desktop.gone = new ControllerError("Target page, context or browser has been closed", 500);
+  await assert.rejects(pool.look("r1"), BrowserLost);
+  await assert.rejects(pool.step("r1", { kind: "press", key: "Enter" }), BrowserLost);
+  assert.equal(await pool.screenshot("r1"), null, "a preview that cannot be had is no error");
+  await assert.rejects(pool.downloads("r1"), BrowserLost, "the agent is told, so its task can end");
+});
+
+test("a step that fails with the page still there is not taken for a page that was closed", async () => {
+  const log: string[] = [];
+  const desktop: Desktop = { pages: [{ url: "https://a.example/" }], active: 0 };
+  const pool = browserPool(
+    [{ name: "n1", controller: fakeController(log, new Set(), desktop), vnc: "ws://n1/websockify" }],
+    { desktop: sizes() },
+  );
+  await pool.open("r1", "https://a.example/");
+  desktop.refuses = new ControllerError("the field is not there", 500);
+  await assert.rejects(pool.step("r1", { kind: "press", key: "Enter" }), /the field is not there/);
+  assert.deepEqual(log.filter((line) => /^(activate|open) /.test(line)), [], "nothing is taken up or opened");
+  assert.equal((await pool.look("r1")).note, undefined);
 });
 
 test("the sites logins are kept for are listed; forgetting one takes it from what is kept and signs every open browser out of it", async () => {

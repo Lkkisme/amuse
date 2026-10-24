@@ -54,6 +54,7 @@ What changed in each release of Amuse, for the people who run it. The format fol
 - The terminal's lines are a little taller, so Chinese characters are no longer cut off at the top.
 
 ### Fixed
+- A browser whose page was closed (the tab closed during a takeover, a reload, a crash) is taken up again instead of failing over and over: Amuse uses another page of the same browser if there is one, or opens a new one in it at the last address, so the cookies and the sign-in stay and the task carries on (the browser agent is told in a line). If the whole browser is gone, the task ends as lost and Amuse hears it, instead of calling a dead page until it gives up.
 - A restart no longer leaves a browser card blank and its browser unusable: the browsers open on the controllers are taken up again where they were (the preview, the live view and taking over work as before), a browser whose session is gone is closed instead of staying as a card that leads nowhere, and the sessions earlier runs left behind are closed on the controllers.
 - The status under Amuse's avatar glides to its new size and changes its line with a crossfade, instead of snapping and flickering; the brief "responding" line between two tools no longer flashes in.
 - The chat keeps its least width when the window is made narrower after the browser panel was dragged wide; widened again, the panel comes back to the width it was dragged to.

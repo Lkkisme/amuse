@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { type AgentIO, type Workspace, WorkspaceError, memoryRules, noWorkspace } from "@amuse/core";
 import type { Browsers } from "@amuse/browser";
 import { Browser } from "@amuse/protocol";
-import { freePath, ended, failedTask, needsTheUser, pauseTimedOut, pausedAtBudget, piBrowserAgent, startedTask, stoppedByUser } from "./browser-agent.ts";
+import { freePath, ended, failedTask, lostBrowser, needsTheUser, pauseTimedOut, pausedAtBudget, piBrowserAgent, startedTask, stoppedByUser } from "./browser-agent.ts";
 
 /** A workspace where these paths are files, and these are links the workspace will not look at. */
 function holding(files: string[], links: string[]): Workspace {
@@ -189,6 +189,16 @@ test("a run that used up its steps pauses and reports; one nobody continues ends
     pauseTimedOut(onTask, report, 30 * 60_000),
     '[browser task "SHAPE training" (b-1) stopped: nothing continued it within 30 minutes]\n<untrusted>\nModules 4.08-5.08 are open but none is checked; the calendar is next.\n</untrusted>',
   );
+});
+
+test("a browser the pool says is gone ends the task as a failure, and the chat hears it", () => {
+  const said: string[] = [];
+  const why = "Its browser is gone: the page was closed, or the browser with it.";
+  const told = lostBrowser({ lost: (note) => void said.push(note) }, why);
+  assert.deepEqual(said, [why], "the run is ended (the #56 failure path, which wakes the chat)");
+  assert.equal(told.content[0]?.text, `${why} The task has ended.`);
+  // a run with no way to end (a browser already let go) says nothing more
+  assert.equal(lostBrowser({ lost: null }, why).content[0]?.text, `${why} The task has ended.`);
 });
 
 test("the user stopping a browser task, or closing its browser, is one note that does not wake the chat", () => {

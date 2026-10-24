@@ -55,6 +55,15 @@ export const Download = z.object({
 });
 export type Download = z.infer<typeof Download>;
 
+/** One of a session's open pages, as the controller lists them. */
+export const Page = z.object({
+  index: z.int(),
+  /** whether this is the page the session drives (none of them: it drives one that was closed) */
+  active: z.boolean().default(false),
+  url: z.string(),
+});
+export type Page = z.infer<typeof Page>;
+
 export interface Controller {
   create(startUrl: string, profile: string | null): Promise<string>;
   observe(session: string): Promise<Observation>;
@@ -73,8 +82,12 @@ export interface Controller {
   live(): Promise<string[]>;
   /** What the session's pages have downloaded so far. */
   downloads(session: string): Promise<Download[]>;
-  /** How many tabs the session has open (none: the user closed its window). */
-  tabs(session: string): Promise<number>;
+  /** The pages the session's browser has open, in the order they were opened; the active one is the page it drives. */
+  pages(session: string): Promise<Page[]>;
+  /** Take up one of them (by its index) as the page the session drives. */
+  activatePage(session: string, index: number): Promise<void>;
+  /** Open a page in the session's own browser (its cookies and sign-ins stay); `url` null opens a blank one. */
+  openPage(session: string, url: string | null): Promise<void>;
   /** A downloaded file's bytes, by its /artifacts/ url. */
   artifact(url: string): Promise<Uint8Array>;
 }
@@ -136,7 +149,13 @@ export function controller(base: string, token: string, http: typeof fetch = fet
       return (await json(z.array(Session), "GET", "/sessions")).filter((s) => s.live).map((s) => s.id);
     },
     downloads: (session) => json(z.array(Download.loose()), "GET", `/sessions/${session}/downloads`),
-    tabs: async (session) => (await json(z.array(z.object({ index: z.int() }).loose()), "GET", `/sessions/${session}/tabs`)).length,
+    pages: (session) => json(z.array(Page), "GET", `/sessions/${session}/tabs`),
+    async activatePage(session, index) {
+      await request("POST", `/sessions/${session}/tabs/activate`, { index });
+    },
+    async openPage(session, url) {
+      await request("POST", `/sessions/${session}/tabs/open`, { url, activate: true });
+    },
     async artifact(url) {
       if (!url.startsWith("/artifacts/")) throw new ControllerError("not an artifact");
       return new Uint8Array(await (await request("GET", url, undefined, 120_000)).arrayBuffer());

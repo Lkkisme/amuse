@@ -75,6 +75,8 @@ export interface PageView {
     href: string | null;
     disabled: boolean;
   }[];
+  /** set when the run's page had gone and another was taken up in its place: what happened, in a line */
+  note?: string;
 }
 
 /** What the browser agent and the API need from browsers, per run. */
@@ -128,9 +130,16 @@ export class StaleRef extends Error {
   }
 }
 
+/** The run's browser is gone: its page, and the browser with it, were closed, and nothing can be taken up. */
+export class BrowserLost extends Error {}
+
 interface Run {
   node: Node;
   session: string;
+  /** where the page was at the last look: where a fresh page is opened when this one is closed */
+  url: string;
+  /** set when the run's page had gone and another was taken up (or opened): what to tell the agent, once */
+  note: string | null;
   /** ref → controller id, for the latest look only */
   current: Map<string, string>;
   /** controller id → ref, stable for the run so an element keeps its ref */
@@ -195,10 +204,14 @@ export function browserPool(
   /** Take a node for a run adopted again: it is not free any more. */
   const adopt = (id: string, node: Node, session: string) => {
     free.splice(free.indexOf(node), 1);
-    runs.set(id, { node, session, current: new Map(), refs: new Map(), taken: new Set(), forgotten: new Set() });
+    runs.set(id, { node, session, url: "", note: null, current: new Map(), refs: new Map(), taken: new Set(), forgotten: new Set() });
   };
   const viewOf = (r: Run, o: Observation): PageView => {
     r.current = new Map();
+    r.url = o.url;
+    // what the recovery has to say is said once, with the first look after it
+    const note = r.note;
+    r.note = null;
     const elements = o.interactables.map((e) => {
       let ref = r.refs.get(e.element_id);
       if (!ref) {
@@ -214,16 +227,48 @@ export function browserPool(
         disabled: e.disabled === true,
       };
     });
-    return { url: o.url, title: o.title, text: o.text_excerpt ?? "", elements };
+    return { url: o.url, title: o.title, text: o.text_excerpt ?? "", elements, ...(note ? { note } : {}) };
   };
   const target = (r: Run, ref: string) => {
     const id = r.current.get(ref);
     if (!id) throw new StaleRef(ref);
     return id;
   };
+  /**
+   * The run's page had gone (the user closed its tab, a reload replaced it, it crashed): take up the session's most
+   * recent page, or open a fresh one in the same browser (its cookies and the sign-in stay) at the last URL the run
+   * was on. False when the page is still there, so the failure was something else. Throws BrowserLost when the
+   * browser itself is gone.
+   */
+  const recover = async (r: Run): Promise<boolean> => {
+    const pages = await r.node.controller.pages(r.session).catch(() => {
+      throw new BrowserLost("Its browser is gone: the page was closed, or the browser with it.");
+    });
+    if (pages.some((page) => page.active)) return false;
+    const last = pages.at(-1);
+    if (last) {
+      await r.node.controller.activatePage(r.session, last.index);
+      r.note = `The page this task was on was closed; it is on another page of the same browser now (${last.url}).`;
+    } else {
+      const url = /^https?:/.test(r.url) ? r.url : null;
+      await r.node.controller.openPage(r.session, url);
+      r.note = url ? `The page this task was on was closed; a new one is open at ${url}.` : "The page this task was on was closed; a new one is open.";
+    }
+    return true;
+  };
+  /** A call on the run's page, with the recovery above: a page that is gone is taken up again, and the call is made once more. */
+  const onPage = async <T>(r: Run, call: () => Promise<T>): Promise<T> => {
+    try {
+      return await call();
+    } catch (error) {
+      if (!(await recover(r))) throw error;
+      return await call();
+    }
+  };
   /** Act; refs are retired when the step moved the page somewhere else. */
   const act = async (r: Run, action: Parameters<Controller["act"]>[1]) => {
-    const { before, after } = await r.node.controller.act(r.session, action);
+    const { before, after } = await onPage(r, () => r.node.controller.act(r.session, action));
+    if (after) r.url = after.url;
     if (after && before !== after.url) r.current = new Map();
   };
 
@@ -291,6 +336,8 @@ export function browserPool(
         runs.set(id, {
           node,
           session,
+          url,
+          note: null,
           current: new Map(),
           refs: new Map(),
           taken: new Set(),
@@ -304,7 +351,7 @@ export function browserPool(
     },
     async look(id) {
       const r = run(id);
-      return viewOf(r, await r.node.controller.observe(r.session));
+      return viewOf(r, await onPage(r, () => r.node.controller.observe(r.session)));
     },
     async step(id, step) {
       const r = run(id);
@@ -361,7 +408,7 @@ export function browserPool(
     async screenshot(id) {
       const r = runs.get(id);
       return r
-        ? r.node.controller.screenshot(r.session).catch(() => null)
+        ? onPage(r, () => r.node.controller.screenshot(r.session)).catch(() => null)
         : null;
     },
     async remember(id) {
@@ -429,18 +476,17 @@ export function browserPool(
     async stillOpen(id) {
       const r = runs.get(id);
       if (!r) return false;
-      // a window seen to have no tabs is closed, as is a session the controller no longer has (it restarted);
-      // a controller that does not answer is not taken for that
-      const tabs = await r.node.controller
-        .tabs(r.session)
-        .catch((error: unknown) =>
-          error instanceof ControllerError && error.status === 404 ? 0 : 1,
-        );
-      return tabs > 0;
+      // a session the controller no longer has is closed (it restarted, or its browser was closed). A session whose
+      // page was closed is not taken for that: the page is taken up again where it is needed (recover), so the run
+      // is left to it. A controller that does not answer is not taken for a closed browser either.
+      return await r.node.controller
+        .pages(r.session)
+        .then(() => true)
+        .catch((error: unknown) => !(error instanceof ControllerError && error.status === 404));
     },
     async downloads(id) {
       const r = run(id);
-      const done = (await r.node.controller.downloads(r.session)).filter(
+      const done = (await onPage(r, () => r.node.controller.downloads(r.session))).filter(
         (d) => d.status === "completed" && !r.taken.has(d.url),
       );
       const files: FileData[] = [];

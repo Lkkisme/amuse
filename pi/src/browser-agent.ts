@@ -6,7 +6,7 @@
  * to the main agent. While the user holds the browser, every tool waits.
  */
 import { type AgentSession, type ToolDefinition, defineTool } from "@earendil-works/pi-coding-agent";
-import type { Browsers, PageView, Step } from "@amuse/browser";
+import { type Browsers, BrowserLost, type PageView, type Step } from "@amuse/browser";
 import { type AgentIO, type BrowserProgress, type Ports, type Rules, type Workspace, browserRulesOf, decideBrowser, hostOf, onJob, realTimers, siteOf, siteRuleFor, size } from "@amuse/core";
 import type { BrowserAction } from "@amuse/protocol";
 import { basename, extname } from "node:path";
@@ -60,6 +60,8 @@ interface Run {
   nudge: ((message: string) => boolean) | null;
   /** the steps a stretch allows, and the pause when they are used up (budget.ts) */
   budget: Stretch;
+  /** the run's browser is gone: end the task as a failure (the chat is told), and let the browser go */
+  lost: ((why: string) => void) | null;
   finished: boolean;
   /** the user's rules: a site denied is never shown (policy.ts) */
   rules: Rules;
@@ -86,6 +88,7 @@ interface Run {
 }
 
 const text = (value: string) => ({ content: [{ type: "text" as const, text: value }], details: null });
+type Text = ReturnType<typeof text>;
 const stoppedText = () => text("The task was stopped.");
 
 /** The run as the shared run tools see it (runs.ts). */
@@ -108,17 +111,34 @@ function untilStopped<T>(run: { stop: AbortController }, promise: Promise<T>): P
   });
 }
 
-/** The page as the model reads it: where it is, its text, and the elements it can act on by ref. */
+/**
+ * The page as the model reads it: where it is, its text, and the elements it can act on by ref. A page that had gone
+ * and was taken up again says so first (the pool's recovery), in one line.
+ */
 function render(view: PageView): string {
   const text = view.text.length > snapshotLimit ? `${view.text.slice(0, snapshotLimit)}\n… (truncated)` : view.text;
   const elements = view.elements.map(
     (e) => `[${e.ref}] ${e.role} "${e.label.slice(0, 120)}"${e.href ? ` → ${e.href}` : ""}${e.disabled ? " (disabled)" : ""}`,
   );
-  return `URL: ${view.url}\nTitle: ${view.title}\n\n${text}\n\nElements:\n${elements.join("\n") || "(none)"}`;
+  const note = view.note ? `${view.note}\n\n` : "";
+  return `${note}URL: ${view.url}\nTitle: ${view.title}\n\n${text}\n\nElements:\n${elements.join("\n") || "(none)"}`;
 }
 
+/**
+ * The run's browser is gone (the pool says so: its page, and the browser with it, were closed): the task ends as a
+ * failure — the chat hears it, and is woken for it — and the browser is let go. What the agent is told.
+ */
+export function lostBrowser(run: { lost: ((why: string) => void) | null }, why: string): Text {
+  run.lost?.(why);
+  return text(`${why} The task has ended.`);
+}
+
+/** The page, or null when it cannot be read: a browser that is gone ends the task, and says so. */
+const read = (run: Run): Promise<PageView | null> =>
+  run.browsers.look(run.browser.id).catch((error: unknown) => (error instanceof BrowserLost ? (void lostBrowser(run, error.message), null) : null));
+
 async function observe(run: Run): Promise<string> {
-  const view = await run.browsers.look(run.browser.id).catch(() => null);
+  const view = await read(run);
   if (!view) return "(the page could not be read)";
   run.url = view.url;
   return render(view);
@@ -267,9 +287,10 @@ function runTools(run: Run): ToolDefinition[] {
     try {
       if (step) await run.browsers.step(run.browser.id, step);
     } catch (error) {
+      if (error instanceof BrowserLost) return lostBrowser(run, error.message);
       failed = `That did not work: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}\n\n`;
     }
-    let view = await run.browsers.look(run.browser.id).catch(() => null);
+    let view = await read(run);
     if (view && (await reach(view.url)) === "no") {
       const told = await noVisit(view.url);
       await back();
@@ -282,7 +303,7 @@ function runTools(run: Run): ToolDefinition[] {
       if (run.stop.signal.aborted) return stoppedText();
       if (refused) return text(`That led to ${hostOf(target) ?? target}; went back. ${refused}\n\n${await observe(run)}`);
       await run.browsers.step(run.browser.id, { kind: "navigate", url: target }).catch(() => {});
-      view = await run.browsers.look(run.browser.id).catch(() => null);
+      view = await read(run);
       if (view && (await reach(view.url)) !== "yes") {
         await back();
         return text(`That led on to ${hostOf(view.url) ?? view.url}, which is not allowed yet; went back. Navigate there to ask for it.\n\n${await observe(run)}`);
@@ -297,7 +318,12 @@ function runTools(run: Run): ToolDefinition[] {
   const notify = { waiting: (what: string) => (waitingOn(what), set("waiting")), working: () => set("working") };
   const permit = (action: BrowserAction, title: string, detail: string, remember = true) => permitStep(run, notify, action, title, detail, remember);
   /** Keep what the pages downloaded, as the rules for downloads say. */
-  const collect = async (): Promise<string> => keepDownloads(run, notify, await run.browsers.downloads(run.browser.id).catch(() => []));
+  const collect = async (): Promise<string> =>
+    keepDownloads(
+      run,
+      notify,
+      await run.browsers.downloads(run.browser.id).catch((error: unknown) => (error instanceof BrowserLost ? (void lostBrowser(run, error.message), []) : [])),
+    );
   /** A step the rules or the user did not allow: what the agent is told. */
   const stopped = (allowed: Exclude<Permitted, { kind: "yes" }>) =>
     allowed.kind === "stopped"
@@ -449,6 +475,7 @@ function runTools(run: Run): ToolDefinition[] {
           const { data } = await workspace.open(file);
           await run.browsers.upload(run.browser.id, ref, { name: basename(file), data });
         } catch (error) {
+          if (error instanceof BrowserLost) return lostBrowser(run, error.message);
           return text(`That did not work: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}\n\n${await observe(run)}`);
         }
         return act(null);
@@ -620,6 +647,8 @@ export function piBrowserAgent(cfg: PiModelConfig, browsers: Browsers, rules: Ru
           const run: Run = {
             browser, browsers, url: browser.url, io, session: null, stop, held: theirs ? hold() : null, budget, finished: false, rules,
             allowed: browser.url, granted: new Set(start ? [start] : []), workspace, downloaded: [], jobs: 0, queue: Promise.resolve(), idle: null, mail: null, end: null, watch: null, taken: theirs, nudge: null,
+            // its browser is gone: the task ends as a failure (the chat hears it), and the browser is let go
+            lost: (why) => { failed(browser, io, why); close(browser.id, io); },
           };
           runs.set(browser.id, run);
           const pi = await openSession(cfg, system, runTools(run), { images: true });
