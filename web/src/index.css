@@ -350,6 +350,22 @@
   .msg-actions { display: none; }
 }
 
+/* The item a tapped quote went to (ChatFeed): a blue wash that fades */
+.quote-flash {
+  border-radius: 24px;
+  animation: quote-flash 1.6s ease-out;
+}
+@keyframes quote-flash {
+  0%, 35% {
+    background: color-mix(in srgb, var(--fill-blue) 18%, transparent);
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--fill-blue) 18%, transparent);
+  }
+  100% {
+    background: transparent;
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
 /* Buttons show they can be pressed (Tailwind's base resets them to the arrow) */
 button:not(:disabled),
 [role="button"]:not([aria-disabled="true"]) {

@@ -16,6 +16,7 @@ import type {
   Failure,
   Params,
   Question,
+  Quote,
   Resolution,
   RunOutcome,
   Schedule,
@@ -26,6 +27,7 @@ import type {
   When,
   Needs,
 } from "@amuse/protocol";
+import { quoteOf } from "./quote.ts";
 import { APPROVAL_TTL_MS, GRACE_MS, MAX_SCHEDULES, check, later, nextRun, standing } from "./schedule.ts";
 
 /** The same refusal (what, and where) again within this long is the same record. */
@@ -52,7 +54,7 @@ export function place(state: State, change: Change): Event {
 
 /** Work for the ports once the changes are recorded. */
 export type Effect =
-  | { kind: "prompt"; text: string; attachments: Attachment[] }
+  | { kind: "prompt"; text: string; attachments: Attachment[]; quote: Quote | null }
   /** wake the chat's agent again with a note it could not answer before */
   | { kind: "note"; text: string }
   | { kind: "interrupt" }
@@ -248,9 +250,14 @@ function closeQuestions(state: State, run: string): { changes: Change[]; effects
 type Rules = { [M in CommandMethod]: (state: State, params: Params[M], ctx: Context) => Decision<Outputs[M]> };
 
 const rules: Rules = {
-  "chat.send": (_, { text, timezone, attachments }, ctx) => {
+  "chat.send": (state, { text, timezone, attachments, replyTo }, ctx) => {
+    // an item of Amuse's, quoted as it is now
+    const replied = replyTo === undefined ? undefined : state.entities.find((e) => e.id === replyTo);
+    if (replyTo !== undefined && !replied) return reject({ kind: "notFound", entity: "reply", id: replyTo });
+    const quote = replied ? quoteOf(replied) : null;
+    if (replyTo !== undefined && !quote) return reject({ kind: "unsound", reason: "only Amuse's replies and cards can be replied to" });
     const id = ctx.id("p");
-    return ok([upsert({ kind: "prompt", id, at: ctx.now, text, timezone, attachments })], [{ kind: "prompt", text, attachments }], { id });
+    return ok([upsert({ kind: "prompt", id, at: ctx.now, text, timezone, attachments, quote })], [{ kind: "prompt", text, attachments, quote }], { id });
   },
 
   "chat.retry": (state, { id }) => {
@@ -262,7 +269,7 @@ const rules: Rules = {
     // the user's latest message, as they sent it
     const last = state.entities.findLast((e): e is Extract<Entity, { kind: "prompt" }> => e.kind === "prompt");
     if (!last) return reject({ kind: "notFound", entity: "prompt", id });
-    return ok([tried], [{ kind: "prompt", text: last.text, attachments: last.attachments }], null);
+    return ok([tried], [{ kind: "prompt", text: last.text, attachments: last.attachments, quote: last.quote }], null);
   },
 
   "chat.stop": (state) => {

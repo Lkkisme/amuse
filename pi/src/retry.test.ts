@@ -8,7 +8,7 @@ test("a model service that fails and then answers on retry shows the reply, not 
     fauxAssistantMessage("", { stopReason: "error", errorMessage: "502 Bad Gateway" }),
     fauxAssistantMessage("Here you are."),
   ]);
-  agent.prompt({ kind: "message", text: "hello", attachments: [] }, io);
+  agent.prompt({ kind: "message", text: "hello", attachments: [], quote: null }, io);
   await until(1);
   assert.deepEqual(replies(), ["Here you are."]);
   assert.deepEqual(failures(), []);

@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type Browser, type Entity, type State, apply, empty } from "@amuse/protocol";
+import { type Browser, type Entity, type Quote, type State, apply, empty } from "@amuse/protocol";
 import { agentContext as context, closedParts, recall } from "./context.ts";
 import { place } from "./decide.ts";
 
 const at = "2026-10-20T08:00:00Z";
 const stateOf = (...entities: Entity[]): State =>
   entities.reduce((s, entity) => apply(s, { seq: s.seq + 1, event: place(s, { kind: "upserted", entity }) }), empty);
-const prompt = (id: string, text: string): Entity => ({ kind: "prompt", id, at, text, timezone: "UTC", attachments: [] });
+const prompt = (id: string, text: string): Entity => ({ kind: "prompt", id, at, text, timezone: "UTC", attachments: [], quote: null });
 const reply = (id: string, text: string): Entity => ({ kind: "reply", id, at, text, streaming: false, attachments: [] });
 const run: Browser = {
   kind: "browser",
@@ -63,13 +63,25 @@ test("recall finds what a conversation said, however old, newest first", () => {
 });
 
 test("files sent with a message are named with their kind, size and place in the workspace", () => {
-  const sent: Entity = { kind: "prompt", id: "p1", at, text: "what is this?", timezone: "UTC", attachments: [{ id: "f-1", name: "bug.png", type: "image/png", size: 150_000, path: "user/media_library/bug.png" }] };
+  const sent: Entity = { kind: "prompt", id: "p1", at, text: "what is this?", timezone: "UTC", attachments: [{ id: "f-1", name: "bug.png", type: "image/png", size: 150_000, path: "user/media_library/bug.png" }], quote: null };
   assert.equal(context(stateOf(sent)), "[2026-10-20 08:00] User: what is this? [attached: bug.png (image/png, 146 KB) at user/media_library/bug.png]");
+});
+
+test("a reply names the item it answers: the words of a message, or a card's kind, id, title and state, even when the item is no longer in the context", () => {
+  const replying = (quote: Quote): Entity => ({ kind: "prompt", id: "p1", at, text: "make it 9", timezone: "UTC", attachments: [], quote });
+  assert.equal(
+    context(stateOf(replying({ id: "s1", kind: "schedule", text: "Morning briefing", state: "paused" }))),
+    '[2026-10-20 08:00] User (replying to your schedule card s1 "Morning briefing" (paused)): make it 9',
+  );
+  assert.equal(
+    context(stateOf(replying({ id: "r1", kind: "reply", text: "Shall I book it for Friday?", state: null }))),
+    '[2026-10-20 08:00] User (replying to your message "Shall I book it for Friday?"): make it 9',
+  );
 });
 
 test("a sent file is told where it is now, or that it was deleted", () => {
   const file = (id: string, name: string) => ({ id, name, type: "image/png", size: 1024, path: `user/media_library/${name}` });
-  const sent: Entity = { kind: "prompt", id: "p1", at, text: "", timezone: "UTC", attachments: [file("f-1", "a.png"), file("f-2", "b.png")] };
+  const sent: Entity = { kind: "prompt", id: "p1", at, text: "", timezone: "UTC", attachments: [file("f-1", "a.png"), file("f-2", "b.png")], quote: null };
   const where = (a: { id: string }) => (a.id === "f-1" ? "报销/a.png" : null);
   assert.equal(context(stateOf(sent), undefined, where), "[2026-10-20 08:00] User: [attached: a.png (image/png, 1 KB) at 报销/a.png, b.png (image/png, 1 KB) since deleted]");
 });

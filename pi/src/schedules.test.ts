@@ -74,7 +74,7 @@ test("list_schedules gives every schedule in force with its full id, how it runs
     ],
     { schedules },
   );
-  agent.prompt({ kind: "message", text: "what is scheduled?", attachments: [] }, io);
+  agent.prompt({ kind: "message", text: "what is scheduled?", attachments: [], quote: null }, io);
   await until(1);
   assert.equal(
     listed,

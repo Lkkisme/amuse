@@ -16,6 +16,7 @@
  * blocks closing, the text only grows at its end.
  */
 import type { Attachment, Entity, State, When } from "@amuse/protocol";
+import { quoted } from "./quote.ts";
 import { localTime, userZone } from "./schedule.ts";
 import { askedFor } from "./secrets.ts";
 
@@ -65,7 +66,8 @@ export function line(entity: Entity, detail: Detail, zone: string, where: Where 
     case "prompt": {
       const files = attached(entity.attachments, where);
       const said = full ? entity.text : clip(entity.text, 240);
-      return `[${at}] User: ${said}${files ? `${said ? " " : ""}[attached: ${files}]` : ""}`;
+      const replying = entity.quote ? ` (replying to ${quoted(entity.quote)})` : "";
+      return `[${at}] User${replying}: ${said}${files ? `${said ? " " : ""}[attached: ${files}]` : ""}`;
     }
     case "reply": {
       if (!entity.text.trim() && entity.attachments.length === 0) return null;

@@ -8,7 +8,7 @@ import type { Call, Envelope } from "./index.ts";
 const at = "2026-10-20T08:24:00Z";
 
 export const envelopes: Envelope[] = [
-  { seq: 1, event: { kind: "upserted", index: 0, entity: { kind: "prompt", id: "p1", at, text: "Log in to the trip portal", timezone: "Asia/Shanghai", attachments: [] } } },
+  { seq: 1, event: { kind: "upserted", index: 0, entity: { kind: "prompt", id: "p1", at, text: "Log in to the trip portal", timezone: "Asia/Shanghai", attachments: [], quote: null } } },
   { seq: 2, event: { kind: "upserted", index: 1, entity: { kind: "reply", id: "r1", at, text: "On it", streaming: true, attachments: [] } } },
   { seq: 3, event: { kind: "appended", id: "r1", text: "." } },
   { seq: 4, event: { kind: "activity", activity: { kind: "working", label: "Opening page" } } },
@@ -106,6 +106,22 @@ export const envelopes: Envelope[] = [
   },
   { seq: 15, event: { kind: "activity", activity: { kind: "responding", label: null } } },
   { seq: 16, event: { kind: "activity", activity: null } },
+  {
+    seq: 17,
+    event: {
+      kind: "upserted",
+      index: 11,
+      entity: {
+        kind: "prompt",
+        id: "p2",
+        at,
+        text: "Make it 9",
+        timezone: "Asia/Shanghai",
+        attachments: [],
+        quote: { id: "s1", kind: "schedule", text: "Morning briefing", state: "active" },
+      },
+    },
+  },
 ];
 
 export const calls: Call[] = [
@@ -113,6 +129,7 @@ export const calls: Call[] = [
   { method: "session.sync", params: { chat: "c-1", since: 7 } },
   { method: "session.history", params: { chat: "main", before: 40, limit: 20 } },
   { method: "chat.send", params: { chat: "main", text: "hi", timezone: "Asia/Shanghai", attachments: [] } },
+  { method: "chat.send", params: { chat: "main", text: "change this one", timezone: "Asia/Shanghai", attachments: [], replyTo: "s1" } },
   { method: "chat.stop", params: { chat: "main" } },
   { method: "chat.retry", params: { id: "x1" } },
   { method: "chats.list", params: {} },

@@ -152,6 +152,10 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
   /** the chat on screen, for actions made once (sending goes where the user is now) */
   const chatRef = useRef(ui.chat);
   chatRef.current = ui.chat;
+  /** what the next message replies to: the quote bar's item, if it is this chat's */
+  const replying = ui.replying?.chat === ui.chat ? ui.replying.quote : null;
+  const replyingRef = useRef(replying);
+  replyingRef.current = replying;
   // the chat on screen was deleted (here or on another device): back to the main chat
   useEffect(() => {
     if (chats.length > 0 && !chats.some((c) => c.id === ui.chat))
@@ -246,6 +250,9 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         const chat = chatRef.current;
         const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
         const key = `sending-${crypto.randomUUID()}`;
+        // the reply goes with this message and leaves the bar; a message that does not get through takes it back
+        const quote = replyingRef.current;
+        patch((u) => ({ ...u, replying: null }));
         setOutgoing((list) => [
           ...list,
           {
@@ -253,6 +260,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
             chat,
             text,
             attachments,
+            quote,
             at: new Date().toISOString(),
             timezone,
             sent: null,
@@ -260,7 +268,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           },
         ]);
         return session
-          .call("chat.send", { chat, text, timezone, attachments })
+          .call("chat.send", { chat, text, timezone, attachments, ...(quote ? { replyTo: quote.id } : {}) })
           .then(
             ({ id }) =>
               setOutgoing((list) =>
@@ -268,6 +276,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
               ),
             (error: unknown) => {
               setOutgoing((list) => list.filter((o) => o.key !== key));
+              if (quote) patch((u) => (u.replying ? u : { ...u, replying: { chat, quote } }));
               const reason =
                 error instanceof Error ? error.message : String(error);
               patch((u) => ({
@@ -281,6 +290,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
             },
           );
       },
+      reply: (quote) =>
+        patch((u) => ({ ...u, replying: quote ? { chat: chatRef.current, quote } : null })),
       stop: () => call("chat.stop", { chat: chatRef.current }),
       retry: (id) => call("chat.retry", { id }),
       answerSecret: async (id, answer) =>
@@ -573,6 +584,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
             )}
             <Composer
               conversation={conversation}
+              replying={replying}
               place={
                 ui.chat === MAIN
                   ? null

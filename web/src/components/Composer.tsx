@@ -14,12 +14,13 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowUp, CircleAlert, File as FileIcon, LoaderCircle, Mic, Plus, Square, X } from "lucide-react";
-import type { Attachment, State } from "@amuse/protocol";
+import type { Attachment, Quote, State } from "@amuse/protocol";
 import { size } from "@amuse/core";
 import type { Actions } from "../ui.ts";
 import { busy } from "../view.ts";
 import { useFiles } from "../files.ts";
 import { useT } from "../i18n/react.ts";
+import { quoteLine } from "../reply.ts";
 
 /** A file on its way: uploading, up (its attachment), or failed (why). */
 interface Pending {
@@ -30,12 +31,12 @@ interface Pending {
   state: { kind: "uploading" } | { kind: "ready"; attachment: Attachment } | { kind: "failed"; reason: string };
 }
 
-/** `place`: a side chat's title, said in the placeholder ("Message in …"); null in the main chat. */
+/** `place`: a side chat's title, said in the placeholder ("Message in …"); null in the main chat. `replying`: the item of Amuse's the message answers, shown above the input. */
 /** One line of the box, and the most it grows to (about seven lines) before it scrolls. */
 const LINE = 36;
 const MAX_HEIGHT = 166;
 
-export function Composer({ conversation, place, actions }: { conversation: State; place: string | null; actions: Actions }) {
+export function Composer({ conversation, replying, place, actions }: { conversation: State; replying: Quote | null; place: string | null; actions: Actions }) {
   const t = useT();
   const working = busy(conversation);
   const files = useFiles();
@@ -64,6 +65,10 @@ export function Composer({ conversation, place, actions }: { conversation: State
     look();
   }, [draft]);
   const fade = `linear-gradient(to bottom, ${more.above ? "transparent 0, #000 20px" : "#000 0"}, ${more.below ? "#000 calc(100% - 20px), transparent 100%" : "#000 100%"})`;
+  // replying to something: the box is ready for the words
+  useEffect(() => {
+    if (replying) box.current?.focus();
+  }, [replying?.id]);
   // previews are let go of with the composer
   const previews = useRef(new Set<string>());
   useEffect(() => () => previews.current.forEach((url) => URL.revokeObjectURL(url)), []);
@@ -159,9 +164,30 @@ export function Composer({ conversation, place, actions }: { conversation: State
       />
       <div className="relative mx-auto max-w-3xl px-4 pb-5 pt-1">
         <div
-          className={`pointer-events-auto flex flex-col px-2 py-2 ${pending.length > 0 || lines ? "rounded-[26px]" : "rounded-full"}`}
+          className={`pointer-events-auto flex flex-col px-2 py-2 ${pending.length > 0 || lines || replying ? "rounded-[26px]" : "rounded-full"}`}
           style={{ background: "var(--fill-primary)", boxShadow: "var(--shadow-float)" }}
         >
+          {replying && (
+            <div className="mb-1.5 flex items-center gap-2 pl-3 pr-1 pt-1">
+              <span className="w-[3px] self-stretch rounded-full" style={{ background: "var(--fill-blue)" }} />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[12px] font-semibold" style={{ color: "var(--fill-blue)" }}>
+                  {t.chat.replyingToAmuse}
+                </span>
+                <span className="block truncate text-[13px] leading-[18px]" style={{ color: "var(--text-secondary)" }}>
+                  {quoteLine(replying, t)}
+                </span>
+              </span>
+              <button
+                aria-label={t.chat.cancelReply}
+                className="hover-fade flex size-8 shrink-0 items-center justify-center rounded-full"
+                style={{ color: "var(--icon-secondary)" }}
+                onClick={() => actions.reply(null)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+          )}
           {pending.length > 0 && (
             <div className="flex gap-2 overflow-x-auto px-1 pb-2 pt-1.5" aria-label={t.chat.filesToSend}>
               {pending.map((p) => (
@@ -208,6 +234,7 @@ export function Composer({ conversation, place, actions }: { conversation: State
                 add(e.clipboardData.files);
               }}
               onKeyDown={(e) => {
+                if (e.key === "Escape" && replying) return actions.reply(null);
                 // Enter sends where there is a keyboard of keys (Shift+Enter: a new line); on a phone it is a new line, and the
                 // button sends; never while an input method is still choosing the words
                 if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing || matchMedia("(hover: none)").matches) return;

@@ -5,7 +5,7 @@
  * and the server's keeps its place (its key) so nothing flickers. One that
  * fails goes back to the composer (Composer.tsx).
  */
-import type { Attachment, Entity, Prompt } from "@amuse/protocol";
+import type { Attachment, Entity, Prompt, Quote } from "@amuse/protocol";
 
 export interface Outgoing {
   /** its place in the chat, kept by the server's message once it is there */
@@ -13,6 +13,8 @@ export interface Outgoing {
   chat: string;
   text: string;
   attachments: Attachment[];
+  /** the item of Amuse's it replies to */
+  quote: Quote | null;
   at: string;
   timezone: string;
   /** the server's id for it, once it said */
@@ -56,6 +58,7 @@ export function outgoingIn(
         text: o.text,
         timezone: o.timezone,
         attachments: o.attachments,
+        quote: o.quote,
       });
   }
   return { sending, keys };

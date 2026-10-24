@@ -309,6 +309,7 @@ export function seed(): Entity[] {
       text: "Check the school-trip email and research exhibits at the aquarium",
       timezone: zone(),
       attachments: [],
+      quote: null,
     },
     {
       kind: "reply",
@@ -340,6 +341,7 @@ export function seed(): Entity[] {
       text: "Book the table for Friday",
       timezone: zone(),
       attachments: [],
+      quote: null,
     },
     {
       kind: "approval",
@@ -377,6 +379,7 @@ export function seed(): Entity[] {
       text: "Also check the tide schedule, and log in to the trip portal for me",
       timezone: zone(),
       attachments: [],
+      quote: null,
     },
     {
       kind: "browser",

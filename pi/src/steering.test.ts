@@ -10,7 +10,7 @@ import { chat } from "./scripted-chat.ts";
 const userTexts = (context: TranscriptContext): string[] =>
   context.messages.flatMap((m) => (m.role === "user" ? [typeof m.content === "string" ? m.content : m.content.map((c) => (c.type === "text" ? c.text : "")).join("")] : []));
 
-const message = (text: string): Turn => ({ kind: "message", text, attachments: [] });
+const message = (text: string): Turn => ({ kind: "message", text, attachments: [], quote: null });
 
 /** A tool that holds the turn where it is (a long command) until the test lets it go. */
 function slow() {
@@ -243,7 +243,7 @@ const slowFiles: Workspace = {
 /** The user sends a picture with a few words, as the server would record it. */
 const interjectPicture = (conversation: string[], agent: { prompt(turn: Turn, io: AgentIO): void }, io: AgentIO, text: string) => {
   conversation.push(`[08:01] User: ${text}`);
-  agent.prompt({ kind: "message", text, attachments: [png] }, io);
+  agent.prompt({ kind: "message", text, attachments: [png], quote: null }, io);
 };
 
 const error = (message: string) => fauxAssistantMessage("", { stopReason: "error", errorMessage: message });
@@ -278,7 +278,7 @@ test("a turn that fails with the user's message unread shows its card and starts
   assert.deepEqual(replies(), []);
   assert.equal(faux.state.callCount, 1);
   // Retry sends the user's latest message again
-  agent.prompt({ kind: "message", text: "also check tomorrow", attachments: [png] }, io);
+  agent.prompt({ kind: "message", text: "also check tomorrow", attachments: [png], quote: null }, io);
   await until(2);
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.deepEqual(replies(), ["Here is tomorrow."]);

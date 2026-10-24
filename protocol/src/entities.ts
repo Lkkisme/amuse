@@ -29,6 +29,21 @@ export const Attachment = z.object({
   path: z.string().min(1).max(1024),
 });
 
+/**
+ * The item of Amuse's a message replies to, as it was when the user replied: kept with the message, so it reads
+ * the same whether or not the original is still held (a client holds only the recent end of the feed, the agent a
+ * summary of the older part). Only Amuse's own items can be replied to: its replies and its cards.
+ */
+export const Quote = z.object({
+  /** the entity replied to */
+  id: Id,
+  kind: z.enum(["reply", "task", "approval", "connection", "secret", "browser", "schedule", "failure"]),
+  /** what a reply said, or what a card is about (its title), clipped; may be empty */
+  text: z.string(),
+  /** a card's state when replied to ("paused", "pending"); null for a reply */
+  state: z.string().nullable(),
+});
+
 /** What the user said, and where they were: their device's time zone, which is the user's time zone from then on. */
 export const Prompt = z.object({
   kind: z.literal("prompt"),
@@ -39,6 +54,8 @@ export const Prompt = z.object({
   timezone: TimeZone,
   /** files sent with it, in order (prompts from before files could be sent have none) */
   attachments: z.array(Attachment).default([]),
+  /** the item of Amuse's it replies to; null: none (or from before replies) */
+  quote: Quote.nullable().default(null),
 });
 
 /** What the agent said, with any files it sent; `streaming` until its last delta has arrived. */
@@ -288,6 +305,7 @@ export const Activity = z.object({
 
 export type Prompt = z.infer<typeof Prompt>;
 export type Attachment = z.infer<typeof Attachment>;
+export type Quote = z.infer<typeof Quote>;
 export type Reply = z.infer<typeof Reply>;
 export type SecretRequest = z.infer<typeof SecretRequest>;
 export type Task = z.infer<typeof Task>;

@@ -82,7 +82,7 @@ const room = (context: string, now = noon, main = true, live = "") => ({
 test("a turn's message tells what holds still first and what is new last: the conversation, then where, memory, language, now and the task", async () => {
   const { brief } = await import("./agent.ts");
   const conversation = Array.from({ length: 80 }, (_, i) => `[2026-10-21 08:00] User: line ${i} ${"x".repeat(200)}`).join("\n");
-  const told = brief(room(conversation, noon, false), { kind: "message", text: "hi", attachments: [] }, "Your memory of the user: likes tea", false, "Chinese", "");
+  const told = brief(room(conversation, noon, false), { kind: "message", text: "hi", attachments: [], quote: null }, "Your memory of the user: likes tea", false, "Chinese", "");
   const at = (part: string) => told.text.indexOf(part);
   const volatile = ["You are in a side chat", "Your memory of the user: likes tea", "The user writes in Chinese: reply in Chinese.", "Now: ", "Reply to the user's newest message"];
   assert.ok(at(conversation) > 0 && at("The conversation so far") === 0, "the heading, then the conversation");
@@ -97,7 +97,7 @@ test("a turn's message tells what holds still first and what is new last: the co
 test("the message of the next turn begins with the message of this one up to where the chat grew; the volatile parts alone never move it", async () => {
   const { brief } = await import("./agent.ts");
   const lines = Array.from({ length: 80 }, (_, i) => `[2026-10-21 08:00] User: line ${i} ${"x".repeat(200)}`);
-  const message: Turn = { kind: "message", text: "hi", attachments: [] };
+  const message: Turn = { kind: "message", text: "hi", attachments: [], quote: null };
   const first = brief(room(lines.slice(0, 60).join("\n")), message, "memory one", false, null, "");
   const second = brief(room(lines.join("\n"), "2026-10-21T13:00:00Z"), message, "memory two, rewritten", false, "Japanese", "");
   assert.ok(first.stable.length > 0);
@@ -121,7 +121,7 @@ test("what is running now is in every turn, after the part the provider caches, 
   const { brief } = await import("./agent.ts");
   const conversation = Array.from({ length: 80 }, (_, i) => `[2026-10-21 08:00] User: line ${i} ${"x".repeat(200)}`).join("\n");
   const live = 'What is running now:\n- browser task "SHAPE training" (b-1): running, now "进入下一节（2.02）" (2 minutes ago)';
-  const message: Turn = { kind: "message", text: "在做了吗", attachments: [] };
+  const message: Turn = { kind: "message", text: "在做了吗", attachments: [], quote: null };
   const told = brief(room(conversation, noon, true, live), message, "Your memory of the user: likes tea", false, null, '[browser task "SHAPE training" (b-1): the user handed it back; it is carrying on]');
   const stable = told.stable.join("");
   assert.ok(stable.length > 0 && told.text.startsWith(stable), "the heading and the conversation hold still");
@@ -172,7 +172,7 @@ test("each turn of a chat opens a session of the chat's own name, and its system
     return fauxAssistantMessage("ok");
   };
   const { agent, io, until } = await chat([seen, seen], { opened: (session) => ids.push(session.sessionId) });
-  const message: Turn = { kind: "message", text: "hello", attachments: [] };
+  const message: Turn = { kind: "message", text: "hello", attachments: [], quote: null };
   agent.prompt(message, io);
   await until(1);
   agent.prompt(message, { ...io, lastWords: () => "你好，帮我看看" });
@@ -195,7 +195,7 @@ test("the session marks the request's cache where the turn's message holds still
     },
   });
   for (let i = 0; i < 40; i++) conversation.push(`[2026-10-21 08:00] User: line ${i} ${"x".repeat(200)}`);
-  agent.prompt({ kind: "message", text: "hello", attachments: [] }, io);
+  agent.prompt({ kind: "message", text: "hello", attachments: [], quote: null }, io);
   await until(1);
   assert.equal(hooks.length, 1, "set where the session opens");
   const mark = { type: "ephemeral" };

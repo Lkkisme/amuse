@@ -2,7 +2,7 @@
  * UI-only state: which panels are open and what they show. Server state is
  * the conversation (session.ts); this never duplicates it, only ids into it.
  */
-import { type App, type AppAccess, type Attachment, type GivenField, type KeyProvider, MAIN, type SecretAnswer, type SkillOrigin } from "@amuse/protocol";
+import { type App, type AppAccess, type Attachment, type GivenField, type KeyProvider, MAIN, type Quote, type SecretAnswer, type SkillOrigin } from "@amuse/protocol";
 
 export type SettingsSection = "general" | "security" | "models" | "connectors" | "permissions" | "logins" | "secrets" | "schedules" | "sandbox";
 
@@ -50,6 +50,8 @@ export interface Ui {
   explainer: string | null;
   /** task whose detail sheet is open */
   taskDetail: string | null;
+  /** the item of Amuse's the next message in `chat` replies to (the quote bar over the composer) */
+  replying: { chat: string; quote: Quote } | null;
   /** a short message about something that did not work */
   notice: string | null;
 }
@@ -67,6 +69,7 @@ export const initialUi: Ui = {
   viewer: null,
   explainer: null,
   taskDetail: null,
+  replying: null,
   notice: null,
 };
 
@@ -74,6 +77,8 @@ export const initialUi: Ui = {
 export interface Actions {
   /** say something in the chat on screen, with any files already uploaded; fails when it did not get through */
   send(text: string, attachments: Attachment[]): Promise<void>;
+  /** start replying to an item of Amuse's in the chat on screen, or (null) stop; the next message goes with it */
+  reply(quote: Quote | null): void;
   stop(): void;
   /** try again a turn Muse could not reply to */
   retry(failure: string): void;

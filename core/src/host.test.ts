@@ -308,7 +308,7 @@ test("a file is sent with a message only as it was uploaded; the agent gets it w
   const host = createHost({ ...ports, prompt: (turn) => void turns.push(turn) });
   const cat = { id: "f-cat", name: "cat.jpg", type: "image/jpeg", size: 2048, path: "user/media_library/cat.jpg" };
   await host.call("chat.send", { chat: "main", text: "", timezone: "UTC", attachments: [cat] });
-  assert.deepEqual(turns, [{ kind: "message", text: "", attachments: [cat] }]);
+  assert.deepEqual(turns, [{ kind: "message", text: "", attachments: [cat], quote: null }]);
   await assert.rejects(host.call("chat.send", { chat: "main", text: "hi", timezone: "UTC", attachments: [{ ...cat, size: 1 }] }), /file f-cat was not uploaded here/);
   const { entities } = await host.call("session.history", { chat: "main", before: 100, limit: 100 });
   assert.equal(entities.length, 1, "a refused send records nothing");
@@ -358,7 +358,7 @@ test("a turn Amuse could not reply to is tried again once: the user's message as
   await host.call("chat.retry", { id: "x1" });
   await host.call("chat.retry", { id: "x2" });
   assert.deepEqual(turns.slice(1), [
-    { kind: "message", text: "summarize my mail", attachments: [] },
+    { kind: "message", text: "summarize my mail", attachments: [], quote: null },
     { kind: "note", text: "[task done] found 3 offers" },
   ]);
   await assert.rejects(host.call("chat.retry", { id: "x1" }), /cannot retry from retried/);
@@ -742,4 +742,21 @@ test("a journal is replayed as it is read, and the host keeps only the latest ev
   assert.ok(far.kind === "snapshot" && far.state.seq === total, "too far behind for the events kept: a snapshot");
   const current = await host.call("session.sync", { chat: "main", since: total });
   assert.ok(current.kind === "events" && current.events.length === 0);
+});
+
+test("a reply to a card reaches the agent with the card quoted, and the recorded message keeps the quote", async () => {
+  const turns: Turn[] = [];
+  const { ports, io } = capture();
+  const host = createHost({ ...ports, prompt: (turn, agent) => (turns.push(turn), ports.prompt(turn, agent)) }, { timers: manualTime("2026-10-20T08:00:00Z").timers });
+  await host.call("chat.send", { chat: "main", text: "brief me every morning", timezone: "UTC", attachments: [] });
+  const made = io()?.act({ kind: "schedule", title: "Morning briefing", instructions: "Read the mail", when: { kind: "repeat", cron: "0 8 * * *", timezone: "UTC" } });
+  assert.ok(made?.ok);
+  const quote = { id: made.id, kind: "schedule", text: "Morning briefing", state: "active" };
+  const { id } = await host.call("chat.send", { chat: "main", text: "make it 9", timezone: "UTC", attachments: [], replyTo: made.id });
+  assert.deepEqual(turns.at(-1), { kind: "message", text: "make it 9", attachments: [], quote });
+  const { entities } = await host.call("session.history", { chat: "main", before: 100, limit: 100 });
+  const recorded = entities.find((e) => e.id === id);
+  assert.ok(recorded?.kind === "prompt");
+  assert.deepEqual(recorded.quote, quote);
+  await assert.rejects(host.call("chat.send", { chat: "main", text: "and this", timezone: "UTC", attachments: [], replyTo: "gone" }), /not found/);
 });

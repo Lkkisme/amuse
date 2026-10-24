@@ -7,7 +7,7 @@
  * (the status line says what it is doing). Pi's coding tools, extensions,
  * skills and context files are all off: the model sees only amuse's tools (tools.ts).
  */
-import { type AgentIO, type Ports, type Rules, type Turn, type Workspace, attached, blank, closedParts, newId, nowIn, withJobs } from "@amuse/core";
+import { type AgentIO, type Ports, type Rules, type Turn, type Workspace, attached, blank, closedParts, newId, nowIn, quoted, withJobs } from "@amuse/core";
 import { images, workspaceTools } from "./attachments.ts";
 import { memoryBrief, memoryReadTools, memoryWriteTools } from "./memory.ts";
 import { aboutTools } from "./about.ts";
@@ -412,6 +412,7 @@ function steer(steering: Steering, turn: Message, files: Workspace | undefined, 
   const names = attached(turn.attachments);
   const sent = [
     "The user, while you were working:",
+    turn.quote ? `(replying to ${quoted(turn.quote)})` : "",
     turn.text,
     names ? `Attached: ${names}` : "",
     "(If you have more to do before your reply, answer them now with `say`, briefly, then go on.)",
