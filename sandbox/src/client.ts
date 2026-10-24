@@ -9,6 +9,8 @@
  */
 import type { z } from "zod";
 import {
+  type AtRiskFolder,
+  AtRiskFolders,
   DEFAULT_TIMEOUT,
   Failure,
   type Forget,
@@ -55,6 +57,8 @@ export interface SandboxClient {
   waitJob(job: JobRef): Promise<JobState>;
   /** Stop everything and empty the home folder back to its skeleton; the workspace stays. */
   reset(): Promise<void>;
+  /** Folders in the home folder, outside the workspace, that a reset would delete: what the user may want kept. */
+  atRisk(): Promise<AtRiskFolder[]>;
   /** Type a credential into a terminal of herdr's, with Enter after it (a CLI waiting for a code). */
   typeSecret(secret: SecretTyped): Promise<void>;
   /** Keep a credential as an environment variable every command gets. */
@@ -133,6 +137,7 @@ export function sandboxClient(
     stopJobs: async (request) => (await call("POST", "/jobs/stop", JobStates, quick, request)).jobs,
     waitJob: (job) => call("POST", "/jobs/wait", JobState, JOB_LIFETIME * 1000 + margin, job),
     reset: async () => void (await call("POST", "/reset", Nothing, quick)),
+    atRisk: async () => (await call("GET", "/at-risk", AtRiskFolders, quick)).folders,
     typeSecret: async (secret) => void (await call("POST", "/secrets/type", Nothing, quick, secret)),
     setEnv: async (secret) => void (await call("POST", "/secrets/env", Nothing, quick, secret)),
     setFile: async (secret) => void (await call("POST", "/secrets/file", Nothing, quick, secret)),

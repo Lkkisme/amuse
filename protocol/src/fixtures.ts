@@ -144,6 +144,7 @@ export const calls: Call[] = [
   { method: "logins.list", params: {} },
   { method: "logins.forget", params: { site: "facebook.com" } },
   { method: "sandbox.reset", params: {} },
+  { method: "sandbox.atRisk", params: {} },
   { method: "approvals.list", params: {} },
   { method: "keys.list", params: {} },
   { method: "keys.login", params: { provider: "fireworks" } },

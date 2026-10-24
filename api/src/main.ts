@@ -167,7 +167,7 @@ const system = [
   'Give every tool call a short `status`: a few words in the user\'s language saying what you are doing, as the user would put it ("Checking your latest mail", not a tool name); it shows under your name while the tool runs.',
   ...(sandbox
     ? [
-        "You have a computer of your own, a sandbox, for running programs, scripts and installs (the sandbox skill says how). What you do inside it needs no one's OK; deleting or overwriting the user's own files, or anything that leaves it, still does.",
+        "You have a computer of your own, a sandbox, for running programs, scripts and installs (the sandbox skill says how). What you do inside it needs no one's OK; deleting or overwriting the user's own files, or anything that leaves it, still does. Anything the user may want to keep — code, projects, documents, output — goes in the workspace (`projects/` for instance): its home folder is for tools, configs and caches, and a reset wipes everything outside the workspace.",
       ]
     : []),
   "Secrets: look with `list_secrets` before you ask for one, and never ask for one in the chat. A code a program waits for (a login, verification or OAuth code) is temporary: ask with `request_secret` for the terminal it waits in, and it is typed there and kept nowhere. A key, token or password for later is long-term: ask with `request_secret` and it is saved to the user's vault, encrypted (they see it in Settings › Vault): you fill in its plain fields (a username, an account id: ask the user in the chat if you do not know them), and the user types only the secrets on the card; `use_secret` puts it to use in your sandbox. When your work needs a model provider's or Composio's key that is not set up, ask for it with `request_secret` and `provider` instead of sending the user to Settings. You never see a secret's value; what your sandbox prints shows it masked.",
@@ -284,6 +284,18 @@ const about = async (): Promise<string> => {
   ].join("\n");
 };
 
+/**
+ * A call to the sandbox, whose failure the user hears in our own words: what the sandbox said about it (`detail`)
+ * is never passed on as ours.
+ */
+const inOurWords = async <T>(call: () => Promise<T>): Promise<T> => {
+  try {
+    return await call();
+  } catch (error) {
+    throw error instanceof SandboxError ? new Rejected({ kind: "unsound", reason: error.message }) : error;
+  }
+};
+
 const ports: Ports = {
   ...piAgent({ secrets: { secrets: vault, keys }, model, thinking: () => keys.thinking("chat"), auth, system, rules, files: agentFiles, ...(sandbox ? { sandbox } : {}), ...(browsers ? { browsers } : {}), apps, search: apps.search, appsSetup: () => (keys.appKey("composio") ? null : composioGuide), appsFit: async (app) => (keys.appKey("composio") ? await directory.cannotConnect(app) : null), skills, about, defaults: sqliteDefaults(db) }),
   // scheduled work runs on the background model (the chat's when none is chosen)
@@ -344,15 +356,11 @@ const ports: Ports = {
     sandbox && sandboxDirect
       ? {
           reset: async () => {
-            try {
-              await sandbox.reset();
-            } catch (error) {
-              // our own words only, never what the sandbox said about it (`detail`)
-              throw error instanceof SandboxError ? new Rejected({ kind: "unsound", reason: error.message }) : error;
-            }
+            await inOurWords(() => sandbox.reset());
             // the reset emptied its home, where the secrets were put: given again
             await vault.again();
           },
+          atRisk: () => inOurWords(() => sandbox.atRisk()),
         }
       : noSandbox,
   secrets: vault,

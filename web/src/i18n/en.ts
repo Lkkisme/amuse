@@ -187,7 +187,7 @@ export const en = {
     closed: {
       noSandbox: {
         title: "No terminals here",
-        text: "This Amuse has no sandbox, so there are no terminals to show.",
+        text: "This Amuse has no computer of its own, so there are no terminals to show.",
       },
       tooMany: {
         title: "Too many terminals open",
@@ -199,7 +199,7 @@ export const en = {
       },
       unreachable: {
         title: "The terminals cannot be reached",
-        text: "The sandbox may be starting or restarting.",
+        text: (computer: string) => `${computer} may be starting or restarting.`,
       },
     },
   },
@@ -585,7 +585,7 @@ export const en = {
       logins: "Browser data",
       secrets: "Vault",
       schedules: "Schedules",
-      sandbox: "Sandbox",
+      sandbox: "Computer",
       security: "Security",
     },
     general: {
@@ -657,14 +657,19 @@ export const en = {
     delete: "Delete",
   },
   sandbox: {
-    description:
-      "Amuse has a computer of its own, where it runs programs and installs what it needs. Your files in the workspace are shared with it. Reset it to stop what runs there and wipe its home folder; your files are kept.",
-    resetRow: "Reset the sandbox",
-    resetDone: "The sandbox is reset.",
-    resetTitle: "Reset the sandbox?",
+    /** "Amuse's computer": `computer` is the assistant's name, as the Vault says it (`computerName`). */
+    description: (computer: string) =>
+      `${computer} is for installing software and running programs. Your files are there for it to use too.`,
+    resetRow: "Reset the computer",
+    resetDone: "The computer is reset.",
+    resetTitle: (computer: string) => `Reset ${computer}?`,
     resetHelp:
-      "What runs there is stopped, and its home folder is wiped: what Amuse installed or saved there is gone. Software installed for the whole machine and changes to its system settings stay until the container is recreated. Your files in the workspace are kept.",
-    secretsRow: "Credentials for the sandbox now live in the Vault",
+      "What is in your files and in the Vault is kept. Apart from that, its settings, its sign-ins and its own files elsewhere on the computer are wiped, and anything running there stops.",
+    /** Before a reset: the folders in its home, outside the workspace, that it would delete. */
+    resetDeletes: "These will be deleted:",
+    resetFolder: (path: string) => `~/${path}`,
+    resetRepository: (path: string) => `~/${path} (a code repository)`,
+    resetAskToMove: "Ask Amuse to move them into your files first, if you want to keep them.",
   },
   secrets: {
     intro: "Keys and passwords Amuse can use for you.",

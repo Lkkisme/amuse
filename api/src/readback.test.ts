@@ -28,6 +28,7 @@ const sandbox: SandboxClient = {
   stopJobs: async () => [],
   waitJob: async () => idle,
   reset: async () => {},
+  atRisk: async () => [],
   typeSecret: async () => {},
   setEnv: async () => {},
   setFile: async () => {},

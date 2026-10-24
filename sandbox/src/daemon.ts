@@ -18,7 +18,9 @@
  * `herdr server` running as the user, and a websocket at /terminal shows
  * herdr's own interface in a pseudo-terminal (terminal.ts). Reset stops
  * everything and empties the home folder back to its skeleton, never touching
- * the workspace; herdr's server is started again on it.
+ * the workspace; herdr's server is started again on it. What a reset would
+ * delete, outside the workspace, is listed first (/at-risk), so the user can
+ * have anything they want to keep moved out before it goes.
  *
  * Credentials the user gave for the sandbox (through the Amuse server, never
  * the agent) are kept here: as environment variables every command gets (a
@@ -35,6 +37,7 @@ import { z } from "zod";
 import { HerdrError, herdrCall } from "./herdr.ts";
 import { Clip } from "./output.ts";
 import {
+  AtRiskFolder,
   Cols,
   DEFAULT_TIMEOUT,
   Forget,
@@ -99,6 +102,9 @@ const KEPT_JOBS = 20;
 const KEPT_MS = 3_600_000;
 /** A server that keeps ending is started again less and less often, up to this (ms); one that ran this long starts the count over. */
 const LONGEST_RESTART_MS = 60_000;
+/** How deep a scan of the home folder looks for what a reset would delete, and how many folders it names at most. */
+const AT_RISK_DEPTH = 3;
+const AT_RISK_MOST = 20;
 
 /** A request that cannot be done, with why in words. */
 class Refused extends Error {
@@ -507,6 +513,34 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
 
   /* ---------- reset ---------- */
 
+  /**
+   * Folders in the home folder, outside the workspace, that a reset would delete: the non-hidden ones, the ones
+   * holding a `.git` marked (a repository of code is more likely to be the user's work than a tool's own folder).
+   * A few levels deep and a handful of folders at most, so what the user is shown stays short. Hidden folders are
+   * the tools' own (`.config`, `.cache`, `.agents`, `.npm` and the like) and are never listed; a folder that is a
+   * link, or not a folder at all, is not work kept here either, and neither is anything mounted, which `empty`
+   * leaves alone too.
+   */
+  const atRisk = async (): Promise<AtRiskFolder[]> => {
+    const found: AtRiskFolder[] = [];
+    const device = (await lstat(home)).dev;
+    const look = async (dir: string, depth: number): Promise<void> => {
+      for (const name of (await readdir(dir)).sort()) {
+        if (found.length >= AT_RISK_MOST) return;
+        if (name.startsWith(".")) continue;
+        const path = join(dir, name);
+        const info = await lstat(path).catch(() => null);
+        if (!info?.isDirectory() || info.dev !== device || path === workspace) continue;
+        const repository = existsSync(join(path, ".git"));
+        found.push({ path: relative(home, path), repository });
+        // a repository is one entry: what is inside it goes with it
+        if (!repository && depth < AT_RISK_DEPTH) await look(path, depth + 1);
+      }
+    };
+    await look(home, 1);
+    return found;
+  };
+
   const remove = async (path: string) => {
     try {
       await rm(path, { recursive: true, force: true });
@@ -601,6 +635,8 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
     switch (route) {
       case "GET /health":
         return json(res, 200, {});
+      case "GET /at-risk":
+        return json(res, 200, { folders: await atRisk() });
       case "POST /run":
         return await run(await asked(req, Run), res);
       case "POST /jobs":

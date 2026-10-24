@@ -52,6 +52,7 @@ function machine() {
       });
     },
     reset: async () => {},
+    atRisk: async () => [],
     typeSecret: async () => {},
     setEnv: async () => {},
     setFile: async () => {},

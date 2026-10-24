@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "./Button";
 import { useT } from "../i18n/react.ts";
 import type { Messages } from "../i18n/en.ts";
+import { computerName } from "../secrets.ts";
 
 /** Ctrl and Alt held for the next key typed on the phone's keyboard (or the next key of the row). */
 type Mods = { ctrl: boolean; alt: boolean };
@@ -46,7 +47,8 @@ function closedCopy(code: number, t: Messages): { title: string; text: string; a
   if (code === 4404) return { ...t.viewer.closed.noSandbox, again: false };
   if (code === 4429) return { ...t.viewer.closed.tooMany, again: true };
   if (code === 1000) return { ...t.viewer.closed.closed, again: true };
-  return { ...t.viewer.closed.unreachable, again: true };
+  const unreachable = t.viewer.closed.unreachable;
+  return { ...unreachable, text: unreachable.text(computerName(t)), again: true };
 }
 
 const encoder = new TextEncoder();

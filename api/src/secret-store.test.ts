@@ -28,6 +28,7 @@ function fake(fail?: { on: string }) {
       env.clear();
       files.clear();
     },
+    atRisk: async () => [],
     typeSecret: async ({ pane, value }) => {
       if (fail?.on === "type") throw new SandboxError("Nothing in w1:p2 is waiting for it: the terminal is at its shell prompt.");
       typed.push(`${pane} ${value}`);

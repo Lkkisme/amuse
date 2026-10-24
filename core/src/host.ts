@@ -7,6 +7,7 @@
  * uses it in-process (web demo, tests).
  */
 import {
+  type AtRiskFolder,
   type Account,
   type Approval,
   type Attachment,
@@ -188,6 +189,8 @@ export interface Ports {
 export interface Sandbox {
   /** Stop what runs in the sandbox and wipe its home folder; the workspace is kept, and system-wide installs stay until the container is recreated. Rejects, in words, when it cannot. */
   reset(): Promise<void>;
+  /** Folders in the sandbox's home folder, outside the workspace, that a reset would delete: what the user may want kept. Rejects, in words, when it cannot. */
+  atRisk(): Promise<AtRiskFolder[]>;
 }
 
 const noSandboxHere = () => new Rejected({ kind: "unsound", reason: "This server has no sandbox." });
@@ -195,6 +198,9 @@ const noSandboxHere = () => new Rejected({ kind: "unsound", reason: "This server
 /** No sandbox on this server (the demo, tests). */
 export const noSandbox: Sandbox = {
   reset: async () => {
+    throw noSandboxHere();
+  },
+  atRisk: async () => {
     throw noSandboxHere();
   },
 };
@@ -978,6 +984,7 @@ export function createHost(ports: Ports, options: HostOptions = {}): Session {
       await ports.sandbox.reset();
       return null;
     },
+    "sandbox.atRisk": async () => ({ folders: await ports.sandbox.atRisk() }),
     "approvals.list": async () => ({
       approvals: [...rooms.values()]
         .flatMap((room) => room.state.entities.filter((e): e is Approval => e.kind === "approval").map((approval) => ({ chat: room.chat, approval })))

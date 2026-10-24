@@ -49,6 +49,7 @@ test("what the sandbox brings back, output and errors alike, comes masked", asyn
     stopJobs: async () => [job],
     waitJob: async () => job,
     reset: async () => {},
+    atRisk: async () => [],
     typeSecret: async () => {},
     setEnv: async () => {},
     setFile: async () => {},

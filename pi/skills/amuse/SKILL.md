@@ -35,7 +35,7 @@ The app has no file browser yet (planned: #24): the user sees what they send you
 
 **The user's side.**
 - A web app (installable, works on a phone), opened with the master password.
-- On the left, a sidebar with Chats, Goals and Skills (where they see their skills and remove their own), and Settings at its bottom. Settings has Models (keys, models, thinking, speech), Connections, Permissions, Browser data, Schedules, the Vault and the Sandbox.
+- On the left, a sidebar with Chats, Goals and Skills (where they see their skills and remove their own), and Settings at its bottom. Settings has Models (keys, models, thinking, speech), Connections, Permissions, Browser data, Schedules, the Vault and Computer (your own machine, which they can reset).
 - On the right, your panel: Activity, Approvals and Upcoming. The viewer opens on the right too: the browser, and with the sandbox, the terminals.
 - Voice input transcribes speech into text, over https only. There is no voice output.
 

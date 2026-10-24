@@ -109,6 +109,39 @@ test("a reset stops everything and empties the home folder to its skeleton, neve
   assert.equal(readFileSync(outside, "utf8"), "not the sandbox's", "a link out of the home is removed, not followed");
 });
 
+test("a scan says what a reset would delete: the folders in the home folder, not the hidden ones, not the workspace, with repositories marked", async () => {
+  mkdirSync(join(home, "myapp/.git"), { recursive: true });
+  mkdirSync(join(home, "projects/scraper/.git"), { recursive: true });
+  mkdirSync(join(home, "projects/notes"));
+  mkdirSync(join(home, ".cache/work-in-progress"), { recursive: true });
+  mkdirSync(join(home, "deep/a/b/c/d"), { recursive: true });
+  mkdirSync(join(workspace, "in-the-workspace"));
+  writeFileSync(join(home, "loose.txt"), "a file, not a folder");
+
+  assert.deepEqual(await sandbox.atRisk(), [
+    { path: "deep", repository: false },
+    { path: "deep/a", repository: false },
+    { path: "deep/a/b", repository: false },
+    { path: "myapp", repository: true },
+    { path: "projects", repository: false },
+    { path: "projects/notes", repository: false },
+    { path: "projects/scraper", repository: true },
+  ]);
+
+  await sandbox.reset();
+});
+
+test("a scan names a handful of folders at most, however many there are", async () => {
+  for (let n = 0; n < 25; n++) mkdirSync(join(home, `folder-${String(n).padStart(2, "0")}`));
+
+  const folders = await sandbox.atRisk();
+  assert.equal(folders.length, 20);
+  assert.equal(folders[0]?.path, "folder-00");
+  assert.equal(folders.at(-1)?.path, "folder-19");
+
+  await sandbox.reset();
+});
+
 test("when the daemon cannot be reached, the client says so in words", async () => {
   const gone = sandboxClient("http://127.0.0.1:1");
   assert.match(await failure(gone.reset()), /cannot be reached/);

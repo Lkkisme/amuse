@@ -18,6 +18,7 @@ function fake(answers: { ran?: Ran; fail?: string } = {}) {
     stopJobs: async () => assert.fail("a helper does not start jobs"),
     waitJob: async () => assert.fail("a helper does not start jobs"),
     reset: async () => {},
+    atRisk: async () => [],
     typeSecret: async () => {},
     setEnv: async () => {},
     setFile: async () => {},

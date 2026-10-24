@@ -7,7 +7,7 @@
  *   Skills 技能 · Settings 设置 · General 通用 · Models 模型 ·
  *   Connections 连接 · Connect 连接 · Permissions 权限 ·
  *   Browser data 浏览器数据 · Vault 保险箱 · Schedules 定时任务 ·
- *   Sandbox 沙箱 · Browser 浏览器 · Terminal 终端 · Take control 接管 ·
+ *   Computer 电脑 · Browser 浏览器 · Terminal 终端 · Take control 接管 ·
  *   Done (handing back) 完成 · Stop 停止 · Activity 动态 · Approvals 审批 ·
  *   Upcoming 即将进行 · Allow once 仅此一次 · Always allow 始终允许 ·
  *   Deny 拒绝 · Allow 允许 · Ask 询问 · Copy 复制 · Share 分享 ·
@@ -199,7 +199,7 @@ export const zhCN = {
     closed: {
       noSandbox: {
         title: "这里没有终端",
-        text: "这个 Amuse 没有沙箱，因此没有可以显示的终端。",
+        text: "这个 Amuse 没有自己的电脑，因此没有可以显示的终端。",
       },
       tooMany: {
         title: "打开的终端太多",
@@ -211,7 +211,7 @@ export const zhCN = {
       },
       unreachable: {
         title: "无法连接终端",
-        text: "沙箱可能正在启动或重启。",
+        text: (computer) => `${computer}可能正在启动或重启。`,
       },
     },
   },
@@ -589,7 +589,7 @@ export const zhCN = {
       logins: "浏览器数据",
       secrets: "保险箱",
       schedules: "定时任务",
-      sandbox: "沙箱",
+      sandbox: "电脑",
       security: "安全",
     },
     general: {
@@ -660,13 +660,18 @@ export const zhCN = {
     delete: "删除",
   },
   sandbox: {
-    description: "Amuse 有自己的一台电脑，用来运行程序、安装所需的软件。你在工作区的文件会与它共享。重置会停止其中运行的程序，并清空它的主文件夹；你的文件会保留。",
-    resetRow: "重置沙箱",
-    resetDone: "沙箱已重置。",
-    resetTitle: "重置沙箱？",
+    /** 「Amuse 的电脑」：`computer` 是助手的名，与保险箱里说的一致（`computerName`）。 */
+    description: (computer) => `${computer}用来装软件、运行程序。你的文件它也能用。`,
+    resetRow: "重置电脑",
+    resetDone: "电脑已重置。",
+    resetTitle: (computer) => `重置 ${computer}？`,
     resetHelp:
-      "其中运行的程序会停止，主文件夹会被清空：Amuse 在其中安装或保存的内容都会消失。为整台机器安装的软件，以及对系统设置的更改，会保留到容器重新创建为止。你在工作区的文件会保留。",
-    secretsRow: "沙箱用的凭据现在放在保险箱里",
+      "「文件」里的东西和保险箱都会保留；除此之外，它在电脑上的设置、登录和其他地方的文件都会清掉，正在运行的程序会停止。",
+    /** 重置前：它主文件夹里、工作区之外会被删掉的文件夹。 */
+    resetDeletes: "这些会被删除：",
+    resetFolder: (path) => `~/${path}`,
+    resetRepository: (path) => `~/${path}（代码仓库）`,
+    resetAskToMove: "想留下的话，先请 Amuse 把它们移到你的文件里。",
   },
   secrets: {
     intro: "Amuse 可以替你使用的密钥和密码。",

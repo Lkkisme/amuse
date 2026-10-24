@@ -59,13 +59,15 @@ Settings › Models › Voice. Run it in Docker beside Amuse and give its servic
 on the host outside Docker it is `host.docker.internal`, which a host firewall (ufw) may block for
 containers. The mic needs https (see above).
 
-## Sandbox
+## Computer
 
 Amuse has a computer of its own: a Debian 13 container where it runs commands, installs software
 (`sudo apt install …`, pip, npm) and runs programs and servers. It works there as a normal user
 with passwordless `sudo`, on files it shares with you: your workspace (the files Amuse keeps) is
 mounted in it. Commands are not approved one by one, because the container is the boundary; what
-leaves it, and deleting or overwriting the files you sent, still needs your word.
+leaves it, and deleting or overwriting the files you sent, still needs your word. In the app it is
+Settings › Computer; in Docker the services and the environment variables below keep the name
+`sandbox`.
 
 - It reaches the public internet, and nothing of yours. Connections from it to the host, your LAN,
   Tailscale and other VPN peers, link-local addresses, the ranges proxy tools on the host (Clash, sing-box,
@@ -118,10 +120,14 @@ leaves it, and deleting or overwriting the files you sent, still needs your word
 - Its home folder (what it installs for itself, its settings and caches) is a volume of its own, and
   stays across restarts. Packages installed with `apt` and changes to `/etc` live in the container
   instead: they stay across restarts, and go when the container is recreated, which an update can do.
-- Reset: Settings › Sandbox › Reset stops everything running there and wipes its home folder. It does
+  Amuse is told to keep what you may want to keep — code, projects, documents, output — in your
+  workspace (`projects/`, say), and to leave its home folder to tools, configs and caches.
+- Reset: Settings › Computer › Reset stops everything running there and wipes its home folder. It does
   not undo system-wide installs or changes in `/etc`; those stay until the container is recreated:
   `docker compose up -d --force-recreate sandbox` (the server has no Docker socket to do it for you).
-  Your workspace is kept either way.
+  Your workspace is kept either way. Before it goes ahead, the confirmation names the folders in its
+  home, outside your workspace, that would be deleted (a folder holding a `.git` is marked as a code
+  repository), so you can ask Amuse to move anything you want to keep into your files first.
 - The sandbox network has a fixed address range, `10.231.250.0/24`, which the server turns away from its
   first request (`sandbox-net` refuses it too). If it clashes with a network you have, set
   `AMUSE_SANDBOX_SUBNET` in `.env` to another free range and run `docker compose up -d`; compose gives the

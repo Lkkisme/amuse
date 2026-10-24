@@ -17,6 +17,19 @@ import { KeyTest, KeyWay, KeysState, LocalVoice, LoginStep, ModelRef, ModelRole,
 const call = <M extends string, P extends z.ZodObject>(method: M, params: P) =>
   z.object({ method: z.literal(method), params });
 
+/**
+ * A folder in the sandbox's home folder, outside the workspace, that a reset would delete: something the user
+ * may have put there themselves, and may want kept. What the daemon answers is not taken for trusted, so it is
+ * checked here too.
+ */
+export const AtRiskFolder = z.object({
+  /** where it is, from the home folder ("myapp") */
+  path: z.string(),
+  /** it holds a `.git`: a repository of code */
+  repository: z.boolean(),
+});
+export type AtRiskFolder = z.infer<typeof AtRiskFolder>;
+
 export const Call = z.discriminatedUnion("method", [
   /** Catch up on a chat from `since` (null: from nothing). */
   call("session.sync", z.object({ chat: Id, since: Seq.nullable() })),
@@ -148,6 +161,8 @@ export const Call = z.discriminatedUnion("method", [
   call("models.localVoice", z.object({ service: LocalVoice.extend({ key: z.string().max(8192).nullable() }).nullable() })),
   /** Stop what runs in the sandbox and wipe its home folder; the workspace is kept, and system-wide installs stay until the container is recreated. */
   call("sandbox.reset", z.object({})),
+  /** Folders in the sandbox's home folder, outside the workspace, that a reset would delete: what the confirmation names, so work kept there can be moved out first. */
+  call("sandbox.atRisk", z.object({})),
 ]);
 
 export type Call = z.infer<typeof Call>;
@@ -222,6 +237,7 @@ export const results = {
   "models.voice": done,
   "models.localVoice": done,
   "sandbox.reset": done,
+  "sandbox.atRisk": z.object({ folders: z.array(AtRiskFolder) }),
 } satisfies Record<Method, z.ZodType>;
 
 export type Params = { [C in Call as C["method"]]: C["params"] };
@@ -294,6 +310,7 @@ export const parseResult: { [M in Method]: (raw: unknown) => Results[M] } = {
   "models.voice": (raw) => results["models.voice"].parse(raw),
   "models.localVoice": (raw) => results["models.localVoice"].parse(raw),
   "sandbox.reset": (raw) => results["sandbox.reset"].parse(raw),
+  "sandbox.atRisk": (raw) => results["sandbox.atRisk"].parse(raw),
 };
 
 /** What a server implements: one function per method. */

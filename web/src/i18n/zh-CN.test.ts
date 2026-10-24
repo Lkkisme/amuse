@@ -84,6 +84,11 @@ const samples: Record<string, unknown[]> = {
   "devices.removeTitle": ["iPhone · Safari"],
   "settings.security.unlockedUntil": ["14:30"],
   "settings.security.minutes": [5],
+  "viewer.closed.unreachable.text": ["Amuse 的电脑"],
+  "sandbox.description": ["Amuse 的电脑"],
+  "sandbox.resetTitle": ["Amuse 的电脑"],
+  "sandbox.resetFolder": ["myapp"],
+  "sandbox.resetRepository": ["myapp"],
 };
 
 test("the Chinese catalog has every message the English one has", () => {

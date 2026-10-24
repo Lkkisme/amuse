@@ -28,6 +28,7 @@ import type { Session } from "@amuse/protocol";
 import type { Actions, SettingsSection, Theme, Ui } from "../ui.ts";
 import type { Choice } from "../i18n/language.ts";
 import { useLanguageChoice, useT } from "../i18n/react.ts";
+import type { Messages } from "../i18n/en.ts";
 import { Button } from "./Button";
 import { usePresence } from "./usePresence";
 import { barButton, barButtonLook, barIcon } from "./bar";
@@ -39,6 +40,7 @@ import { Logins } from "./Logins";
 import { Sandbox } from "./Sandbox";
 import { SecretStore } from "./SecretStore";
 import { type BarSlots, BarSlotsContext } from "./SecretFields";
+import { computerName } from "../secrets.ts";
 import { Security } from "./Security";
 
 const NAV: { id: SettingsSection; icon: React.ReactNode }[] = [
@@ -134,6 +136,14 @@ function OptionList<T extends string>({
   );
 }
 
+/**
+ * A section's name where the page is shown: the Computer page is named in full here (「Amuse 的电脑」), since its
+ * row in the nav is the short form (「电脑」).
+ */
+function sectionName(t: Messages, section: SettingsSection): string {
+  return section === "sandbox" ? computerName(t) : t.settings.sections[section];
+}
+
 /* ---------------- Shell ---------------- */
 
 export function SettingsModal({
@@ -176,7 +186,7 @@ export function SettingsModal({
           ? ui.entry.kind === "add"
             ? t.secrets.newTitle
             : ui.entry.name
-          : t.settings.sections[section];
+          : sectionName(t, section);
   const adds =
     !ui.app && shown === "permissions"
       ? t.settings.addWebsite
@@ -320,7 +330,7 @@ export function SettingsModal({
                 ? ""
                 : ui.entry
                   ? t.secrets.newTitle
-                  : t.settings.sections[shown]}
+                  : sectionName(t, shown)}
             </p>
             {addLabelled}
             <span ref={desktopSlot} className="flex" />
@@ -356,7 +366,7 @@ export function SettingsModal({
             </BarSlotsContext.Provider>
           )}
           {shown === "sandbox" && (
-            <Sandbox session={session} onSecrets={() => actions.openSettings("secrets")} />
+            <Sandbox session={session} />
           )}
           {shown === "security" && !demo && <Security />}
           {shown === "models" && (
