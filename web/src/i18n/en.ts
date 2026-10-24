@@ -11,7 +11,7 @@ export const en = {
     reply: "Reply",
     selectText: "Select text",
     replyingToAmuse: "Replying to Amuse",
-    replyingToYourself: "Replying to yourself",
+    replying: "Replying",
     cancelReply: "Cancel reply",
     jumpToQuoted: "Go to the message replied to",
     quoted: {

@@ -25,7 +25,7 @@ export const zhCN = {
     reply: "回复",
     selectText: "选择文字",
     replyingToAmuse: "回复 Amuse",
-    replyingToYourself: "回复自己",
+    replying: "回复",
     cancelReply: "取消回复",
     jumpToQuoted: "跳到被回复的消息",
     quoted: {

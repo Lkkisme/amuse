@@ -172,7 +172,7 @@ export function Composer({ conversation, replying, place, actions }: { conversat
               <span className="w-[3px] self-stretch rounded-full" style={{ background: "var(--fill-blue)" }} />
               <span className="min-w-0 flex-1">
                 <span className="block text-[12px] font-semibold" style={{ color: "var(--fill-blue)" }}>
-                  {replying.kind === "prompt" ? t.chat.replyingToYourself : t.chat.replyingToAmuse}
+                  {replying.kind === "prompt" ? t.chat.replying : t.chat.replyingToAmuse}
                 </span>
                 <span className="block truncate text-[13px] leading-[18px]" style={{ color: "var(--text-secondary)" }}>
                   {quoteLine(replying, t)}
