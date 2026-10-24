@@ -102,6 +102,8 @@ const SignIn = z.object({ password: Password });
 const Change = z.object({ current: Password, next: Password });
 const PinGiven = z.object({ pin: PinText });
 const PinSet = z.object({ password: Password, pin: PinText });
+/** Turning the PIN off: the password always, and the PIN there is, when there is one. */
+const PinOff = z.object({ password: Password, pin: PinText.optional() });
 const Minutes = z.object({ minutes: z.int() });
 const DeviceGiven = z.object({ id: z.string().min(1).max(100) });
 
@@ -286,6 +288,8 @@ export function listen({ session, live, terminal, files: uploads, web, returned,
    *   POST /account/pin/lock           lock this session now ("Lock now", or the app going to the background)
    *   POST /account/pin/later          put the reminder off for a day, for every device
    *   POST /account/pin/minutes        {minutes}: how long an unlock lasts; a longer one needs the PIN
+   *   POST /account/pin/off            {password, pin?}: turn the PIN off (the password, and the PIN there is when there is one);
+   *                                    sensitive actions then go through and nothing is asked, until a PIN is set again
    *   POST /account/devices/approve    {id}: let a waiting device in (needs the PIN)
    *   POST /account/devices/deny       {id}: turn a waiting device away
    *   POST /account/devices/revoke     {id}: stop trusting a device, ending its sessions (needs the PIN)
@@ -325,6 +329,25 @@ export function listen({ session, live, terminal, files: uploads, web, returned,
           }
           await pin.set(given.data.pin);
           unlocks.open(session);
+          return done();
+        }
+        case "/account/pin/off": {
+          const given = PinOff.safeParse(data);
+          if (!given.success) return void res.writeHead(400).end();
+          const tried = recent(req);
+          if (tried.count >= TRIES) return json(res, 429, { reason: "Too many wrong passwords. Try again in a few minutes." });
+          if (!(await access.matches(given.data.password))) {
+            tried.miss();
+            return json(res, 401, { reason: "That is not the password." });
+          }
+          // turning off what is there is a loosening: the PIN itself has to be entered, and a wrong one counts as a try
+          if (pin.isSet()) {
+            if (given.data.pin === undefined) return json(res, 400, { reason: "Enter your PIN to turn it off." });
+            const outcome = await pin.check(given.data.pin);
+            if (outcome.kind === "locked") return json(res, 429, { until: outcome.until, reason: "Too many wrong tries: the PIN is locked for now." });
+            if (outcome.kind === "wrong") return json(res, 401, { left: outcome.left, reason: "That is not the PIN." });
+          }
+          pin.turnOff();
           return done();
         }
         case "/account/pin/unlock":

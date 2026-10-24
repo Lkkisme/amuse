@@ -252,6 +252,10 @@ export const zhCN = {
     lockedUntil: (when) => `错误次数太多，${when}起才能再试。`,
     lockedNotice: (when) => `PIN 码输错次数太多，已锁定到 ${when}。`,
     remembered: "没错。",
+    offTitle: "关闭 PIN 码",
+    offWarning: "不用 PIN 会降低安全性：拿到你登录状态的人可以直接查看保险箱、放宽权限。只在你确定部署环境安全时关闭。",
+    off: "关闭 PIN 码",
+    dontUse: "不使用 PIN",
   },
   devices: {
     waitingTitle: "有新设备想要登录",
@@ -619,6 +623,9 @@ export const zhCN = {
       minutes: (count) => `${count} 分钟`,
       devices: "设备",
       devicesHelp: "可以打开 Amuse 的设备。新设备要等这里的设备批准后才能登录。",
+      usePin: "使用 PIN 码",
+      pinOn: "已开启：敏感操作需要输入 PIN 码",
+      pinOff: "已关闭",
     },
   },
   time: {

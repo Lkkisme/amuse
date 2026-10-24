@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { applied, dataMigrations, loadMigrations, migrate, migratedDatabase, openDatabase, query, revert, tempFolder } from "@amuse/db";
 import { z } from "zod";
-import { LATER_MS, LOCKOUT_MS, PinRejected, PinRequired, REMIND_MS, UNLOCK_CAP_MS, resetPin, sqlitePin, unlocks } from "./pin.ts";
+import { LATER_MS, LOCKOUT_MS, PinRejected, PinRequired, REMIND_MS, TRIES, UNLOCK_CAP_MS, resetPin, sqlitePin, unlocks } from "./pin.ts";
 
 const MINUTE = 60_000;
 /** a clock the test moves */
@@ -144,6 +144,38 @@ test("reminders: set a PIN when there is none; enter it after 7 days without; La
   assert.equal(pin.reminder(), "confirm");
 });
 
+test("the PIN can be turned off: the gate asks nothing and there are no reminders until one is set again", async () => {
+  const db = await migratedDatabase();
+  const time = clock();
+  const pin = sqlitePin(db, { now: time.now });
+  const gate = unlocks(pin, () => true, { now: time.now });
+  await pin.set("246810");
+  assert.equal(pin.off(), false);
+  assert.throws(() => gate.require("mine"), PinRequired, "a PIN is set: it has to be entered");
+  // off: what it had is forgotten, and every session is unlocked, locked or not
+  pin.turnOff();
+  assert.equal(pin.isSet(), false);
+  assert.equal(pin.off(), true);
+  assert.equal(pin.reminder(), null, "no reminder to set one");
+  assert.equal(query(db, Row, "select salt, hash from pin")[0]?.hash, null, "the hash goes with it");
+  gate.lock("mine");
+  gate.require("mine");
+  gate.require("another device");
+  assert.equal(gate.until("mine"), null, "nothing to count as unlocked");
+  assert.deepEqual(await pin.check("246810"), { kind: "wrong", left: TRIES }, "nothing is there to try");
+  time.pass(REMIND_MS * 2);
+  assert.equal(pin.reminder(), null, "still none, however long it is off");
+  // setting one again turns it on, and the gate holds from scratch
+  await pin.set("112233");
+  assert.equal(pin.off(), false);
+  assert.equal(pin.isSet(), true);
+  assert.throws(() => gate.require("mine"), (e) => e instanceof PinRequired && e.need === "locked");
+  gate.open("mine");
+  gate.require("mine");
+  time.pass(REMIND_MS);
+  assert.equal(pin.reminder(), "confirm", "the week without one is counted again");
+});
+
 test("resetting the PIN forgets it and its lockout, and signs every device out", async () => {
   const db = await migratedDatabase();
   const pin = sqlitePin(db);
@@ -154,7 +186,8 @@ test("resetting the PIN forgets it and its lockout, and signs every device out",
   resetPin(db);
   assert.equal(pin.isSet(), false);
   assert.equal(pin.locked(), null);
-  assert.equal(pin.reminder(), "set");
+  assert.equal(pin.off(), true, "it is off until one is set");
+  assert.equal(pin.reminder(), null);
   assert.equal(query(db, z.object({ n: z.number() }), "select count(*) as n from sessions")[0]?.n, 0);
   assert.equal(query(db, z.object({ n: z.number() }), "select count(*) as n from devices")[0]?.n, 1, "the device stays trusted");
 });

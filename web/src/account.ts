@@ -93,6 +93,8 @@ async function change(path: string, body: unknown = {}, keepalive = false): Prom
 
 /** Set the PIN (a new one too), with the password: it unlocks this session. */
 export const setPin = (password: string, pin: string) => change("/account/pin", { password, pin });
+/** Turn the PIN off: the password, and the PIN there is when there is one. Sensitive actions then go through without it. */
+export const turnOffPin = (password: string, pin: string | null) => change("/account/pin/off", pin === null ? { password } : { password, pin });
 /** Unlock this session with the PIN. */
 export const unlockPin = (pin: string) => change("/account/pin/unlock", { pin });
 /** The weekly reminder: is this the PIN? It unlocks nothing. */

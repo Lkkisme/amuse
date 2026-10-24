@@ -240,6 +240,10 @@ export const en = {
     lockedUntil: (when: string) => `Too many wrong tries. Try again from ${when}.`,
     lockedNotice: (when: string) => `Your PIN was entered wrong too many times, so it is locked until ${when}.`,
     remembered: "That's it.",
+    offTitle: "Turn off your PIN",
+    offWarning: "Without a PIN, security is lower: whoever gets your signed-in session can open the Vault and loosen permissions. Turn it off only if you are sure this deployment is safe.",
+    off: "Turn off PIN",
+    dontUse: "Don't use a PIN",
   },
   devices: {
     waitingTitle: "A new device wants to sign in",
@@ -615,6 +619,9 @@ export const en = {
       minutes: (count: number) => (count === 1 ? "1 minute" : `${count} minutes`),
       devices: "Devices",
       devicesHelp: "The devices that can open Amuse. A new one waits until a device here approves it.",
+      usePin: "Use a PIN",
+      pinOn: "On: sensitive actions ask for it",
+      pinOff: "Off",
     },
   },
   time: {

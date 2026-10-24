@@ -1,20 +1,22 @@
 /**
- * The PIN's sheets: set one (with the password), change it, enter it to unlock a sensitive action, and the weekly
- * "enter it so you don't forget it". A sensitive action that the server holds opens one (pin.ts asks), as does a
- * reminder (App.tsx) or Settings › Security. The PIN goes only to the server, in a request's body.
+ * The PIN's sheets: set one (with the password), change it, enter it to unlock a sensitive action, the weekly "enter it
+ * so you don't forget it", and turning it off (the warning, then the password and the PIN there is). A sensitive action
+ * that the server holds opens one (pin.ts asks), as does a reminder (App.tsx) or Settings › Security. The PIN goes only
+ * to the server, in a request's body.
  */
 import { type ReactNode, createContext, useCallback, useContext, useRef, useState } from "react";
-import { LockKeyhole } from "lucide-react";
+import { LockKeyhole, ShieldOff } from "lucide-react";
 import { Sheet } from "./Sheet";
 import { Button } from "./Button";
+import { ConfirmSheet } from "./ConfirmSheet";
 import { PinInput } from "./PinInput";
 import { useT } from "../i18n/react.ts";
 import { activeLocale } from "../i18n/language.ts";
-import { checkPin, remindLater, setPin, unlockPin } from "../account.ts";
+import { checkPin, remindLater, setPin, turnOffPin, unlockPin } from "../account.ts";
 import { type Ask, PIN_DIGITS, type Said } from "../pin.ts";
 
-/** set: the first PIN; change: a new one; unlock: for a sensitive action; check: the weekly reminder. */
-export type PinMode = "set" | "change" | "unlock" | "check";
+/** set: the first PIN; change: a new one; unlock: for a sensitive action; check: the weekly reminder; off: turning it off. */
+export type PinMode = "set" | "change" | "unlock" | "check" | "off";
 /** asked by an action (Cancel lets it be), by a reminder (Later puts it off a day), or from Settings */
 export type PinFrom = "action" | "reminder" | "settings";
 
@@ -38,7 +40,7 @@ const countedPin = (said: Exclude<Said, { ok: true }>) => said.left !== null || 
 const fieldClass = "h-12 w-full rounded-full px-5 text-[16px] outline-none";
 const fieldLook = { background: "var(--fill-secondary)", color: "var(--text-primary)" };
 
-function PinForm({ mode, from, onClose }: { mode: PinMode; from: PinFrom; onClose: (done: boolean) => void }) {
+function PinForm({ mode, from, onClose, onTurnOff }: { mode: PinMode; from: PinFrom; onClose: (done: boolean) => void; onTurnOff: () => void }) {
   const t = useT();
   const [current, setCurrent] = useState("");
   const [password, setPassword] = useState("");
@@ -168,6 +170,11 @@ function PinForm({ mode, from, onClose }: { mode: PinMode; from: PinFrom; onClos
           {mode === "set" ? t.pin.set : t.pin.change}
         </Button>
       )}
+      {mode === "set" && (
+        <Button variant="plain" size="sm" type="button" onClick={onTurnOff}>
+          {t.pin.dontUse}
+        </Button>
+      )}
       {mode === "check" && !forgot && (
         <Button variant="plain" size="lg" type="button" onClick={() => setForgot(true)}>
           {t.pin.forgot}
@@ -179,6 +186,73 @@ function PinForm({ mode, from, onClose }: { mode: PinMode; from: PinFrom; onClos
     </form>
   );
 }
+/**
+ * Turning the PIN off: the warning (a danger ConfirmSheet, as the action is a loosening), and with it the password, and
+ * the PIN there is when there is one. What the server refuses is said here, as a wrong PIN is in the set form.
+ */
+function PinOffFlow({ open, needsPin, onClose }: { open: boolean; needsPin: boolean; onClose: (done: boolean) => void }) {
+  const t = useT();
+  const [password, setPassword] = useState("");
+  const [pin, setPinText] = useState("");
+  const [problem, setProblem] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [wrong, setWrong] = useState(0);
+  /** the PIN as it was typed, when the sixth digit sends it: the state may not have it yet */
+  const submit = (entered = pin) => {
+    if (busy || password === "" || (needsPin && entered.length !== PIN_DIGITS)) return;
+    setProblem(null);
+    setBusy(true);
+    void turnOffPin(password, needsPin ? entered : null).then((said) => {
+      setBusy(false);
+      if (said.ok) return onClose(true);
+      setProblem(problemOf(said, t));
+      if (countedPin(said)) {
+        setPinText("");
+        setWrong((tries) => tries + 1);
+      }
+    });
+  };
+  return (
+    <ConfirmSheet
+      open={open}
+      onClose={() => onClose(false)}
+      icon={ShieldOff}
+      title={t.pin.offTitle}
+      body={t.pin.offWarning}
+      action={t.pin.off}
+      busy={busy}
+      disabled={password === "" || (needsPin && pin.length !== PIN_DIGITS)}
+      onConfirm={() => submit()}
+    >
+      <input
+        autoFocus
+        type="password"
+        autoComplete="current-password"
+        aria-label={t.pin.password}
+        placeholder={t.pin.password}
+        className={`mt-4 ${fieldClass}`}
+        style={fieldLook}
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+      />
+      {needsPin && (
+        <PinInput
+          autoComplete="off"
+          wrong={wrong}
+          label={t.pin.currentPin}
+          value={pin}
+          onChange={setPinText}
+          onDone={(entered) => submit(entered)}
+        />
+      )}
+      {problem && (
+        <p role="alert" className="mt-2 text-[13px]" style={{ color: "var(--fill-red)" }}>
+          {problem}
+        </p>
+      )}
+    </ConfirmSheet>
+  );
+}
 
 interface Asking {
   /** a new sheet's form starts empty */
@@ -187,10 +261,15 @@ interface Asking {
   from: PinFrom;
   /** everyone waiting on this sheet: two actions held at once are both answered by one PIN */
   waiting: ((done: boolean) => void)[];
+  /** turning it off: whether a PIN is set, and so has to be entered with the password */
+  needsPin: boolean;
 }
 
-/** Open a PIN sheet: true once it is done (the PIN set, entered or confirmed), false when the user lets it be. */
-export type OpenPin = (mode: PinMode, from: PinFrom) => Promise<boolean>;
+/**
+ * Open a PIN sheet: true once it is done (the PIN set, entered or confirmed, the PIN turned off), false when the user
+ * lets it be. `needsPin`: turning it off has a PIN to enter as well, which only the one opening the sheet knows.
+ */
+export type OpenPin = (mode: PinMode, from: PinFrom, needsPin?: boolean) => Promise<boolean>;
 
 export const PinContext = createContext<{ ask: Ask; open: OpenPin }>({ ask: async () => false, open: async () => false });
 export const usePin = () => useContext(PinContext);
@@ -202,13 +281,13 @@ export function usePinSheet(): { ask: Ask; open: OpenPin; sheet: ReactNode } {
   const opened = useRef(0);
   if (asking) shown.current = asking;
   const open = useCallback<OpenPin>(
-    (mode, from) =>
+    (mode, from, needsPin = false) =>
       new Promise((resolve) =>
         setAsking((now) => {
           if (now && now.mode === mode) return { ...now, waiting: [...now.waiting, resolve] };
           // another sheet was open: what waited on it is let be
           now?.waiting.forEach((w) => w(false));
-          return { id: ++opened.current, mode, from, waiting: [resolve] };
+          return { id: ++opened.current, mode, from, waiting: [resolve], needsPin };
         }),
       ),
     [],
@@ -221,10 +300,17 @@ export function usePinSheet(): { ask: Ask; open: OpenPin; sheet: ReactNode } {
     });
   // the form is kept while the sheet slides away, and a new one starts empty
   const last = shown.current;
+  /** "Don't use a PIN" on the first prompt: the same sheet becomes the warning, with what waits on it kept */
+  const turnOff = () =>
+    setAsking((now) => (now === null ? now : { ...now, mode: "off", needsPin: now.mode === "change" }));
   const sheet = last && (
-    <Sheet open={asking !== null} onClose={() => (last.from === "reminder" ? (void remindLater(), close(false)) : close(false))} bare>
-      <PinForm key={last.id} mode={last.mode} from={last.from} onClose={close} />
-    </Sheet>
+    last.mode === "off" ? (
+      <PinOffFlow key={last.id} open={asking !== null} needsPin={last.needsPin} onClose={close} />
+    ) : (
+      <Sheet open={asking !== null} onClose={() => (last.from === "reminder" ? (void remindLater(), close(false)) : close(false))} bare>
+        <PinForm key={last.id} mode={last.mode} from={last.from} onClose={close} onTurnOff={turnOff} />
+      </Sheet>
+    )
   );
   return { ask, open, sheet };
 }

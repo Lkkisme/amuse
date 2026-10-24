@@ -35,7 +35,10 @@ async function instance() {
   const set = await send("/setup", { password: "correct horse", pin: "135790" }, "");
   const cookie = set.headers.getSetCookie().map((c) => c.split(";")[0] ?? "").join("; ");
   const post = (path: string, body: unknown = {}) => send(path, body, cookie);
-  const state = async () => z.object({ pin: z.object({ unlocked: z.string().nullable(), locked: z.string().nullable() }) }).parse(await (await fetch(`${http}/account`, { headers: { cookie } })).json()).pin;
+  const state = async () =>
+    z
+      .object({ pin: z.object({ set: z.boolean(), reminder: z.string().nullable(), unlocked: z.string().nullable(), locked: z.string().nullable() }) })
+      .parse(await (await fetch(`${http}/account`, { headers: { cookie } })).json()).pin;
   const socket = async () => {
     const ws = new WebSocket(`ws://127.0.0.1:${server.port}/rpc`, { headers: { cookie } });
     await new Promise((resolve, reject) => (ws.once("open", resolve), ws.once("error", reject)));
@@ -117,6 +120,48 @@ test("approving and revoking a device take the PIN; a revoked device's open sock
     assert.equal((await post("/account/devices/revoke", { id: mine?.id ?? "" })).status, 204);
     await rpc.closed;
   } finally {
+    await close();
+  }
+});
+
+test("turning the PIN off takes the password and the PIN there is; with it off the gate asks nothing and no reminder comes back", async () => {
+  const { post, state, socket, close } = await instance();
+  const rpc = await socket();
+  try {
+    const loosen = () => rpc.call("browser.permit", { action: "visit", permission: "allow" });
+    // the password, always: without one, and with a wrong one, nothing changes
+    assert.equal((await post("/account/pin/off", {})).status, 400);
+    const wrongPassword = await post("/account/pin/off", { password: "not the password", pin: "135790" });
+    assert.deepEqual([wrongPassword.status, z.object({ reason: z.string() }).parse(await wrongPassword.json()).reason], [401, "That is not the password."]);
+    assert.equal((await state()).set, true, "still set");
+    // the PIN there is: asked for, and a wrong one counts as a try
+    assert.equal((await post("/account/pin/off", { password: "correct horse" })).status, 400);
+    const wrongPin = await post("/account/pin/off", { password: "correct horse", pin: "000000" });
+    assert.deepEqual([wrongPin.status, z.object({ left: z.number() }).parse(await wrongPin.json()).left], [401, 4]);
+    assert.equal((await state()).set, true, "still set");
+
+    assert.equal((await post("/account/pin/off", { password: "correct horse", pin: "135790" })).status, 204);
+    const off = await state();
+    assert.deepEqual([off.set, off.reminder, off.locked, off.unlocked], [false, null, null, null], "off: nothing is asked");
+    // the gate: sensitive actions go through, locked or not, and nothing counts as an unlock
+    assert.equal((await post("/account/pin/lock")).status, 204);
+    assert.equal((await loosen()).error, undefined, "no PIN sheet, the server treats it as unlocked");
+    assert.equal((await post("/account/pin/lock")).status, 204);
+    assert.equal((await loosen()).error, undefined);
+    assert.equal((await state()).unlocked, null);
+    // no reminder: there is nothing to check, and nothing to set
+    assert.equal((await post("/account/pin/check", { pin: "135790" })).status, 403);
+
+    // turning it on again is the normal set-PIN flow: the password, then the gate holds from scratch
+    assert.equal((await post("/account/pin", { password: "not the password", pin: "246802" })).status, 401);
+    assert.equal((await post("/account/pin", { password: "correct horse", pin: "246802" })).status, 204);
+    assert.equal((await state()).set, true);
+    assert.equal((await post("/account/pin/lock")).status, 204);
+    assert.equal((await loosen()).error?.code, errors.pinLocked.code, "the PIN is asked for again");
+    assert.equal((await post("/account/pin/unlock", { pin: "246802" })).status, 204);
+    assert.equal((await loosen()).error, undefined);
+  } finally {
+    rpc.close();
     await close();
   }
 });

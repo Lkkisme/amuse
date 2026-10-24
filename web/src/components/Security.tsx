@@ -91,7 +91,7 @@ export function Security() {
         </>
       )}
 
-      <PasswordGroup />
+      <PasswordGroup pinSet={state?.pin.set === true} onChanged={load} />
 
       <Heading>{t.settings.security.devices}</Heading>
       <p className="-mt-1 mb-2 text-[13px] leading-snug" style={{ color: "var(--text-secondary)" }}>
@@ -165,10 +165,13 @@ export function Security() {
   );
 }
 
-/** The master password: change it (every other device then needs the new one), or lock this device. */
-function PasswordGroup() {
+/**
+ * The master password: change it (every other device then needs the new one), or lock this device. Beside it, whether a
+ * PIN is used at all: with it off, sensitive actions go through without asking (the server decides that).
+ */
+function PasswordGroup({ pinSet, onChanged }: { pinSet: boolean; onChanged: () => void }) {
   const t = useT();
-  const { ask } = usePin();
+  const { ask, open } = usePin();
   const [changing, setChanging] = useState(false);
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
@@ -178,6 +181,26 @@ function PasswordGroup() {
     <>
       <Heading>{t.settings.general.password}</Heading>
       <div className="overflow-hidden rounded-xl" style={{ background: "var(--fill-secondary)" }}>
+        <div className={row}>
+          <span className="min-w-0 flex-1 pr-3">
+            <span className="block" style={{ color: "var(--text-primary)" }}>
+              {t.settings.security.usePin}
+            </span>
+            <span className="mt-0.5 block text-[12px] leading-snug" style={{ color: "var(--text-secondary)" }}>
+              {pinSet ? t.settings.security.pinOn : t.settings.security.pinOff}
+            </span>
+          </span>
+          <button
+            role="switch"
+            aria-checked={pinSet}
+            aria-label={t.settings.security.usePin}
+            className="relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors"
+            style={{ background: pinSet ? "var(--fill-blue)" : "var(--fill-tertiary)" }}
+            onClick={() => void (pinSet ? open("off", "settings", true) : open("set", "settings")).then(onChanged)}
+          >
+            <span className="absolute top-[3px] size-[20px] rounded-full bg-white transition-all" style={{ left: pinSet ? 21 : 3 }} />
+          </button>
+        </div>
         {changing ? (
           <form
             onSubmit={(e) => {
@@ -226,7 +249,7 @@ function PasswordGroup() {
         ) : (
           <button
             className={row}
-            style={{ color: "var(--text-primary)" }}
+            style={{ color: "var(--text-primary)", ...divided }}
             onClick={() => {
               setSaid(null);
               setChanging(true);

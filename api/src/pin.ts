@@ -9,6 +9,9 @@
  *   most from when the PIN was entered. It is kept in memory only: a restart locks every session.
  * - Reminders: with no PIN, the app asks for one; with one not entered for 7 days, it asks for it once, so it is not
  *   forgotten. "Later" puts either off for a day, for every device.
+ * - The PIN is optional: the owner can turn it off (Settings › Security, or from the first prompt). With it off, this is
+ *   the one place that still decides: it treats every session as unlocked, and asks nothing. Turning it on again is
+ *   setting a PIN, which needs the password.
  */
 import { randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { type Db, queryOne, transaction } from "@amuse/db";
@@ -51,9 +54,14 @@ export type Tried = { kind: "right" } | { kind: "wrong"; left: number } | { kind
 export type Reminder = "set" | "confirm" | null;
 
 export interface Pin {
+  /** A PIN is in force: it is set, and not turned off. */
   isSet(): boolean;
-  /** Set it, or a new one: tries and reminders start over. Throws PinRejected for one that is not six digits. */
+  /** The owner turned it off: sensitive actions go through, nothing is asked, and no reminder comes back. */
+  off(): boolean;
+  /** Set it, or a new one: tries and reminders start over, and it is on again. Throws PinRejected for one that is not six digits. */
   set(pin: string): Promise<void>;
+  /** Turn it off: the PIN it had is forgotten, with its tries and its reminders. */
+  turnOff(): void;
   /** Try it, counting toward the lockout. A right try restarts the 7 days. */
   check(pin: string): Promise<Tried>;
   /** Until when it is locked after wrong tries, if it is now. */
@@ -75,6 +83,7 @@ const Row = z.object({
   lockouts: z.number(),
   locked: z.string().nullable(),
   minutes: z.number(),
+  off: z.number(),
 });
 
 const derive = (pin: string, salt: Buffer) => new Promise<Buffer>((resolve, reject) => scrypt(pin, salt, 64, COST, (error, key) => (error ? reject(error) : resolve(key))));
@@ -85,7 +94,7 @@ export function sqlitePin(db: Db, { now = Date.now }: { now?: () => number } = {
   const stamp = (at = now()) => new Date(at).toISOString();
   // the migration makes the one row; a database without it is not one this code can run on
   const row = () => {
-    const found = queryOne(db, Row, "select salt, hash, used, later, wrong, lockouts, locked, minutes from pin where id = 1");
+    const found = queryOne(db, Row, "select salt, hash, used, later, wrong, lockouts, locked, minutes, off from pin where id = 1");
     if (!found) throw new Error("The database has no PIN row: its migrations did not run.");
     return found;
   };
@@ -102,12 +111,19 @@ export function sqlitePin(db: Db, { now = Date.now }: { now?: () => number } = {
   };
 
   return {
-    isSet: () => row().hash !== null,
+    isSet() {
+      const { hash, off } = row();
+      return hash !== null && off === 0;
+    },
+    off: () => row().off === 1,
     async set(pin) {
       if (!wellFormed(pin)) throw new PinRejected(`A PIN is ${PIN_DIGITS} digits.`);
       const salt = randomBytes(16);
       const hash = await derive(pin, salt);
-      db.prepare("update pin set salt = ?, hash = ?, used = ?, later = null, wrong = 0, lockouts = 0, locked = null where id = 1").run(salt.toString("hex"), hash.toString("hex"), stamp());
+      db.prepare("update pin set off = 0, salt = ?, hash = ?, used = ?, later = null, wrong = 0, lockouts = 0, locked = null where id = 1").run(salt.toString("hex"), hash.toString("hex"), stamp());
+    },
+    turnOff() {
+      db.prepare("update pin set off = 1, salt = null, hash = null, used = null, later = null, wrong = 0, lockouts = 0, locked = null where id = 1").run();
     },
     check: (pin) =>
       inTurn(async (): Promise<Tried> => {
@@ -133,7 +149,8 @@ export function sqlitePin(db: Db, { now = Date.now }: { now?: () => number } = {
       }),
     locked: lockedUntil,
     reminder() {
-      const { hash, used, later } = row();
+      const { hash, used, later, off } = row();
+      if (off === 1) return null;
       if (later !== null && Date.parse(later) > now()) return null;
       if (hash === null) return "set";
       return used === null || now() - Date.parse(used) >= REMIND_MS ? "confirm" : null;
@@ -149,10 +166,10 @@ export function sqlitePin(db: Db, { now = Date.now }: { now?: () => number } = {
   };
 }
 
-/** Forget the PIN, its tries and its reminders, and sign every device out (`amuse-admin reset-pin`): the next visit asks for a new one. */
+/** Forget the PIN, its tries and its reminders, and sign every device out (`amuse-admin reset-pin`): it is off until one is set. */
 export function resetPin(db: Db): void {
   transaction(db, () => {
-    db.exec("update pin set salt = null, hash = null, used = null, later = null, wrong = 0, lockouts = 0, locked = null where id = 1");
+    db.exec("update pin set off = 1, salt = null, hash = null, used = null, later = null, wrong = 0, lockouts = 0, locked = null where id = 1");
     db.exec("delete from sessions");
   });
 }
@@ -165,7 +182,8 @@ export interface Unlocks {
   /**
    * The check every sensitive action makes, on the server: throws PinRequired unless this session is unlocked now, and
    * keeps the unlock open for another `minutes` (within its 30) when it is. Call it right before the action, after
-   * anything that may still refuse the call for another reason.
+   * anything that may still refuse the call for another reason. With the PIN off it asks nothing: this is the one place
+   * that decides that, so no client has to know.
    */
   require(session: string): void;
   /** Until when this session is unlocked, without counting as an action; null: it is not. */
@@ -195,6 +213,8 @@ export function unlocks(pin: Pin, valid: (session: string) => boolean, { now = D
     },
     lock: (session) => void open.delete(digest(session)),
     require(session) {
+      // off: every session is unlocked, and stays so until a PIN is set again
+      if (pin.off()) return;
       if (!pin.isSet()) throw new PinRequired("unset");
       const window = current(session);
       if (!window) throw new PinRequired("locked");

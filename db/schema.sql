@@ -123,7 +123,7 @@ CREATE TABLE pin (
   wrong integer not null default 0,
   lockouts integer not null default 0,
   locked text,
-  minutes integer not null default 5 check (minutes in (1, 5, 15, 30)),
+  minutes integer not null default 5 check (minutes in (1, 5, 15, 30)), off integer not null default 0 check (off in (0, 1)),
   check ((salt is null) = (hash is null))
 ) strict;
 CREATE TABLE devices (
@@ -159,4 +159,5 @@ INSERT INTO schema_migrations (version) VALUES
   ('20261023110100'),
   ('20261023120000'),
   ('20261023234842'),
-  ('20261024034628');
+  ('20261024034628'),
+  ('20261024120000');

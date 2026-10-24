@@ -29,6 +29,8 @@ export function letIn(session = "session", valid: (given: string) => boolean = (
 const pin: Pin = {
   isSet: () => true,
   set: async () => {},
+  off: () => false,
+  turnOff: () => {},
   check: async () => ({ kind: "right" }),
   locked: () => null,
   reminder: () => null,

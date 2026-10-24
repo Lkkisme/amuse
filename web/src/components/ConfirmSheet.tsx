@@ -1,6 +1,6 @@
 /**
  * The "Are you sure?" sheet: what is about to happen, a red action that does it
- * and Cancel. Sign out, reset, remove. `busy` holds the action while it runs.
+ * and Cancel. Sign out, reset, remove. `busy` holds the action while it runs, `disabled` says it cannot go yet.
  */
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
@@ -16,6 +16,7 @@ export function ConfirmSheet({
   body,
   action,
   busy = false,
+  disabled = false,
   onConfirm,
   children,
 }: {
@@ -28,6 +29,8 @@ export function ConfirmSheet({
   /** the danger button's label: what it does */
   action: string;
   busy?: boolean;
+  /** the action cannot go yet (what it needs is not filled in) */
+  disabled?: boolean;
   onConfirm: () => void;
   /** more about what it touches (what stops working with it), between the words and the button */
   children?: ReactNode;
@@ -57,7 +60,7 @@ export function ConfirmSheet({
           {body}
         </p>
         {children}
-        <Button variant="danger" size="lg" className="mt-6" disabled={busy} onClick={onConfirm}>
+        <Button variant="danger" size="lg" className="mt-6" disabled={busy || disabled} onClick={onConfirm}>
           {action}
         </Button>
         <Button variant="plain" size="lg" className="mt-2" onClick={onClose}>
