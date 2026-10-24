@@ -181,6 +181,8 @@ test("the migration makes the PIN's row with no PIN, and every session from befo
   // a device goes with its sessions
   db.exec("delete from devices where id = 'before-1'");
   assert.deepEqual(query(db, z.object({ digest: z.string() }), "select digest from sessions").map((r) => r.digest), ["two"]);
+  // the browsers kept open (a migration of its own, later) is undone first, then the PIN and the devices
+  revert(db, known, context);
   revert(db, known, context);
   assert.deepEqual(query(db, z.object({ digest: z.string() }), "select digest from sessions").map((r) => r.digest), ["two"], "sessions are kept");
   assert.equal(query(db, z.object({ n: z.number() }), "select count(*) as n from sqlite_master where name in ('pin', 'devices')")[0]?.n, 0);

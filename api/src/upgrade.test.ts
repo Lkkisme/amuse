@@ -27,6 +27,7 @@ import { sqliteDefaults } from "./defaults.ts";
 import { sqliteRules } from "./rules.ts";
 import { sqliteSent } from "./sent.ts";
 import { sqliteChoices } from "./choices.ts";
+import { sqliteBrowserSessions } from "./browser-sessions.ts";
 import { secretStore } from "./secret-store.ts";
 import { mask } from "@amuse/sandbox";
 
@@ -85,6 +86,8 @@ const facts: Record<string, (upgraded: Upgraded) => Promise<void>> = {
     assert.deepEqual(await rules.browser(), { download: "ask" });
     assert.deepEqual(await rules.sites(), { "bank.example": { never: true, actions: {} }, "news.example": { never: false, actions: { submit: "allow" } } });
     assert.deepEqual(sqliteDefaults(db).setUp(), ["memory", "people", "reflection", "wrap-up"]);
+    // the browsers open on a controller (browser_sessions, a later migration): the release had none, and none is invented
+    assert.deepEqual(sqliteBrowserSessions(db).list(), []);
     // the photo that was sent is still the user's
     const sent = Object.values(sqliteSent(db).load());
     assert.deepEqual(sent.map((s) => [s.by, s.attachment.name]), [["user", "cat.jpg"]]);

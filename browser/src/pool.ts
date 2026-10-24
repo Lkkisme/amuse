@@ -31,6 +31,26 @@ export interface Node {
   handoff?: { local: string; remote: string };
 }
 
+/**
+ * Where each open run's node and controller session are kept, so a restart can adopt them
+ * again instead of leaving the session behind on the controller (a row each).
+ */
+export interface BrowserSessions {
+  list(): { id: string; node: string; session: string }[];
+  save(id: string, node: string, session: string): void;
+  forget(id: string): void;
+}
+
+/** What a start found: the browsers it took up again, the ones it could not, and the sessions it closed. */
+export interface Reconciled {
+  /** the browsers that are open again, on the session they were on */
+  adopted: string[];
+  /** the browsers the state lists as open that no session is left for, with why */
+  lost: { id: string; reason: string }[];
+  /** how many sessions no browser owned were closed */
+  closed: number;
+}
+
 /** A file, by name and bytes. */
 export interface FileData {
   name: string;
@@ -126,10 +146,12 @@ export function browserPool(
   options: {
     profile?: string;
     desktop?: (vnc: string, size: Size) => Promise<void>;
+    sessions?: BrowserSessions;
   } = {},
-): Browsers & { reset(): Promise<void> } {
+): Browsers & { reconcile(open: readonly string[]): Promise<Reconciled> } {
   const profile = options.profile ?? "amuse";
   const desktop = options.desktop ?? resize;
+  const sessions = options.sessions;
   const free = [...nodes];
   const waiting: {
     take: (node: Node) => void;
@@ -168,6 +190,11 @@ export function browserPool(
     if (!r) throw new Error(`browser run ${id} is not open`);
     return r;
   };
+  /** Take a node for a run adopted again: it is not free any more. */
+  const adopt = (id: string, node: Node, session: string) => {
+    free.splice(free.indexOf(node), 1);
+    runs.set(id, { node, session, current: new Map(), refs: new Map(), taken: new Set(), forgotten: new Set() });
+  };
   const viewOf = (r: Run, o: Observation): PageView => {
     r.current = new Map();
     const elements = o.interactables.map((e) => {
@@ -199,17 +226,52 @@ export function browserPool(
   };
 
   return {
-    async reset() {
-      // these nodes are ours alone: sessions still live there were left by an earlier process
-      await Promise.all(
-        nodes.map(async (n) =>
-          Promise.all(
-            (await n.controller.live()).map((s) =>
-              n.controller.delete(s).catch(() => {}),
-            ),
-          ),
-        ),
-      );
+    /**
+     * What an earlier process left on the controllers: the session of a browser the state still lists as open is
+     * adopted again (its preview, live view and takeover work as before), one that is gone closes its browser
+     * instead, and a session no browser owns is closed. These nodes are ours alone, so anything live on one is ours
+     * to close. A controller that does not answer is left as it is: nothing there is adopted, closed or called lost.
+     */
+    async reconcile(open) {
+      const listed = new Set(open);
+      const rows = new Map((sessions?.list() ?? []).map((row) => [row.id, row]));
+      const adopted: string[] = [];
+      const lost: { id: string; reason: string }[] = [];
+      let closed = 0;
+      // a node this pool no longer has: the browser cannot be adopted, and its session is out of reach
+      for (const [id, row] of rows) {
+        if (nodes.some((n) => n.name === row.node)) continue;
+        sessions?.forget(id);
+        rows.delete(id);
+        if (listed.has(id)) lost.push({ id, reason: `its browser node ${row.node} is not configured any more` });
+      }
+      for (const node of nodes) {
+        const live = await node.controller.live().catch(() => null);
+        if (!live) continue;
+        const mine = new Set<string>();
+        for (const [id, row] of rows) {
+          if (row.node !== node.name) continue;
+          rows.delete(id);
+          if (!listed.has(id) || !live.includes(row.session)) {
+            // the browser is closed in the state, or its session is gone: either way the row goes, and the session is a stray
+            sessions?.forget(id);
+            if (listed.has(id)) lost.push({ id, reason: "its browser session is gone" });
+            continue;
+          }
+          mine.add(row.session);
+          adopt(id, node, row.session);
+          adopted.push(id);
+        }
+        for (const session of live) {
+          if (mine.has(session)) continue;
+          await node.controller.delete(session).catch(() => {});
+          closed++;
+        }
+      }
+      // a browser the state lists as open that no session is kept for (opened before this, or a row lost with it):
+      // one whose row is still here is on a controller that did not answer, and is left alone
+      for (const id of open) if (!adopted.includes(id) && !lost.some((one) => one.id === id) && !rows.has(id)) lost.push({ id, reason: "no session is kept for it" });
+      return { adopted, lost, closed };
     },
     async open(id, url, signal, { wait = true } = {}) {
       if (!wait && free.length === 0) throw new PoolFull(nodes.length);
@@ -232,6 +294,7 @@ export function browserPool(
           taken: new Set(),
           forgotten: new Set(),
         });
+        sessions?.save(id, node.name, session);
       } catch (error) {
         release(node);
         throw error;
@@ -332,6 +395,7 @@ export function browserPool(
       const r = runs.get(id);
       if (!r) return;
       runs.delete(id);
+      sessions?.forget(id);
       await r.node.controller.delete(r.session).catch(() => {});
       release(r.node);
     },

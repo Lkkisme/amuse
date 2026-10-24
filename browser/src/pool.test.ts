@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import {
   type Action,
+  type BrowserSessions,
   type Controller,
   type Observation,
   type Size,
@@ -20,12 +21,15 @@ const sizes =
   async (vnc: string, { width, height }: Size) =>
     void log.push(`${vnc} ${width}x${height}`);
 
-/** A controller over a scripted page: a link and a search box, both pages share ids. */
+/**
+ * A controller over a scripted page: a link and a search box, both pages share ids. `sessions`
+ * holds the sessions it has live: the same set given to a second controller is a restart.
+ */
 /** set to make the fake's window closed */
 let closed = false;
 /** set to make the fake's tab list fail */
 let tabsFail: Error | null = null;
-function fakeController(log: string[] = []): Controller {
+function fakeController(log: string[] = [], sessions = new Set<string>()): Controller {
   let url = "https://a.example/";
   const page = (): Observation => ({
     url,
@@ -54,9 +58,14 @@ function fakeController(log: string[] = []): Controller {
       },
     ],
   });
-  let sessions = 0;
+  let made = 0;
   return {
-    create: async (start) => ((url = start), `s${++sessions}`),
+    create: async (start) => {
+      url = start;
+      const session = `s${++made}`;
+      sessions.add(session);
+      return session;
+    },
     observe: async () => page(),
     act: async (_, action: Action) => {
       log.push(`${action.name} ${JSON.stringify(action.body)}`);
@@ -71,8 +80,8 @@ function fakeController(log: string[] = []): Controller {
     profileSites: async () => [{ site: "facebook.com", cookies: 3 }],
     forgetProfileSite: async (_, site) => void log.push(`forget ${site}`),
     clearSessionSite: async (session, site) => void log.push(`clear ${session} ${site}`),
-    delete: async (s) => void log.push(`delete ${s}`),
-    live: async () => [],
+    delete: async (s) => void (log.push(`delete ${s}`), sessions.delete(s)),
+    live: async () => [...sessions],
     downloads: async () => [
       {
         filename: "report.pdf",
@@ -90,6 +99,16 @@ function fakeController(log: string[] = []): Controller {
       if (tabsFail) throw tabsFail;
       return closed ? 0 : 1;
     },
+  };
+}
+
+/** The browsers kept open, in memory: the database one is api/src/browser-sessions.ts. */
+function keptSessions(): BrowserSessions {
+  const rows = new Map<string, { id: string; node: string; session: string }>();
+  return {
+    list: () => [...rows.values()],
+    save: (id, node, session) => void rows.set(id, { id, node, session }),
+    forget: (id) => void rows.delete(id),
   };
 }
 
@@ -176,6 +195,70 @@ test("a busy pool queues runs; a stopped waiter leaves the queue; closing hands 
   assert.ok(log.includes("delete s1"));
 });
 
+test("a restart takes up the browsers whose session is still there, closes the ones whose session is gone, and closes strays", async () => {
+  const log: string[] = [];
+  const sessions = keptSessions();
+  // what each controller has live: the same set given to a second client is the same controller after a restart
+  const one = new Set<string>();
+  const two = new Set<string>();
+  const node = (name: string, live: Set<string>) => ({ name, controller: fakeController(log, live), vnc: `ws://${name}/websockify` });
+  // a node is leased from the end of the pool's list: "kept" is on n2, "gone" on n1
+  const before = browserPool([node("n1", one), node("n2", two)], { desktop: sizes(), sessions });
+  await before.open("kept", "https://a.example/");
+  await before.open("gone", "https://a.example/");
+  assert.deepEqual(
+    sessions.list().map((row) => [row.id, row.node, row.session]),
+    [
+      ["kept", "n2", "s1"],
+      ["gone", "n1", "s1"],
+    ],
+    "each open browser is kept with its node and session",
+  );
+  // the controller restarted meanwhile: one session is gone, and one from an earlier run is left behind
+  one.delete("s1");
+  two.add("s9");
+
+  const after = browserPool([node("n1", one), node("n2", two)], { desktop: sizes(), sessions });
+  // "older" is a browser the state still lists as open that was opened before this was kept at all
+  const { adopted, lost, closed } = await after.reconcile(["kept", "gone", "older"]);
+  assert.deepEqual(adopted, ["kept"], "a session that is still there is taken up again");
+  assert.deepEqual(lost, [
+    { id: "gone", reason: "its browser session is gone" },
+    { id: "older", reason: "no session is kept for it" },
+  ]);
+  assert.equal(closed, 1);
+  assert.ok(log.includes("delete s9"), "a session no browser owns is closed");
+  assert.deepEqual(sessions.list().map((row) => row.id), ["kept"], "and what was lost is forgotten");
+  // what is adopted works as before: its preview, its live view and its page
+  assert.equal(after.vnc("kept"), "ws://n2/websockify");
+  assert.ok(await after.screenshot("kept"));
+  assert.equal((await after.look("kept")).url, "https://a.example/");
+  assert.equal(await after.screenshot("gone"), null, "a browser whose session is gone has no preview");
+  assert.equal(after.vnc("gone"), null);
+  await after.close("kept");
+  assert.deepEqual(sessions.list(), [], "closing a browser forgets it too");
+});
+
+test("a controller that does not answer is left as it is: nothing there is adopted, closed or called lost", async () => {
+  const sessions = keptSessions();
+  const pool = browserPool(
+    [{ name: "n1", controller: fakeController([], new Set(["s1"])), vnc: "ws://n1/websockify" }],
+    { desktop: sizes(), sessions },
+  );
+  sessions.save("b1", "n1", "s1");
+  const reachable = await pool.reconcile(["b1"]);
+  assert.deepEqual([reachable.adopted, reachable.lost], [["b1"], []]);
+  // the same browser, with the controller out of reach: its card stays as it is, and its row is kept
+  const away = browserPool(
+    [{ name: "n1", controller: { ...fakeController(), live: async () => Promise.reject(new Error("fetch failed")) }, vnc: "ws://n1/websockify" }],
+    { desktop: sizes(), sessions },
+  );
+  // b2 has no row at all (it was opened before any of this was kept), so it is closed whatever the controllers say
+  assert.deepEqual(await away.reconcile(["b1", "b2"]), { adopted: [], lost: [{ id: "b2", reason: "no session is kept for it" }], closed: 0 });
+  assert.deepEqual(sessions.list().map((row) => row.id), ["b1"], "and b1's row is kept, to be adopted at the next start");
+  assert.deepEqual(sessions.list().map((row) => row.id), ["b1"]);
+});
+
 test("the controller client parses responses and sends the bearer token", async () => {
   const seen: string[] = [];
   const http: typeof fetch = async (input, init) => {
@@ -222,7 +305,7 @@ test(
     const pool = browserPool([
       { name: "real", controller: controller(base, token), vnc: "" },
     ]);
-    await pool.reset();
+    await pool.reconcile([]);
     await pool.open("r", "https://example.com/");
     const view = await pool.look("r");
     assert.equal(view.title, "Example Domain");

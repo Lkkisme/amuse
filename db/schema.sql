@@ -142,6 +142,11 @@ CREATE TABLE sessions (
   device text not null references devices (id) on delete cascade
 ) strict;
 CREATE INDEX sessions_device on sessions (device);
+CREATE TABLE browser_sessions (
+  id text primary key,
+  node text not null,
+  session text not null
+) strict, without rowid;
 
 -- Dbmate schema migrations
 INSERT INTO schema_migrations (version) VALUES
@@ -149,4 +154,5 @@ INSERT INTO schema_migrations (version) VALUES
   ('20261023100100'),
   ('20261023110000'),
   ('20261023110100'),
-  ('20261023120000');
+  ('20261023120000'),
+  ('20261023234842');

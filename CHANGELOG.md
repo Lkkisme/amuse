@@ -52,6 +52,7 @@ What changed in each release of Amuse, for the people who run it. The format fol
 - The terminal's lines are a little taller, so Chinese characters are no longer cut off at the top.
 
 ### Fixed
+- A restart no longer leaves a browser card blank and its browser unusable: the browsers open on the controllers are taken up again where they were (the preview, the live view and taking over work as before), a browser whose session is gone is closed instead of staying as a card that leads nowhere, and the sessions earlier runs left behind are closed on the controllers.
 - The status under Amuse's avatar glides to its new size and changes its line with a crossfade, instead of snapping and flickering; the brief "responding" line between two tools no longer flashes in.
 - The chat keeps its least width when the window is made narrower after the browser panel was dragged wide; widened again, the panel comes back to the width it was dragged to.
 - Amuse can cancel a schedule you no longer want: it looks the schedules up with their full ids instead of going by what it remembered of them.

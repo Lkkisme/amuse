@@ -48,6 +48,7 @@ import { refusing } from "./sandbox.ts";
 import { maskingFiles } from "./masked-files.ts";
 import { KeyUnavailable } from "./seal.ts";
 import { sqliteChoices } from "./choices.ts";
+import { sqliteBrowserSessions } from "./browser-sessions.ts";
 import { secretStore } from "./secret-store.ts";
 
 const port = Number(process.env["AMUSE_PORT"] ?? 8797);
@@ -215,8 +216,7 @@ const nodes = (process.env["AMUSE_BROWSERS"] ?? "")
       },
     ];
   });
-const browsers = nodes.length > 0 ? browserPool(nodes) : undefined;
-await browsers?.reset();
+const browsers = nodes.length > 0 ? browserPool(nodes, { sessions: sqliteBrowserSessions(db) }) : undefined;
 /**
  * Every port is real and chosen here on purpose; a capability that is not
  * set up (no model, no Composio key, no browsers) fails plainly, saying what
@@ -392,9 +392,22 @@ const follow = (entity: Entity) => {
 session.subscribe((update) => {
   if (update.kind === "event" && update.envelope.event.kind === "upserted") follow(update.envelope.event.entity);
 });
+// the browsers the state lists as open: what a restart reconciles the controllers against (their session is adopted again, or their card closes)
+const openBrowsers: string[] = [];
 for (const { id } of (await session.call("chats.list", {})).chats) {
   const synced = await session.call("session.sync", { chat: id, since: null });
-  if (synced.kind === "snapshot") synced.state.entities.forEach(follow);
+  if (synced.kind !== "snapshot") continue;
+  synced.state.entities.forEach(follow);
+  for (const entity of synced.state.entities) if (entity.kind === "browser" && entity.live) openBrowsers.push(entity.id);
+}
+if (browsers) {
+  const { lost, closed } = await browsers.reconcile(openBrowsers);
+  if (closed > 0) console.log(`amuse: closed ${closed} browser session${closed === 1 ? "" : "s"} that no browser owned.`);
+  for (const { id, reason } of lost) {
+    console.warn(`amuse: browser ${id} is closed: ${reason}.`);
+    // no dead card stays: the state closes it (its agent is gone with the restart, and nothing waits on it)
+    await session.call("browser.control", { id, action: "stop" }).catch(() => {});
+  }
 }
 const live = browsers && { browsers, controlled: (id: string) => held.has(id) };
 

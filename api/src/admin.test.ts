@@ -36,7 +36,7 @@ test("the dry run lists what is pending and what it touches, and changes nothing
 test("migrate runs them; after it, the dry run has nothing to do", () => {
   const dir = copy();
   run("--data", dir, "migrate");
-  assert.match(run("--data", dir, "migrate", "--dry-run"), /5 migrations applied\nNothing to run\./);
+  assert.match(run("--data", dir, "migrate", "--dry-run"), /6 migrations applied\nNothing to run\./);
   assert.ok(existsSync(join(dir, "events.jsonl.bak")));
 });
 
@@ -124,7 +124,7 @@ test("export, chats and reset-password refuse when migrations are pending, and d
   for (const command of ["export", "chats", "reset-password"]) {
     const result = fails("--data", dir, command);
     assert.equal(result.status, 1, command);
-    assert.match(result.stderr, /4 migrations are pending: run `amuse-admin migrate` first/, command);
+    assert.match(result.stderr, /5 migrations are pending: run `amuse-admin migrate` first/, command);
   }
   const after = openDatabase(join(dir, "amuse.db"));
   assert.deepEqual(applied(after), ["20261023100000"]);
@@ -155,6 +155,7 @@ test("rollback of a migration with no way back changes nothing and makes no copy
   const dir = copy();
   run("--data", dir, "migrate");
   // the PIN and the devices can be undone; the import before them cannot
+  assert.match(run("--data", dir, "rollback", "--yes"), /undid 20261023234842_browser_sessions/);
   assert.match(run("--data", dir, "rollback", "--yes"), /undid 20261023120000_account_security/);
   rmSync(join(dir, "backups"), { recursive: true });
   mkdirSync(join(dir, "backups"));
