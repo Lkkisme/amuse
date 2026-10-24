@@ -66,14 +66,10 @@ function shown(entity: Entity): boolean {
         entity.text.trim() !== "" ||
         entity.attachments.length > 0
       );
-    // one every instance starts with was not asked for here: it is in Settings › Schedules; one that is over
-    // (cancelled, or done) is a record, not shown (Amuse still knows of it)
+    // one every instance starts with was not asked for here: it is in Settings › Schedules; the others stay as
+    // their card, which says when one is paused, done or cancelled
     case "schedule":
-      return (
-        !entity.preset &&
-        entity.status !== "cancelled" &&
-        entity.status !== "done"
-      );
+      return !entity.preset;
     // one refused by the user's own rule was never a card: it is in the Approvals list, and Amuse says so in a line
     case "approval":
       return !entity.byRule;

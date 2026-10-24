@@ -70,3 +70,18 @@ export function scheduleState(schedule: Schedule, language: Language = activeLan
       return t.cancelled;
   }
 }
+
+/** The card's line under the title: "Scheduled task", and how it stands when it is not simply waiting for its time. */
+export function cardSubtitle(schedule: Schedule, language: Language = activeLanguage()): string {
+  const t = catalogOf(language);
+  const state = schedule.running ? t.schedule.state.running : schedule.status === "active" ? null : t.schedule.state[schedule.status];
+  return state ? `${t.cards.scheduledTask} · ${state}` : t.cards.scheduledTask;
+}
+
+/** The card's summary: when it runs, then what it does. */
+export function cardSummary(schedule: Schedule, language: Language = activeLanguage()): string {
+  return `${repeats(schedule.when, language)}. ${schedule.instructions.trim()}`;
+}
+
+/** Whether Settings › Schedules still lists it: one that is done or cancelled is a record, and the card offers nothing for it. */
+export const standing = (schedule: Schedule): boolean => schedule.status === "active" || schedule.status === "paused";

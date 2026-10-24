@@ -3,11 +3,12 @@
  * Props are protocol entities; behavior goes through Actions.
  */
 import {
-  CalendarClock,
+  Calendar,
   Check,
   ChevronRight,
   CircleAlert,
   CircleCheck,
+  Clock,
   Globe,
   KeyRound,
   ListTodo,
@@ -26,7 +27,7 @@ import type {
   Session,
   Task,
 } from "@amuse/protocol";
-import { repeats, scheduleState } from "../schedules.ts";
+import { cardSubtitle, cardSummary, standing } from "../schedules.ts";
 import type { Actions } from "../ui.ts";
 import { useT } from "../i18n/react.ts";
 import { Button } from "./Button";
@@ -765,7 +766,7 @@ export function FailureCard({
 
 /* ---------- Schedule ---------- */
 
-/** Work the agent set up for later: what, when, and what is next; managed in Settings › Schedules. */
+/** Work the agent set up for later: one card for it, kept up to date as it is paused, resumed, done or cancelled; managed in Settings › Schedules. */
 export function ScheduleCard({
   schedule,
   place = alone,
@@ -776,48 +777,60 @@ export function ScheduleCard({
   actions: Actions;
 }) {
   const t = useT();
-  const over = schedule.status === "done" || schedule.status === "cancelled";
+  const over = !standing(schedule);
   return (
-    <button
-      {...shell(
-        place,
-        "flex w-full max-w-(--amuse-width) items-center gap-3 p-3 text-left",
-        18,
-      )}
-      aria-label={t.cards.scheduleLabel(schedule.title)}
-      onClick={() => actions.openSettings("schedules")}
-    >
-      <span
-        className="flex size-10 shrink-0 items-center justify-center rounded-xl"
-        style={{
-          background: "var(--fill-card-button)",
-          color: over ? "var(--icon-secondary)" : "var(--fill-blue)",
-        }}
+    <div {...shell(place, "w-full max-w-(--amuse-width) p-4")}>
+      <div className="flex items-start gap-3">
+        <span
+          className="relative flex size-10 shrink-0 items-center justify-center rounded-xl"
+          style={{
+            background: "var(--fill-primary)",
+            color: over ? "var(--icon-secondary)" : "var(--icon-primary)",
+          }}
+        >
+          <Calendar size={22} />
+          <span
+            className="absolute -bottom-1 -right-1 flex size-4 items-center justify-center rounded-full"
+            style={{
+              background: over ? "var(--icon-secondary)" : "var(--fill-blue)",
+              color: "#fff",
+              boxShadow: `0 0 0 2px ${CARD_BG}`,
+            }}
+          >
+            <Clock size={10} strokeWidth={3} />
+          </span>
+        </span>
+        <div className="min-w-0 flex-1">
+          <p
+            className="truncate text-[15px] font-semibold"
+            style={{ color: "var(--text-primary)" }}
+          >
+            {schedule.title}
+          </p>
+          <p
+            className="text-[13px]"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            {cardSubtitle(schedule)}
+          </p>
+        </div>
+      </div>
+      <p
+        className="mt-3 line-clamp-3 text-[14px] leading-[20px]"
+        style={{ color: "var(--text-primary)" }}
       >
-        <CalendarClock size={20} />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span
-          className="block truncate text-[14px] font-semibold"
-          style={{ color: "var(--text-primary)" }}
+        {cardSummary(schedule)}
+      </p>
+      {!over && (
+        <Button
+          onCard
+          className="mt-3 w-full"
+          onClick={() => actions.openSettings("schedules")}
         >
-          {schedule.title}
-        </span>
-        <span
-          className="block truncate text-[12px]"
-          style={{ color: "var(--text-secondary)" }}
-        >
-          {repeats(schedule.when)}
-        </span>
-        <span
-          className="block truncate text-[12px]"
-          style={{ color: "var(--text-secondary)" }}
-        >
-          {scheduleState(schedule)}
-        </span>
-      </span>
-      <ChevronRight size={16} style={{ color: "var(--icon-secondary)" }} />
-    </button>
+          {t.cards.viewScheduledTask}
+        </Button>
+      )}
+    </div>
   );
 }
 

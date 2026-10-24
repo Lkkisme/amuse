@@ -59,7 +59,6 @@ const samples: Record<string, unknown[]> = {
   "viewer.browserWith": ["Working"],
   "cards.setsUp": ["$API_KEY"],
   "cards.destinationPane": ["1"],
-  "cards.scheduleLabel": ["Sample schedule"],
   "sidebar.noMatch": ["Sample"],
   "sidebar.optionsFor": ["Sample chat"],
   "sidebar.ago.minutes": [5],
