@@ -511,3 +511,26 @@ body {
     display: none;
   }
 }
+
+/* the composer's + turns into the dictation ✕ and back */
+.plus-to-x {
+  transform: rotate(45deg);
+  animation: plus-turn 0.2s cubic-bezier(0.2, 0, 0, 1);
+}
+.x-to-plus {
+  animation: plus-turn-back 0.2s cubic-bezier(0.2, 0, 0, 1);
+}
+@keyframes plus-turn {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(45deg); }
+}
+@keyframes plus-turn-back {
+  from { transform: rotate(45deg); }
+  to { transform: rotate(0deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .plus-to-x,
+  .x-to-plus {
+    animation: none;
+  }
+}

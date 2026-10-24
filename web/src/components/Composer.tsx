@@ -85,6 +85,13 @@ export function Composer({ conversation, replying, place, actions }: { conversat
   const meter = useRef<Meter>({ bars: [], at: 0 }).current;
   const [time, setTime] = useState("0:00");
   const [quiet, setQuiet] = useState(false);
+  // the ✕ turns back into + when dictation ends
+  const [turnBack, setTurnBack] = useState(false);
+  const wasVoice = useRef(voice);
+  useEffect(() => {
+    if (wasVoice.current !== "idle" && voice === "idle") setTurnBack(true);
+    wasVoice.current = voice;
+  }, [voice]);
   // leaving the page lets go of the mic and drops the take
   useEffect(() => () => recording.current?.cancel(), []);
   // Escape throws the take away, or stops turning it into text
@@ -279,7 +286,7 @@ export function Composer({ conversation, replying, place, actions }: { conversat
       />
       <div className="relative mx-auto max-w-3xl px-4 pb-5 pt-1">
         <div
-          className={`pointer-events-auto flex flex-col px-2 py-2 ${pending.length > 0 || (lines && voice === "idle") || replying || (quiet && voice === "recording") ? "rounded-[26px]" : "rounded-full"}`}
+          className={`pointer-events-auto relative flex flex-col px-2 py-2 ${pending.length > 0 || (lines && voice === "idle") || replying ? "rounded-[26px]" : "rounded-full"}`}
           style={{ background: "var(--fill-primary)", boxShadow: "var(--shadow-float)" }}
         >
           {replying && (
@@ -313,19 +320,25 @@ export function Composer({ conversation, replying, place, actions }: { conversat
           {voice !== "idle" ? (
             <>
               {quiet && voice === "recording" && (
-                <div role="status" className="flex items-center gap-2 px-3 pb-1 pt-1.5 text-[13px] leading-[18px]" style={{ color: "var(--text-secondary)" }}>
+                // above the box, not in it: going into dictation never changes the box's height
+                <div
+                  role="status"
+                  className="pointer-events-none absolute bottom-full left-1/2 mb-2 flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-full px-3 py-1.5 text-[13px] leading-[18px]"
+                  style={{ color: "var(--text-secondary)", background: "var(--fill-primary)", boxShadow: "var(--shadow-float)" }}
+                >
                   <MicOff size={15} className="shrink-0" />
                   {t.chat.cantHearYou}
                 </div>
               )}
-              <div className="flex min-h-[44px] items-center gap-2 sm:min-h-[36px]">
+              <div className="flex min-h-[36px] items-center gap-2">
                 <button
                   aria-label={t.chat.cancelDictating}
-                  className="hover-fade flex size-11 shrink-0 items-center justify-center rounded-full sm:size-9"
-                  style={{ color: "var(--icon-secondary)" }}
+                  className="hover-fade flex size-9 shrink-0 items-center justify-center rounded-full"
+                  style={{ color: "var(--icon-primary)" }}
                   onClick={() => recording.current?.cancel()}
                 >
-                  <X size={20} />
+                  {/* the + turned a quarter of the way round: the same button, now throwing the take away */}
+                  <Plus size={20} className="plus-to-x" />
                 </button>
                 <span className="min-w-[2.5rem] shrink-0 text-[15px] tabular-nums" style={{ color: voice === "recording" ? "var(--text-primary)" : "var(--text-tertiary)" }}>
                   {time}
@@ -365,7 +378,7 @@ export function Composer({ conversation, replying, place, actions }: { conversat
                   style={{ color: "var(--icon-primary)" }}
                   onClick={() => picker.current?.click()}
                 >
-                  <Plus size={20} />
+                  <Plus size={20} className={turnBack ? "x-to-plus" : ""} onAnimationEnd={() => setTurnBack(false)} />
                 </button>
                 <input
                   ref={picker}
