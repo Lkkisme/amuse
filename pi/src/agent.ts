@@ -7,7 +7,7 @@
  * (the status line says what it is doing). Pi's coding tools, extensions,
  * skills and context files are all off: the model sees only amuse's tools (tools.ts).
  */
-import { type AgentIO, type Ports, type Rules, type Turn, type Workspace, attached, blank, closedParts, newId, nowIn } from "@amuse/core";
+import { type AgentIO, type Ports, type Rules, type Turn, type Workspace, attached, blank, closedParts, newId, nowIn, withJobs } from "@amuse/core";
 import { images, workspaceTools } from "./attachments.ts";
 import { memoryBrief, memoryReadTools, memoryWriteTools } from "./memory.ts";
 import { aboutTools } from "./about.ts";
@@ -22,7 +22,7 @@ import { relayTools } from "./runs.ts";
 import { type BrowserLook, browserReadTools } from "./browser-read.ts";
 import { taskTools } from "./tasks.ts";
 import { scheduleTools } from "./schedules.ts";
-import { CHAT_LIMITS, sandboxTools } from "./sandbox.ts";
+import { type JobBook, jobBook } from "./jobs.ts";
 import { type SecretAccess, secretTools } from "./secrets.ts";
 import { sayTools, silenceTools } from "./silence.ts";
 import { type Apps, appTools, chatTools, tools } from "./tools.ts";
@@ -126,6 +126,8 @@ const toolLabels: Record<string, string> = {
   delete_file: "Deleting a file",
   send_file: "Sending you a file",
   run_command: "Running a command",
+  job_output: "Looking at a background job",
+  stop_job: "Stopping a background job",
   schedule: "Scheduling",
   start_task: "Handing off a task",
   cancel_schedule: "Cancelling a schedule",
@@ -188,6 +190,8 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
   const lanes = new Map<string, Lane>();
   // the user's skills as the agent last saw them, by name: what is new or changed since gets told (null: not looked yet)
   let skillsSeen: Map<string, string> | null = null;
+  // the commands that went on in the background, by chat
+  const jobs = cfg.sandbox ? jobBook(cfg.sandbox) : undefined;
   const skillNews = (every: Skill[]): string => {
     const { seen, news } = skillsSince(skillsSeen, every);
     skillsSeen = seen;
@@ -247,7 +251,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
       // what is the same from turn to turn comes first, so the provider can reuse it: the rules, then the skills
       const system = [cfg.system, skills].filter(Boolean).join("\n\n");
       if (turn.kind === "message") setUpDefaults(cfg.defaults, agent);
-      const toolset = agentTools(cfg, io, () => heard, () => (silent = true));
+      const toolset = agentTools(cfg, io, () => heard, () => (silent = true), jobs);
       // many calls in one turn, only what the script returns in its context
       // the chat has one cache name, and the turn's message begins with what the last one did: both let a provider find its cache again
       let stable: string[] = [];
@@ -306,7 +310,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
           if (cfg.files) shown.push(...(await images(cfg.files, more.flatMap((m) => m.attachments))));
         }
         heard = taken.length > 0;
-        const told = brief(agent, turn, remembered, heard, language, lane.kept.splice(0).join("\n\n"));
+        const told = brief(jobs ? { ...agent, running: () => withJobs(agent.running(), jobs.running(agent.chat), agent.time().now) } : agent, turn, remembered, heard, language, lane.kept.splice(0).join("\n\n"));
         stable = told.stable;
         // from here the model has the conversation as it stands: what the user adds goes to it as it works
         lane.steering = { session: pi, unread: [], sending: Promise.resolve() };
@@ -366,6 +370,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
     },
     interrupt: (agent) => {
       const lane = laneOf(agent.chat);
+      jobs?.stopChat(agent.chat);
       lane.epoch++;
       void lane.session?.session.abort().catch(() => {});
     },
@@ -377,7 +382,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
  * The chat agent's tools, always in this order and with these schemas for the same setup (a provider caches a request by what it
  * starts with, and the tools come before the conversation): nothing here is sorted, shuffled or made up of the turn.
  */
-export function agentTools(cfg: PiConfig, io: () => AgentIO, heard: () => boolean, silence: () => void): ToolDefinition[] {
+export function agentTools(cfg: PiConfig, io: () => AgentIO, heard: () => boolean, silence: () => void, jobs: JobBook | undefined = cfg.sandbox ? jobBook(cfg.sandbox) : undefined): ToolDefinition[] {
   return [
     // with memory, memory_search looks in the chats as recall did, and in memory/ too
     ...tools(io, cfg.rules, { files: cfg.files, appsSetup: cfg.appsSetup, appsFit: cfg.appsFit }).filter((t) => !(cfg.files && t.name === "recall")),
@@ -392,7 +397,7 @@ export function agentTools(cfg: PiConfig, io: () => AgentIO, heard: () => boolea
     ...webTools(io, cfg.rules, cfg.search),
     ...(cfg.apps ? appTools(io, cfg.apps) : []),
     ...(cfg.files ? workspaceTools(io, cfg.files) : []),
-    ...(cfg.sandbox ? sandboxTools(cfg.sandbox, CHAT_LIMITS) : []),
+    ...(jobs ? jobs.tools(io) : []),
     ...(cfg.secrets ? secretTools(io, { ...cfg.secrets, sandbox: cfg.sandbox !== undefined }) : []),
     ...sayTools(io),
     ...silenceTools(heard, silence),

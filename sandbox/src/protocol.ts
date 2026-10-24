@@ -3,7 +3,8 @@
  * over HTTP, checked with these schemas on both sides. What the daemon says is
  * not taken for trusted (a process in the sandbox could stand in for it), so
  * what could carry words into the agent's context is held to a plain shape. A command is run to
- * completion (`POST /run`); what goes on running is in herdr's terminals (`/terminal`, for the user to see).
+ * completion (`POST /run`), or as a job of a chat that is handed off to the background if it takes long (`/jobs`); what goes on
+ * running to be watched or typed into is in herdr's terminals (`/terminal`, for the user to see).
  * The daemon also keeps credentials the user gave for the sandbox (`/secrets`) and empties the sandbox's
  * home on request (`POST /reset`).
  */
@@ -38,6 +39,53 @@ export const Ran = z.object({
   timedOut: z.boolean(),
 });
 export type Ran = z.infer<typeof Ran>;
+
+/** How long a job is waited for before it is handed off to the background, how long one may live, and how many a chat may have running. */
+export const HANDOFF_SECONDS = 10;
+export const JOB_LIFETIME = 1800;
+export const MAX_JOBS = 4;
+
+/** A chat's id, as the daemon keeps its jobs by it. */
+export const ChatId = z.string().min(1).max(100);
+
+/** A job of a chat: a command that outlives the request that started it. */
+export const Start = z.object({
+  chat: ChatId,
+  command: z.string().min(1).max(100_000),
+  cwd: z.string().max(4096).optional(),
+  /** hand it off at once, without the wait for it to end */
+  background: z.boolean().optional(),
+});
+export type Start = z.infer<typeof Start>;
+
+export const JobId = z.string().regex(/^j\d{1,9}$/);
+/** A job of a chat, by its id; for one of that chat's jobs only. */
+export const JobRef = z.object({ chat: ChatId, id: JobId });
+export type JobRef = z.infer<typeof JobRef>;
+/** Stopping jobs: one, or without an id every one of the chat's. */
+export const StopJobs = z.object({ chat: ChatId, id: JobId.optional() });
+export type StopJobs = z.infer<typeof StopJobs>;
+
+/** Why a job ended: it ran out, hit the lifetime, was stopped on request, or the sandbox was reset. */
+export const JobEnd = z.object({
+  exitCode: z.int().nullable(),
+  signal: Signal.nullable(),
+  reason: z.enum(["finished", "timedOut", "stopped", "reset"]),
+});
+export type JobEnd = z.infer<typeof JobEnd>;
+
+/** A job as it stands: what it printed so far (clipped as a command's is), for how long it has run, and how it ended if it has. */
+export const JobState = z.object({
+  id: JobId,
+  running: z.boolean(),
+  /** seconds it has run (to its end, once it has) */
+  seconds: z.int().min(0),
+  output: z.string(),
+  cut: z.int().min(0),
+  end: JobEnd.nullable(),
+});
+export type JobState = z.infer<typeof JobState>;
+export const JobStates = z.object({ jobs: z.array(JobState) });
 
 /** Why a request was not done, in the daemon's words (which the client does not pass on as its own). */
 export const Failure = z.object({ error: z.string() });

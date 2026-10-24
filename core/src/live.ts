@@ -49,3 +49,25 @@ export function liveState(state: State, changed: Map<string, string>, now: strin
   const runs = state.entities.filter((e): e is Browser | Task => (e.kind === "browser" || e.kind === "task") && live(e));
   return runs.length === 0 ? "" : ["What is running now:", ...runs.map((run) => line(run, changed, now))].join("\n");
 }
+
+/** A span in words the agent reads: "45 s", "3 min 12 s", "1 h 5 min". */
+export function duration(seconds: number): string {
+  if (seconds < 60) return `${seconds} s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} min${seconds % 60 === 0 ? "" : ` ${seconds % 60} s`}`;
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return `${Math.floor(seconds / 3600)} h${minutes === 0 ? "" : ` ${minutes} min`}`;
+}
+
+/** A command the sandbox runs in the background for this chat: `since` is when it started (an instant, as the chat's clock gives it). */
+export interface LiveJob {
+  id: string;
+  command: string;
+  since: string;
+}
+
+/** `running` (liveState's block, or "") with a line for each background job of the chat, under the same heading. */
+export function withJobs(running: string, jobs: LiveJob[], now: string): string {
+  if (jobs.length === 0) return running;
+  const lines = jobs.map((job) => `- job ${job.id} "${job.command}": running for ${duration(Math.max(0, Math.round((Date.parse(now) - Date.parse(job.since)) / 1000)))}, you are told when it ends`);
+  return [running || "What is running now:", ...lines].join("\n");
+}

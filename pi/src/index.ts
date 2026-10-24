@@ -10,6 +10,7 @@ export * from "./schedules.ts";
 export * from "./runs.ts";
 export * from "./attachments.ts";
 export * from "./sandbox.ts";
+export * from "./jobs.ts";
 export * from "./secrets.ts";
 export * from "./tasks.ts";
 export * from "./worker.ts";

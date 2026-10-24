@@ -14,14 +14,19 @@ import { demoPorts } from "@amuse/demo";
 import { migratedNow } from "@amuse/db";
 import { memoryChoices, piKeys, storeCredentials } from "@amuse/pi";
 import { Call, type FieldValue, type Method } from "@amuse/protocol";
-import type { SandboxClient } from "@amuse/sandbox";
+import type { JobState, SandboxClient } from "@amuse/sandbox";
 import { secretStore } from "./secret-store.ts";
 
 const instant: Timers<number> = { set: (_, fn) => (queueMicrotask(fn), 0), clear: () => {} };
 const never: Timers<number> = { set: () => 0, clear: () => {} };
 
+const idle: JobState = { id: "j1", running: false, seconds: 0, output: "", cut: 0, end: { exitCode: 0, signal: null, reason: "finished" } };
 const sandbox: SandboxClient = {
   run: async () => ({ output: "", cut: 0, exitCode: 0, signal: null, timedOut: false }),
+  start: async () => idle,
+  jobOutput: async () => idle,
+  stopJobs: async () => [],
+  waitJob: async () => idle,
   reset: async () => {},
   typeSecret: async () => {},
   setEnv: async () => {},

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type SandboxClient, SandboxError } from "./client.ts";
+import type { JobState } from "./protocol.ts";
 import { mask, masking } from "./redact.ts";
 
 test("credentials are masked by name, the longest first; values too short to be one are left", () => {
@@ -37,11 +38,16 @@ test("masking takes time in step with the text, whatever the text or the value i
 });
 
 test("what the sandbox brings back, output and errors alike, comes masked", async () => {
+  const job: JobState = { id: "j1", running: false, seconds: 1, output: "token=sk-123456\n", cut: 0, end: { exitCode: 0, signal: null, reason: "finished" } };
   const leaky: SandboxClient = {
     run: async ({ command }) => {
       if (command === "fail") throw new SandboxError("failed", "it said sk-123456");
       return { output: "token=sk-123456\n", cut: 0, exitCode: 0, signal: null, timedOut: false };
     },
+    start: async () => job,
+    jobOutput: async () => job,
+    stopJobs: async () => [job],
+    waitJob: async () => job,
     reset: async () => {},
     typeSecret: async () => {},
     setEnv: async () => {},
@@ -50,5 +56,8 @@ test("what the sandbox brings back, output and errors alike, comes masked", asyn
   };
   const seen = masking(leaky, () => [{ name: "KEY", value: "sk-123456" }]);
   assert.equal((await seen.run({ command: "env" })).output, "token=[secret: KEY]\n");
+  assert.equal((await seen.start({ chat: "main", command: "env" })).output, "token=[secret: KEY]\n");
+  assert.equal((await seen.waitJob({ chat: "main", id: "j1" })).output, "token=[secret: KEY]\n");
+  assert.equal((await seen.stopJobs({ chat: "main" }))[0]?.output, "token=[secret: KEY]\n");
   await assert.rejects(seen.run({ command: "fail" }), (e: unknown) => e instanceof SandboxError && e.detail === "it said [secret: KEY]");
 });

@@ -34,7 +34,25 @@ import { dirname, join, relative, resolve } from "node:path";
 import { z } from "zod";
 import { HerdrError, herdrCall } from "./herdr.ts";
 import { Clip } from "./output.ts";
-import { Cols, DEFAULT_TIMEOUT, Forget, Rows, Run, SecretEnv, SecretFile, SecretTyped, TERMINAL_PATH } from "./protocol.ts";
+import {
+  Cols,
+  DEFAULT_TIMEOUT,
+  Forget,
+  HANDOFF_SECONDS,
+  JOB_LIFETIME,
+  type JobEnd,
+  JobRef,
+  type JobState,
+  MAX_JOBS,
+  Rows,
+  Run,
+  SecretEnv,
+  SecretFile,
+  SecretTyped,
+  Start,
+  StopJobs,
+  TERMINAL_PATH,
+} from "./protocol.ts";
 import { relayTerminal } from "./terminal.ts";
 
 export interface Options {
@@ -52,6 +70,9 @@ export interface Options {
   isolated?: boolean;
   /** herdr's binary: kept running as its server, and what a terminal shows; without it, no terminals */
   herdr?: string;
+  /** how long a job is waited for before it is handed off, and how long it may live (ms; the protocol's, unless a test shortens them) */
+  handoffMs?: number;
+  lifetimeMs?: number;
 }
 
 /** A running daemon: where it listens, and how to stop it (what it runs too). */
@@ -73,6 +94,9 @@ const GRACE_MS = 300;
 const TERMINALS = 8;
 const SERVER_WAIT_MS = 10_000;
 const RESTART_MS = 2_000;
+/** Of the jobs that ended, how many of a chat are kept readable, and for how long (ms). */
+const KEPT_JOBS = 20;
+const KEPT_MS = 3_600_000;
 /** A server that keeps ending is started again less and less often, up to this (ms); one that ran this long starts the count over. */
 const LONGEST_RESTART_MS = 60_000;
 
@@ -100,6 +124,22 @@ interface Job {
   stop(grace: number): void;
 }
 
+/** A job of a chat, from its start until it is forgotten. */
+interface Tracked {
+  id: string;
+  chat: string;
+  job: Job;
+  clip: Clip;
+  startedAt: number;
+  endedAt: number;
+  /** how it ended, once it has and its output is all in */
+  end: JobEnd | null;
+  /** why it is being ended, once something has asked */
+  why: JobEnd["reason"] | null;
+  /** settles when `end` is there */
+  over: Promise<void>;
+}
+
 /** What herdr says its workspaces are (only how many matters here). */
 const Listed = z.object({ workspaces: z.array(z.unknown()) });
 /** What runs in a pane, as herdr says: whether the shell itself is in the foreground (at its prompt). */
@@ -118,7 +158,7 @@ const said = (error: unknown) => (error instanceof Error ? error.message : Strin
 /** What was wrong with a request, as a sentence. */
 const wrong = (error: z.ZodError) => error.issues.map((i) => `${i.path.join(".") || "request"}: ${i.message}`).join("; ");
 
-export function serve({ home, workspace, skeleton, port, host, user, isolated = false, herdr }: Options): Promise<Listening> {
+export function serve({ home, workspace, skeleton, port, host, user, isolated = false, herdr, handoffMs = HANDOFF_SECONDS * 1000, lifetimeMs = JOB_LIFETIME * 1000 }: Options): Promise<Listening> {
   /** Everything started and not yet ended, so a reset or a shutdown can stop it. */
   const jobs = new Set<Job>();
   // the user's own groups only, not root's, for what it starts
@@ -241,6 +281,90 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
       clearInterval(beat);
     }
     res.end(JSON.stringify({ ...clip.result(), ...end, timedOut }));
+  };
+
+  /* ---------- jobs ---------- */
+
+  const tracked = new Map<string, Tracked>();
+  let counted = 0;
+
+  const stateOf = (t: Tracked): JobState => ({
+    id: t.id,
+    running: t.end === null,
+    seconds: Math.round(((t.end ? t.endedAt : Date.now()) - t.startedAt) / 1000),
+    ...t.clip.result(),
+    end: t.end,
+  });
+
+  /** Forget the jobs that ended long ago, and all but the newest of a chat's. */
+  const tidy = () => {
+    const seen = new Map<string, number>();
+    for (const t of [...tracked.values()].filter((j) => j.end).sort((a, b) => b.endedAt - a.endedAt)) {
+      const count = (seen.get(t.chat) ?? 0) + 1;
+      seen.set(t.chat, count);
+      if (count > KEPT_JOBS || Date.now() - t.endedAt > KEPT_MS) tracked.delete(t.id);
+    }
+  };
+
+  /** Ask a running job to end, for `reason`, and force it after `grace` ms. */
+  const end = (t: Tracked, reason: JobEnd["reason"], grace: number) => {
+    if (t.end) return;
+    t.why ??= reason;
+    t.job.stop(grace);
+  };
+
+  /** A job of `chat` by its id; another chat's is not seen. */
+  const owned = ({ chat, id }: JobRef): Tracked => {
+    const t = tracked.get(id);
+    if (!t || t.chat !== chat) throw new Refused(`There is no job ${id} in this chat: it may be too old to be kept, or lost when the sandbox restarted.`, 404);
+    return t;
+  };
+
+  const startJob = async (request: Start, res: ServerResponse) => {
+    tidy();
+    const running = [...tracked.values()].filter((t) => t.chat === request.chat && !t.end);
+    if (running.length >= MAX_JOBS) throw new Refused(`${MAX_JOBS} jobs are running in this chat already (${running.map((t) => t.id).join(", ")}).`, 429);
+    const cwd = folder(request.cwd);
+    const clip = new Clip(FIRST, LAST);
+    const job = launch(request.command, cwd, clip);
+    const t: Tracked = { id: `j${++counted}`, chat: request.chat, job, clip, startedAt: Date.now(), endedAt: 0, end: null, why: null, over: Promise.resolve() };
+    tracked.set(t.id, t);
+    const limit = setTimeout(() => end(t, "timedOut", 3_000), lifetimeMs);
+    t.over = job.ended
+      .catch((error: unknown) => {
+        clip.append(`Could not start the command: ${said(error)}`);
+        return { exitCode: null, signal: null };
+      })
+      .then((how) => {
+        clearTimeout(limit);
+        t.endedAt = Date.now();
+        t.end = { ...how, reason: t.why ?? "finished" };
+      });
+    // whoever asked went away before it was handed off (the user stopped Amuse): it stops, as a command does
+    let answered = false;
+    res.once("close", () => {
+      if (answered) return;
+      t.why ??= "stopped";
+      job.signal("SIGKILL");
+    });
+    let handoff: NodeJS.Timeout | undefined;
+    await Promise.race([t.over, new Promise<void>((done) => (handoff = setTimeout(done, request.background ? 0 : handoffMs)))]);
+    clearTimeout(handoff);
+    answered = true;
+    return stateOf(t);
+  };
+
+  const stopJobs = async ({ chat, id }: StopJobs) => {
+    const those = id === undefined ? [...tracked.values()].filter((t) => t.chat === chat && !t.end) : [owned({ chat, id })];
+    for (const t of those) end(t, "stopped", 3_000);
+    await Promise.all(those.map((t) => t.over));
+    return { jobs: those.map(stateOf) };
+  };
+
+  const waitJob = async (ref: JobRef) => {
+    const t = owned(ref);
+    await t.over;
+    return stateOf(t);
   };
 
   /* ---------- terminals ---------- */
@@ -412,6 +536,7 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
   /** Stop everything: in the sandbox's own container every process but the init and this daemon (a second round for what the first one's dying spawned), else what this daemon started. */
   const stopAll = async () => {
     const stopping = [...jobs];
+    for (const t of tracked.values()) if (!t.end) t.why = "reset";
     for (let round = 0; round < 2; round++) {
       if (isolated) {
         try {
@@ -478,6 +603,14 @@ export function serve({ home, workspace, skeleton, port, host, user, isolated = 
         return json(res, 200, {});
       case "POST /run":
         return await run(await asked(req, Run), res);
+      case "POST /jobs":
+        return json(res, 200, await startJob(await asked(req, Start), res));
+      case "POST /jobs/output":
+        return json(res, 200, stateOf(owned(await asked(req, JobRef))));
+      case "POST /jobs/stop":
+        return json(res, 200, await stopJobs(await asked(req, StopJobs)));
+      case "POST /jobs/wait":
+        return json(res, 200, await waitJob(await asked(req, JobRef)));
       case "POST /secrets/env":
         return json(res, 200, await setEnv(await asked(req, SecretEnv)));
       case "POST /secrets/file":

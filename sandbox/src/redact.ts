@@ -5,6 +5,7 @@
  * them from showing by accident; it does not hide them from what runs there.
  */
 import { type SandboxClient, SandboxError } from "./client.ts";
+import type { JobState } from "./protocol.ts";
 
 /** A secret to mask: its value, and the name it is shown by (the entry and the field: "Cloudflare token"). */
 export interface Masked {
@@ -64,6 +65,7 @@ export function mask(text: string, secrets: readonly Masked[]): string {
 /** `client`, every word it brings back masked with what `secrets` gives at that moment. */
 export function masking(client: SandboxClient, secrets: () => readonly Masked[]): SandboxClient {
   const clean = (text: string) => mask(text, secrets());
+  const cleaned = (job: JobState): JobState => ({ ...job, output: clean(job.output) });
   const guarded = async <T>(call: () => Promise<T>): Promise<T> => {
     try {
       return await call();
@@ -79,5 +81,9 @@ export function masking(client: SandboxClient, secrets: () => readonly Masked[])
         const ran = await client.run(request, signal);
         return { ...ran, output: clean(ran.output) };
       }),
+    start: (request, signal) => guarded(async () => cleaned(await client.start(request, signal))),
+    jobOutput: (job) => guarded(async () => cleaned(await client.jobOutput(job))),
+    stopJobs: (request) => guarded(async () => (await client.stopJobs(request)).map(cleaned)),
+    waitJob: (job) => guarded(async () => cleaned(await client.waitJob(job))),
   };
 }

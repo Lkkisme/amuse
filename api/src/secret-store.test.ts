@@ -4,12 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { FieldValue, SecretInput, SecretRequest } from "@amuse/protocol";
-import { type SandboxClient, SandboxError, mask } from "@amuse/sandbox";
+import { type JobState, type SandboxClient, SandboxError, mask } from "@amuse/sandbox";
 import { storeCredentials } from "@amuse/pi";
 import { type Db, migratedNow, queryOne } from "@amuse/db";
 import { z } from "zod";
 import { KeyUnavailable } from "./seal.ts";
 import { type SecretStore, secretStore } from "./secret-store.ts";
+
+const idle: JobState = { id: "j1", running: false, seconds: 0, output: "", cut: 0, end: { exitCode: 0, signal: null, reason: "finished" } };
 
 /** A sandbox that remembers what it holds, as its daemon would. */
 function fake(fail?: { on: string }) {
@@ -18,6 +20,10 @@ function fake(fail?: { on: string }) {
   const typed: string[] = [];
   const sandbox: SandboxClient = {
     run: async () => ({ output: "", cut: 0, exitCode: 0, signal: null, timedOut: false }),
+    start: async () => idle,
+    jobOutput: async () => idle,
+    stopJobs: async () => [],
+    waitJob: async () => idle,
     reset: async () => {
       env.clear();
       files.clear();
