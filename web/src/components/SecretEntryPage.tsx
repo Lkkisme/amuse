@@ -107,11 +107,10 @@ function SecretRow({ session, entry, field, onError }: { session: Session; entry
         </>
       }
     >
-      {value === null ? (
-        "••••••"
-      ) : (
-        <span className="block max-h-40 overflow-y-auto whitespace-pre-wrap font-mono text-[14px]">{value}</span>
-      )}
+      {/* shown or hidden, the row keeps its height: one line, a long value scrolls sideways */}
+      <span className={`touch-no-scrollbar block h-6 overflow-x-auto whitespace-nowrap leading-6 ${value === null ? "" : "font-mono"}`}>
+        {value ?? "••••••"}
+      </span>
     </InfoRow>
   );
 }

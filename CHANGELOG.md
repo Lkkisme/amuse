@@ -46,6 +46,7 @@ What changed in each release of Amuse, for the people who run it. The format fol
 - After an update, Amuse tells you what you can do now: it reads what the new version added and changed (the operator-only entries left out) and says it in one short message, in your language, picking what matters to you. Once, then never again: a restart with nothing new says nothing, and a fresh install says nothing at all. (#64)
 
 ### Changed
+- A secret shown on its Vault page stays on one line, so the page does not jump; a long one scrolls sideways.
 - On a phone, the message box no longer shows a scrollbar when what you type runs long: it scrolls under your finger, and its fade still shows there is more.
 - Amuse's replies and its cards share one width: a reply is as wide as its text, a card fills it, and both stop at the same right edge, short of the column's (a gap of 48px or more on a phone, as your own messages leave one on the left; on a desktop at most 600px). Cards, which were 260–340px wide, now fill that width on a larger screen. (#59)
 - An approval card is short: what Amuse wants to do, which app or site, why, and the buttons. The raw parameters it used to list under the reason (Owner, Repo, Path, Message, Sha, Branch…) are behind a quiet "Details" that opens them in place, one label over its value as in the Vault; a long reason is cut to three lines with "more" instead of scrolling inside the card. (#60)
