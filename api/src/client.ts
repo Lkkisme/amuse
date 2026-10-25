@@ -81,6 +81,7 @@ export function connect(url: string, options: ConnectOptions = {}): Session & { 
   let heartbeatTimer: ReturnType<typeof setTimeout> | undefined;
   let probeTimer: ReturnType<typeof setTimeout> | undefined;
   let probing = false;
+  let chatRefresh: { socket: WebSocket; generation: number } | null = null;
 
   const deliver = (chat: string, envelope: Envelope) => {
     if (envelope.seq <= (lastSeq.get(chat) ?? 0)) return;
@@ -127,6 +128,17 @@ export function connect(url: string, options: ConnectOptions = {}): Session & { 
     clearTimeout(heartbeatTimer);
     if (!closed && !terminal && recovery.active()) heartbeatTimer = setTimeout(probe, 25_000);
   };
+  const refreshChats = (ws: WebSocket, generation: number) => {
+    if (socket !== ws || epoch !== generation || closed || terminal) return;
+    if (chatRefresh?.socket === ws && chatRefresh.generation === generation) return;
+    const current = { socket: ws, generation };
+    chatRefresh = current;
+    // Catalog discovery can wait on Paseo. It refreshes the UI independently of transport health.
+    // A replacement socket starts its own read, so this internal read needs no transport replay.
+    void send("chats.list", {}).then(({ chats: list }) => {
+      if (socket === ws && epoch === generation) chats(list);
+    }, () => {}).finally(() => { if (chatRefresh === current) chatRefresh = null; });
+  };
   /** A reply on this exact socket proves it survived a radio/VPN change. */
   const probe = () => {
     if (closed || terminal || !recovery.active()) return;
@@ -138,8 +150,8 @@ export function connect(url: string, options: ConnectOptions = {}): Session & { 
     const health = ++healthEpoch;
     probeId = nextId + 1;
     probeTimer = setTimeout(() => { if (socket === ws && epoch === generation && healthEpoch === health) disconnect(ws, true); }, 5_000);
-    void call("chats.list", {}).then(({ chats: list }) => {
-      if (socket === ws && epoch === generation && healthEpoch === health) chats(list);
+    void send("backend.status", {}).then(() => {
+      if (socket === ws && epoch === generation && healthEpoch === health) refreshChats(ws, generation);
     }, () => {}).finally(() => {
       if (socket !== ws || epoch !== generation || healthEpoch !== health) return;
       clearTimeout(probeTimer); probeTimer = undefined; probeId = undefined; probing = false; heartbeat();
@@ -172,7 +184,7 @@ export function connect(url: string, options: ConnectOptions = {}): Session & { 
       for (const frame of outbox.splice(0)) ws.send(frame);
       for (const waiting of [...rejoin]) waiting.ready();
       if (resumed) {
-        void call("chats.list", {}).then((r) => chats(r.chats), () => {});
+        refreshChats(ws, generation);
         for (const chat of new Set([...lastSeq.keys(), ...syncChats])) {
           if (retryingSync.has(chat)) continue;
           void call("session.sync", { chat, since: lastSeq.get(chat) ?? null }).then((r) => {

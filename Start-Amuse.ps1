@@ -51,7 +51,9 @@ if (-not $Foreground -and -not $Service) {
     }
     $amuseAction = New-ScheduledTaskAction -Execute $amusePowerShell -Argument $amuseArguments -WorkingDirectory $amuseRoot
     $amusePrincipal = New-ScheduledTaskPrincipal -UserId $amuseCurrentUser -LogonType Interactive -RunLevel Limited
-    $amuseSettings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -Hidden
+    # This interactive API needs normal scheduling; the scheduler's default 7
+    # starts it and its children with background CPU and memory priorities.
+    $amuseSettings = New-ScheduledTaskSettingsSet -Priority 4 -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -Hidden
     $amuseTask = New-ScheduledTask -Action $amuseAction -Principal $amusePrincipal -Settings $amuseSettings -Description $amuseDescription
     # Register only our root-derived name. Access denied is an error; never retry
     # with another account, stored credentials, or a higher run level.
