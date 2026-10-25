@@ -604,11 +604,12 @@ function Bubble({
           ref={bubble}
           // in selection mode the press is the phone's own, and the bubble says so
           {...(selecting ? { "data-selecting": "" } : press.handlers)}
-          // 16px text on 22px lines, 12px of padding on every side: a line is 46px high, a full pill with BUBBLE's 23px
-          // corners, and a box inside, 12px from the bubble's edges, has the corner 23 - 12 = 11px, concentric
+          // 15px text on 22px lines, 16px of padding above and below and 20px at the sides, as Muse spaces them: a line is
+          // 54px high, a full pill with BUBBLE's 27px corners; with suggestions the bottom pads 20px too, so the boxes
+          // sit 20px from the sides and the bottom and have the corner 27 - 20 = 7px, concentric
           // a long run with no space (a web address) breaks where it must, inside the bubble
           // both fit their words: the user's to a share of the column, Amuse's to the width its cards share (--amuse-width)
-          className={`msg relative ${selecting ? "bubble-selectable" : ""} p-3 text-[16px] leading-[22px] [overflow-wrap:anywhere] ${isUser ? "w-fit max-w-[88%] sm:max-w-[78%]" : `max-w-(--amuse-width) ${item.suggestions.length > 0 ? "w-full" : "w-fit"}`}`}
+          className={`msg relative ${selecting ? "bubble-selectable" : ""} px-5 py-4 text-[15px] leading-[22px] [overflow-wrap:anywhere] ${item.kind === "reply" && item.suggestions.length > 0 ? "pb-5" : ""} ${isUser ? "w-fit max-w-[88%] sm:max-w-[78%]" : `max-w-(--amuse-width) ${item.suggestions.length > 0 ? "w-full" : "w-fit"}`}`}
           style={{
             ...corners(isUser ? "user" : "muse", place, BUBBLE),
             background: isUser
@@ -657,7 +658,7 @@ function Bubble({
 function Suggestions({ reply, closed, place, actions }: { reply: Reply; closed: boolean; place: Place; actions: Actions }) {
   const t = useT();
   const done = reply.chosen !== null;
-  // the bubble's 12px (p-3) padding is the boxes' inset at the sides and the bottom: their radius is the corner's minus it
+  // the bubble's 20px side and bottom padding is the boxes' inset: their radius is the corner's minus it
   const round = concentric(bottomRound(place, BUBBLE), BUBBLE_PAD);
   return (
     <div role="group" aria-label={t.chat.suggestedReplies} className="mt-3 flex flex-col gap-2">
@@ -673,7 +674,7 @@ function Suggestions({ reply, closed, place, actions }: { reply: Reply; closed: 
             onClick={() => void actions.send(text, [], { reply: reply.id, index }).catch(() => {})}
             // 48px high; the check is 20px, so its distance to the top, bottom and right edge is (48 - 20) / 2 = 14px,
             // 12.5px of padding inside the 1.5px border
-            className={`flex min-h-12 w-full items-center gap-2 border-[1.5px] py-2.5 pl-4 pr-[12.5px] text-left text-[16px] leading-[22px] outline-offset-2 outline-[color:var(--fill-blue)] focus-visible:outline-2 ${mine ? "border-solid font-medium" : still ? "border-solid" : "hover-fade border-dashed"}`}
+            className={`flex min-h-12 w-full items-center gap-2 border-[1.5px] py-2.5 pl-4 pr-[12.5px] text-left text-[15px] leading-[22px] outline-offset-2 outline-[color:var(--fill-blue)] focus-visible:outline-2 ${mine ? "border-solid font-medium" : still ? "border-solid" : "hover-fade border-dashed"}`}
             style={{
               borderRadius: round,
               borderColor: mine ? "var(--text-secondary)" : "var(--text-tertiary)",
