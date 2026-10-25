@@ -102,7 +102,8 @@ fun AmuseApp(
                                 })
                         }
                         when {
-                            state.pickerSuspended -> LockScreen(state, onUnlock, onServerLogin, onSettings)
+                            // the picker is out for a moment: a plain cover, not the lock screen, so coming back does not flash "Unlock"
+                            state.pickerSuspended -> Box(Modifier.fillMaxSize().background(MuseSurface))
                             state.connectionError != null -> CenteredPanel {
                                 Icon(painterResource(R.drawable.ic_wifi_off), null, Modifier.size(42.dp), tint = MuseTextSecondary)
                                 Text("Let’s reconnect", fontSize = 25.sp)

@@ -56,8 +56,7 @@ class MainActivity : ComponentActivity() {
     private var microphoneResult: Boolean? = null
 
     private val documentPicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        pickedFiles = WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data)
-            ?.filter { it.scheme == "content" }?.toTypedArray()
+        pickedFiles = pickedUris(result.resultCode, result.data)
         pickerReturned = true
         if (state.pickerSuspended) resumePicker() else deliverFiles()
     }
@@ -290,6 +289,18 @@ class MainActivity : ComponentActivity() {
 
     private fun resumePicker() {
         if (foreground && state.pickerSuspended) finishUnlock(pausedCookie, generation)
+    }
+
+    /**
+     * What the picker handed back. FileChooserParams.parseResult reads only the intent's data, but a picker asked for
+     * several files (EXTRA_ALLOW_MULTIPLE, as the web app's <input multiple> asks) puts them, even a single one, in
+     * its ClipData, and parseResult then returns null: read both.
+     */
+    private fun pickedUris(resultCode: Int, data: Intent?): Array<Uri>? {
+        if (resultCode != RESULT_OK || data == null) return null
+        val clip = data.clipData
+        val uris = if (clip != null && clip.itemCount > 0) (0 until clip.itemCount).mapNotNull { clip.getItemAt(it).uri } else listOfNotNull(data.data)
+        return uris.filter { it.scheme == "content" }.takeIf { it.isNotEmpty() }?.toTypedArray()
     }
 
     private fun deliverFiles() {
