@@ -4,10 +4,12 @@
  * can be paused, resumed (from then on) or deleted (cancelled for good).
  * Done and cancelled ones are not listed (they are kept, as a record).
  */
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CalendarClock } from "lucide-react";
+import { Dropped } from "@amuse/api/client";
 import type { Needs, Schedule, Session } from "@amuse/protocol";
 import { moment, outcomeLabel, repeats, scheduleState } from "../schedules.ts";
+import { wordsFor } from "../shown.ts";
 import { Button } from "./Button";
 import { useT } from "../i18n/react.ts";
 
@@ -16,38 +18,71 @@ type Control = "pause" | "resume" | "cancel";
 export function Schedules({ session }: { session: Session }) {
   const t = useT();
   const [schedules, setSchedules] = useState<Schedule[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const load = useCallback(
-    () =>
-      session.call("schedules.list", {}).then(
-        ({ schedules }) => setSchedules(schedules),
-        (e: unknown) => setError(e instanceof Error ? e.message : String(e)),
-      ),
-    [session],
-  );
-  useEffect(() => void load(), [load]);
-  // a run starting or ending, or the agent setting one up, shows as it happens
-  useEffect(
-    () =>
-      session.subscribe((update) => {
-        if (
-          update.kind === "reset" ||
-          (update.kind === "event" &&
-            update.envelope.event.kind === "upserted" &&
-            update.envelope.event.entity.kind === "schedule")
-        )
-          void load();
-      }),
-    [session, load],
-  );
+  // A successful list read may clear its own failure, never a separate control refusal.
+  const [readError, setReadError] = useState<unknown>(null);
+  const [controlError, setControlError] = useState<unknown>(null);
+  const reader = useRef<{ load(changed?: boolean): Promise<void>; active(): boolean } | null>(null);
+  const controlVersion = useRef(0);
+  useEffect(() => {
+    let live = true;
+    let pending: Promise<void> | null = null;
+    let dropped = false;
+    let refreshAgain = false;
+    const load = (changed = false): Promise<void> => {
+      if (!live) return Promise.resolve();
+      if (pending) { refreshAgain ||= changed; return pending; }
+      dropped = false;
+      let succeeded = false;
+      pending = session.call("schedules.list", {}).then(
+        ({ schedules }) => {
+          if (!live) return;
+          succeeded = true;
+          setSchedules(schedules);
+          setReadError(null);
+        },
+        (error: unknown) => {
+          if (!live) return;
+          dropped = error instanceof Dropped;
+          setReadError(error);
+        },
+      ).finally(() => {
+        pending = null;
+        const again = refreshAgain;
+        refreshAgain = false;
+        // Changes during a read need one newer snapshot; a failed read still waits for recovery.
+        if (live && succeeded && again) void load();
+      });
+      return pending;
+    };
+    const current = { load, active: () => live };
+    reader.current = current;
+    const unsubscribe = session.subscribe((update) => {
+      if (
+        // A successful heartbeat/reconnect can have no new session events to reset this page.
+        (update.kind === "chats" && dropped) || update.kind === "reset" ||
+        (update.kind === "event" && update.envelope.event.kind === "upserted" &&
+          update.envelope.event.entity.kind === "schedule")
+      ) void load(update.kind !== "chats");
+    });
+    void load();
+    return () => {
+      live = false;
+      unsubscribe();
+      if (reader.current === current) reader.current = null;
+    };
+  }, [session]);
   const control = (id: string, action: Control) => {
-    setError(null);
+    const current = reader.current;
+    if (!current) return;
+    const version = ++controlVersion.current;
+    setControlError(null);
     session
       .call("schedule.control", { id, action })
-      .then(load, (e: unknown) =>
-        setError(e instanceof Error ? e.message : String(e)),
-      );
+      .then(() => current.load(true), (error: unknown) => {
+        if (current.active() && version === controlVersion.current) setControlError(error);
+      });
   };
+  const error = wordsFor(controlError ?? readError, t);
   const standing =
     schedules?.filter((s) => s.status === "active" || s.status === "paused") ??
     [];
