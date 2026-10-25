@@ -14,9 +14,9 @@ export type Place = { joinsPrevious: boolean; joinsNext: boolean };
 
 export const alone: Place = { joinsPrevious: false, joinsNext: false };
 
-/** A chat bubble's corner, half of a one-line bubble's height (22px line + 2 × 14px), so one line is a full pill; and the side padding. */
-export const BUBBLE = 25;
-export const BUBBLE_PAD = 18;
+/** A chat bubble's corner, half of a one-line bubble's height (22px line + 2 × 13px), so one line is a full pill; and the side padding. */
+export const BUBBLE = 24;
+export const BUBBLE_PAD = 16;
 
 /** The tight corner where items join. */
 const JOINED = 6;

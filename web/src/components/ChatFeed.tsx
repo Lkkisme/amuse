@@ -604,12 +604,12 @@ function Bubble({
           ref={bubble}
           // in selection mode the press is the phone's own, and the bubble says so
           {...(selecting ? { "data-selecting": "" } : press.handlers)}
-          // 15px text on 22px lines, 14px of padding above and below and 18px at the sides, near Muse's spacing: a line is
-          // 50px high, a full pill with BUBBLE's 25px corners; with suggestions the bottom pads 18px too, so the boxes
-          // sit 18px from the sides and the bottom and have the corner 25 - 18 = 7px, concentric
+          // 15px text on 22px lines, 13px of padding above and below and 16px at the sides, near Muse's spacing: a line is
+          // 48px high, a full pill with BUBBLE's 24px corners; with suggestions the bottom pads 16px too, so the boxes
+          // sit 16px from the sides and the bottom and have the corner 24 - 16 = 8px, concentric
           // a long run with no space (a web address) breaks where it must, inside the bubble
           // both fit their words: the user's to a share of the column, Amuse's to the width its cards share (--amuse-width)
-          className={`msg relative ${selecting ? "bubble-selectable" : ""} px-[18px] py-3.5 text-[15px] leading-[22px] [overflow-wrap:anywhere] ${item.kind === "reply" && item.suggestions.length > 0 ? "pb-[18px]" : ""} ${isUser ? "w-fit max-w-[88%] sm:max-w-[78%]" : `max-w-(--amuse-width) ${item.suggestions.length > 0 ? "w-full" : "w-fit"}`}`}
+          className={`msg relative ${selecting ? "bubble-selectable" : ""} px-4 py-[13px] text-[15px] leading-[22px] [overflow-wrap:anywhere] ${item.kind === "reply" && item.suggestions.length > 0 ? "pb-4" : ""} ${isUser ? "w-fit max-w-[88%] sm:max-w-[78%]" : `max-w-(--amuse-width) ${item.suggestions.length > 0 ? "w-full" : "w-fit"}`}`}
           style={{
             ...corners(isUser ? "user" : "muse", place, BUBBLE),
             background: isUser
@@ -658,7 +658,7 @@ function Bubble({
 function Suggestions({ reply, closed, place, actions }: { reply: Reply; closed: boolean; place: Place; actions: Actions }) {
   const t = useT();
   const done = reply.chosen !== null;
-  // the bubble's 18px side and bottom padding is the boxes' inset: their radius is the corner's minus it
+  // the bubble's 16px side and bottom padding is the boxes' inset: their radius is the corner's minus it
   const round = concentric(bottomRound(place, BUBBLE), BUBBLE_PAD);
   return (
     <div role="group" aria-label={t.chat.suggestedReplies} className="mt-3 flex flex-col gap-2">
