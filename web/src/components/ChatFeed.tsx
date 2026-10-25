@@ -984,7 +984,7 @@ export function ChatFeed({
         onTouchMove={handOn}
         onKeyDown={handOn}
         onPointerDown={handOn}
-        className="h-full overflow-y-auto px-4 pt-16 pb-28 chat-scroll-fade"
+        className="h-full overflow-x-hidden overflow-y-auto px-4 pt-16 pb-28 chat-scroll-fade"
         // no scroll anchoring: it moves the view when cards arrive above the end, and the view would think the user scrolled
         style={{ background: "var(--chat-background)", overflowAnchor: "none" }}
       >

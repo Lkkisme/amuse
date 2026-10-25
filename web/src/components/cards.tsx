@@ -200,8 +200,9 @@ export function ApprovalCard({
         )}
         <div className="min-w-0">
           <p
-            className="text-[15px] font-semibold"
+            className="line-clamp-3 text-[15px] font-semibold [overflow-wrap:anywhere]"
             style={{ color: "var(--text-primary)" }}
+            title={approval.action}
           >
             {approval.action}
           </p>
