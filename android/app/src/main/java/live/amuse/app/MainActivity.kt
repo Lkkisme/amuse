@@ -342,12 +342,15 @@ class MainActivity : ComponentActivity() {
         openSavedSession()
     }
 
-    /** Always ask locally, then require Android's runtime grant for this exact request. */
+    /** Ask locally the first time for this server (an Allow is remembered for it), then require Android's runtime grant for this exact request. */
     private fun offerMicrophone(request: PermissionRequest) {
         if (microphoneRequest != null || !microphoneAllowed(request)) { request.deny(); return }
         microphoneRequest = request
-        state = state.copy(microphonePrompt = true)
+        if (preferences.getBoolean(microphoneKey(), false)) requestMicrophonePermission()
+        else state = state.copy(microphonePrompt = true)
     }
+
+    private fun microphoneKey() = "microphone_allowed:${state.server.origin}"
 
     private fun microphoneAllowed(request: PermissionRequest): Boolean =
         foreground && state.unlocked && !state.settingsVisible && webView?.url?.let(state.server::contains) == true &&
@@ -357,6 +360,7 @@ class MainActivity : ComponentActivity() {
         state = state.copy(microphonePrompt = false)
         val request = microphoneRequest ?: return
         if (!microphoneAllowed(request)) { denyMicrophonePermission(); return }
+        preferences.edit().putBoolean(microphoneKey(), true).apply()
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
             finishMicrophonePermission(true)
         else { permissionDialogInFlight = true; recordAudio.launch(Manifest.permission.RECORD_AUDIO) }
