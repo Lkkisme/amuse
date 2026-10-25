@@ -76,7 +76,8 @@ class MainActivity : ComponentActivity() {
             deviceSecure = getSystemService(KeyguardManager::class.java).isDeviceSecure,
             useDeviceUnlock = preferences.getBoolean("device_unlock", false),
             reusableSessionSupported = Build.VERSION.SDK_INT >= 30,
-            darkTheme = preferences.getBoolean("dark_theme", false))
+            // until the page says which it shows: the last one it showed, else the system's
+            darkTheme = if (preferences.contains("dark_theme")) preferences.getBoolean("dark_theme", false) else systemDark())
         state = state.copy(rememberedSession = vault.hasSession(state.server))
         updateSystemBars()
         // In optional lock mode the reusable copy lives only in the authenticated vault.
@@ -262,6 +263,9 @@ class MainActivity : ComponentActivity() {
             .onFailure { state = state.copy(notice = "Sign-in could not be saved securely. Sign in again next time.") }
         lastCookie = cookie
     }
+
+    private fun systemDark(): Boolean =
+        resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES
 
     private fun updateSystemBars() {
         WindowCompat.getInsetsController(window, window.decorView).apply {
