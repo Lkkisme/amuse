@@ -52,6 +52,7 @@ What changed in each release of Amuse, for the people who run it. The format fol
 - After an update, Amuse tells you what you can do now: it reads what the new version added and changed (the operator-only entries left out) and says it in one short message, in your language, picking what matters to you. Once, then never again: a restart with nothing new says nothing, and a fresh install says nothing at all. (#64)
 
 ### Changed
+- On a phone, a sheet that comes up from the bottom (a form, a key, a confirmation) closes when you pull it down by its handle or anywhere on it, or flick it down; a short pull springs back.
 - Voice no longer offers Fireworks: it has retired the speech-to-text service Amuse called. OpenAI, Groq or your own server remain, and an instance whose speech service was Fireworks falls back to the first of them with a key (or asks, if there is none).
 - A secret shown on its Vault page stays on one line, so the page does not jump; a long one scrolls sideways.
 - On a phone, the message box no longer shows a scrollbar when what you type runs long: it scrolls under your finger, and its fade still shows there is more.
