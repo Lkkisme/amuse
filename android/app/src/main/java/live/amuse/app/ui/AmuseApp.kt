@@ -94,7 +94,8 @@ fun AmuseApp(
                         key(state.webGeneration) {
                             AndroidView(factory = { createWebView() }, modifier = Modifier.fillMaxSize(),
                                 onReset = null, onRelease = { releaseWebView(it) }, update = { view ->
-                                    view.visibility = if (state.pickerSuspended) View.INVISIBLE else View.VISIBLE
+                                    // the chat stays in sight behind the picker; it only takes no input until the picker closes
+                                    view.visibility = View.VISIBLE
                                     view.isEnabled = !state.pickerSuspended
                                     view.importantForAccessibility = if (state.pickerSuspended)
                                         View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS else View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
@@ -102,8 +103,6 @@ fun AmuseApp(
                                 })
                         }
                         when {
-                            // the picker is out for a moment: a plain cover, not the lock screen, so coming back does not flash "Unlock"
-                            state.pickerSuspended -> Box(Modifier.fillMaxSize().background(MuseSurface))
                             state.connectionError != null -> CenteredPanel {
                                 Icon(painterResource(R.drawable.ic_wifi_off), null, Modifier.size(42.dp), tint = MuseTextSecondary)
                                 Text("Let’s reconnect", fontSize = 25.sp)
