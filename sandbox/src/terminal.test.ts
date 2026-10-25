@@ -141,6 +141,9 @@ test("a credential is typed into a terminal through herdr's socket, with Enter; 
       { id: "amuse", method: "pane.process_info", params: { pane_id: "w1:p2" } },
       { id: "amuse", method: "pane.send_input", params: { pane_id: "w1:p2", text: "code-123", keys: ["enter"] } },
     ]);
+    // herdr counts workspaces past 9 in letters
+    await client.typeSecret({ pane: "wC:p1", value: "code-456" });
+    assert.deepEqual(asked.at(-1), { id: "amuse", method: "pane.send_input", params: { pane_id: "wC:p1", text: "code-456", keys: ["enter"] } });
     await assert.rejects(client.typeSecret({ pane: "w1:p3", value: "late-code" }), (e: unknown) => e instanceof Error && "detail" in e && /shell prompt/.test(String(e.detail)));
     assert.ok(!asked.some((a) => JSON.stringify(a).includes("late-code")), "nothing typed into the shell");
     await assert.rejects(client.typeSecret({ pane: "w9:p9", value: "x" }), (e: unknown) => e instanceof Error && "detail" in e && /no pane w9:p9/.test(String(e.detail)));
