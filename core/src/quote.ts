@@ -4,6 +4,7 @@
  * item has scrolled out of a client's recent end or out of the agent's context.
  */
 import type { Entity, Quote } from "@amuse/protocol";
+import { redact } from "./redact.ts";
 
 /** The most of a reply's words a quote keeps. */
 const MAX = 300;
@@ -41,7 +42,16 @@ export function quoteOf(entity: Entity): Quote | null {
   }
 }
 
-const cards: Record<Exclude<Quote["kind"], "prompt" | "reply">, string> = {
+/**
+ * The quote of an error the user asks Amuse about: the message they saw, and the technical detail only the agent
+ * gets (code, feature, provider, time). Both go through the same redaction as any error text (no credential-looking
+ * strings), since what a client sends is not to be trusted to have left them out.
+ */
+export function errorQuote(id: string, about: { message: string; detail: string }): Quote {
+  return { id, kind: "error", text: redact(about.message, [], ""), state: null, detail: redact(about.detail, [], "") };
+}
+
+const cards: Record<Exclude<Quote["kind"], "prompt" | "reply" | "error">, string> = {
   task: "task card",
   approval: "approval card",
   connection: "connection card",
@@ -55,6 +65,7 @@ const cards: Record<Exclude<Quote["kind"], "prompt" | "reply">, string> = {
 export function quoted(quote: Quote): string {
   if (quote.kind === "prompt") return `their own earlier message "${quote.text}"`;
   if (quote.kind === "reply") return `your message "${quote.text}"`;
+  if (quote.kind === "error") return `an error Amuse showed them ("${quote.text}"; technical detail, not shown to them: ${quote.detail || "none"}); they ask for help with it, so explain what went wrong in plain words and fix it if you can`;
   const title = quote.text ? ` "${quote.text}"` : "";
   return `your ${cards[quote.kind]} ${quote.id}${title}${quote.state ? ` (${quote.state})` : ""}`;
 }

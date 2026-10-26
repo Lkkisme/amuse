@@ -18,7 +18,7 @@
 import { randomUUID } from "node:crypto";
 import { type AuthEvent, type AuthInteraction, type AuthPrompt, clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { type Keys, Rejected, hintOf, newId } from "@amuse/core";
-import { type DeviceCode, type KeyGuide, type KeyProvider, type KeyWay, type LoginNote, type LoginPrompt, type LoginStep, type ModelOption, type ModelRole, ThinkingLevel } from "@amuse/protocol";
+import { type DeviceCode, type KeyGuide, type KeyProvider, type KeyTest, type KeyWay, type LoginNote, type LoginPrompt, type LoginStep, type ModelOption, type ModelRole, ThinkingLevel } from "@amuse/protocol";
 import { z } from "zod";
 import { type KeyFile, LOCAL_VOICE, readOnlyCredentials } from "./credentials.ts";
 import { guides } from "./guides.ts";
@@ -40,6 +40,29 @@ export interface AppKey {
 
 /** How long a key's test may take. */
 const TEST_TIMEOUT_MS = 30_000;
+
+/** The APIs whose base URL answers a GET of `/models` for the key's own models (the OpenAI-style ones). */
+const OPENAI_STYLE: readonly string[] = ["openai-completions", "openai-responses"];
+
+/** A provider's answer that means the model itself is gone (retired, or not offered to this account), not the key. */
+const MODEL_GONE = /\b404\b|does not exist|not found|unknown model|no such model/i;
+
+/**
+ * A key tried on the provider's own list of models (`GET {baseUrl}/models`), which is what a key is for:
+ * 200 means it works, 401/403 means it does not, and anything else is said as it came. A model the
+ * provider has retired says nothing about the key, which a chat completion would have blamed on it.
+ */
+async function listedWithKey(baseUrl: string, key: string, http: typeof fetch): Promise<KeyTest> {
+  let response: Response;
+  try {
+    response = await http(`${baseUrl.replace(/\/+$/, "")}/models`, { headers: { authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(TEST_TIMEOUT_MS) });
+  } catch (e) {
+    return { ok: false, detail: e instanceof Error ? e.message : String(e) };
+  }
+  if (response.ok) return { ok: true, detail: "The key works." };
+  const said = await response.text().catch(() => "");
+  return { ok: false, detail: plainly(`${response.status} ${said}`.trim()) };
+}
 
 export interface PiKeys extends Keys {
   /** The model `role` runs on, as "provider/model-id" (scheduled work: the chat's when it has none of its own); null: none yet. */
@@ -203,12 +226,14 @@ interface Flow {
  * `keys` holds the keys; `choices` the models chosen; `apps` the keys that
  * are not a model provider's.
  */
-export function piKeys({ keys, choices, apps = [], modelsPath, omitOutputLimit }: { keys: KeyFile; choices: Choices; apps?: AppKey[]; modelsPath?: string; omitOutputLimit?: boolean }): PiKeys {
+export function piKeys({ keys, choices, apps = [], modelsPath, omitOutputLimit, http = fetch }: { keys: KeyFile; choices: Choices; apps?: AppKey[]; modelsPath?: string; omitOutputLimit?: boolean; http?: typeof fetch }): PiKeys {
   const cfg: Pick<PiModelConfig, "auth" | "modelsPath"> = {
     auth: { kind: "keys", keys },
     ...(modelsPath ? { modelsPath } : {}),
   };
   let choice: Choice = choices.load() ?? { chat: null, browser: null, background: null, voice: null, localVoice: null, installation: null, thinking: { chat: "off", browser: "off", background: "off" } };
+  /** The speech service the mic uses: the one chosen, when it is still one there is (a service that has gone leaves the choice unset); null: the first with a key. */
+  const speech = (): string | null => (choice.voice === "local" || voiceServices.some((v) => v.provider === choice.voice) ? choice.voice : null);
   const choose = (next: Choice) => {
     choices.save(next);
     choice = next;
@@ -376,7 +401,7 @@ export function piKeys({ keys, choices, apps = [], modelsPath, omitOutputLimit }
   return {
     model: (role) => runs(role),
     thinking: (role) => choice.thinking[role],
-    voiceChoice: () => choice.voice,
+    voiceChoice: () => speech(),
     localVoiceService: () => choice.localVoice,
     appKey: (id) => appKeys.get(id) ?? null,
     onChange: (listener) => void listeners.push(listener),
@@ -429,7 +454,7 @@ export function piKeys({ keys, choices, apps = [], modelsPath, omitOutputLimit }
             ...voiceServices.filter((v) => stored.get(v.provider)?.type === "api_key").map(({ provider, name }) => ({ provider, name })),
             ...(choice.localVoice ? [{ provider: "local", name: `Your own server (${choice.localVoice.model})` }] : []),
           ],
-          chosen: choice.voice,
+          chosen: speech(),
           local: choice.localVoice,
         },
       };
@@ -509,24 +534,43 @@ export function piKeys({ keys, choices, apps = [], modelsPath, omitOutputLimit }
           return { ok: false, detail: why(e) };
         }
       }
-      if (!(await keys.read(provider))) return { ok: false, detail: "No key is set up." };
+      const credential = await keys.read(provider);
+      if (!credential) return { ok: false, detail: "No key is set up." };
       const models = await runtime(cfg);
       // the model chosen from this provider, else the first it offers
       const chosen = [choice.chat, choice.browser].map((ref) => (ref ? parseModel(ref) : undefined)).find((spec) => spec?.provider === provider);
-      const model = (chosen && models.getModel(chosen.provider, chosen.id)) ?? (await models.getAvailable(provider))[0];
+      const picked = chosen ? models.getModel(chosen.provider, chosen.id) : undefined;
+      const offered = await models.getAvailable(provider);
+      const model = picked ?? offered[0];
       if (!model) return { ok: false, detail: "This provider offers no model to try." };
-      try {
-        const reply = await models.completeSimple(
-          model,
-          { messages: [{ role: "user", content: "Reply with the word OK.", timestamp: Date.now() }] },
-          { maxTokens: 32, signal: AbortSignal.timeout(TEST_TIMEOUT_MS), ...(omitOutputLimit ? { onPayload: withoutOutputLimit } : {}) },
-        );
-        if (reply.stopReason === "error" || reply.stopReason === "aborted")
-          return { ok: false, detail: why(reply.errorMessage ?? "The provider did not answer.") };
-        return { ok: true, detail: `${model.name} answered.` };
-      } catch (e) {
-        return { ok: false, detail: why(e) };
+      // what a key is for is the provider's own list of models, where its API answers one: a chat model the
+      // provider has retired (Groq's llama-3.1-8b-instant) says nothing about the key, and a key bought for
+      // speech is not a chat model's to judge either
+      if (credential.type === "api_key" && credential.key && OPENAI_STYLE.includes(model.api)) {
+        const answer = await listedWithKey(model.baseUrl, credential.key, http);
+        return { ok: answer.ok, detail: redact(answer.detail, keys.secrets()) };
       }
+      // otherwise a completion: the chosen model first, then the first couple of the catalogue, so one that is
+      // gone is not read as a key that does not work
+      const candidates = [...(picked ? [picked] : []), ...offered.filter((m) => m.id !== picked?.id)].slice(0, 3);
+      let gone: string | null = null;
+      for (const candidate of candidates) {
+        let detail: string;
+        try {
+          const reply = await models.completeSimple(
+            candidate,
+            { messages: [{ role: "user", content: "Reply with the word OK.", timestamp: Date.now() }] },
+            { maxTokens: 32, signal: AbortSignal.timeout(TEST_TIMEOUT_MS), fetch: http, ...(omitOutputLimit ? { onPayload: withoutOutputLimit } : {}) },
+          );
+          if (reply.stopReason !== "error" && reply.stopReason !== "aborted") return { ok: true, detail: `${candidate.name} answered.` };
+          detail = why(reply.errorMessage ?? "The provider did not answer.");
+        } catch (e) {
+          detail = why(e);
+        }
+        if (!MODEL_GONE.test(detail)) return { ok: false, detail };
+        gone ??= candidate.name;
+      }
+      return { ok: true, detail: `The key works, but ${gone ?? model.name} is gone from ${provider}'s catalogue.` };
     },
 
     async logout(provider) {

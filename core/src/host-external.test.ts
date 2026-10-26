@@ -6,8 +6,8 @@ import { type Change, type Ports, createHost, memoryChats, memoryRules, noKeys, 
 const at = "2026-10-21T12:00:00.000Z";
 const later = "2026-10-21T12:05:00.000Z";
 const chat: Chat = { id: "p-1234", title: "Existing Paseo chat", at, updated: at };
-const prompt: Prompt = { kind: "prompt", id: "external-user-1", at, text: "hello", timezone: "UTC", attachments: [], quote: null };
-const reply: Reply = { kind: "reply", id: "external-reply-1", at, text: "hello", streaming: false, attachments: [] };
+const prompt: Prompt = { kind: "prompt", id: "external-user-1", at, text: "hello", timezone: "UTC", attachments: [], quote: null, suggested: false };
+const reply: Reply = { kind: "reply", id: "external-reply-1", at, text: "hello", streaming: false, attachments: [], suggestions: [], chosen: null };
 
 function fixture() {
   const calls: string[] = [];

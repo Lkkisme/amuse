@@ -5,8 +5,11 @@ import type { App, KeyProvider, Session } from "@amuse/protocol";
 import { Button } from "./Button";
 import { Connectors } from "./Connectors";
 import { KeyLine, KeyLogin, useKeyTests } from "./KeyLogin";
+import { ErrorState } from "./Errors";
 import { Sheet } from "./Sheet";
 import { useT } from "../i18n/react.ts";
+import { wordsOf } from "../shown.ts";
+import { detailOf } from "../ask.tsx";
 import { LocalServicesPanel } from "./LocalServicesPanel";
 
 type Props = {
@@ -45,7 +48,7 @@ function AppsConnections({
       session.call("keys.list", {}).then(
         ({ providers }) =>
           setKey(providers.find((p) => p.use === "apps") ?? null),
-        (e: unknown) => setError(e instanceof Error ? e.message : String(e)),
+        (e: unknown) => setError(wordsOf(e)),
       ),
     [session],
   );
@@ -69,9 +72,15 @@ function AppsConnections({
     return (
       <div className="flex-1 px-5 sm:px-6">
         {error ? (
-          <p className="text-[13px]" style={{ color: "var(--fill-red)" }}>
-            {error}
-          </p>
+          <ErrorState
+            title={t.ask.connectionsTitle}
+            message={error}
+            detail={detailOf("Settings › Connections", "Composio", "keys_list_failed")}
+            retry={() => {
+              setError(null);
+              void load();
+            }}
+          />
         ) : (
           // loading: the shape of the page to come
           <div aria-label={t.connections.loading} className="space-y-3">

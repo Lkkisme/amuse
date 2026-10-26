@@ -27,7 +27,7 @@ export function changelogEntries(changelog: string): Entry[] {
   const entries: Entry[] = [];
   let under = false;
   let section: Entry["section"] | null = null;
-  for (const line of changelog.split("\n")) {
+  for (const line of changelog.split(/\r?\n/)) {
     const heading = /^(#{2,3})\s+(.+?)\s*$/.exec(line);
     if (heading) {
       if (heading[1] === "##") {

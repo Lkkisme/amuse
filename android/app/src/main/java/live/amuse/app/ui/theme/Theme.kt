@@ -96,7 +96,7 @@ val MuseAvatarEnd: Color
 val MuseAvatarText: Color
     @Composable @ReadOnlyComposable get() = LocalMuseExtras.current.avatarText
 
-/** Native chrome follows the Web UI's explicit theme; new installs start light. */
+/** Native chrome follows the Web UI's explicit theme, with a system-theme launch default. */
 @Composable
 fun AmuseTheme(darkTheme: Boolean = false, content: @Composable () -> Unit) {
     CompositionLocalProvider(LocalMuseExtras provides if (darkTheme) DarkExtras else LightExtras) {

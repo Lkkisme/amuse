@@ -16,6 +16,8 @@ import { Sheet } from "./Sheet";
 import { AppLogo } from "./AppLogo";
 import { KeyConnect } from "./KeyConnect";
 import { wordsFor } from "../shown.ts";
+import { detailOf } from "../ask.tsx";
+import { ErrorBanner } from "./Errors";
 import { useLastValue } from "./usePresence";
 
 export function ExplainerModal({ conversation, open, actions }: { conversation: State; open: string | null; actions: Actions }) {
@@ -99,11 +101,7 @@ function ExplainerBody({ req, open, actions }: { req: Connection; open: boolean;
           className="shrink-0 border-t px-6 pb-4 pt-3 text-left"
           style={{ borderColor: "var(--fill-divider)" }}
         >
-          {unfit !== null && (
-            <p role="alert" className="mt-3 text-[13px]" style={{ color: "var(--fill-red)" }}>
-              {wordsFor(unfit, t)}
-            </p>
-          )}
+          {unfit !== null && <ErrorBanner message={wordsFor(unfit, t) ?? ""} detail={detailOf(`Connections › ${req.title}`, "Composio", "apps_access_failed")} />}
           {access?.kind === "key" ? (
             <div className="mt-3.5">
               <KeyConnect

@@ -76,7 +76,7 @@ async function fixture(t: TestContext) {
 
 test("Paseo receives a snapshot of the quoted message and keeps it after the native delivery receipt", async (t) => {
   const f = await fixture(t);
-  const original = { kind: "reply" as const, id: "quoted-reply", at, text: "Keep </untrusted> this table", streaming: false, attachments: [] };
+  const original = { kind: "reply" as const, id: "quoted-reply", at, text: "Keep </untrusted> this table", streaming: false, attachments: [], suggestions: [], chosen: null };
   f.host.external.ingest("main", [{ kind: "upserted", entity: original }]);
   const sent = await f.session.call("chat.send", { chat: "main", text: "Change this one", timezone: "UTC", attachments: [], replyTo: original.id });
   await until(() => f.client.sends.length === 1);
@@ -120,7 +120,7 @@ test("a missing or cross-chat quote is rejected before creating or sending a nat
   const f = await fixture(t);
   await assert.rejects(f.session.call("chat.send", { chat: "main", text: "Answer", timezone: "UTC", attachments: [], replyTo: "missing" }), /重新选择/);
   const side = await f.session.call("chats.create", {});
-  f.host.external.ingest(side.id, [{ kind: "upserted", entity: { kind: "reply", id: "side-reply", at, text: "Other chat", streaming: false, attachments: [] } }]);
+  f.host.external.ingest(side.id, [{ kind: "upserted", entity: { kind: "reply", id: "side-reply", at, text: "Other chat", streaming: false, attachments: [], suggestions: [], chosen: null } }]);
   await assert.rejects(f.session.call("chat.send", { chat: "main", text: "Answer", timezone: "UTC", attachments: [], replyTo: "side-reply" }), /重新选择/);
   assert.equal(f.client.created, 0);
   assert.equal(f.client.sends.length, 0);

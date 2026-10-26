@@ -19,8 +19,11 @@ import type {
   Session,
 } from "@amuse/protocol";
 import { Button } from "./Button";
+import { ErrorBanner } from "./Errors";
 import { Sheet } from "./Sheet";
 import { useT } from "../i18n/react.ts";
+import { wordsOf } from "../shown.ts";
+import { detailOf } from "../ask.tsx";
 
 /** How long to rest before asking again when the connection dropped while waiting. */
 const RETRY_MS = 2000;
@@ -69,7 +72,7 @@ export function KeyLogin({
         setBusy(false);
         setStep({
           kind: "failed",
-          reason: e instanceof Error ? e.message : String(e),
+          reason: wordsOf(e),
         });
       },
     );
@@ -332,13 +335,7 @@ export function KeyLogin({
 
         {step?.kind === "failed" && (
           <>
-            <p
-              role="alert"
-              className="mt-5 text-[14px]"
-              style={{ color: "var(--fill-red)" }}
-            >
-              {step.reason}
-            </p>
+            <ErrorBanner message={step.reason} detail={detailOf(`Settings › Models › sign in to ${shown?.id ?? ""}`, shown?.id ?? "", "sign_in_failed")} />
             <Button
               variant="primary"
               size="lg"
@@ -570,7 +567,7 @@ export function useKeyTests(session: Session) {
           ...t,
           [provider]: {
             ok: false,
-            detail: e instanceof Error ? e.message : String(e),
+            detail: wordsOf(e),
           },
         })),
     );

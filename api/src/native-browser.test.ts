@@ -226,7 +226,12 @@ test("real isolated Edge shares agent/viewer state, enforces takeover and releas
     });
     await new Promise<void>((resolve, reject) => { peer.once("open", resolve); peer.once("error", reject); });
     const peerReady = await until(() => peerMessages.find((message): message is Ready => message.type === "ready"), "another viewer's ready metadata");
-    const peerFrame = await until(() => peerFrames[0], "another viewer's real JPEG frame");
+    // CDP can first deliver a compositor frame from a resize already in flight.
+    // The viewer rejects its old shape; a current snapshot must follow it.
+    const peerFrame = await until(() => peerFrames.find((frame) => {
+      const size = jpegSize(frame);
+      return size.width === peerReady.width && size.height === peerReady.height;
+    }), "another viewer's current-size JPEG frame");
     assert.equal(peerReady.url, url);
     assert.deepEqual(jpegSize(peerFrame), { width: peerReady.width, height: peerReady.height });
     assert.equal(peerMessages.some((message) => message.type === "error"), false, "another viewer must not restart an already active screencast");

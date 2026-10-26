@@ -3,6 +3,7 @@ type Failure = "permission" | "recording" | "transcribing";
 type VoicePorts = {
   acquire(): Promise<MediaStream>;
   record(stream: MediaStream): MediaRecorder;
+  monitor?(stream: MediaStream): () => void;
   transcribe(audio: Blob, signal: AbortSignal): Promise<string>;
   phase(phase: VoicePhase): void;
   text(text: string): void;
@@ -18,6 +19,7 @@ export class VoiceInput {
   private busy = false;
   private recording: MediaRecorder | null = null;
   private transcription: AbortController | null = null;
+  private releaseStream: (() => void) | null = null;
 
   constructor(ports: VoicePorts) { this.ports = ports; }
 
@@ -38,8 +40,17 @@ export class VoiceInput {
       }
       return;
     }
-    const release = () => stream.getTracks().forEach((track) => track.stop());
+    let released = false;
+    let stopMonitoring: (() => void) | undefined;
+    const release = () => {
+      if (released) return;
+      released = true;
+      stopMonitoring?.();
+      stream.getTracks().forEach((track) => track.stop());
+      if (this.releaseStream === release) this.releaseStream = null;
+    };
     if (!this.current(generation)) { release(); return; }
+    this.releaseStream = release;
     let recording: MediaRecorder;
     try {
       recording = this.ports.record(stream);
@@ -65,13 +76,20 @@ export class VoiceInput {
           this.ports.phase("idle");
         });
       };
+      recording.onerror = (error) => {
+        if (!this.current(generation) || this.recording !== recording) return;
+        this.discard();
+        this.ports.error("recording", error);
+      };
       this.recording = recording;
       recording.start();
+      stopMonitoring = this.ports.monitor?.(stream);
       this.ports.phase("recording");
     } catch (error) {
       if (this.recording) {
         this.recording.onstop = null;
         this.recording.ondataavailable = null;
+        this.recording.onerror = null;
         this.recording = null;
       }
       release();
@@ -87,6 +105,14 @@ export class VoiceInput {
     if (this.recording?.state !== "inactive") this.recording?.stop();
   }
 
+  /** Cancel this take without disabling the next explicit microphone action. */
+  discard() {
+    const active = this.active;
+    this.cancel();
+    this.active = active;
+    if (!this.disposed) this.ports.phase("idle");
+  }
+
   private cancel() {
     this.active = false;
     this.generation++;
@@ -98,9 +124,10 @@ export class VoiceInput {
     if (recording) {
       recording.onstop = null;
       recording.ondataavailable = null;
+      recording.onerror = null;
       if (recording.state !== "inactive") recording.stop();
-      recording.stream.getTracks().forEach((track) => track.stop());
     }
+    this.releaseStream?.();
   }
 
   pause() { this.cancel(); if (!this.disposed) this.ports.phase("idle"); }

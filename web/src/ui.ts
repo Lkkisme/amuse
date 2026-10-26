@@ -13,6 +13,7 @@ export type SecretPage = { kind: "add" } | { kind: "entry"; id: string; name: st
 export type LeftSection = "goals" | "skills";
 
 import type { Theme } from "./theme.ts";
+import type { ErrorAbout } from "./ask.tsx";
 
 export type { Theme };
 
@@ -54,6 +55,8 @@ export interface Ui {
   replying: { chat: string; quote: Quote } | null;
   /** a short message about something that did not work */
   notice: string | null;
+  /** the notice's technical detail (for the agent) and a way to try again, when it has them: these give it actions */
+  noticeAbout: { detail: string; retry?: () => void } | null;
 }
 
 export const initialUi: Ui = {
@@ -71,12 +74,13 @@ export const initialUi: Ui = {
   taskDetail: null,
   replying: null,
   notice: null,
+  noticeAbout: null,
 };
 
 /** Everything a component can ask for: protocol calls and UI changes. */
 export interface Actions {
   /** say something in the chat on screen, with any files already uploaded; fails when it did not get through */
-  send(text: string, attachments: Attachment[]): Promise<void>;
+  send(text: string, attachments: Attachment[], suggested?: { reply: string; index: number }): Promise<void>;
   /** start replying to an item of Amuse's in the chat on screen, or (null) stop; the next message goes with it */
   reply(quote: Quote | null): void;
   stop(): void;
@@ -95,7 +99,9 @@ export interface Actions {
   openViewer(browserId: string | null): void;
   closeViewer(): void;
   /** a short message about something that did not work, shown for a moment */
-  notify(message: string): void;
+  notify(message: string, about?: { detail: string; retry?: () => void }): void;
+  /** ask Amuse about an error: its summary becomes the quote bar over the composer, with a line ready to send */
+  askAmuse(about: ErrorAbout): void;
   selectTab(browserId: string): void;
   /** what the viewer shows: the browser or the terminals */
   showInViewer(shown: Shown): void;

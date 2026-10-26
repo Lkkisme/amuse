@@ -13,6 +13,8 @@ import { Button } from "./Button";
 import { RichText } from "./markdown";
 import { day, reason } from "./Goals";
 import { useT } from "../i18n/react.ts";
+import { detailOf, useFail } from "../ask.tsx";
+import { ErrorState } from "./Errors";
 
 export function GoalPage({
   session,
@@ -49,12 +51,12 @@ export function GoalPage({
   }, [session, id]);
   useEffect(() => load(), [load]);
 
+  const failed = useFail();
   const update = (change: { status?: Goal["status"]; muted?: boolean }) => {
     setBusy(true);
-    setError(null);
     session
       .call("goals.update", { id, ...change })
-      .then(load, (e: unknown) => setError(reason(e)))
+      .then(load, (e: unknown) => failed(e, "Goals › update a goal", () => update(change)))
       .finally(() => setBusy(false));
   };
 
@@ -79,13 +81,15 @@ export function GoalPage({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-8">
         {error && (
-          <p
-            role="alert"
-            className="mb-3 text-[14px]"
-            style={{ color: "var(--fill-red)" }}
-          >
-            {error}
-          </p>
+          <ErrorState
+            title={t.ask.loadTitle}
+            message={error}
+            detail={detailOf("Goals › a goal", "", "goals_get_failed")}
+            retry={() => {
+              setError(null);
+              load();
+            }}
+          />
         )}
         {!goal ? (
           !error && <div className="skeleton h-8 w-3/5 rounded-[10px]" />

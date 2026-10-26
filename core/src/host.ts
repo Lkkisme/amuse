@@ -359,8 +359,8 @@ export const noWorkspace: Workspace = {
 
 /** What wakes the agent: the user's message (with any files), or a note from its background work (not shown as a message). */
 export type Turn =
-  | { kind: "message"; text: string; attachments: Attachment[]; quote: Quote | null }
-  | { kind: "note"; text: string }
+  | { kind: "message"; text: string; attachments: Attachment[]; quote: Quote | null; suggested?: boolean }
+  | { kind: "note"; text: string; source?: { kind: "heartbeat"; entity: string } }
   /** Not a turn of its own: what the agent reads with its next one, or mid-turn as it works (a browser taken over, or handed back). */
   | { kind: "aside"; text: string };
 
@@ -670,7 +670,7 @@ export function createHost(ports: Ports, options: HostOptions = {}): Host {
       }
       b.last = now;
       const note = beatNote(entity, Math.round((Date.parse(now) - Date.parse(b.since)) / 60_000));
-      if (note) ports.prompt({ kind: "note", text: note }, b.room.agent);
+      if (note) ports.prompt({ kind: "note", text: note, source: { kind: "heartbeat", entity: entity.id } }, b.room.agent);
     }
   };
   function arm(): void {
@@ -822,7 +822,7 @@ export function createHost(ports: Ports, options: HostOptions = {}): Host {
     const { agent } = room;
     switch (effect.kind) {
       case "prompt":
-        return ports.prompt({ kind: "message", text: effect.text, attachments: effect.attachments, quote: effect.quote }, agent);
+        return ports.prompt({ kind: "message", text: effect.text, attachments: effect.attachments, quote: effect.quote, suggested: effect.suggested }, agent);
       case "note":
         return ports.prompt({ kind: "note", text: effect.text }, agent);
       case "interrupt":

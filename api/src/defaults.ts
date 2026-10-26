@@ -89,6 +89,18 @@ export const defaultSchedules: DefaultSchedule[] = [
       "A skill changes how you work from then on, so when you wrote or changed one, report once: each skill, in one line, what it is for, and that they can see it, or remove it, in Skills in the sidebar. Otherwise stay silent.",
     ].join("\n"),
   },
+  {
+    key: "terminals",
+    title: "Tidy terminals",
+    cron: "30 4 * * *",
+    needs: null,
+    instructions: [
+      "Tidy the terminals you share with the user (herdr; read the herdr skill first): list the workspaces, tabs and panes.",
+      "Close a pane only when it is a plain shell with nothing running in it and nobody has used it for a day. Then close tabs and workspaces left empty.",
+      "Never close a pane where something runs (a server, a watcher, a build, a coding agent such as Claude Code), one the user opened or typed in during the last day, or one you or the user said to keep. When unsure, leave it.",
+      "This work is silent; report once, briefly, only if you closed something the user may miss. Otherwise stay silent.",
+    ].join("\n"),
+  },
 ];
 
 /** Which defaults were set up, kept in the database (a run of the server, a new device: still once each). */

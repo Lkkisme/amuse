@@ -10,7 +10,7 @@ import type { BrowserLook } from "@amuse/pi";
 import { z } from "zod";
 import type { SharedMcpTool } from "./browser-mcp.ts";
 
-export interface ToolContext { io: AgentIO; unanswered(): boolean; quiet(): void; run?: RunHandle & { kind: "task" | "schedule" | "browser"; report(message: string): Promise<void> } }
+export interface ToolContext { io: AgentIO; unanswered(): boolean; quiet(): void; offer?(options: string[]): void; run?: RunHandle & { kind: "task" | "schedule" | "browser"; report(message: string): Promise<void> } }
 const text = (value: unknown) => ({ content: [{ type: "text", text: typeof value === "string" ? value : JSON.stringify(value) }] });
 const json = (properties: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties, required, additionalProperties: false });
 const string = { type: "string" };
@@ -55,7 +55,7 @@ export function sharedAmuseTools(options: {
       screenshot: async (id: string, ref?: string) => { ownedBrowser(id); return connectedBrowser.screenshot(id, ref); },
     } } : {}) };
     const definitions = (signal?: AbortSignal) => {
-      if (!context.run) return agentTools(scopedConfig, () => options.context(scope).io, { heard: () => options.context(scope).unanswered(), quiet: () => options.context(scope).quiet() });
+      if (!context.run) return agentTools(scopedConfig, () => options.context(scope).io, { heard: () => options.context(scope).unanswered(), quiet: () => options.context(scope).quiet(), ...(context.offer ? { offer: (choices: string[]) => options.context(scope).offer!(choices) } : {}) });
       const stop = signal ? AbortSignal.any([context.run.stop, signal]) : context.run.stop;
       const io: AgentIO = { ...checked(context.io, stop), decision: (id) => untilAbort(context.io.decision(id), stop), answer: (id) => untilAbort(context.io.answer(id), stop) };
       const run = { ...context.run, io, stop };

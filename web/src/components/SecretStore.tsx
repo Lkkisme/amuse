@@ -7,11 +7,14 @@ import { ChevronRight, KeyRound, Plus, Search } from "lucide-react";
 import type { SecretEntry, Session } from "@amuse/protocol";
 import { Button } from "./Button";
 import { useT } from "../i18n/react.ts";
+import { wordsOf } from "../shown.ts";
 import { type ProviderNames, matches, usesSummary } from "../secrets.ts";
 import type { SecretPage } from "../ui.ts";
 import { SecretForm } from "./SecretForm";
 import { SecretEntryPage } from "./SecretEntryPage";
-import { Alert, groupClass } from "./SecretFields";
+import { ErrorState } from "./Errors";
+import { groupClass } from "./SecretFields";
+import { detailOf } from "../ask.tsx";
 
 /** The search shows once there are this many entries: fewer are seen at a glance. */
 const SEARCH_FROM = 8;
@@ -36,10 +39,7 @@ export function SecretStore({
     () =>
       session.call("secrets.list", {}).then(
         ({ entries }) => setEntries(entries),
-        (e: unknown) => {
-          setEntries((was) => was ?? []);
-          setError(e instanceof Error ? e.message : String(e));
-        },
+        (e: unknown) => setError(wordsOf(e)),
       ),
     [session],
   );
@@ -93,9 +93,19 @@ export function SecretStore({
       <p className="text-[13px] leading-snug" style={{ color: "var(--text-secondary)" }}>
         {t.secrets.intro}
       </p>
-      <Alert message={error} />
+      {error !== null && (
+        <ErrorState
+          title={t.ask.loadTitle}
+          message={error}
+          detail={detailOf("Vault", "", "secrets_list_failed")}
+          retry={() => {
+            setError(null);
+            void load();
+          }}
+        />
+      )}
 
-      {entries === null && (
+      {entries === null && error === null && (
         <ul className={`${groupClass} mt-4`} style={{ background: "var(--fill-secondary)" }}>
           {[0, 1, 2].map((i) => (
             <li key={i} className="py-3">

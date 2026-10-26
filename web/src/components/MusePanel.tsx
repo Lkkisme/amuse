@@ -223,7 +223,7 @@ export function MusePanel({ open, conversation, session, mode: asked, actions }:
         {tab === "approvals" && <Approvals session={session} conversation={conversation} actions={actions} />}
         {tab === "upcoming" && <Upcoming session={session} />}
         {tab === "activity" && (
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-5">
+          <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 pb-4 pt-5">
             <p className="text-[17px] font-semibold" style={{ color: "var(--text-primary)" }}>
               {t.panel.today}
             </p>
@@ -297,7 +297,7 @@ function Approvals({ session, conversation, actions }: { session: Session; conve
   const sources = [...new Set((rows ?? []).map((r) => source(r.approval)))].sort();
   const shown = (rows ?? []).filter((r) => !only || source(r.approval) === only);
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-5">
+    <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 pb-4 pt-5">
       <div className="flex items-center gap-2">
         <p className="flex-1 text-[17px] font-semibold" style={{ color: "var(--text-primary)" }}>
           {t.panel.tabs.approvals}
@@ -389,7 +389,7 @@ function Upcoming({ session }: { session: Session }) {
   }, [session]);
   const next = (schedules ?? []).filter((s) => s.status === "active" && s.next !== null).sort((a, b) => Date.parse(a.next ?? "") - Date.parse(b.next ?? ""));
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-5">
+    <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 pb-4 pt-5">
       <p className="text-[17px] font-semibold" style={{ color: "var(--text-primary)" }}>
         {t.panel.tabs.upcoming}
       </p>

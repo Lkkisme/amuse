@@ -27,13 +27,32 @@ function systemOf(request: Record<string, unknown>): string {
   return (message.content as string).replace(/\n\n<cwd>\n[^\n]*\n<\/cwd>$/, "");
 }
 
-async function endpoint(t: TestContext, input: ("text" | "image")[] = ["text"]) {
+async function endpoint(t: TestContext, input: ("text" | "image")[] = ["text"], api = "openai-completions") {
   const requests: Record<string, unknown>[] = [];
+  const catalogRequests: string[] = [];
   const server = createServer(async (request, response) => {
+    if (request.method === "GET" && request.url === "/v1/models") {
+      catalogRequests.push(request.url);
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ object: "list", data: [{ id: "local-model", object: "model" }] }));
+      return;
+    }
     let body = "";
     for await (const chunk of request) body += String(chunk);
     requests.push(JSON.parse(body) as Record<string, unknown>);
     response.writeHead(200, { "content-type": "text/event-stream" });
+    if (api === "anthropic-messages") {
+      const events = [
+        { type: "message_start", message: { id: "mock-reply", type: "message", role: "assistant", model: "local-model", content: [], stop_reason: null, usage: { input_tokens: 10, output_tokens: 0 } } },
+        { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+        { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "OK" } },
+        { type: "content_block_stop", index: 0 },
+        { type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 1 } },
+        { type: "message_stop" },
+      ];
+      response.end(events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""));
+      return;
+    }
     response.end(`data: ${JSON.stringify({
       id: "mock-reply",
       object: "chat.completion.chunk",
@@ -53,7 +72,7 @@ async function endpoint(t: TestContext, input: ("text" | "image")[] = ["text"]) 
   writeFileSync(modelsPath, JSON.stringify({
     providers: {
       "local-endpoint": {
-        api: "openai-completions",
+        api,
         baseUrl: `http://127.0.0.1:${address.port}/v1`,
         apiKey: "local-placeholder",
         models: [{
@@ -70,7 +89,7 @@ async function endpoint(t: TestContext, input: ("text" | "image")[] = ["text"]) 
   }));
   const keys = fileCredentials(join(dir, "keys.json"));
   await keys.modify("local-endpoint", async () => ({ type: "api_key", key: "local-placeholder" }));
-  return { requests, dir, modelsPath, auth: { kind: "keys" as const, keys }, model: () => "local-endpoint/local-model" };
+  return { requests, catalogRequests, dir, modelsPath, auth: { kind: "keys" as const, keys }, model: () => "local-endpoint/local-model" };
 }
 
 test("a local session can omit output limits while retaining thinking, sampling and payload callbacks", async (t) => {
@@ -210,14 +229,26 @@ test("chat title utility omits owner reply wrappers and the operational chat sys
   assert.ok(request["tools"] === undefined || (request["tools"] as unknown[]).length === 0);
 });
 
-test("provider tests keep their default cap and honor the optional server output limit", async (t) => {
+test("OpenAI-style provider tests use the models catalogue without running a completion", async (t) => {
   const local = await endpoint(t);
   const defaults = piKeys({ keys: local.auth.keys, choices: memoryChoices(), modelsPath: local.modelsPath });
   assert.equal((await defaults.test("local-endpoint")).ok, true);
-  assert.equal(local.requests[0]!["max_completion_tokens"], 32);
   const keys = piKeys({ keys: local.auth.keys, choices: memoryChoices(), modelsPath: local.modelsPath, omitOutputLimit: true });
   assert.equal((await keys.test("local-endpoint")).ok, true);
+  assert.deepEqual(local.catalogRequests, ["/v1/models", "/v1/models"]);
+  assert.equal(local.requests.length, 0);
+});
+
+test("completion-only provider tests keep their default cap and honor the optional server output limit", async (t) => {
+  const local = await endpoint(t, ["text"], "anthropic-messages");
+  const defaults = piKeys({ keys: local.auth.keys, choices: memoryChoices(), modelsPath: local.modelsPath });
+  assert.equal((await defaults.test("local-endpoint")).ok, true);
+  assert.equal(local.requests[0]!["max_tokens"], 32);
+  const keys = piKeys({ keys: local.auth.keys, choices: memoryChoices(), modelsPath: local.modelsPath, omitOutputLimit: true });
+  assert.equal((await keys.test("local-endpoint")).ok, true);
+  assert.equal(local.catalogRequests.length, 0);
   assert.equal(local.requests.length, 2);
   for (const field of ["max_tokens", "max_completion_tokens", "max_output_tokens"]) assert.equal(field in local.requests[1]!, false);
-  assert.equal(local.requests[1]!["temperature"], 0.42);
+  assert.equal(local.requests[1]!["model"], local.requests[0]!["model"]);
+  assert.deepEqual(local.requests[1]!["messages"], local.requests[0]!["messages"]);
 });

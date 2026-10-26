@@ -182,7 +182,7 @@ interface Fresh {
   uses: Use[];
 }
 
-const SPEECH = ["openai", "groq", "fireworks"];
+const SPEECH = ["openai", "groq"];
 const LOCAL_VOICE = "local-voice";
 const APPS = ["composio"];
 const HOME = "/home/amuse";

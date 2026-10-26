@@ -35,7 +35,13 @@ export const transientClose = (code: number) => ![1002, 1003, 1007, 1008, 1009, 
 /** A server error keeps its JSON-RPC code for PIN and account-security handling. */
 export class CallFailed extends Error {
   readonly code: number;
-  constructor(message: string, code: number) { super(message); this.code = code; }
+  /** a rejected command's rejection (`{ kind, … }`), for a client to say in its own words */
+  readonly data: unknown;
+  constructor(message: string, code: number, data?: unknown) {
+    super(message);
+    this.code = code;
+    this.data = data;
+  }
 }
 
 /** An uncertain transport outcome must never be confused with a server rejection. */
@@ -209,7 +215,7 @@ export function connect(url: string, options: ConnectOptions = {}): Session & { 
         const entry = typeof response.id === "number" ? pending.get(response.id) : undefined;
         if (!entry || typeof response.id !== "number") return;
         pending.delete(response.id);
-        if ("error" in response) entry.fail(new CallFailed(response.error.message, response.error.code));
+        if ("error" in response) entry.fail(new CallFailed(response.error.message, response.error.code, response.error.data));
         else entry.settle(response.result);
       } catch {
         terminal = true;

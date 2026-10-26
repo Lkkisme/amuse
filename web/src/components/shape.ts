@@ -14,8 +14,18 @@ export type Place = { joinsPrevious: boolean; joinsNext: boolean };
 
 export const alone: Place = { joinsPrevious: false, joinsNext: false };
 
+/** A chat bubble's corner, half of a one-line bubble's height (23px line + 2 × 11px), so one line is a full pill; and the side padding. */
+export const BUBBLE = 23;
+export const BUBBLE_PAD = 17;
+
 /** The tight corner where items join. */
 const JOINED = 6;
+
+/** A box inside an item, `inset` from its edge: concentric with the item's corner of radius `outer`, never negative. */
+export const concentric = (outer: number, inset: number): number => Math.max(0, outer - inset);
+
+/** The radius of the item's corners at the bottom (a bubble's 22px, or the tight one when it joins the item below). */
+export const bottomRound = (place: Place, round = 22): number => (place.joinsNext ? JOINED : round);
 
 /** Corner radii for an item of `round` corners at `place` on `side`. */
 export function corners(side: Side, place: Place, round = 22): CSSProperties {

@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test, type TestContext } from "node:test";
-import { type Ports, type Timers, createHost, memoryRules, noKeys, noLogins, noSandbox, noSecrets } from "@amuse/core";
-import type { Schedule } from "@amuse/protocol";
+import { type Ports, type Timers, beatNote, createHost, memoryRules, noKeys, noLogins, noSandbox, noSecrets } from "@amuse/core";
+import type { Schedule, Task } from "@amuse/protocol";
 import type { PaseoCreateOptions } from "./paseo-client.ts";
-import { type BridgeAgent, type BridgeClient, type BridgeEntry, paseoBridge } from "./paseo.ts";
+import { type BridgeAgent, type BridgeClient, type BridgeEntry, type PaseoBridgeOptions, paseoBridge } from "./paseo.ts";
 import { sharedAmuseTools } from "./shared-tools.ts";
 import { workspace } from "./workspace.ts";
 import { memorySent } from "./sent.ts";
@@ -25,6 +25,10 @@ class FeatureClient implements BridgeClient {
   creates: { id: string; options?: PaseoCreateOptions }[] = [];
   busySends = 0;
   rejectedBusyIds = new Set<string>();
+  completeHistory = false;
+  incompleteFull = false;
+  fullFailures = 0;
+  historyReads: boolean[] = [];
   async listAgents() { return [...this.agents.values()].map((agent) => structuredClone(agent)); }
   async createAgent(title?: string, _cwd?: string, options?: PaseoCreateOptions) {
     const id = `feature-${this.creates.length + 1}`;
@@ -38,11 +42,14 @@ class FeatureClient implements BridgeClient {
     return structuredClone(agent);
   }
   async history(id: string, options?: { after?: { epoch: string; seq: number } }) {
+    this.historyReads.push(Boolean(options?.after));
+    if (!options?.after && this.fullFailures > 0) { this.fullFailures--; throw new Error("temporary full history timeout"); }
     if (this.scopes.get(id)?.includes("~") && this.agents.get(id)?.status === "running") await new Promise<void>((resolve, reject) => this.waiters.set(id, [...(this.waiters.get(id) ?? []), { resolve, reject }]));
     const entries = this.entries.get(id) ?? [];
-    return { agent: structuredClone(this.agents.get(id) ?? null), entries: structuredClone(entries.filter((entry) => entry.seqEnd > (options?.after?.seq ?? 0))), epoch: "features", endCursor: { epoch: "features", seq: entries.at(-1)?.seqEnd ?? 0 } };
+    return { agent: structuredClone(this.agents.get(id) ?? null), entries: structuredClone(entries.filter((entry) => entry.seqEnd > (options?.after?.seq ?? 0))), epoch: "features", endCursor: { epoch: "features", seq: entries.at(-1)?.seqEnd ?? 0 }, ...(this.completeHistory ? { gap: false, hasOlder: this.incompleteFull && !options?.after, hasNewer: false } : {}) };
   }
   async watch() {}
+  replaceTimeline(id: string) { for (const listener of this.listeners) listener({ type: "timeline", message: { type: "agent.timeline.replacement", payload: { agentId: id } } }); }
   subscribe(listener: (event: unknown) => void) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   async send(id: string, text: string, options?: { clientMessageId?: string; activeTurnBehavior?: "steer" | "interrupt" }) {
     this.sends.push({ id, text, ...options });
@@ -71,11 +78,12 @@ async function setup(t: TestContext, readiness?: () => boolean) {
   let now = Date.parse(at); let next = 0;
   const pending = new Map<number, { at: number; run(): void }>();
   const timers: Timers<number> = { set: (ms, run) => { pending.set(++next, { at: now + ms, run }); return next; }, clear: (id) => { pending.delete(id); } };
-  const bridge = paseoBridge(client, { path: join(dir, "bindings.json"), cwd: dir, workspaceRoot: join(dir, "workspace"), files, model: "same-owner-qwen", contextWindow: 262144, steer: true,
+  const bridgeOptions: PaseoBridgeOptions = { path: join(dir, "bindings.json"), cwd: dir, workspaceRoot: join(dir, "workspace"), files, model: "same-owner-qwen", contextWindow: 262144, steer: true,
     browserMcp: (chat, run) => ({ amuse_browser: { type: "http", url: `http://fixture.invalid/${encodeURIComponent(run ? `${chat}~${run}` : chat)}` } }), browserInstructions: (scope) => `ACTOR ${scope}`,
     prepare: async () => "Prepared memory, skills and goal context",
     ...(readiness ? { ready: readiness } : {}),
-  });
+  };
+  const bridge = paseoBridge(client, bridgeOptions);
   const ports: Ports = { files, rules, keys: noKeys, logins: noLogins, sandbox: noSandbox, secrets: noSecrets,
     browse: () => {}, job: () => {}, browser: () => {}, approval: () => {}, fit: () => {}, connect: async () => "",
     apps: { access: async () => ({ kind: "managed" }), cannotConnect: async () => null, connectKey: async () => { throw new Error("No key connection in this fixture."); }, search: async () => ({ apps: [], cursor: null }), accounts: async () => [], connect: async () => "", disconnect: async () => {}, permissions: async () => [], permit: async () => {} },
@@ -94,9 +102,137 @@ async function setup(t: TestContext, readiness?: () => boolean) {
   const schedule = async (goal: string | null = null) => { const scheduled = host.agent("main").act({ kind: "schedule", title: "Fixture schedule", instructions: "Check the fixture, report only new actionable facts", when: { kind: "once", at: new Date(now + 60_000).toISOString() }, needs: null, goal }); assert.ok(scheduled.ok); advance(60_000); await settled(); return scheduled.id; };
   const state = (id: string) => host.external.state("main").entities.find((entity) => entity.id === id);
   t.after(async () => { bridge.close(); await settled(); assert.equal(dirname(dir), resolve(tmpdir())); rmSync(dir, { recursive: true, force: true }); });
-  return { dir, files, host, bridge, session, client, call, advance, task, schedule, state, actorFor };
+  return { dir, files, host, bridge, bridgeOptions, session, client, call, advance, task, schedule, state, actorFor, tools: api.tools };
 }
 const text = (value: unknown) => JSON.stringify(value);
+
+test("native tool mirrors do not manufacture model requests or queue items during long program runs", async (t) => {
+  const f = await setup(t);
+  await f.session.call("chat.send", { chat: "main", text: "Start a long program", timezone: "UTC", attachments: [] }); await settled();
+  const id = f.client.sends[0]!.id;
+  f.client.entries.get(id)!.push({ seqStart: 2, seqEnd: 2, timestamp: at, turnId: "turn-1", item: { type: "tool_call", callId: "long-program", name: "exec", status: "running" } });
+  await f.session.call("session.sync", { chat: "main", since: null });
+  assert.ok(f.host.external.state("main").entities.some((e) => e.kind === "task" && e.status === "working"));
+  f.advance(90 * 60_000); await settled();
+  assert.equal(f.client.sends.length, 1, "a tool mirror has no independent model-waking actor");
+  assert.deepEqual(JSON.parse(readFileSync(f.bridgeOptions.path, "utf8")).queue, []);
+  assert.deepEqual(f.client.cancels, []);
+});
+
+test("terminal tool reconciliation requires a real complete read, and same-epoch replays never reopen a settled mirror", async (t) => {
+  const f = await setup(t); f.client.completeHistory = true;
+  await f.session.call("chat.send", { chat: "main", text: "Run tool", timezone: "UTC", attachments: [] }); await settled();
+  const id = f.client.sends[0]!.id;
+  const entry = { seqStart: 2, seqEnd: 2, timestamp: at, turnId: "turn-1", item: { type: "tool_call", callId: "missing-final", name: "exec", status: "running" } };
+  f.client.entries.get(id)!.push(entry);
+  await f.session.call("session.sync", { chat: "main", since: null });
+  const task = f.host.external.state("main").entities.find((e) => e.kind === "task"); assert.ok(task?.kind === "task");
+  f.client.agents.set(id, { ...f.client.agents.get(id)!, status: "idle", activeTurn: null, pendingPermissions: [] });
+  f.client.incompleteFull = true;
+  await f.session.call("session.sync", { chat: "main", since: f.host.external.state("main").seq });
+  assert.equal((f.state(task.id) as Task).status, "working", "empty incremental flags do not prove complete history; the full read is truncated");
+  assert.equal(f.client.historyReads.at(-1), false, "the bridge must request an explicit full read");
+  f.client.incompleteFull = false;
+  await f.session.call("session.sync", { chat: "main", since: null });
+  const settledTask = f.state(task.id); assert.ok(settledTask?.kind === "task");
+  assert.equal(settledTask.status, "failed"); assert.match(settledTask.result!, /执行结果未知/);
+  const seq = f.host.external.state("main").seq;
+  f.client.replaceTimeline(id);
+  await f.session.call("session.sync", { chat: "main", since: null });
+  assert.equal(f.client.historyReads.at(-1), false);
+  assert.equal(f.host.external.state("main").seq, seq, "repeat full reads add no reopen/re-close journal churn");
+  f.client.agents.set(id, { ...f.client.agents.get(id)!, status: "running", activeTurn: { turnId: "new-turn" } });
+  f.client.replaceTimeline(id);
+  await f.session.call("session.sync", { chat: "main", since: null });
+  assert.deepEqual(f.state(task.id), settledTask, "a new native turn does not reopen old tool receipts");
+  f.bridge.close();
+  const reopened = paseoBridge(f.client, f.bridgeOptions); t.after(() => reopened.close());
+  const session = await reopened.attach(f.host);
+  await session.call("session.sync", { chat: "main", since: null });
+  assert.deepEqual(f.state(task.id), settledTask, "durable reconciliation survives a bridge restart");
+  f.client.entries.get(id)![1] = { ...entry, seqEnd: 3, item: { ...entry.item, status: "completed", detail: { result: "real later receipt" } } };
+  await session.call("session.sync", { chat: "main", since: null });
+  assert.equal((f.state(task.id) as Task).status, "completed", "an actual newer native receipt still updates the card");
+  assert.equal(f.client.sends.length, 1); assert.deepEqual(f.client.cancels, []);
+});
+
+test("a failed full terminal read is retried at the same native cursor instead of permanently leaving a working card", async (t) => {
+  const f = await setup(t); f.client.completeHistory = true;
+  await f.session.call("chat.send", { chat: "main", text: "Run tool", timezone: "UTC", attachments: [] }); await settled();
+  const id = f.client.sends[0]!.id;
+  f.client.entries.get(id)!.push({ seqStart: 2, seqEnd: 2, timestamp: at, item: { type: "tool_call", callId: "retry-full", name: "exec", status: "running" } });
+  await f.session.call("session.sync", { chat: "main", since: null });
+  const task = f.host.external.state("main").entities.find((e) => e.kind === "task"); assert.ok(task?.kind === "task");
+  f.client.agents.set(id, { ...f.client.agents.get(id)!, status: "idle", activeTurn: null, pendingPermissions: [] });
+  f.client.fullFailures = 1;
+  await f.session.call("session.sync", { chat: "main", since: null });
+  assert.equal((f.state(task.id) as Task).status, "working");
+  await f.session.call("session.sync", { chat: "main", since: null });
+  assert.equal((f.state(task.id) as Task).status, "failed");
+  assert.deepEqual(f.client.historyReads.slice(-4), [true, false, true, false]);
+  assert.equal(f.client.sends.length, 1); assert.deepEqual(f.client.cancels, []);
+});
+
+test("legacy heartbeat queued and uncertain sending entries stay quarantined, including receipt echoes, without stripping archives", async (t) => {
+  const f = await setup(t);
+  await f.session.call("chat.send", { chat: "main", text: "Run tool", timezone: "UTC", attachments: [] }); await settled();
+  const id = f.client.sends[0]!.id;
+  f.client.entries.get(id)!.push({ seqStart: 2, seqEnd: 2, timestamp: at, item: { type: "tool_call", callId: "legacy-tool", name: "exec", status: "running" } });
+  await f.session.call("session.sync", { chat: "main", since: null });
+  const task = f.host.external.state("main").entities.find((e) => e.kind === "task"); assert.ok(task?.kind === "task");
+  f.bridge.close();
+  const saved = JSON.parse(readFileSync(f.bridgeOptions.path, "utf8"));
+  const note = { id: "legacy-note", chat: "main", note: true, text: `[后台工作报告]\n${beatNote(task, 10)}`, attachments: [], quote: null, mentions: [], suggested: false, state: "sending", at, timezone: "UTC", opaqueOriginal: "keep me" };
+  saved.queue = [note, { ...note, id: "legacy-queued", state: "queued" }]; saved.notes.push(note.id);
+  saved.superseded = [{ reason: "prior-owner-archive", original: { opaque: "preserved" } }]; saved.reconciliations = [{ opaque: "prior-proof" }];
+  writeFileSync(f.bridgeOptions.path, JSON.stringify(saved));
+  f.client.entries.get(id)!.push({ seqStart: 3, seqEnd: 3, timestamp: at, item: { type: "user_message", messageId: "echo", clientMessageId: note.id, text: note.text } });
+  f.client.agents.set(id, { ...f.client.agents.get(id)!, status: "idle", activeTurn: null, pendingPermissions: [] });
+  const reopened = paseoBridge(f.client, f.bridgeOptions); t.after(() => reopened.close()); await reopened.attach(f.host);
+  await settled();
+  const retained = JSON.parse(readFileSync(f.bridgeOptions.path, "utf8"));
+  assert.equal(retained.queue.length, 2); assert.equal(retained.queue[0].opaqueOriginal, "keep me");
+  assert.deepEqual(retained.superseded, saved.superseded); assert.deepEqual(retained.reconciliations, saved.reconciliations);
+  assert.equal(f.client.sends.length, 1, "neither receipt matching nor restart replays a monitoring backlog");
+});
+
+test("Qwen's shared suggest_replies reaches its next reply, validates taps and keeps the native session", async (t) => {
+  const f = await setup(t);
+  await f.session.call("chat.send", { chat: "main", text: "Give me two choices", timezone: "UTC", attachments: [] }); await settled();
+  const id = f.client.sends[0]!.id;
+  assert.equal(f.tools("main").filter((tool) => tool.name === "suggest_replies").length, 1);
+  await f.call("main", "codemode", { code: 'await tools.suggest_replies({options:["继续","稍后"]}); await tools.say({text:"现在继续吗？"});' });
+  const progress = f.host.external.state("main").entities.find((entity) => entity.kind === "reply" && entity.text === "现在继续吗？");
+  assert.ok(progress?.kind === "reply");
+  assert.deepEqual(progress.suggestions, ["继续", "稍后"]);
+  await f.call("main", "suggest_replies", { options: ["使用本地方案", "先比较"] });
+  f.client.finish(id, "请选择下一步。"); await f.session.call("session.sync", { chat: "main", since: null });
+  const reply = f.host.external.state("main").entities.find((entity) => entity.kind === "reply" && entity.text === "请选择下一步。");
+  assert.ok(reply?.kind === "reply");
+  assert.deepEqual(reply.suggestions, ["使用本地方案", "先比较"]);
+  await assert.rejects(f.session.call("chat.send", { chat: "main", text: "伪造选项", timezone: "UTC", attachments: [], suggested: { reply: reply.id, index: 0 } }), /not one of the options/);
+  const sent = await f.session.call("chat.send", { chat: "main", text: "使用本地方案", timezone: "UTC", attachments: [], suggested: { reply: reply.id, index: 0 } }); await settled();
+  const prompt = f.host.external.state("main").entities.find((entity) => entity.id === sent.id);
+  assert.ok(prompt?.kind === "prompt"); assert.equal(prompt.suggested, true);
+  assert.match(f.client.sends.at(-1)!.text, /点击.*建议|tapped.*suggested/i);
+  await f.session.call("session.sync", { chat: "main", since: null });
+  await f.session.call("session.sync", { chat: "main", since: null });
+  const retained = f.host.external.state("main").entities.find((entity) => entity.id === reply.id);
+  assert.ok(retained?.kind === "reply"); assert.equal(retained.chosen, 0); assert.deepEqual(retained.suggestions, reply.suggestions);
+  await assert.rejects(f.session.call("chat.send", { chat: "main", text: "先比较", timezone: "UTC", attachments: [], suggested: { reply: reply.id, index: 1 } }), /suggestion is closed/);
+  assert.equal(f.client.sends.length, 2); assert.equal(f.client.creates.length, 1); assert.deepEqual(f.client.cancels, []);
+  assert.equal((await f.session.call("backend.status", {})).contextWindow, 262144);
+});
+
+test("Paseo error-help quotes carry redacted diagnostic detail to Qwen without changing the visible prompt", async (t) => {
+  const f = await setup(t);
+  const secret = "sk-test-0123456789abcdefghijklmnopqrstuv";
+  const sent = await f.session.call("chat.send", { chat: "main", text: "帮我修这个", timezone: "UTC", attachments: [], about: { message: "Speech failed", detail: `HTTP 401 Bearer ${secret}` } }); await settled();
+  const prompt = f.host.external.state("main").entities.find((entity) => entity.id === sent.id);
+  assert.ok(prompt?.kind === "prompt"); assert.equal(prompt.text, "帮我修这个"); assert.equal(prompt.quote?.kind, "error");
+  assert.match(prompt.quote?.detail ?? "", /401/); assert.doesNotMatch(JSON.stringify(prompt.quote), /sk-test-/);
+  assert.match(f.client.sends[0]!.text, /Speech failed|401/); assert.doesNotMatch(f.client.sends[0]!.text, /sk-test-/);
+});
 
 test("a message added to an active Paseo conversation steers that agent without cancelling or changing its model", async (t) => {
   const f = await setup(t);

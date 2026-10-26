@@ -12,7 +12,7 @@ import { images, workspaceTools } from "./attachments.ts";
 import { memoryBrief, memoryReadTools, memoryWriteTools } from "./memory.ts";
 import { aboutTools } from "./about.ts";
 import { type Skill, allSkills, catalog, skillTools } from "./skills.ts";
-import type { Needs } from "@amuse/protocol";
+import type { Needs, Reply } from "@amuse/protocol";
 import type { SandboxClient } from "@amuse/sandbox";
 import { redact } from "./redact.ts";
 import type { AgentSession, ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -24,7 +24,7 @@ import { taskTools } from "./tasks.ts";
 import { scheduleTools } from "./schedules.ts";
 import { type JobBook, jobBook } from "./jobs.ts";
 import { type SecretAccess, secretTools } from "./secrets.ts";
-import { sayTools, silenceTools } from "./silence.ts";
+import { sayTools, silenceTools, suggestTools } from "./silence.ts";
 import { type Apps, appTools, chatTools, tools } from "./tools.ts";
 import { type Search, webTools } from "./web.ts";
 
@@ -113,7 +113,7 @@ export function agentJobBook(cfg: Pick<AgentToolsConfig, "sandbox">): JobBook | 
 export function agentTools(
   cfg: AgentToolsConfig,
   io: () => AgentIO,
-  silence?: { heard(): boolean; quiet(): void },
+  output?: { heard(): boolean; quiet(): void; offer?(options: string[]): void },
   jobs: JobBook | undefined = agentJobBook(cfg),
 ): ToolDefinition[] {
   const vision = cfg.model && cfg.auth ? { model: cfg.model, auth: cfg.auth, ...(cfg.modelsPath ? { modelsPath: cfg.modelsPath } : {}) } : undefined;
@@ -134,7 +134,8 @@ export function agentTools(
     ...(jobs ? jobs.tools(io) : []),
     ...(cfg.secrets ? secretTools(io, { ...cfg.secrets, sandbox: cfg.sandbox !== undefined }) : []),
     ...sayTools(io),
-    ...(silence ? silenceTools(silence.heard, silence.quiet) : []),
+    ...(output ? silenceTools(output.heard, output.quiet) : []),
+    ...(output?.offer ? suggestTools(output.offer) : []),
   ];
 }
 
@@ -192,6 +193,7 @@ const toolLabels: Record<string, string> = {
   stop_run: "Stopping a background task",
   no_reply: "Wrapping up",
   say: "Writing to you",
+  suggest_replies: "Writing to you",
 };
 
 type Message = Extract<Turn, { kind: "message" }>;
@@ -291,10 +293,19 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
           heard = false;
           read.length = 0;
         }
-        emit(say);
+        emit(say.kind === "upserted" && say.entity.kind === "reply" ? { ...say, entity: withOffer(say.entity) } : say);
       },
     };
     const io = () => here;
+    /** options to tap, offered with `suggest_replies`, for the next reply shown */
+    let offered: string[] = [];
+    /** a reply as it is shown: with the options offered for it, once */
+    const withOffer = (entity: Reply): Reply => {
+      if (offered.length === 0 || !entity.text.trim()) return entity;
+      const suggestions = offered;
+      offered = [];
+      return { ...entity, suggestions };
+    };
     emit({ kind: "activity", activity: { kind: "responding", label: null } });
     /** what the model is writing in its current message */
     let said = "";
@@ -310,7 +321,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
       // Stable owner/tool instructions precede the conversation for prefix reuse.
       const system = [cfg.system, cfg.extraSystem, skills].filter(Boolean).join("\n\n");
       if (turn.kind === "message") setUpDefaults(cfg.defaults, agent);
-      const toolset = agentTools(cfg, io, { heard: () => heard, quiet: () => (silent = true) }, jobs);
+      const toolset = agentTools(cfg, io, { heard: () => heard, quiet: () => (silent = true), offer: (options) => (offered = options) }, jobs);
       // many calls in one turn, only what the script returns in its context
       // the chat has one cache name, and the turn's message begins with what the last one did: both let a provider find its cache again
       let stable: string[] = [];
@@ -352,7 +363,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
           else if (text && !silent && stopReason !== "toolUse" && stopReason !== "aborted") {
             heard = false;
             read.length = 0;
-            emit({ kind: "upserted", entity: { kind: "reply", id: newId("r"), at: new Date().toISOString(), text, streaming: false, attachments: [] } });
+            emit({ kind: "upserted", entity: withOffer({ kind: "reply", id: newId("r"), at: new Date().toISOString(), text, streaming: false, attachments: [], suggestions: [], chosen: null }) });
           }
         } else if (event.type === "auto_retry_end" && event.success) {
           // the model's service failed and then answered: the failure is no longer one
@@ -444,7 +455,7 @@ export function piAgent(cfg: PiConfig): Pick<Ports, "prompt" | "interrupt" | "ti
 function steer(steering: Steering, turn: Message, files: Workspace | undefined, otherwise: () => void): void {
   const names = attached(turn.attachments);
   const sent = [
-    "The user, while you were working:",
+    turn.suggested ? "The user, while you were working (they tapped one of your suggested replies):" : "The user, while you were working:",
     turn.quote ? `(replying to ${quoted(turn.quote)})` : "",
     turn.text,
     names ? `Attached: ${names}` : "",

@@ -11,7 +11,9 @@ import type { Needs, Schedule, Session } from "@amuse/protocol";
 import { moment, outcomeLabel, repeats, scheduleState } from "../schedules.ts";
 import { wordsFor } from "../shown.ts";
 import { Button } from "./Button";
+import { ErrorBanner, ErrorState } from "./Errors";
 import { useT } from "../i18n/react.ts";
+import { detailOf } from "../ask.tsx";
 
 type Control = "pause" | "resume" | "cancel";
 
@@ -20,7 +22,7 @@ export function Schedules({ session }: { session: Session }) {
   const [schedules, setSchedules] = useState<Schedule[] | null>(null);
   // A successful list read may clear its own failure, never a separate control refusal.
   const [readError, setReadError] = useState<unknown>(null);
-  const [controlError, setControlError] = useState<unknown>(null);
+  const [controlError, setControlError] = useState<{ error: unknown; retry: () => void; feature: string } | null>(null);
   const reader = useRef<{ load(changed?: boolean): Promise<void>; active(): boolean } | null>(null);
   const controlVersion = useRef(0);
   useEffect(() => {
@@ -79,10 +81,17 @@ export function Schedules({ session }: { session: Session }) {
     session
       .call("schedule.control", { id, action })
       .then(() => current.load(true), (error: unknown) => {
-        if (current.active() && version === controlVersion.current) setControlError(error);
+        if (current.active() && version === controlVersion.current)
+          setControlError({ error, retry: () => control(id, action), feature: `Settings › Schedules › ${action}` });
       });
   };
-  const error = wordsFor(controlError ?? readError, t);
+  const retryLoad = () => {
+    setReadError(null);
+    void reader.current?.load();
+  };
+  const error = wordsFor(controlError?.error ?? readError, t);
+  const retry = controlError?.retry ?? retryLoad;
+  const detail = detailOf(controlError?.feature ?? "Settings › Schedules", "", controlError ? "schedule_control_failed" : "schedules_list_failed");
   const standing =
     schedules?.filter((s) => s.status === "active" || s.status === "paused") ??
     [];
@@ -95,6 +104,13 @@ export function Schedules({ session }: { session: Session }) {
       >
         {t.schedule.description}
       </p>
+      {error !== null && (
+        schedules === null ? (
+          <ErrorState title={t.ask.loadTitle} message={error} detail={detail} retry={retry} />
+        ) : (
+          <ErrorBanner message={error} detail={detail} retry={retry} />
+        )
+      )}
       {schedules && standing.length === 0 && (
         <p
           className="mt-6 text-center text-[14px]"
@@ -104,15 +120,7 @@ export function Schedules({ session }: { session: Session }) {
         </p>
       )}
       {standing.length > 0 && <List schedules={standing} control={control} />}
-      {error && (
-        <p
-          role="alert"
-          className="mt-2 text-[13px]"
-          style={{ color: "var(--fill-red)" }}
-        >
-          {error}
-        </p>
-      )}
+
     </div>
   );
 }

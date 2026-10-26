@@ -127,7 +127,7 @@ test("shared HTTP say publishes immediately to its own chat without ending the n
   assert.equal(f.host.external.state(f.other).entities.filter((entity) => entity.kind === "reply").length, 1);
   const helper = await f.connect(f.actor());
   assert.equal((await helper.listTools()).tools.some((tool) => tool.name === "say"), false, "background helpers retain report and muted-goal boundaries");
-  f.host.external.ingest("main", [{ kind: "upserted", entity: { kind: "reply", id: "native-final", at: "2026-10-21T08:01:00Z", text: "核对完成。", streaming: false, attachments: [] } }]);
+  f.host.external.ingest("main", [{ kind: "upserted", entity: { kind: "reply", id: "native-final", at: "2026-10-21T08:01:00Z", text: "核对完成。", streaming: false, attachments: [], suggestions: [], chosen: null } }]);
   await f.host.call("session.sync", { chat: "main", since: null });
   await f.host.call("session.sync", { chat: "main", since: null });
   replies = f.host.external.state("main").entities.filter((entity) => entity.kind === "reply");

@@ -10,6 +10,7 @@ import { ConfirmSheet } from "./ConfirmSheet";
 import { DEVICE_ICONS } from "./DeviceSheet";
 import { usePin } from "./PinSheet";
 import { useT } from "../i18n/react.ts";
+import { useFail } from "../ask.tsx";
 import { type AccountState, type DeviceInfo, accountState, approveDevice, changePassword, denyDevice, lockPin, revokeDevice, setUnlockMinutes } from "../account.ts";
 import { describeDevice } from "../device.ts";
 import { moment } from "../schedules.ts";
@@ -34,16 +35,15 @@ export function Security() {
   const t = useT();
   const { ask, open } = usePin();
   const [state, setState] = useState<AccountState | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
+  const failed = useFail();
   const [removing, setRemoving] = useState<DeviceInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const load = useCallback(() => accountState().then(setState), []);
   useEffect(() => void load(), [load]);
   /** a change, with the PIN when it needs it; what went wrong is said */
   const run = async (attempt: () => Promise<Said>) => {
-    setProblem(null);
     const said = await withPin(ask, attempt);
-    if (!said.ok) setProblem(said.reason);
+    if (!said.ok) failed(new Error(said.reason), "Settings › Security", () => void run(attempt));
     await load();
     return said.ok;
   };
@@ -157,11 +157,6 @@ export function Security() {
           );
         })}
       </ul>
-      {problem && (
-        <p role="alert" className="mt-2 px-1 text-[13px]" style={{ color: "var(--fill-red)" }}>
-          {problem}
-        </p>
-      )}
 
       <ConfirmSheet
         open={removing !== null}

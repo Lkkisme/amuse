@@ -8,8 +8,8 @@ import type { Call, Envelope } from "./index.ts";
 const at = "2026-10-20T08:24:00Z";
 
 export const envelopes: Envelope[] = [
-  { seq: 1, event: { kind: "upserted", index: 0, entity: { kind: "prompt", id: "p1", at, text: "Log in to the trip portal", timezone: "Asia/Shanghai", attachments: [], quote: null } } },
-  { seq: 2, event: { kind: "upserted", index: 1, entity: { kind: "reply", id: "r1", at, text: "On it", streaming: true, attachments: [] } } },
+  { seq: 1, event: { kind: "upserted", index: 0, entity: { kind: "prompt", id: "p1", at, text: "Log in to the trip portal", timezone: "Asia/Shanghai", attachments: [], quote: null, suggested: false } } },
+  { seq: 2, event: { kind: "upserted", index: 1, entity: { kind: "reply", id: "r1", at, text: "On it", streaming: true, attachments: [], suggestions: [], chosen: null } } },
   { seq: 3, event: { kind: "appended", id: "r1", text: "." } },
   { seq: 4, event: { kind: "activity", activity: { kind: "working", label: "Opening page" } } },
   {
@@ -119,6 +119,7 @@ export const envelopes: Envelope[] = [
         timezone: "Asia/Shanghai",
         attachments: [],
         quote: { id: "s1", kind: "schedule", text: "Morning briefing", state: "active" },
+        suggested: false,
       },
     },
   },
@@ -130,6 +131,8 @@ export const calls: Call[] = [
   { method: "session.history", params: { chat: "main", before: 40, limit: 20 } },
   { method: "chat.send", params: { chat: "main", text: "hi", timezone: "Asia/Shanghai", attachments: [] } },
   { method: "chat.send", params: { chat: "main", text: "change this one", timezone: "Asia/Shanghai", attachments: [], replyTo: "s1" } },
+  { method: "chat.send", params: { chat: "main", text: "I ran into this", timezone: "Asia/Shanghai", attachments: [], about: { message: "Voice needs a key", detail: "feature: voice transcription; time: 2026-10-24T09:00:00Z" } } },
+  { method: "chat.send", params: { chat: "main", text: "Go ahead", timezone: "Asia/Shanghai", attachments: [], suggested: { reply: "r1", index: 0 } } },
   { method: "chat.stop", params: { chat: "main" } },
   { method: "chat.retry", params: { id: "x1" } },
   { method: "chats.list", params: {} },

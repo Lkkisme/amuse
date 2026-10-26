@@ -8,6 +8,18 @@ On first installation, enter your server's HTTPS origin in Connection & Security
 The example is only a placeholder and is never contacted before setup. Keep the
 required network or VPN available and configure the server's `AMUSE_PUBLIC_URL`.
 
+Version 0.2.1/code9 adds upstream's multi-file/ClipData picker handling, remembered
+microphone confirmation per complete server origin, system light/dark launch
+theme and Lucide native icons. The existing application ID and signing key are
+retained. In passwordless mode the system picker keeps its original page and
+session behind the picker, with touch and accessibility disabled until a safe
+foreground return. Optional local biometric mode retains its stricter identity
+verification and cookie cleanup; a locked device never exposes the retained
+page. Renderer recovery in foreground passwordless mode preserves its cookie
+session and resumes appearance/session sampling. These merges have JVM/lint/
+release verification; this candidate has not yet been installed or physically
+accepted on the phone.
+
 Version 0.2.0/code8 integrates upstream's generic setup, strict URL/port parsing,
 Gradle wrapper and stale-unlock fencing. Existing configured origins are kept;
 older owner-paired or biometric installs without a separate server preference
@@ -73,7 +85,8 @@ only this switch preserves device pairing and local biometric keys.
 Version 0.1.2 restores an owner-paired device session directly into chat, without
 a password, PIN or biometric prompt. Unpaired devices start at the server web sign-in
 page with local biometric unlock disabled by default. The user may enable it in Connection & Security. Native
-surfaces start with the web light palette and follow the page's selected theme.
+surfaces follow the page's selected theme; version 0.2.1 starts with the system
+theme when no page appearance has been saved yet.
 The optional noVNC viewer is loaded on demand so a hanging video-codec probe
 cannot block sign-in or chat startup.
 
@@ -102,11 +115,15 @@ cannot block sign-in or chat startup.
   before restoring the encrypted owner pairing. Screenshots, recordings and recent-app
   previews are allowed at the owner's request (version 0.1.3+).
 - File selection uses Android's document picker without storage/camera
-  permissions. The page is paused behind the native lock screen while selecting;
+  permissions. Multi-selection and single selection returned in ClipData are
+  accepted before the single data URI; only `content:` URIs are passed back.
+  A canceled or obsolete renderer result cannot upload to a replacement page.
+  The page is paused and cannot receive touch or accessibility input while selecting;
   selected URIs are withheld until the user verifies their device identity when
-  local biometric unlock is enabled. PIN-only and paired modes resume without that gate.
+  local biometric unlock is enabled. Passwordless modes keep the original
+  session and visible page behind the picker, then resume without that gate.
   The in-memory page is then resumed to finish the upload. A secure device lock
-  is required for this flow. Choosing server sign-in instead cancels that
+  is required for the biometric return flow. Choosing server sign-in instead cancels that
   upload and starts a fresh page.
 - Android 10 supports the system unlock prompt but intentionally does not keep
   a reusable biometric session. Unpaired devices require server sign-in on
@@ -130,8 +147,10 @@ disabled. TLS certificate errors are rejected without a bypass. No JavaScript
 native bridge or camera, broad-storage or notification permission is installed.
 
 Version 0.1.4 supports the upstream Voice button: only the configured HTTPS
-origin can request audio capture. Each request first asks for native confirmation,
-then Android's `RECORD_AUDIO` permission if needed. The normal
+origin can request audio capture. The first request asks for native confirmation,
+remembered separately for each complete server origin (including its port),
+then Android's `RECORD_AUDIO` permission if needed. Remembering this confirmation
+does not replace Android's runtime permission or any foreground/origin checks. The normal
 `MODIFY_AUDIO_SETTINGS` permission lets WebView open its audio input device;
 it does not grant microphone capture by itself. The runtime permission dialog
 preserves its requesting renderer for that prompt; the grant is checked again on

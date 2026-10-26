@@ -21,6 +21,8 @@ export const en = {
     selectText: "Select text",
     replyingToAmuse: "Replying to Amuse",
     replying: "Replying",
+    askingAboutError: "Asking Amuse about this error",
+    askPrefill: "I ran into this. Can you take a look?",
     cancelReply: "Cancel reply",
     jumpToQuoted: "Go to the message replied to",
     quoted: {
@@ -33,10 +35,12 @@ export const en = {
       browser: "Browser task",
       schedule: "Scheduled task",
       failure: "Couldn't reply",
+      error: "Error",
     },
     openFile: (name: string) => `Open ${name}`,
     deleted: "Deleted",
     sending: "Sending…",
+    suggestedReplies: "Suggested replies",
     newMessages: (count: number) => (count === 1 ? "1 message" : `${count} messages`),
     scrollToBottom: "Scroll to bottom",
     thinking: "Amuse is thinking",
@@ -49,8 +53,10 @@ export const en = {
     addFiles: "Add files",
     message: "Message",
     messageIn: (place: string) => `Message in ${place}`,
-    stopDictating: "Stop dictating",
-    turningIntoText: "Turning speech into text",
+    cancelDictating: "Cancel recording",
+    doneDictating: "Done",
+    turningIntoTextLine: "Turning into text…",
+    cantHearYou: "Can't hear you. Check the mic.",
     dictate: "Dictate",
     stop: "Stop",
     send: "Send",
@@ -286,6 +292,25 @@ export const en = {
   },
   /** "Amuse's computer": where the agent's commands run; `name` is the assistant's. */
   computer: (name: string) => `${name}'s computer`,
+  /** What a refused command says to the user (core's rejections) */
+  rejected: {
+    notFound: "That isn't there any more.",
+    gone: "That browser has closed.",
+    notRunning: "That task is no longer running.",
+    noChat: "That chat doesn't exist any more.",
+    noFile: "That file didn't finish uploading. Add it again.",
+    mainChat: "The main chat can't be renamed or deleted.",
+    invalid: "That has already changed, so it can't be done now. Try again.",
+    /** the rule's own sentence (English: what is wrong), as it is */
+    unsound: (reason: string) => reason || "That can't be done.",
+    other: "That couldn't be done. Try again.",
+  },
+  ask: {
+    action: "Ask Amuse",
+    retry: "Retry",
+    loadTitle: "Can't load this page",
+    connectionsTitle: "Can't load connections",
+  },
   common: {
     add: "Add",
     serverUnreachable: "The server cannot be reached.",
@@ -380,7 +405,7 @@ export const en = {
     ownServer: "Your own server",
     notSet: "Not set up",
     voiceHelp:
-      "Turns what you say into the mic into text. Automatic uses the first of OpenAI, Groq and Fireworks you have a key for, then your own server; with your own server, recordings stay on your machines.",
+      "Turns what you say into the mic into text. Automatic uses the first of OpenAI and Groq you have a key for, then your own server; with your own server, recordings stay on your machines.",
     yourProviders: "Your providers",
     providers: "Providers",
     addProvider: "Add a provider",
@@ -684,7 +709,7 @@ export const en = {
       lull: "after a conversation goes quiet",
     },
     lastRun: (when: string, outcome: string, summary: string | null) =>
-      `Last run ${when}: ${outcome}${summary ? ` — ${summary}` : ""}`,
+      `Last run ${when}: ${outcome}${summary ? `. ${summary}` : ""}`,
     instructions: "Instructions",
     pause: "Pause",
     resume: "Resume",

@@ -67,6 +67,8 @@ class MainActivity : ComponentActivity() {
     private var cookieOperation = 0L
     private var pendingGrant: Pair<Int, String?>? = null
     private var fileCallback: ValueCallback<Array<Uri>>? = null
+    private var pickerPage: ConnectionRecovery.Page? = null
+    private val pickerVisit = DocumentPickerVisit()
     private var pausedCookie: String? = null
     private var pickedFiles: Array<Uri>? = null
     private var pickerReturned = false
@@ -96,16 +98,13 @@ class MainActivity : ComponentActivity() {
         }
     }
     private val picker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        val picked = WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data)
-        val selection = picked?.filter { it.scheme == "content" }?.toTypedArray()
-        if (state.pickerSuspended) {
-            pickedFiles = selection
-            pickerReturned = true
-            resumePickerWithoutDeviceGate()
-        } else {
-            fileCallback?.onReceiveValue(selection)
-            fileCallback = null
-        }
+        if (!pickerVisit.finish(pickerPage) || !currentPicker()) { cancelFiles(); return@registerForActivityResult }
+        val clip = result.data?.clipData
+        val items = if (clip != null) (0 until clip.itemCount).mapNotNull { clip.getItemAt(it).uri?.toString() } else emptyList()
+        pickedFiles = DocumentSelection.select(result.resultCode == RESULT_OK, items, result.data?.data?.toString())
+            ?.map(Uri::parse)?.toTypedArray()
+        pickerReturned = true
+        if (state.pickerSuspended) resumePickerWithoutDeviceGate() else deliverFiles()
     }
     private val recordAudio = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         permissionDialogInFlight = false
@@ -129,7 +128,7 @@ class MainActivity : ComponentActivity() {
             deviceSecure = getSystemService(KeyguardManager::class.java).isDeviceSecure,
             useDeviceUnlock = preferences.getBoolean("device_unlock", false), reusableSessionSupported = Build.VERSION.SDK_INT >= 30,
             autoConnectTailscale = preferences.getBoolean("auto_connect_tailscale", true),
-            darkTheme = preferences.getBoolean("dark_theme", false),
+            darkTheme = preferences.getBoolean("dark_theme", systemDark()),
             pairedSession = pairedVault.hasSession(server),
             rememberedSession = vault.hasSession(server), deviceLocked = !deviceUnlocked())
         ContextCompat.registerReceiver(this, userPresent,
@@ -231,6 +230,7 @@ class MainActivity : ComponentActivity() {
             finishMicrophonePermission(granted)
         }
         resumePickerWithoutDeviceGate()
+        deliverFiles()
         openSavedSessionIfNeeded()
     }
 
@@ -277,8 +277,7 @@ class MainActivity : ComponentActivity() {
         cancelAuthentication()
         denyMicrophonePermission()
         releaseWebView(webView)
-        fileCallback?.onReceiveValue(null)
-        fileCallback = null
+        cancelFiles()
         super.onDestroy()
     }
 
@@ -432,12 +431,7 @@ class MainActivity : ComponentActivity() {
                         webView?.importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
                         webView?.onResume()
                         signalPage(PageSignal.RESUME)
-                        if (pickerReturned) {
-                            fileCallback?.onReceiveValue(pickedFiles)
-                            fileCallback = null
-                            pickedFiles = null
-                            pickerReturned = false
-                        }
+                        deliverFiles()
                         pausedCookie = null
                     }
                     startCapturingSession()
@@ -483,8 +477,34 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun resumePickerWithoutDeviceGate() {
-        if (foreground && deviceUnlocked() && state.pickerSuspended && !state.useDeviceUnlock && !state.authenticating)
-            finishUnlock(pausedCookie, attempt)
+        if (!foreground || !deviceUnlocked() || !state.pickerSuspended || !pickerReturned ||
+            state.useDeviceUnlock || state.authenticating || state.settingsVisible || !currentPicker()) return
+        // This controlled document-picker round trip keeps the same renderer and
+        // session. Optional biometric mode continues to use finishUnlock instead.
+        state = state.copy(unlocked = true, pickerSuspended = false, notice = null)
+        webView?.onResume()
+        signalPage(PageSignal.RESUME)
+        pausedCookie = null
+        startCapturingSession()
+        deliverFiles()
+    }
+
+    private fun currentPicker(): Boolean = fileCallback != null && pickerPage == currentPage() &&
+        webView?.url?.let(state.server::contains) == true
+
+    private fun deliverFiles() {
+        if (!pickerReturned || !currentPicker() || !foreground || !deviceUnlocked() || !state.unlocked ||
+            state.pickerSuspended || state.pageSuspended || state.settingsVisible || state.authenticating) return
+        val callback = fileCallback
+        val selection = pickedFiles
+        fileCallback = null; pickerPage = null; pickedFiles = null; pickerReturned = false
+        callback?.onReceiveValue(selection)
+    }
+
+    private fun cancelFiles() {
+        val callback = fileCallback
+        fileCallback = null; pickerPage = null; pickedFiles = null; pickerReturned = false
+        callback?.onReceiveValue(null)
     }
 
     private fun captureSession() {
@@ -509,6 +529,9 @@ class MainActivity : ComponentActivity() {
             .onFailure { state = state.copy(notice = "本次登录可用，但未能安全保存。下次请重新输入服务器 PIN。") }
         lastCookie = cookie
     }
+
+    private fun systemDark(): Boolean =
+        resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES
 
     private fun updateSystemBars() {
         WindowCompat.getInsetsController(window, window.decorView).apply {
@@ -545,16 +568,14 @@ class MainActivity : ComponentActivity() {
         captureJob = null
         if (cancelPrompt) cancelAuthentication()
         state = state.copy(unlocked = false, pickerSuspended = false, pageSuspended = false, loading = false)
-        fileCallback?.onReceiveValue(null)
-        fileCallback = null
-        pickedFiles = null
-        pickerReturned = false
+        cancelFiles()
         pausedCookie = null
         releaseWebView(webView)
         lastCookie = null
         clearActiveCookies()
     }
 
+    /** The system picker covers the page for a moment: keep the session, and hand the chosen files back when it closes. */
     private fun suspendForPicker() {
         captureSession()
         signalPage(PageSignal.PAUSE)
@@ -562,13 +583,23 @@ class MainActivity : ComponentActivity() {
         captureJob?.cancel()
         captureJob = null
         webView?.onPause()
-        webView?.visibility = android.view.View.INVISIBLE
+        webView?.visibility = if (state.useDeviceUnlock || state.deviceLocked) android.view.View.INVISIBLE else android.view.View.VISIBLE
         webView?.isEnabled = false
         webView?.importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
         webView?.clearFocus()
         state = state.copy(unlocked = false, pickerSuspended = true, loading = false,
-            notice = "文件已由系统选择。返回后请验证本机身份，验证成功才会上传。")
-        clearActiveCookies()
+            notice = if (state.useDeviceUnlock) "文件已由系统选择。返回后请验证本机身份，验证成功才会上传。" else null)
+        if (state.useDeviceUnlock) clearActiveCookies()
+    }
+
+    /** A new page, the same session: the cookies are the session, and only signing out ends it. */
+    private fun reloadPage() {
+        captureJob?.cancel(); captureJob = null
+        denyMicrophonePermission()
+        cancelFiles()
+        releaseWebView(webView)
+        state = state.copy(loading = true, pickerSuspended = false, webGeneration = state.webGeneration + 1)
+        startCapturingSession()
     }
 
     private fun forgetSession() {
@@ -770,16 +801,20 @@ class MainActivity : ComponentActivity() {
             webView?.url?.let(state.server::contains) == true &&
             WebPermissionPolicy.microphone(state.server, request.origin.toString(), request.resources.toList())
 
+    private fun microphoneKey(): String = WebPermissionPolicy.microphoneConsentKey(state.server)
+
     private fun offerMicrophone(request: PermissionRequest) {
         if (microphoneRequest != null || !microphoneAllowed(request)) { request.deny(); return }
         microphoneRequest = request
-        state = state.copy(microphonePrompt = true)
+        if (preferences.getBoolean(microphoneKey(), false)) requestMicrophonePermission()
+        else state = state.copy(microphonePrompt = true)
     }
 
     private fun requestMicrophonePermission() {
         state = state.copy(microphonePrompt = false)
         val request = microphoneRequest ?: return
         if (!microphoneAllowed(request)) { denyMicrophonePermission(); return }
+        preferences.edit().putBoolean(microphoneKey(), true).apply()
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
             finishMicrophonePermission(true)
         else { permissionDialogInFlight = true; recordAudio.launch(Manifest.permission.RECORD_AUDIO) }
@@ -851,14 +886,16 @@ class MainActivity : ComponentActivity() {
             override fun onProgressChanged(view: WebView, progress: Int) { if (current(view)) state = state.copy(progress = progress) }
             override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
                 if (!current(view) || !this@MainActivity.foreground || !deviceUnlocked() || !state.unlocked ||
-                    state.pageSuspended || state.settingsVisible) return false
+                    state.pageSuspended || state.settingsVisible || view.url?.let(state.server::contains) != true) return false
                 if (!state.deviceSecure && state.useDeviceUnlock) {
                     state = state.copy(notice = "请先为手机启用安全锁屏，以便从文件选择器安全返回并上传。")
                     callback.onReceiveValue(null)
                     return true
                 }
-                fileCallback?.onReceiveValue(null)
+                if (!pickerVisit.start(page)) { callback.onReceiveValue(null); return true }
+                cancelFiles()
                 fileCallback = callback
+                pickerPage = page
                 val accepted = params.acceptTypes.filter { it.contains('/') }.toTypedArray()
                 val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)
@@ -866,7 +903,7 @@ class MainActivity : ComponentActivity() {
                     if (accepted.size > 1) putExtra(Intent.EXTRA_MIME_TYPES, accepted)
                     putExtra(Intent.EXTRA_ALLOW_MULTIPLE, params.mode == FileChooserParams.MODE_OPEN_MULTIPLE)
                 }
-                runCatching { picker.launch(intent) }.onFailure { fileCallback = null; callback.onReceiveValue(null) }
+                runCatching { picker.launch(intent) }.onFailure { pickerVisit.finish(page); cancelFiles() }
                 return true
             }
         }
@@ -960,7 +997,9 @@ class MainActivity : ComponentActivity() {
             }
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
                 if (current(view)) {
-                    lockSession()
+                    if (!state.useDeviceUnlock && this@MainActivity.foreground && deviceUnlocked() && state.unlocked &&
+                        !state.pageSuspended && !state.pickerSuspended && !state.settingsVisible) reloadPage()
+                    else lockSession()
                     state = state.copy(notice = "页面进程已退出，正在恢复连接。")
                     openSavedSessionIfNeeded()
                 }

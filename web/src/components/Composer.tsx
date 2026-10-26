@@ -1,6 +1,7 @@
 /**
  * Composer pill (surface 1): '+' icon left, 'Message' placeholder, mic icon
- * right. The trailing button exists only when it has a job: send while there
+ * right. While the mic records, the text row is a level meter with the time, a
+ * Cancel (✕: throws the take away) and a round stop button. The trailing button exists only when it has a job: send while there
  * is a draft (also while the assistant works: the message reaches it as it
  * goes), stop while it works and there is none; otherwise it is not rendered
  * (Muse shows just the mic).
@@ -13,7 +14,7 @@
  * up. Where no server keeps files (the demo) there is no '+'.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowUp, CircleAlert, File as FileIcon, LoaderCircle, Mic, Plus, Square, X } from "lucide-react";
+import { ArrowUp, CircleAlert, File as FileIcon, LoaderCircle, Mic, MicOff, Plus, Square, X } from "lucide-react";
 import type { Attachment, Quote, State } from "@amuse/protocol";
 import { size } from "@amuse/core";
 import type { Actions } from "../ui.ts";
@@ -21,7 +22,11 @@ import { busy } from "../view.ts";
 import { useFiles } from "../files.ts";
 import { useT } from "../i18n/react.ts";
 import { VoiceInput, type VoicePhase } from "../voice-input.ts";
-import { quoteLine } from "../reply.ts";
+import { askLine, quoteLine } from "../reply.ts";
+import { detailOf } from "../ask.tsx";
+import { BARS, SAMPLE_MS, clock, level, push, rms, silentAtStart, smooth } from "../level.ts";
+import { Button } from "./Button.tsx";
+import { VoiceMeter, type Meter } from "./VoiceMeter.tsx";
 
 /** A file on its way: uploading, up (its attachment), or failed (why). */
 interface Pending {
@@ -37,15 +42,17 @@ interface Pending {
 const LINE = 36;
 const MAX_HEIGHT = 166;
 
-export function Composer({ conversation, replying, place, actions }: { conversation: State; replying: Quote | null; place: string | null; actions: Actions }) {
+export function Composer({ conversation, replying, place, actions, scope }: { conversation: State; replying: Quote | null; place: string | null; actions: Actions; scope: string }) {
   const t = useT();
   const working = busy(conversation);
+  const asking = replying?.kind === "error";
   const files = useFiles();
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState<Pending[]>([]);
   const picker = useRef<HTMLInputElement>(null);
   /** the box grows with what is written, a line at a time, up to MAX_HEIGHT; past one line the pill becomes a card */
   const box = useRef<HTMLTextAreaElement>(null);
+  const [voice, setVoice] = useState<VoicePhase>("idle");
   const [lines, setLines] = useState(false);
   /** past its height, the box fades at the end where more is written (above, below) */
   const [more, setMore] = useState({ above: false, below: false });
@@ -64,7 +71,7 @@ export function Composer({ conversation, replying, place, actions }: { conversat
     el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT)}px`;
     setLines(el.scrollHeight > LINE + 2);
     look();
-  }, [draft]);
+  }, [draft, voice]);
   const fade = `linear-gradient(to bottom, ${more.above ? "transparent 0, #000 20px" : "#000 0"}, ${more.below ? "#000 calc(100% - 20px), transparent 100%" : "#000 100%"})`;
   // replying to something: the box is ready for the words
   useEffect(() => {
@@ -75,14 +82,47 @@ export function Composer({ conversation, replying, place, actions }: { conversat
   useEffect(() => () => previews.current.forEach((url) => URL.revokeObjectURL(url)), []);
 
   // the mic: recorded here, turned into text on the server (with the user's own key), put in the draft to edit
-  const [voice, setVoice] = useState<VoicePhase>("idle");
   const voiceInput = useRef<VoiceInput | null>(null);
   const voiceUi = useRef({ t, actions });
   voiceUi.current = { t, actions };
   useEffect(() => {
+    // A new chat keeps the draft, but never an old microphone grant or transcription.
+    setVoice("idle");
     const input = new VoiceInput({
       acquire: () => navigator.mediaDevices.getUserMedia({ audio: true }),
       record: (stream) => new MediaRecorder(stream),
+      monitor: (stream) => {
+        let context: AudioContext | null = null;
+        let analyser: AnalyserNode | null = null;
+        try {
+          context = new AudioContext();
+          void context.resume().catch(() => {});
+          analyser = context.createAnalyser();
+          analyser.fftSize = 2048;
+          context.createMediaStreamSource(stream).connect(analyser);
+        } catch { analyser = null; }
+        const began = performance.now();
+        const samples = new Float32Array(analyser?.fftSize ?? 0);
+        let peak = 0, shown = 0;
+        meter.bars = new Array<number>(BARS).fill(0);
+        meter.at = began;
+        setTime(clock(0));
+        setQuiet(false);
+        const sampler = window.setInterval(() => {
+          const now = performance.now();
+          if (analyser) {
+            analyser.getFloatTimeDomainData(samples);
+            const heard = level(rms(samples));
+            peak = Math.max(peak, heard);
+            shown = smooth(shown, heard);
+            meter.bars = push(meter.bars, shown);
+            meter.at = now;
+          }
+          setTime(clock(now - began));
+          setQuiet(analyser !== null && silentAtStart(peak, now - began));
+        }, SAMPLE_MS);
+        return () => { clearInterval(sampler); void context?.close().catch(() => {}); };
+      },
       transcribe: async (audio, signal) => {
         const { t } = voiceUi.current;
         let response: Response;
@@ -99,7 +139,8 @@ export function Composer({ conversation, replying, place, actions }: { conversat
       error: (stage, error) => {
         const { t, actions } = voiceUi.current;
         actions.notify(stage === "permission" ? t.chat.micNotAllowed : stage === "recording" ? t.localVoice.cannotStart :
-          error instanceof Error ? error.message : t.common.serverUnreachable);
+          error instanceof Error ? error.message : t.common.serverUnreachable,
+          { detail: detailOf("voice transcription", "speech service", `voice_${stage}`), retry: () => void voiceInput.current?.listen() });
       },
     });
     voiceInput.current = input;
@@ -121,7 +162,25 @@ export function Composer({ conversation, replying, place, actions }: { conversat
       input.dispose();
       if (voiceInput.current === input) voiceInput.current = null;
     };
-  }, []);
+  }, [scope]);
+  const meter = useRef<Meter>({ bars: [], at: 0 }).current;
+  const [time, setTime] = useState("0:00");
+  const [quiet, setQuiet] = useState(false);
+  // the ✕ turns back into + when dictation ends
+  const [turnBack, setTurnBack] = useState(false);
+  const wasVoice = useRef(voice);
+  useEffect(() => {
+    if (wasVoice.current !== "idle" && voice === "idle") setTurnBack(true);
+    wasVoice.current = voice;
+  }, [voice]);
+  // leaving the page lets go of the mic and drops the take
+  // Escape throws the take away, or stops turning it into text
+  useEffect(() => {
+    if (voice === "idle") return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && voiceInput.current?.discard();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [voice]);
   // browsers keep the mic from pages on plain http: there the mic is off, and says why
   const secure = window.isSecureContext && !!navigator.mediaDevices?.getUserMedia;
   const canRecord = typeof MediaRecorder !== "undefined";
@@ -130,7 +189,6 @@ export function Composer({ conversation, replying, place, actions }: { conversat
     if (!canRecord) return actions.notify(t.localVoice.unsupported);
     return voiceInput.current?.listen();
   };
-  const stopListening = () => voiceInput.current?.stop();
 
   const ready = pending.flatMap((p) => (p.state.kind === "ready" ? [p.state.attachment] : []));
   const uploading = pending.some((p) => p.state.kind === "uploading");
@@ -161,6 +219,15 @@ export function Composer({ conversation, replying, place, actions }: { conversat
       return list.filter((p) => p.key !== key);
     });
 
+  // asking Amuse about an error: the line is ready (words of the user's own stay), and the box is theirs to add to
+  useEffect(() => {
+    if (!asking) return;
+    setDraft((d) => askLine(d, t.chat.askPrefill));
+    const el = box.current;
+    el?.focus();
+    el?.setSelectionRange(el.value.length, el.value.length);
+  }, [asking, replying?.id, t]);
+
   const submit = () => {
     if (!sendable) return;
     const text = draft.trim();
@@ -187,15 +254,15 @@ export function Composer({ conversation, replying, place, actions }: { conversat
       />
       <div className="relative mx-auto max-w-3xl px-4 pb-5 pt-1">
         <div
-          className={`pointer-events-auto flex flex-col px-2 py-2 ${pending.length > 0 || lines || replying ? "rounded-[26px]" : "rounded-full"}`}
+          className={`pointer-events-auto relative flex flex-col px-2 py-2 ${pending.length > 0 || (lines && voice === "idle") || replying ? "rounded-[26px]" : "rounded-full"}`}
           style={{ background: "var(--fill-primary)", boxShadow: "var(--shadow-float)" }}
         >
           {replying && (
             <div className="mb-1.5 flex items-center gap-2 pl-3 pr-1 pt-1">
-              <span className="w-[3px] self-stretch rounded-full" style={{ background: "var(--fill-blue)" }} />
+              <span className="w-[3px] self-stretch rounded-full" style={{ background: asking ? "var(--icon-secondary)" : "var(--fill-blue)" }} />
               <span className="min-w-0 flex-1">
-                <span className="block text-[12px] font-semibold" style={{ color: "var(--fill-blue)" }}>
-                  {replying.kind === "prompt" ? t.chat.replying : t.chat.replyingToAmuse}
+                <span className="block text-[12px] font-semibold" style={{ color: asking ? "var(--text-secondary)" : "var(--fill-blue)" }}>
+                  {asking ? t.chat.askingAboutError : replying.kind === "prompt" ? t.chat.replying : t.chat.replyingToAmuse}
                 </span>
                 <span className="block truncate text-[13px] leading-[18px]" style={{ color: "var(--text-secondary)" }}>
                   {quoteLine(replying, t)}
@@ -218,6 +285,57 @@ export function Composer({ conversation, replying, place, actions }: { conversat
               ))}
             </div>
           )}
+          {voice !== "idle" ? (
+            <>
+              {quiet && voice === "recording" && (
+                // above the box, not in it: going into dictation never changes the box's height
+                <div
+                  role="status"
+                  className="pointer-events-none absolute bottom-full left-1/2 mb-2 flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-full px-3 py-1.5 text-[13px] leading-[18px]"
+                  style={{ color: "var(--text-secondary)", background: "var(--fill-primary)", boxShadow: "var(--shadow-float)" }}
+                >
+                  <MicOff size={15} className="shrink-0" />
+                  {t.chat.cantHearYou}
+                </div>
+              )}
+              <div className="flex min-h-[36px] items-center gap-2">
+                <button
+                  aria-label={t.chat.cancelDictating}
+                  className="hover-fade flex size-9 shrink-0 items-center justify-center rounded-full"
+                  style={{ color: "var(--icon-primary)" }}
+                  onClick={() => voiceInput.current?.discard()}
+                >
+                  {/* the + turned a quarter of the way round: the same button, now throwing the take away */}
+                  <Plus size={20} className="plus-to-x" />
+                </button>
+                <span className="min-w-[2.5rem] shrink-0 text-[15px] tabular-nums" style={{ color: voice === "recording" ? "var(--text-primary)" : "var(--text-tertiary)" }}>
+                  {time}
+                </span>
+                <VoiceMeter meter={meter} frozen={voice === "transcribing"} />
+                {voice === "recording" ? (
+                  // the same round blue button as send and stop: stop recording, then turn it into text
+                  <button
+                    aria-label={t.chat.doneDictating}
+                    className="flex size-9 shrink-0 items-center justify-center rounded-full"
+                    style={{ background: "var(--fill-blue)", color: "#fff" }}
+                    onClick={() => voiceInput.current?.stop()}
+                  >
+                    <Square size={14} fill="currentColor" strokeWidth={0} />
+                  </button>
+                ) : (
+                  // the same button, turning while the take becomes text
+                  <span
+                    role="status"
+                    aria-label={t.chat.turningIntoTextLine}
+                    className="flex size-9 shrink-0 items-center justify-center rounded-full"
+                    style={{ background: "var(--fill-blue)", color: "#fff" }}
+                  >
+                    <LoaderCircle size={18} className="animate-spin" />
+                  </span>
+                )}
+              </div>
+            </>
+          ) : (
           <div className={`flex min-h-[36px] gap-2 ${lines ? "items-end" : "items-center"}`}>
             {/* end buttons are 36px at an 8px inset: concentric with the pill's 26px-radius ends */}
             {files && (
@@ -228,7 +346,7 @@ export function Composer({ conversation, replying, place, actions }: { conversat
                   style={{ color: "var(--icon-primary)" }}
                   onClick={() => picker.current?.click()}
                 >
-                  <Plus size={20} />
+                  <Plus size={20} className={turnBack ? "x-to-plus" : ""} onAnimationEnd={() => setTurnBack(false)} />
                 </button>
                 <input
                   ref={picker}
@@ -267,21 +385,14 @@ export function Composer({ conversation, replying, place, actions }: { conversat
             />
             {files && (
               <button
-                aria-label={voice === "recording" ? t.chat.stopDictating : voice === "transcribing" ? t.chat.turningIntoText : t.chat.dictate}
-                disabled={voice === "transcribing"}
+                aria-label={t.chat.dictate}
                 aria-disabled={!secure}
                 title={secure ? undefined : t.chat.voiceNeedsHttps}
-                className={`flex size-9 shrink-0 items-center justify-center rounded-full ${voice === "idle" && secure ? "hover-fade" : ""} ${secure ? "" : "opacity-40"}`}
-                style={voice === "recording" ? { background: "var(--fill-red)", color: "#fff" } : { color: "var(--icon-secondary)" }}
-                onClick={() => (voice === "recording" ? stopListening() : void listen())}
+                className={`flex size-9 shrink-0 items-center justify-center rounded-full ${secure ? "hover-fade" : "opacity-40"}`}
+                style={{ color: "var(--icon-primary)" }}
+                onClick={() => void listen()}
               >
-                {voice === "recording" ? (
-                  <Square size={13} fill="currentColor" strokeWidth={0} />
-                ) : voice === "transcribing" ? (
-                  <LoaderCircle size={19} className="animate-spin" />
-                ) : (
-                  <Mic size={19} />
-                )}
+                <Mic size={20} />
               </button>
             )}
             {trailing && (
@@ -300,6 +411,7 @@ export function Composer({ conversation, replying, place, actions }: { conversat
               </button>
             )}
           </div>
+          )}
         </div>
       </div>
     </div>

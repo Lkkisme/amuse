@@ -8,6 +8,7 @@ import { Sheet } from "./Sheet";
 import { Button } from "./Button";
 import { usePin } from "./PinSheet";
 import { useT } from "../i18n/react.ts";
+import { useFail } from "../ask.tsx";
 import { type DeviceInfo, approveDevice, denyDevice } from "../account.ts";
 import { type DeviceKind, describeDevice } from "../device.ts";
 import { moment } from "../schedules.ts";
@@ -19,7 +20,7 @@ export function DeviceSheet({ device, onClose }: { device: DeviceInfo | null; on
   const t = useT();
   const { ask } = usePin();
   const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
+  const failed = useFail();
   const [shown, setShown] = useState(device);
   if (device && device !== shown) setShown(device);
   const described = describeDevice(shown?.agent ?? "");
@@ -27,11 +28,10 @@ export function DeviceSheet({ device, onClose }: { device: DeviceInfo | null; on
   const answer = async (approve: boolean) => {
     if (!shown) return;
     setBusy(true);
-    setProblem(null);
     const said = approve ? await withPin(ask, () => approveDevice(shown.id)) : await denyDevice(shown.id);
     setBusy(false);
     if (said.ok) return onClose(true);
-    setProblem(said.reason);
+    failed(new Error(said.reason), approve ? "Devices › approve a device" : "Devices › deny a device", () => void answer(approve));
   };
   return (
     <Sheet open={device !== null} onClose={() => onClose(false)} bare>
@@ -51,11 +51,6 @@ export function DeviceSheet({ device, onClose }: { device: DeviceInfo | null; on
         <p className="mt-3 text-[14px]" style={{ color: "var(--text-secondary)" }}>
           {t.devices.waitingHelp}
         </p>
-        {problem && (
-          <p role="alert" className="mt-2 text-[13px]" style={{ color: "var(--fill-red)" }}>
-            {problem}
-          </p>
-        )}
         <Button variant="primary" size="lg" className="mt-6" disabled={busy} onClick={() => void answer(true)}>
           {t.devices.approve}
         </Button>

@@ -28,6 +28,7 @@ import type {
 import { cardSubtitle, cardSummary, standing } from "../schedules.ts";
 import type { Actions } from "../ui.ts";
 import { useT } from "../i18n/react.ts";
+import { useFail } from "../ask.tsx";
 import { Button } from "./Button";
 import { type Place, alone, corners } from "./shape.ts";
 import { type Draft, type ProviderNames, blank, describeUse, toValue } from "../secrets.ts";
@@ -199,8 +200,9 @@ export function ApprovalCard({
         )}
         <div className="min-w-0">
           <p
-            className="text-[15px] font-semibold"
+            className="line-clamp-3 text-[15px] font-semibold [overflow-wrap:anywhere]"
             style={{ color: "var(--text-primary)" }}
+            title={approval.action}
           >
             {approval.action}
           </p>
@@ -361,14 +363,13 @@ export function SecretCard({
 }) {
   const t = useT();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const failed = useFail();
   /** `cleared`: what to forget of what was typed, once it is given */
   const answer = (given: SecretAnswer | null, cleared: () => void) => {
     setBusy(true);
-    setError(null);
     actions
       .answerSecret(secret.id, given)
-      .then(cleared, (e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+      .then(cleared, (e: unknown) => failed(e, "Secret request › answer", () => answer(given, cleared)))
       .finally(() => setBusy(false));
   };
   const { deliver } = secret;
@@ -417,14 +418,13 @@ export function SecretCard({
           hint={deliver.hint}
           status={secret.status}
           busy={busy}
-          error={error}
           onNotNow={() => answer(null, () => undefined)}
         />
       ) : secret.status === "pending" ? (
         deliver.kind === "temporary" ? (
-          <OneTimeForm label={secret.name} busy={busy} error={error} answer={answer} />
+          <OneTimeForm label={secret.name} busy={busy} answer={answer} />
         ) : (
-          <StoredForm ask={deliver} busy={busy} error={error} answer={answer} />
+          <StoredForm ask={deliver} busy={busy} answer={answer} />
         )
       ) : (
         <SecretOutcome status={secret.status} added={deliver.kind === "stored" ? t.cards.savedToVault : t.cards.provided} notAdded={t.cards.declined} />
@@ -448,7 +448,6 @@ interface KeyFormProps {
   hint: string | null;
   status: SecretRequest["status"];
   busy: boolean;
-  error: string | null;
   onNotNow: () => void;
 }
 
@@ -458,22 +457,20 @@ function KeyFormOn({
   hint,
   status,
   busy,
-  error,
   onNotNow,
 }: KeyFormProps & { session: Session }) {
   const t = useT();
   const [setting, setSetting] = useState<KeyProvider | null>(null);
-  const [said, setSaid] = useState<string | null>(null);
+  const failed = useFail();
   const { tests, test } = useKeyTests(session);
   const open = () => {
-    setSaid(null);
     void session.call("keys.list", {}).then(
       ({ providers }) => {
         const found = providers.find((p) => p.id === provider);
         if (found) setSetting(found);
-        else setSaid(t.cards.keyUnknown);
+        else failed(new Error(t.cards.keyUnknown), "Secret request › find the provider", undefined);
       },
-      (e: unknown) => setSaid(e instanceof Error ? e.message : String(e)),
+      (e: unknown) => failed(e, "Secret request › list providers", open),
     );
   };
   const tried = tests[provider];
@@ -483,11 +480,6 @@ function KeyFormOn({
         <div className="mt-2">
           <KeyLine hint={hint} test={tried} />
         </div>
-      )}
-      {(error ?? said) && (
-        <p role="alert" className="mt-1.5 text-[12px]" style={{ color: "var(--fill-red)" }}>
-          {error ?? said}
-        </p>
       )}
       {status === "pending" ? (
         <div className="mt-2.5 flex gap-2">
@@ -530,17 +522,15 @@ function SecretOutcome({ status, added, notAdded }: { status: SecretRequest["sta
 /** What a form on a secret's card hands the card to send: the answer (null: declined), and what to forget once it is sent. */
 type Answer = (given: SecretAnswer | null, cleared: () => void) => void;
 
-/** The error, if any, and Decline / Provide (Provide once there is something to provide). */
+/** Decline / Provide (Provide once there is something to provide). */
 function AnswerButtons({
   busy,
-  error,
   ready,
   provide,
   onDecline,
   onProvide,
 }: {
   busy: boolean;
-  error: string | null;
   ready: boolean;
   /** what the button that gives it says */
   provide: string;
@@ -550,15 +540,6 @@ function AnswerButtons({
   const t = useT();
   return (
     <>
-      {error && (
-        <p
-          role="alert"
-          className="mt-1.5 text-[12px]"
-          style={{ color: "var(--fill-red)" }}
-        >
-          {error}
-        </p>
-      )}
       <div className="mt-2.5 flex gap-2">
         <Button onCard className="flex-1" disabled={busy} onClick={onDecline}>
           {t.cards.decline}
@@ -575,12 +556,10 @@ function AnswerButtons({
 function OneTimeForm({
   label,
   busy,
-  error,
   answer,
 }: {
   label: string;
   busy: boolean;
-  error: string | null;
   answer: Answer;
 }) {
   const t = useT();
@@ -607,7 +586,6 @@ function OneTimeForm({
       </p>
       <AnswerButtons
         busy={busy}
-        error={error}
         ready={value !== ""}
         provide={t.cards.provide}
         onDecline={() => answer(null, () => setValue(""))}
@@ -624,12 +602,10 @@ function OneTimeForm({
 function StoredForm({
   ask,
   busy,
-  error,
   answer,
 }: {
   ask: Extract<SecretAsk, { kind: "stored" }>;
   busy: boolean;
-  error: string | null;
   answer: Answer;
 }) {
   const t = useT();
@@ -682,7 +658,6 @@ function StoredForm({
       </p>
       <AnswerButtons
         busy={busy}
-        error={error}
         ready={ready}
         provide={t.cards.saveToVault}
         onDecline={() => answer(null, forget)}

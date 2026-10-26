@@ -66,6 +66,10 @@ test("the changelog that ships is read as entries, the user-facing ones only", (
   assert.equal(entries.filter((e) => /amuse-admin/.test(e.text)).length, 0, "operator-only bullets are left out");
 });
 
+test("a Windows checkout announces the same entries as a Unix checkout", () => {
+  assert.deepEqual(changelogEntries(changelog.replaceAll("\n", "\r\n")), changelogEntries(changelog));
+});
+
 test("the report holds the entries, each clipped to its first sentence", () => {
   assert.match(
     report(changelogEntries(changelog)),

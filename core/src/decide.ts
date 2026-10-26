@@ -27,7 +27,7 @@ import type {
   When,
   Needs,
 } from "@amuse/protocol";
-import { quoteOf } from "./quote.ts";
+import { errorQuote, quoteOf } from "./quote.ts";
 import { APPROVAL_TTL_MS, GRACE_MS, MAX_SCHEDULES, check, later, nextRun, standing } from "./schedule.ts";
 
 /** The same refusal (what, and where) again within this long is the same record. */
@@ -54,7 +54,7 @@ export function place(state: State, change: Change): Event {
 
 /** Work for the ports once the changes are recorded. */
 export type Effect =
-  | { kind: "prompt"; text: string; attachments: Attachment[]; quote: Quote | null }
+  | { kind: "prompt"; text: string; attachments: Attachment[]; quote: Quote | null; suggested: boolean }
   /** wake the chat's agent again with a note it could not answer before */
   | { kind: "note"; text: string }
   | { kind: "interrupt" }
@@ -250,14 +250,23 @@ function closeQuestions(state: State, run: string): { changes: Change[]; effects
 type Rules = { [M in CommandMethod]: (state: State, params: Params[M], ctx: Context) => Decision<Outputs[M]> };
 
 const rules: Rules = {
-  "chat.send": (state, { text, timezone, attachments, replyTo }, ctx) => {
+  "chat.send": (state, { text, timezone, attachments, replyTo, suggested, about }, ctx) => {
     // an item of Amuse's, quoted as it is now
     const replied = replyTo === undefined ? undefined : state.entities.find((e) => e.id === replyTo);
     if (replyTo !== undefined && !replied) return reject({ kind: "notFound", entity: "reply", id: replyTo });
-    const quote = replied ? quoteOf(replied) : null;
+    // an error the user asks about: what it said (shown) and its technical detail (the agent's)
+    const quote = about ? errorQuote(ctx.id("e"), about) : replied ? quoteOf(replied) : null;
     if (replyTo !== undefined && !quote) return reject({ kind: "unsound", reason: "that cannot be replied to" });
+    // an option tapped under a reply: sent as its words, once, and only while no newer message of the user's has come
+    const offered = suggested === undefined ? undefined : find(state, "reply", suggested.reply);
+    if (suggested !== undefined) {
+      if (!offered) return reject({ kind: "notFound", entity: "reply", id: suggested.reply });
+      if (offered.suggestions[suggested.index] !== text) return reject({ kind: "unsound", reason: "that is not one of the options" });
+      if (offered.chosen !== null || state.entities.slice(state.entities.indexOf(offered) + 1).some((e) => e.kind === "prompt")) return reject({ kind: "unsound", reason: "that suggestion is closed" });
+    }
     const id = ctx.id("p");
-    return ok([upsert({ kind: "prompt", id, at: ctx.now, text, timezone, attachments, quote })], [{ kind: "prompt", text, attachments, quote }], { id });
+    const chosen = offered && suggested ? [upsert({ ...offered, chosen: suggested.index })] : [];
+    return ok([upsert({ kind: "prompt", id, at: ctx.now, text, timezone, attachments, quote, suggested: offered !== undefined }), ...chosen], [{ kind: "prompt", text, attachments, quote, suggested: offered !== undefined }], { id });
   },
 
   "chat.retry": (state, { id }) => {
@@ -269,7 +278,7 @@ const rules: Rules = {
     // the user's latest message, as they sent it
     const last = state.entities.findLast((e): e is Extract<Entity, { kind: "prompt" }> => e.kind === "prompt");
     if (!last) return reject({ kind: "notFound", entity: "prompt", id });
-    return ok([tried], [{ kind: "prompt", text: last.text, attachments: last.attachments, quote: last.quote }], null);
+    return ok([tried], [{ kind: "prompt", text: last.text, attachments: last.attachments, quote: last.quote, suggested: last.suggested }], null);
   },
 
   "chat.stop": (state) => {
@@ -304,6 +313,8 @@ const rules: Rules = {
     const browser = find(state, "browser", id);
     if (!browser) return reject({ kind: "notFound", entity: "browser", id });
     const move = browserMoves[action];
+    // stopping what has already stopped (a second tap, or a page that had not caught up yet) is done, not an error
+    if (action === "stop" && browser.status === "stopped") return ok([], [], null);
     if (!move.from.includes(browser.status)) return reject({ kind: "invalid", action, from: browser.status });
     if (action === "take" && !browser.live) return reject({ kind: "gone", id });
     // a stopped run's browser closes at once

@@ -148,7 +148,7 @@ test("the chat's tools come in the same order with the same schemas however ofte
       throw new Error("not used to build tools");
     };
     const cfg: PiConfig = { model: () => null, auth: { kind: "environment" }, system: "s", rules: memoryRules(), files: noWorkspace, apps, skills, about: async () => "", search: async () => [] };
-    return agentTools(cfg, io, { heard: () => false, quiet: () => {} }).map((t) => JSON.stringify([t.name, t.description, t.parameters]));
+    return agentTools(cfg, io, { heard: () => false, quiet: () => {}, offer: () => {} }).map((t) => JSON.stringify([t.name, t.description, t.parameters]));
   };
   const one = build([skill("a"), skill("b")]);
   assert.ok(one.length > 20);

@@ -23,6 +23,8 @@ import { AppLogo } from "./AppLogo";
 import { KeyConnect } from "./KeyConnect";
 import { PermissionSelect } from "./PermissionSelect";
 import { useT } from "../i18n/react.ts";
+import { detailOf, useFail } from "../ask.tsx";
+import { ErrorBanner, ErrorState } from "./Errors";
 import { type Failures, failedAt, noFailures, pageLeft, wentThrough, wordsFor } from "../shown.ts";
 
 type Tab = "available" | "connected";
@@ -53,11 +55,15 @@ export function Connectors({
   const [failures, setFailures] = useState<Failures>(noFailures);
   /** the app or account an action is running for */
   const [busy, setBusy] = useState<string | null>(null);
+  /** how many times the list has been asked for again (its retry) */
+  const [reloads, setReloads] = useState(0);
   /** how many times the open app's access has been asked about: a return to the page asks again */
   const [askedAgain, setAskedAgain] = useState(0);
 
   const fail = (e: unknown) => setFailures((was) => failedAt(was, "list", e));
   const failPage = (e: unknown) => setFailures((was) => failedAt(was, "page", e));
+  /** an action that failed (connect, disconnect) is a toast; what could not be loaded is the page's or section's own */
+  const failed = useFail();
   /** the app whose page is open, for a call that may have been made from the list or from a page */
   const opened = useRef<string | null>(null);
 
@@ -113,7 +119,7 @@ export function Connectors({
       query ? TYPING_MS : 0,
     );
     return () => clearTimeout(timer);
-  }, [session, query]);
+  }, [session, query, reloads]);
   const more = () => {
     if (!found?.cursor) return;
     const mine = asked.current;
@@ -143,7 +149,7 @@ export function Connectors({
       })
       .catch((e: unknown) => {
         opened?.close();
-        failPage(e);
+        failed(e, "Connections › connect an app", () => connect(app));
       })
       .finally(() => setBusy(null));
   };
@@ -177,7 +183,7 @@ export function Connectors({
     Promise.all(
       ids.map((account) => session.call("apps.disconnect", { account })),
     )
-      .then(() => loadAccounts(), failPage)
+      .then(() => loadAccounts(), (e: unknown) => failed(e, "Connections › disconnect", () => disconnect(ids)))
       .finally(() => setBusy(null));
   };
 
@@ -190,16 +196,13 @@ export function Connectors({
   );
 
   // the list shows its own failures only: one about the app whose page is open stays on that page
+  // the list could not load: its page says so in place of the list; a search that failed after it loaded, in a banner
   const listSaid = wordsFor(failures.list, t);
-  const errorLine = listSaid && (
-    <p
-      role="alert"
-      className="mt-3 text-[13px]"
-      style={{ color: "var(--fill-red)" }}
-    >
-      {listSaid}
-    </p>
-  );
+  const listFailed = listSaid !== null && found === null;
+  const retryList = () => {
+    setFailures((was) => failedAt(was, "list", null));
+    setReloads((n) => n + 1);
+  };
 
   if (viewing)
     return (
@@ -266,9 +269,18 @@ export function Connectors({
           </button>
         ))}
       </div>
-      {errorLine}
+      {listFailed && listSaid ? (
+        <ErrorState
+          title={t.ask.connectionsTitle}
+          message={listSaid}
+          detail={detailOf("Settings › Connections", "Composio", "composio_401")}
+          retry={retryList}
+        />
+      ) : listSaid ? (
+        <ErrorBanner message={listSaid} detail={detailOf("Settings › Connections", "Composio", "composio_error")} retry={retryList} />
+      ) : null}
 
-      <div className="mt-4 pb-5">
+      <div className={`mt-4 pb-5 ${listFailed ? "hidden" : ""}`}>
         {tab === "available" ? (
           found === null ? (
             <Note>{t.connections.loadingApps}</Note>
@@ -375,15 +387,7 @@ function AppPage({
           {app.description || t.connections.useAccounts}
         </p>
       </div>
-      {error && (
-        <p
-          role="alert"
-          className="mt-3 text-[13px]"
-          style={{ color: "var(--fill-red)" }}
-        >
-          {error}
-        </p>
-      )}
+      {error && <ErrorBanner message={error} detail={detailOf(`Settings › Connections › ${app.name}`, "Composio", "apps_access_failed")} />}
       {accounts.length > 0 && (
         <Group className="mt-5">
           <li>

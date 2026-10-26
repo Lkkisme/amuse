@@ -329,7 +329,7 @@ test("a file is sent with a message only as it was uploaded; the agent gets it w
   const host = createHost({ ...ports, prompt: (turn) => void turns.push(turn) });
   const cat = { id: "f-cat", name: "cat.jpg", type: "image/jpeg", size: 2048, path: "user/media_library/cat.jpg" };
   await host.call("chat.send", { chat: "main", text: "", timezone: "UTC", attachments: [cat] });
-  assert.deepEqual(turns, [{ kind: "message", text: "", attachments: [cat], quote: null }]);
+  assert.deepEqual(turns, [{ kind: "message", text: "", attachments: [cat], quote: null, suggested: false }]);
   await assert.rejects(host.call("chat.send", { chat: "main", text: "hi", timezone: "UTC", attachments: [{ ...cat, size: 1 }] }), /file f-cat was not uploaded here/);
   const { entities } = await host.call("session.history", { chat: "main", before: 100, limit: 100 });
   assert.equal(entities.length, 1, "a refused send records nothing");
@@ -379,7 +379,7 @@ test("a turn Amuse could not reply to is tried again once: the user's message as
   await host.call("chat.retry", { id: "x1" });
   await host.call("chat.retry", { id: "x2" });
   assert.deepEqual(turns.slice(1), [
-    { kind: "message", text: "summarize my mail", attachments: [], quote: null },
+    { kind: "message", text: "summarize my mail", attachments: [], quote: null, suggested: false },
     { kind: "note", text: "[task done] found 3 offers" },
   ]);
   await assert.rejects(host.call("chat.retry", { id: "x1" }), /cannot retry from retried/);
@@ -392,10 +392,10 @@ test("a reply with nothing in it (no words, no files) never reaches the chat; a 
   const agent = io();
   assert.ok(agent);
   const at = "2026-10-20T08:00:00Z";
-  agent.emit({ kind: "upserted", entity: { kind: "reply", id: "r1", at, text: "", streaming: false, attachments: [] } });
-  agent.emit({ kind: "upserted", entity: { kind: "reply", id: "r2", at, text: " \n\t ", streaming: false, attachments: [] } });
-  agent.emit({ kind: "upserted", entity: { kind: "reply", id: "r3", at, text: "", streaming: false, attachments: [{ id: "f1", name: "a.txt", type: "text/plain", size: 1, path: "user/a.txt" }] } });
-  agent.emit({ kind: "upserted", entity: { kind: "reply", id: "r4", at, text: "Nothing new.", streaming: false, attachments: [] } });
+  agent.emit({ kind: "upserted", entity: { kind: "reply", id: "r1", at, text: "", streaming: false, attachments: [], suggestions: [], chosen: null } });
+  agent.emit({ kind: "upserted", entity: { kind: "reply", id: "r2", at, text: " \n\t ", streaming: false, attachments: [], suggestions: [], chosen: null } });
+  agent.emit({ kind: "upserted", entity: { kind: "reply", id: "r3", at, text: "", streaming: false, attachments: [{ id: "f1", name: "a.txt", type: "text/plain", size: 1, path: "user/a.txt" }], suggestions: [], chosen: null } });
+  agent.emit({ kind: "upserted", entity: { kind: "reply", id: "r4", at, text: "Nothing new.", streaming: false, attachments: [], suggestions: [], chosen: null } });
   const { entities } = await host.call("session.history", { chat: "main", before: 100, limit: 100 });
   assert.deepEqual(entities.filter((e) => e.kind === "reply").map((e) => e.id), ["r3", "r4"]);
 });
@@ -403,9 +403,10 @@ test("a reply with nothing in it (no words, no files) never reaches the chat; a 
 test("work handed off is looked in on: the chat agent hears how a task goes every ten minutes while it runs, and no more once it ends", async () => {
   const time = manualTime("2026-10-20T08:00:00Z");
   const notes: string[] = [];
+  const sources: unknown[] = [];
   const { ports, io } = capture();
   const host = createHost(
-    { ...ports, prompt: (turn, agent) => (turn.kind === "note" ? void notes.push(turn.text) : ports.prompt(turn, agent)) },
+    { ...ports, prompt: (turn, agent) => (turn.kind === "note" ? void (notes.push(turn.text), sources.push(turn.source)) : ports.prompt(turn, agent)) },
     { clock: time.clock, timers: time.timers },
   );
   await host.call("chat.send", { chat: "main", text: "compare the offers", timezone: "UTC", attachments: [] });
@@ -425,6 +426,7 @@ test("work handed off is looked in on: the chat agent hears how a task goes ever
   assert.ok(agent.act({ kind: "taskEnded", id: made.id, status: "completed", result: "B" }).ok);
   time.advance(30 * 60_000);
   assert.equal(notes.length, 2, "an ended task is not looked in on");
+  assert.deepEqual(sources, [{ kind: "heartbeat", entity: made.id }, { kind: "heartbeat", entity: made.id }]);
 });
 
 test("what is running comes with every turn: a browser task that needs the user, is taken over and handed back, then a task with a plan", async () => {
@@ -774,10 +776,25 @@ test("a reply to a card reaches the agent with the card quoted, and the recorded
   assert.ok(made?.ok);
   const quote = { id: made.id, kind: "schedule", text: "Morning briefing", state: "active" };
   const { id } = await host.call("chat.send", { chat: "main", text: "make it 9", timezone: "UTC", attachments: [], replyTo: made.id });
-  assert.deepEqual(turns.at(-1), { kind: "message", text: "make it 9", attachments: [], quote });
+  assert.deepEqual(turns.at(-1), { kind: "message", text: "make it 9", attachments: [], quote, suggested: false });
   const { entities } = await host.call("session.history", { chat: "main", before: 100, limit: 100 });
   const recorded = entities.find((e) => e.id === id);
   assert.ok(recorded?.kind === "prompt");
   assert.deepEqual(recorded.quote, quote);
   await assert.rejects(host.call("chat.send", { chat: "main", text: "and this", timezone: "UTC", attachments: [], replyTo: "gone" }), /not found/);
+});
+
+test("a message about an error reaches the agent with the error and its detail, and the recorded message keeps them", async () => {
+  const turns: Turn[] = [];
+  const { ports } = capture();
+  const host = createHost({ ...ports, prompt: (turn, agent) => (turns.push(turn), ports.prompt(turn, agent)) }, { timers: manualTime("2026-10-20T08:00:00Z").timers });
+  const about = { message: "Voice needs a key", detail: "code: transcribe_no_key; feature: voice transcription" };
+  const { id } = await host.call("chat.send", { chat: "main", text: "I ran into this", timezone: "UTC", attachments: [], about });
+  const turn = turns.at(-1);
+  assert.ok(turn?.kind === "message" && turn.quote?.kind === "error");
+  assert.deepEqual([turn.quote.text, turn.quote.detail], [about.message, about.detail]);
+  const { entities } = await host.call("session.history", { chat: "main", before: 100, limit: 100 });
+  const recorded = entities.find((e) => e.id === id);
+  assert.ok(recorded?.kind === "prompt" && recorded.quote?.kind === "error");
+  assert.equal(recorded.quote.text, about.message);
 });

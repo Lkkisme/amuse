@@ -22,7 +22,7 @@ test("set up before defaults were kept one by one: the first four were", async (
   const set = sqliteDefaults(await openData(locate({ AMUSE_DATA: dir }), () => {})).setUp();
   assert.deepEqual(
     defaultSchedules.filter((d) => !set.includes(d.key)).map((d) => d.key),
-    ["goals", "skill-review"],
+    ["goals", "skill-review", "terminals"],
   );
   assert.equal(new Set(defaultSchedules.map((d) => d.key)).size, defaultSchedules.length, "keys are unique");
 });

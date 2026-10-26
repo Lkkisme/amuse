@@ -45,7 +45,9 @@ class SessionVault(context: Context) {
 
     @Synchronized
     fun store(server: ServerAddress, cookie: String) {
-        check(Build.VERSION.SDK_INT >= 30)
+        // An explicit terminating API guard is also understood by Android lint.
+        // API 29 continues to have no reusable biometric vault.
+        if (Build.VERSION.SDK_INT < 30) throw IllegalStateException("Reusable biometric sessions require Android 11.")
         require(SessionCookie.extract(cookie) == cookie)
         if (!keyStore.containsAlias(alias)) {
             val generator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_RSA, "AndroidKeyStore")

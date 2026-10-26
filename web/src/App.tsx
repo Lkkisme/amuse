@@ -49,6 +49,10 @@ import { Composer } from "./components/Composer";
 import { ExplainerModal } from "./components/ExplainerModal";
 import { SettingsModal } from "./components/SettingsModal";
 import { SessionContext } from "./sessionContext.ts";
+import { AskContext, NotifyContext, detailOf, failureDetail } from "./ask.tsx";
+import { wordsOf } from "./shown.ts";
+import { asking } from "./reply.ts";
+import { ErrorToast } from "./components/Errors.tsx";
 import { TaskDetailSheet } from "./components/TaskDetailSheet";
 import { BrowserButton } from "./components/BrowserButton";
 import { MenuButton, TopBar } from "./components/TopBar";
@@ -253,13 +257,14 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
       void session.call(method, params).catch((error: unknown) =>
         patch((u) => ({
           ...u,
-          notice: error instanceof Error ? error.message : String(error),
+          notice: wordsOf(error),
+          noticeAbout: { detail: failureDetail("a call", error), retry: () => call(method, params) },
         })),
       );
     return {
       // the device's time zone is the user's: times the agent sets and says are on their clock
       // shown at once as sending; one that does not get through comes off the chat (the composer takes it back)
-      send: (text, attachments) => {
+      send: (text, attachments, suggested) => {
         const chat = chatRef.current;
         const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
         const key = `sending-${crypto.randomUUID()}`;
@@ -281,7 +286,18 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           },
         ]);
         return session
-          .call("chat.send", { chat, text, timezone, attachments, ...(quote ? { replyTo: quote.id } : {}) })
+          .call("chat.send", {
+            chat,
+            text,
+            timezone,
+            attachments,
+            ...(suggested ? { suggested } : {}),
+            ...(quote?.kind === "error"
+              ? { about: { message: quote.text, detail: quote.detail ?? "" } }
+              : quote
+                ? { replyTo: quote.id }
+                : {}),
+          })
           .then(
             ({ id }) =>
               setOutgoing((list) =>
@@ -290,8 +306,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
             (error: unknown) => {
               setOutgoing((list) => list.filter((o) => o.key !== key));
               if (quote) patch((u) => (u.replying ? u : { ...u, replying: { chat, quote } }));
-              const reason =
-                error instanceof Error ? error.message : String(error);
+              const reason = wordsOf(error);
               patch((u) => ({
                 ...u,
                 notice:
@@ -353,7 +368,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
             tab?.close();
             patch((u) => ({
               ...u,
-              notice: error instanceof Error ? error.message : String(error),
+              notice: wordsOf(error),
+              noticeAbout: { detail: failureDetail("an action", error) },
             }));
           },
         );
@@ -374,7 +390,10 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
         else open();
       },
       closeViewer: () => patch((u) => ({ ...u, viewer: null })),
-      notify: (message) => patch((u) => ({ ...u, notice: message })),
+      notify: (message, about) =>
+        patch((u) => ({ ...u, notice: message, noticeAbout: about ?? { detail: detailOf("app", "", "notice") } })),
+      // settings (a modal over the chat on a phone) gives way to the chat; the line is filled in by the composer
+      askAmuse: (about) => patch((u) => asking(u, chatRef.current, about, `error-${crypto.randomUUID()}`)),
       selectTab: (browserId) =>
         patch((u) =>
           u.viewer ? { ...u, viewer: { ...u.viewer, browserId } } : u,
@@ -417,7 +436,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
             (error: unknown) =>
               patch((u) => ({
                 ...u,
-                notice: error instanceof Error ? error.message : String(error),
+                notice: wordsOf(error),
+              noticeAbout: { detail: failureDetail("an action", error) },
               })),
           ),
       control: (id, action) => call("browser.control", { id, action }),
@@ -445,7 +465,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           (error: unknown) =>
             patch((u) => ({
               ...u,
-              notice: error instanceof Error ? error.message : String(error),
+              notice: wordsOf(error),
+              noticeAbout: { detail: failureDetail("an action", error) },
             })),
         ),
       renameChat: (id, title) => call("chats.rename", { id, title }),
@@ -501,8 +522,9 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
   useEffect(() => {
     if (!ui.notice) return;
     const timer = setTimeout(
-      () => setUi((u) => ({ ...u, notice: null })),
-      Math.min(9000, 4000 + ui.notice.length * 40),
+      () => setUi((u) => ({ ...u, notice: null, noticeAbout: null })),
+      // a notice with something to do stays a little longer
+      Math.min(9000, 4000 + ui.notice.length * 40) + (ui.noticeAbout ? 4000 : 0),
     );
     return () => clearTimeout(timer);
   }, [ui.notice]);
@@ -511,6 +533,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
     <PinContext.Provider value={pin}>
       <Files.Provider value={files}>
         <SessionContext.Provider value={session}>
+        <AskContext.Provider value={actions.askAmuse}>
+        <NotifyContext.Provider value={actions.notify}>
         <div
           className="flex h-full"
           style={{ background: "var(--chat-background)" }}
@@ -571,18 +595,12 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
               actions={actions}
             />
             {ui.notice && (
-              <p
-                role="status"
-                onClick={() => setUi((u) => ({ ...u, notice: null }))}
-                className="anim-fade-in absolute inset-x-0 bottom-[86px] z-30 mx-auto w-fit max-w-[90%] rounded-[18px] px-4 py-2 text-[13px]"
-                style={{
-                  background: "var(--fill-primary)",
-                  color: "var(--fill-red)",
-                  boxShadow: "var(--shadow-float)",
-                }}
-              >
-                {ui.notice}
-              </p>
+              <ErrorToast
+                message={ui.notice}
+                detail={ui.noticeAbout?.detail ?? detailOf("app", "", "notice")}
+                {...(ui.noticeAbout?.retry ? { retry: ui.noticeAbout.retry } : {})}
+                onClose={() => setUi((u) => ({ ...u, notice: null, noticeAbout: null }))}
+              />
             )}
             {needsModel && !ui.notice && (
               <button
@@ -598,6 +616,7 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
               </button>
             )}
             <Composer
+              scope={ui.chat}
               conversation={conversation}
               replying={replying}
               place={
@@ -661,6 +680,8 @@ function Chat({ where }: { where: Exclude<Connection, { kind: "locked" }> }) {
           {pin.sheet}
           {where.kind === "server" && <AccountWatch notify={actions.notify} />}
         </div>
+        </NotifyContext.Provider>
+        </AskContext.Provider>
         </SessionContext.Provider>
       </Files.Provider>
     </PinContext.Provider>

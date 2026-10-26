@@ -24,7 +24,7 @@ export interface Peer {
 
 export function serve(session: Session, send: (frame: string) => void, guard: (call: Call) => Promise<void> = async () => {}): Peer {
   const out = (frame: Response | Notification) => send(JSON.stringify(frame));
-  const fail = (id: Request["id"] | null, error: { code: number; message: string }) => out({ jsonrpc: "2.0", id, error });
+  const fail = (id: Request["id"] | null, error: { code: number; message: string; data?: unknown }) => out({ jsonrpc: "2.0", id, error });
 
   // a host sends events and the chats; a reset is something clients do to themselves
   const unsubscribe = session.subscribe((update) => {
@@ -51,7 +51,7 @@ export function serve(session: Session, send: (frame: string) => void, guard: (c
         out({ jsonrpc: "2.0", id, result: await session.call(call.data.method, call.data.params) });
       } catch (error) {
         if (error instanceof PinRequired) return fail(id, error.need === "unset" ? errors.pinUnset : errors.pinLocked);
-        fail(id, error instanceof Rejected ? { code: rejected, message: error.message } : { code: internal, message: "Internal error" });
+        fail(id, error instanceof Rejected ? { code: rejected, message: error.message, data: error.rejection } : { code: internal, message: "Internal error" });
       }
     },
     close: unsubscribe,

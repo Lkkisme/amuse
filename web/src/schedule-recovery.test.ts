@@ -169,7 +169,9 @@ test("Schedules recovers a mounted page after transport retries are exhausted", 
       await f.page.getByText("Control denied", { exact: true }).waitFor();
       await f.page.evaluate(() => window.scheduleFixture.resolveRead(true));
       await flush(f.page);
-      assert.equal(await f.page.getByRole("alert").textContent(), "Control denied");
+      assert.equal(await f.page.getByRole("alert").locator("p").first().textContent(), "Control denied");
+      assert.equal(await f.page.getByRole("alert").getByRole("button", { name: "Retry", exact: true }).count(), 1);
+      assert.equal(await f.page.getByRole("alert").getByRole("button", { name: "Ask Amuse", exact: true }).count(), 1);
       await f.page.evaluate(() => { window.scheduleFixture.emit("chats"); window.scheduleFixture.emit("chats"); });
       await flush(f.page);
       assert.deepEqual(await f.page.evaluate(() => window.scheduleFixture.snapshot().controls), [{ id: "test-schedule", action: "pause" }]);

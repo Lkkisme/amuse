@@ -381,6 +381,17 @@ test("a PIN refusal retains its RPC code and is never transport-retried", async 
   assert.equal(ws.sent.length, 1);
 });
 
+test("a rejected command keeps its structured reason without changing transport recovery", async (t) => {
+  const f = fixture(t); const ws = Socket.all[0]!; ws.open();
+  const called = f.session.call("schedule.control", { id: "gone-schedule", action: "cancel" });
+  const request = ws.sent.at(-1)!;
+  const rejection = { kind: "notFound", entity: "schedule", id: "gone-schedule" };
+  ws.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: request.id, error: { code: -32000, message: "Rejected", data: rejection } }) });
+  await assert.rejects(called, (error: unknown) => error instanceof CallFailed && error.code === -32000 && JSON.stringify(error.data) === JSON.stringify(rejection));
+  assert.equal(ws.sent.length, 1);
+  assert.equal(ws.readyState, Socket.OPEN);
+});
+
 test("closing a session rejects a read waiting for recovery and cancels its deadline", async (t) => {
   const f = fixture(t); Socket.all[0]!.open(); Socket.all[0]!.lose();
   const waiting = assert.rejects(f.session.call("apps.accounts", {}), Dropped);

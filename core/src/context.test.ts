@@ -7,8 +7,8 @@ import { place } from "./decide.ts";
 const at = "2026-10-20T08:00:00Z";
 const stateOf = (...entities: Entity[]): State =>
   entities.reduce((s, entity) => apply(s, { seq: s.seq + 1, event: place(s, { kind: "upserted", entity }) }), empty);
-const prompt = (id: string, text: string): Entity => ({ kind: "prompt", id, at, text, timezone: "UTC", attachments: [], quote: null });
-const reply = (id: string, text: string): Entity => ({ kind: "reply", id, at, text, streaming: false, attachments: [] });
+const prompt = (id: string, text: string): Entity => ({ kind: "prompt", id, at, text, timezone: "UTC", attachments: [], quote: null, suggested: false });
+const reply = (id: string, text: string): Entity => ({ kind: "reply", id, at, text, streaming: false, attachments: [], suggestions: [], chosen: null });
 const run: Browser = {
   kind: "browser",
   id: "b1",
@@ -63,12 +63,12 @@ test("recall finds what a conversation said, however old, newest first", () => {
 });
 
 test("files sent with a message are named with their kind, size and place in the workspace", () => {
-  const sent: Entity = { kind: "prompt", id: "p1", at, text: "what is this?", timezone: "UTC", attachments: [{ id: "f-1", name: "bug.png", type: "image/png", size: 150_000, path: "user/media_library/bug.png" }], quote: null };
+  const sent: Entity = { kind: "prompt", id: "p1", at, text: "what is this?", timezone: "UTC", attachments: [{ id: "f-1", name: "bug.png", type: "image/png", size: 150_000, path: "user/media_library/bug.png" }], quote: null, suggested: false };
   assert.equal(context(stateOf(sent)), "[2026-10-20 08:00] User: what is this? [attached: bug.png (image/png, 146 KB) at user/media_library/bug.png]");
 });
 
 test("a reply names the item it answers: the words of a message, or a card's kind, id, title and state, even when the item is no longer in the context", () => {
-  const replying = (quote: Quote): Entity => ({ kind: "prompt", id: "p1", at, text: "make it 9", timezone: "UTC", attachments: [], quote });
+  const replying = (quote: Quote): Entity => ({ kind: "prompt", id: "p1", at, text: "make it 9", timezone: "UTC", attachments: [], quote, suggested: false });
   assert.equal(
     context(stateOf(replying({ id: "s1", kind: "schedule", text: "Morning briefing", state: "paused" }))),
     '[2026-10-20 08:00] User (replying to your schedule card s1 "Morning briefing" (paused)): make it 9',
@@ -83,9 +83,17 @@ test("a reply names the item it answers: the words of a message, or a card's kin
   );
 });
 
+test("a message about an error reaches the agent with the error and the technical detail the user never saw", () => {
+  const asked: Entity = { kind: "prompt", id: "p1", at, text: "I ran into this", timezone: "UTC", attachments: [], quote: { id: "e1", kind: "error", text: "Voice needs a key", state: null, detail: "code: transcribe_no_key; feature: voice transcription" }, suggested: false };
+  assert.match(
+    context(stateOf(asked)),
+    /^\[2026-10-20 08:00\] User \(replying to an error Amuse showed them \("Voice needs a key"; technical detail, not shown to them: code: transcribe_no_key; feature: voice transcription\)[^)]*\): I ran into this$/,
+  );
+});
+
 test("a sent file is told where it is now, or that it was deleted", () => {
   const file = (id: string, name: string) => ({ id, name, type: "image/png", size: 1024, path: `user/media_library/${name}` });
-  const sent: Entity = { kind: "prompt", id: "p1", at, text: "", timezone: "UTC", attachments: [file("f-1", "a.png"), file("f-2", "b.png")], quote: null };
+  const sent: Entity = { kind: "prompt", id: "p1", at, text: "", timezone: "UTC", attachments: [file("f-1", "a.png"), file("f-2", "b.png")], quote: null, suggested: false };
   const where = (a: { id: string }) => (a.id === "f-1" ? "报销/a.png" : null);
   assert.equal(context(stateOf(sent), undefined, where), "[2026-10-20 08:00] User: [attached: a.png (image/png, 1 KB) at 报销/a.png, b.png (image/png, 1 KB) since deleted]");
 });
@@ -159,4 +167,9 @@ test("a text is cut into parts that stay cut as it grows: after the first line t
   const grown = closedParts(`${text}\nmore of it ${"y".repeat(500)}\nand more ${"z".repeat(900)}\nand more`, 1_000);
   assert.deepEqual(grown.slice(0, parts.length), parts);
   assert.deepEqual(closedParts("short\ntext", 1_000), [], "nothing is cut before a part is full");
+});
+
+test("a message sent by tapping a suggested reply is marked so for the agent", () => {
+  const tapped: Entity = { kind: "prompt", id: "p1", at, text: "Go ahead", timezone: "UTC", attachments: [], quote: null, suggested: true };
+  assert.equal(context(stateOf(tapped)), "[2026-10-20 08:00] User (tapped one of your suggested replies): Go ahead");
 });

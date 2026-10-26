@@ -11,6 +11,7 @@ const prompt = (id: string, text: string): Entity => ({
   timezone: "UTC",
   attachments: [],
   quote: null,
+  suggested: false,
 });
 const reply = (id: string): Entity => ({
   kind: "reply",
@@ -19,6 +20,8 @@ const reply = (id: string): Entity => ({
   text: "ok",
   streaming: false,
   attachments: [],
+  suggestions: [],
+  chosen: null,
 });
 const going = (
   key: string,

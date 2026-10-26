@@ -10,6 +10,9 @@ import type { Session } from "@amuse/protocol";
 import { Button } from "./Button";
 import { ConfirmSheet } from "./ConfirmSheet";
 import { useT } from "../i18n/react.ts";
+import { wordsOf } from "../shown.ts";
+import { detailOf, useFail } from "../ask.tsx";
+import { ErrorState } from "./Errors";
 
 export function Logins({ session }: { session: Session }) {
   const t = useT();
@@ -24,23 +27,18 @@ export function Logins({ session }: { session: Session }) {
     () =>
       session.call("logins.list", {}).then(
         ({ sites }) => setSites(sites),
-        (e: unknown) => {
-          setSites([]);
-          setError(e instanceof Error ? e.message : String(e));
-        },
+        (e: unknown) => setError(wordsOf(e)),
       ),
     [session],
   );
   useEffect(() => void load(), [load]);
 
+  const failed = useFail();
   const signOut = (site: string) => {
     setBusy(true);
-    setError(null);
     session
       .call("logins.forget", { site })
-      .then(load, (e: unknown) =>
-        setError(e instanceof Error ? e.message : String(e)),
-      )
+      .then(load, (e: unknown) => failed(e, "Settings › Logins › sign out of a site", () => signOut(site)))
       .finally(() => {
         setBusy(false);
         setLeaving(null);
@@ -55,16 +53,19 @@ export function Logins({ session }: { session: Session }) {
       >
         {t.logins.description}
       </p>
-      {error && (
-        <p
-          role="alert"
-          className="mt-2 text-[13px]"
-          style={{ color: "var(--fill-red)" }}
-        >
-          {error}
-        </p>
+      {error !== null && (
+        <ErrorState
+          title={t.ask.loadTitle}
+          message={error}
+          detail={detailOf("Settings › Logins", "", "logins_list_failed")}
+          retry={() => {
+            setError(null);
+            void load();
+          }}
+        />
       )}
       <ul
+        hidden={error !== null}
         className="mt-4 divide-y divide-[var(--fill-divider)] rounded-[18px] px-4"
         style={{ background: "var(--fill-secondary)" }}
       >

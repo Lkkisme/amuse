@@ -126,8 +126,8 @@ export type AtRiskFolder = z.infer<typeof AtRiskFolder>;
 /** What a scan of the home folder found: a handful of folders, a few levels deep at most. */
 export const AtRiskFolders = z.object({ folders: z.array(AtRiskFolder) });
 
-/** A terminal of herdr's, by its pane's id (w1:p2). */
-export const PaneId = z.string().regex(/^w\d{1,6}:p\d{1,6}$/);
+/** A terminal of herdr's, by its pane's id (w1:p2; herdr counts past 9 in letters: wA:p1, wC:p2). */
+export const PaneId = z.string().regex(/^w[0-9A-Za-z]{1,6}:p[0-9A-Za-z]{1,6}$/);
 
 /** A credential typed once into a terminal, with Enter after it (a CLI waiting for a code). */
 export const SecretTyped = z.object({ pane: PaneId, value: z.string().min(1).max(20_000) });

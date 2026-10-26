@@ -20,6 +20,7 @@ class Recording {
   stream: MediaStream;
   onstop: MediaRecorder["onstop"] = null;
   ondataavailable: MediaRecorder["ondataavailable"] = null;
+  onerror: MediaRecorder["onerror"] = null;
   starts = 0;
   stops = 0;
   constructor(stream: MediaStream) { this.stream = stream; }
@@ -41,15 +42,18 @@ function fixture(acquire?: () => Promise<MediaStream>) {
   const recordings: Recording[] = [];
   const requests: { audio: Blob; signal: AbortSignal }[] = [];
   let acquisitions = 0;
+  let monitors = 0, releasedMonitors = 0;
   const input = new VoiceInput({
     acquire: () => { acquisitions++; return acquire ? acquire() : Promise.resolve(microphone.value); },
     record: (stream) => { const recording = new Recording(stream); recordings.push(recording); return recording as unknown as MediaRecorder; },
+    monitor: () => { monitors++; return () => { releasedMonitors++; }; },
     transcribe: (audio, signal) => { requests.push({ audio, signal }); return transcription.promise; },
     phase: (phase) => phases.push(phase),
     text: (text) => texts.push(text),
     error: (stage) => errors.push(stage),
   });
-  return { input, microphone, transcription, phases, texts, errors, recordings, requests, acquisitions: () => acquisitions };
+  return { input, microphone, transcription, phases, texts, errors, recordings, requests, acquisitions: () => acquisitions,
+    monitors: () => ({ started: monitors, released: releasedMonitors }) };
 }
 
 test("the user's stop releases the microphone and transcribes the captured audio once", async () => {
@@ -57,6 +61,7 @@ test("the user's stop releases the microphone and transcribes the captured audio
   await f.input.listen();
   f.input.stop();
   assert.equal(f.microphone.stops(), 1);
+  assert.deepEqual(f.monitors(), { started: 1, released: 1 });
   assert.equal(f.requests.length, 1);
   const request = f.requests[0];
   assert.ok(request);
@@ -67,6 +72,47 @@ test("the user's stop releases the microphone and transcribes the captured audio
   await flush();
   assert.deepEqual(f.texts, ["dictated text"]);
   assert.deepEqual(f.phases, ["recording", "transcribing", "idle"]);
+});
+
+test("discarding dictation releases the level meter, sends no audio and allows another take", async () => {
+  const f = fixture();
+  await f.input.listen();
+  f.input.discard();
+  assert.deepEqual(f.monitors(), { started: 1, released: 1 });
+  assert.equal(f.requests.length, 0);
+  assert.equal(f.recordings[0]?.onerror, null);
+  await f.input.listen();
+  assert.deepEqual(f.monitors(), { started: 2, released: 1 });
+  f.input.dispose();
+  assert.deepEqual(f.monitors(), { started: 2, released: 2 });
+});
+
+test("a cancelled slow transcription cannot write into a new recording", async () => {
+  const f = fixture();
+  await f.input.listen();
+  f.input.stop();
+  f.input.discard();
+  assert.equal(f.requests[0]?.signal.aborted, true);
+  await f.input.listen();
+  f.transcription.resolve("discarded text");
+  await flush();
+  assert.deepEqual(f.texts, []);
+  assert.equal(f.phases.at(-1), "recording");
+  f.input.dispose();
+});
+
+test("a recorder error releases audio and sampling once and returns to idle", async () => {
+  const f = fixture();
+  await f.input.listen();
+  const recording = f.recordings[0]!;
+  recording.onerror?.call(recording as unknown as MediaRecorder, new Event("error") as ErrorEvent);
+  assert.deepEqual(f.errors, ["recording"]);
+  assert.equal(f.phases.at(-1), "idle");
+  assert.equal(f.requests.length, 0);
+  assert.equal(f.microphone.stops(), 1);
+  assert.deepEqual(f.monitors(), { started: 1, released: 1 });
+  f.input.dispose();
+  assert.deepEqual(f.monitors(), { started: 1, released: 1 });
 });
 
 for (const action of ["pause", "dispose"] as const) {

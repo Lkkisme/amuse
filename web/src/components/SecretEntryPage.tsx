@@ -7,6 +7,8 @@ import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, Copy, Eye, EyeOff, MoreHorizontal } from "lucide-react";
 import type { PlainField, PlainInput, SecretEntry, SecretField, Session } from "@amuse/protocol";
 import { useT } from "../i18n/react.ts";
+import { wordsOf } from "../shown.ts";
+import { useFail } from "../ask.tsx";
 import {
   type ProviderNames,
   CLIPBOARD_MS,
@@ -21,12 +23,12 @@ import {
   useSentence,
   valueText,
 } from "../secrets.ts";
-import { Alert, Box, BoxRow, InfoRow, NoteRow, Page, RemoveSheet, TextButton, groupClass } from "./SecretFields";
+import { Box, BoxRow, InfoRow, NoteRow, Page, RemoveSheet, TextButton, groupClass } from "./SecretFields";
 import { Button } from "./Button";
 import { barButton, barButtonLook, barIcon } from "./bar";
 import { UseForm } from "./SecretUseForm";
 
-const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+const message = wordsOf;
 
 /** A small round button beside a value. */
 function IconButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
@@ -191,16 +193,15 @@ export function SecretEntryPage({
   const [editing, setEditing] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const fail = (e: unknown) => setError(message(e));
+  const failed = useFail();
+  const fail = (e: unknown) => failed(e, "Vault › read an entry");
 
   const remove = () => {
     setBusy(true);
-    setError(null);
     session
       .call("secrets.remove", { id: entry.id })
       .then(() => onChanged())
-      .then(() => setRemoving(false), fail)
+      .then(() => setRemoving(false), (e: unknown) => failed(e, "Vault › remove an entry", remove))
       .finally(() => setBusy(false));
   };
 
@@ -225,7 +226,6 @@ export function SecretEntryPage({
         />
       }
     >
-      <Alert message={error} />
       <ul className={`${groupClass} mt-4`} style={{ background: "var(--fill-secondary)" }}>
         {entry.managed ? (
           <InfoRow label={t.secrets.signInLabel}>
@@ -304,16 +304,14 @@ function Editing({
   /** a new value for a secret, by its name; none typed keeps it */
   const [secret, setSecret] = useState<Map<string, string>>(new Map());
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [addingUse, setAddingUse] = useState(false);
 
-  const fail = (e: unknown) => setError(message(e));
+  const failed = useFail();
   const run = (work: () => Promise<unknown>, done?: () => void) => {
     setBusy(true);
-    setError(null);
     work()
       .then(() => onChanged())
-      .then(() => done?.(), fail)
+      .then(() => done?.(), (e: unknown) => failed(e, "Vault › save an entry", () => run(work, done)))
       .finally(() => setBusy(false));
   };
 
@@ -356,7 +354,6 @@ function Editing({
 
   return (
     <Page onBack={onBack}>
-      <Alert message={error} />
       <ul className={`${groupClass} mt-4`} style={{ background: "var(--fill-secondary)" }}>
         <BoxRow label={t.secrets.name}>
           <Box value={name} onChange={setName} max={100} />

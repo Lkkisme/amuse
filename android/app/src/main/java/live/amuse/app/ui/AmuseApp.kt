@@ -11,8 +11,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -87,8 +85,8 @@ fun AmuseApp(
         if (state.settingsVisible) onCloseSettings() else onBack()
     }
     if (state.microphonePrompt) AlertDialog(onDismissRequest = onMicrophoneDeny,
-        icon = { Icon(Icons.Outlined.Mic, null) }, title = { Text("允许使用麦克风？") },
-        text = { Text("${state.server.host} 希望录制语音输入。首次使用还需要允许 Android 的麦克风权限。") },
+        icon = { Icon(painterResource(R.drawable.ic_mic), null) }, title = { Text("允许使用麦克风？") },
+        text = { Text("${state.server.host} 希望录制语音输入。会记住此服务器的选择；首次使用还需要允许 Android 的麦克风权限。") },
         confirmButton = { TextButton(onClick = onMicrophoneAllow) { Text("允许") } },
         dismissButton = { TextButton(onClick = onMicrophoneDeny) { Text("暂不允许") } })
     Surface(color = MuseSurface, modifier = Modifier.fillMaxSize()) {
@@ -98,7 +96,7 @@ fun AmuseApp(
             } else if (!state.unlocked && !state.pickerSuspended) {
                 LockScreen(state, onUnlock, onServerPin, onSettings)
             } else {
-                if (!state.pickerSuspended) Row(Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     BrandMark(30.dp, 10.dp)
                     Text("Amuse", fontSize = 17.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 8.dp))
                     Spacer(Modifier.weight(1f))
@@ -106,32 +104,34 @@ fun AmuseApp(
                     Box(Modifier.size(5.dp).background(if (connected) MuseGreen else MuseTextTertiary, CircleShape))
                     Text(if (state.connectionError != null) "连接中断" else if (state.loading) "连接中" else "你的电脑",
                         color = MuseTextSecondary, fontSize = 11.sp, modifier = Modifier.padding(start = 6.dp, end = 4.dp))
-                    IconButton(onClick = onLock, enabled = !state.pageSuspended) { Icon(if (state.pairedSession) Icons.Outlined.Logout else Icons.Outlined.Lock,
+                    IconButton(onClick = onLock, enabled = !state.pageSuspended && !state.pickerSuspended && !state.deviceLocked) { Icon(if (state.pairedSession) painterResource(R.drawable.ic_log_out) else painterResource(R.drawable.ic_lock),
                         if (state.pairedSession) "退出本机登录" else "锁定", Modifier.size(20.dp)) }
-                    IconButton(onClick = onSettings, enabled = !state.pageSuspended) { Icon(Icons.Outlined.Settings, "连接设置", Modifier.size(20.dp)) }
+                    IconButton(onClick = onSettings, enabled = !state.pageSuspended && !state.pickerSuspended && !state.deviceLocked) { Icon(painterResource(R.drawable.ic_server), "连接设置", Modifier.size(20.dp)) }
                 }
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     key(state.webGeneration) {
                         AndroidView(factory = { createWebView() }, modifier = Modifier.fillMaxSize(),
                             onReset = null, onRelease = { releaseWebView(it) },
                             update = { view ->
-                                // The picker keeps its renderer only to retain the
-                                // pending upload callback. A visual cover alone
-                                // would still expose touches and accessibility.
-                                val hidden = state.pickerSuspended || state.pageSuspended || state.deviceLocked
+                                // Keep the paired/passwordless page visible behind the
+                                // system picker, but never interactive or accessible.
+                                // Explicit local unlock and device lock still hide it.
+                                val hidden = state.pageSuspended || state.deviceLocked ||
+                                    (state.pickerSuspended && state.useDeviceUnlock)
+                                val inactive = hidden || state.pickerSuspended
                                 view.visibility = if (hidden) View.INVISIBLE else View.VISIBLE
-                                view.isEnabled = !hidden
-                                view.importantForAccessibility = if (hidden)
+                                view.isEnabled = !inactive
+                                view.importantForAccessibility = if (inactive)
                                     View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS else View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
-                                if (hidden) view.clearFocus()
+                                if (inactive) view.clearFocus()
                             })
                     }
                     if (state.pageSuspended || state.deviceLocked) {
                         Box(Modifier.fillMaxSize().background(MuseSurface), contentAlignment = Alignment.Center) {
                             Text(if (state.deviceLocked) "解锁手机后继续" else "返回 Amuse 后继续", color = MuseTextSecondary)
                         }
-                    } else if (state.pickerSuspended) LockScreen(state, onUnlock, onServerPin, onSettings)
-                    else {
+                    } else if (state.pickerSuspended && state.useDeviceUnlock) LockScreen(state, onUnlock, onServerPin, onSettings)
+                    else if (!state.pickerSuspended) {
                         if (state.loading && state.connectionError == null) LoadingScreen(state)
                         state.connectionError?.let { DisconnectedScreen(it, state, onRetry, onSettings, onOpenTailscale) }
                     }
@@ -155,7 +155,7 @@ private fun LockScreen(state: ShellState, onUnlock: () -> Unit, onPin: () -> Uni
     val glow = MuseAvatarStart.copy(alpha = 0.28f).compositeOver(MuseSurface)
     Column(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(glow, MuseSurface), radius = 950f))) {
         Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.End) {
-            IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, "连接设置", tint = MuseTextSecondary) }
+            IconButton(onClick = onSettings) { Icon(painterResource(R.drawable.ic_server), "连接设置", tint = MuseTextSecondary) }
         }
         Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 28.dp), horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center) {
@@ -165,27 +165,27 @@ private fun LockScreen(state: ShellState, onUnlock: () -> Unit, onPin: () -> Uni
             Text("你的助理，随身相伴", color = MuseTextSecondary, fontSize = 15.sp, modifier = Modifier.padding(top = 10.dp))
             Spacer(Modifier.height(36.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.Shield, null, tint = MuseGreen, modifier = Modifier.size(16.dp))
+                Icon(painterResource(R.drawable.ic_shield), null, tint = MuseGreen, modifier = Modifier.size(16.dp))
                 Text(" 私人连接 · 与电脑同步", color = MuseTextSecondary, fontSize = 12.sp)
             }
         }
         Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Surface(shape = RoundedCornerShape(16.dp), color = MuseSurfaceElevated, contentColor = MuseTextPrimary, modifier = Modifier.fillMaxWidth()) {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.Computer, null, tint = MuseTextSecondary, modifier = Modifier.size(22.dp))
+                    Icon(painterResource(R.drawable.ic_monitor), null, tint = MuseTextSecondary, modifier = Modifier.size(22.dp))
                     Column(Modifier.padding(start = 12.dp).weight(1f)) {
                         Text("连接到你的电脑", fontSize = 13.sp)
                         Text(state.server.host, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             color = MuseTextSecondary, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
                     }
-                    Icon(Icons.Outlined.Https, null, tint = MuseGreen, modifier = Modifier.size(18.dp))
+                    Icon(painterResource(R.drawable.ic_lock), null, tint = MuseGreen, modifier = Modifier.size(18.dp))
                 }
             }
             Spacer(Modifier.height(18.dp))
             val nativeUnlock = state.deviceSecure && state.useDeviceUnlock
             Button(onClick = if (nativeUnlock) onUnlock else onPin, enabled = state.cookiesReady && !state.authenticating,
                 shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().height(56.dp)) {
-                Icon(if (nativeUnlock) Icons.Outlined.Fingerprint else Icons.Outlined.Dialpad, null, modifier = Modifier.size(23.dp))
+                Icon(if (nativeUnlock) painterResource(R.drawable.ic_fingerprint) else painterResource(R.drawable.ic_lock_keyhole), null, modifier = Modifier.size(23.dp))
                 Spacer(Modifier.width(10.dp))
                 Text(if (state.authenticating) "正在验证…" else if (nativeUnlock) "指纹或设备解锁" else "登录服务器", fontSize = 15.sp)
             }
@@ -219,7 +219,7 @@ private fun DisconnectedScreen(message: String, state: ShellState, onRetry: () -
     Column(Modifier.fillMaxSize().background(MuseSurface).verticalScroll(rememberScrollState()).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center) {
         Surface(shape = CircleShape, color = MuseSurfaceElevated) {
-            Icon(Icons.Outlined.WifiOff, null, Modifier.padding(22.dp).size(32.dp), tint = MuseTextSecondary)
+            Icon(painterResource(R.drawable.ic_wifi_off), null, Modifier.padding(22.dp).size(32.dp), tint = MuseTextSecondary)
         }
         Text("等你的电脑回来", fontSize = 24.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 24.dp))
         Text(message, color = MuseTextSecondary, fontSize = 14.sp, lineHeight = 22.sp,
@@ -232,7 +232,7 @@ private fun DisconnectedScreen(message: String, state: ShellState, onRetry: () -
             TextButton(onClick = onOpenTailscale) { Text("打开 Tailscale") }
         }
         Button(onClick = onRetry, enabled = !state.loading, shape = RoundedCornerShape(14.dp), modifier = Modifier.padding(top = 18.dp).height(48.dp)) {
-            Icon(Icons.Outlined.Refresh, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("重新连接")
+            Icon(painterResource(R.drawable.ic_refresh_cw), null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("重新连接")
         }
         TextButton(onClick = onSettings) { Text("检查连接设置", color = MuseTextSecondary) }
     }
@@ -245,7 +245,7 @@ private fun SettingsScreen(state: ShellState, onBack: () -> Unit, onSave: (Strin
     var autoConnect by remember(state.autoConnectTailscale) { mutableStateOf(state.autoConnectTailscale) }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().height(60.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (state.configured) IconButton(onClick = onBack) { Icon(Icons.Outlined.ArrowBack, "返回") }
+            if (state.configured) IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_left), "返回") }
             Text(if (state.configured) "连接与安全" else "欢迎使用 Amuse", fontSize = 19.sp, fontWeight = FontWeight.Medium)
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(24.dp)) {
@@ -257,13 +257,13 @@ private fun SettingsScreen(state: ShellState, onBack: () -> Unit, onSave: (Strin
                 placeholder = { Text(ServerAddress.EXAMPLE) },
                 modifier = Modifier.fillMaxWidth().padding(top = 10.dp), shape = RoundedCornerShape(14.dp),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                leadingIcon = { Icon(Icons.Outlined.Https, null) }, isError = state.settingsError != null,
+                leadingIcon = { Icon(painterResource(R.drawable.ic_lock), null) }, isError = state.settingsError != null,
                 supportingText = { Text(state.settingsError ?: "填写你的 HTTPS 服务地址；若通过私人网络访问，请保持相应 VPN 连接。") })
             Spacer(Modifier.height(26.dp))
             Surface(shape = RoundedCornerShape(18.dp), color = MuseSurfaceElevated, contentColor = MuseTextPrimary) {
                 Column(Modifier.padding(18.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.Fingerprint, null, Modifier.size(26.dp), tint = MuseTextSecondary)
+                        Icon(painterResource(R.drawable.ic_fingerprint), null, Modifier.size(26.dp), tint = MuseTextSecondary)
                         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                             Text("本机安全解锁", fontSize = 15.sp)
                             Text("使用指纹或系统锁屏凭据", color = MuseTextSecondary, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
@@ -284,7 +284,7 @@ private fun SettingsScreen(state: ShellState, onBack: () -> Unit, onSave: (Strin
             Surface(shape = RoundedCornerShape(18.dp), color = MuseSurfaceElevated, contentColor = MuseTextPrimary) {
                 Column(Modifier.padding(18.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.VpnKey, null, Modifier.size(26.dp), tint = MuseTextSecondary)
+                        Icon(painterResource(R.drawable.ic_key_round), null, Modifier.size(26.dp), tint = MuseTextSecondary)
                         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                             Text("Tailscale 自动连接", fontSize = 15.sp)
                             Text("打开 Amuse 时连接你的私人网络", color = MuseTextSecondary, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
@@ -302,7 +302,7 @@ private fun SettingsScreen(state: ShellState, onBack: () -> Unit, onSave: (Strin
                 Text(if (state.configured) "保存设置" else "连接服务器", fontSize = 15.sp)
             }
             if (state.configured) OutlinedButton(onClick = onForget, modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(50.dp), shape = RoundedCornerShape(15.dp)) {
-                Icon(Icons.Outlined.Logout, null, Modifier.size(19.dp)); Spacer(Modifier.width(8.dp)); Text("清除本机登录")
+                Icon(painterResource(R.drawable.ic_log_out), null, Modifier.size(19.dp)); Spacer(Modifier.width(8.dp)); Text("清除本机登录")
             }
             Text("服务器密码由网页处理；指纹验证只在这部手机上完成。", color = MuseTextSecondary, fontSize = 11.sp,
                 textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 24.dp))

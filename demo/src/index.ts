@@ -121,6 +121,8 @@ export function demoPorts<H>(timers: Timers<H>): Ports {
           text: first,
           streaming: true,
           attachments: [],
+          suggestions: [],
+          chosen: null,
         },
       });
       rest.forEach((word, i) =>
@@ -138,6 +140,8 @@ export function demoPorts<H>(timers: Timers<H>): Ports {
             text,
             streaming: false,
             attachments: [],
+            suggestions: [],
+            chosen: null,
           },
         });
         emit({ kind: "activity", activity: null });
@@ -310,6 +314,7 @@ export function seed(): Entity[] {
       timezone: zone(),
       attachments: [],
       quote: null,
+      suggested: false,
     },
     {
       kind: "reply",
@@ -318,6 +323,8 @@ export function seed(): Entity[] {
       text: "I found the trip email, opened it, and pulled together the exhibit options. Here's the plan I'm following:",
       streaming: false,
       attachments: [],
+      suggestions: [],
+      chosen: null,
     },
     {
       kind: "task",
@@ -342,6 +349,7 @@ export function seed(): Entity[] {
       timezone: zone(),
       attachments: [],
       quote: null,
+      suggested: false,
     },
     {
       kind: "approval",
@@ -380,6 +388,7 @@ export function seed(): Entity[] {
       timezone: zone(),
       attachments: [],
       quote: null,
+      suggested: false,
     },
     {
       kind: "browser",
@@ -416,6 +425,8 @@ export function seed(): Entity[] {
       text: "The portal is asking for your login. Take control, sign in, then tap **Done** and I'll pick it up from there.",
       streaming: false,
       attachments: [],
+      suggestions: [],
+      chosen: null,
     },
     {
       kind: "connection",
@@ -432,6 +443,8 @@ export function seed(): Entity[] {
       text: "Connect Google Sheets and I'll put the exhibit list into your trip planner.",
       streaming: false,
       attachments: [],
+      suggestions: ["Connect it now", "Skip the spreadsheet", "Remind me tomorrow"],
+      chosen: null,
     },
   ];
 }

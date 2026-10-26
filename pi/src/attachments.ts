@@ -158,7 +158,7 @@ export function workspaceTools(io: () => AgentIO, files: Workspace, { send = tru
       async execute(_, { path }) {
         try {
           const attachment = await files.share(path);
-          io().emit({ kind: "upserted", entity: { kind: "reply", id: newId("r"), at: new Date().toISOString(), text: "", streaming: false, attachments: [attachment] } });
+          io().emit({ kind: "upserted", entity: { kind: "reply", id: newId("r"), at: new Date().toISOString(), text: "", streaming: false, attachments: [attachment], suggestions: [], chosen: null } });
           return say(`Sent ${attachment.name} to the user.`);
         } catch (e) {
           return say(failed(e));
